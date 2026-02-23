@@ -38,6 +38,13 @@ export default function EscalationAlertSettings() {
         { step: 'Department Head', desc: 'Escalate to department lead', delay: '10 min', icon: 'manage_accounts' },
     ]);
     const [showAddDept, setShowAddDept] = useState(false);
+    const [triggerRules, setTriggerRules] = useState([
+        { id: 'unack-msg', icon: 'mark_chat_unread', label: 'Unacknowledged Message', desc: 'Escalate when a critical message goes unread past the threshold.', color: 'var(--critical)', enabled: true, threshold: '5', thresholdLabel: 'After' },
+        { id: 'coverage-gap', icon: 'person_off', label: 'Coverage Gap Detected', desc: 'Fire when a required role has no one signed in during a scheduled shift.', color: 'var(--warning)', enabled: true, threshold: '3', thresholdLabel: 'Grace period' },
+        { id: 'patient-status', icon: 'emergency', label: 'Patient Status Change', desc: 'Trigger when a patient is marked critical, code blue, or rapid response.', color: '#8c5a5e', enabled: true, threshold: undefined, thresholdLabel: undefined },
+        { id: 'handoff-overdue', icon: 'swap_horiz', label: 'Overdue Shift Handoff', desc: 'Alert when a shift handoff has not been completed past the expected time.', color: 'var(--info)', enabled: false, threshold: '15', thresholdLabel: 'Overdue by' },
+        { id: 'manual', icon: 'touch_app', label: 'Manual Staff Trigger', desc: 'Allow any staff member to manually activate this escalation protocol.', color: 'var(--helix-accent)', enabled: true, threshold: undefined, thresholdLabel: undefined },
+    ]);
 
     const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(null), 2500); };
     const currentAlert = alertTypes.find(a => a.id === active)!;
@@ -90,22 +97,42 @@ export default function EscalationAlertSettings() {
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
                     {/* Left Column */}
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
-                        {/* Trigger Scope */}
+                        {/* Alert Trigger Rules */}
                         <div className="fade-in delay-2 card">
-                            <h3 style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
+                            <h3 style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
                                 <span style={{ width: 22, height: 22, background: 'var(--info-bg)', borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700 }}>1</span>
-                                Trigger Scope
+                                Alert Trigger Rules
                             </h3>
-                            <div style={{ marginBottom: 12 }}>
-                                <label className="label" htmlFor="trigger-condition">Trigger Condition</label>
-                                <select id="trigger-condition" className="input">
-                                    <option>SOFA Score &gt;= 2 increase</option>
-                                    <option>qSOFA &gt;= 2</option>
-                                    <option>Manual Clinician Trigger</option>
-                                </select>
+                            <p style={{ fontSize: 11.5, color: 'var(--text-muted)', marginBottom: 14 }}>Define when this protocol should fire. Enable the conditions that apply.</p>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                                {triggerRules.map((rule, i) => (
+                                    <div key={rule.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: '11px 12px', borderRadius: 'var(--radius-md)', background: rule.enabled ? 'var(--surface-2)' : 'transparent', border: `1px solid ${rule.enabled ? 'var(--border-default)' : 'var(--border-subtle)'}`, opacity: rule.enabled ? 1 : 0.6, transition: 'all 0.2s' }}>
+                                        <label className="toggle" style={{ marginTop: 2 }}>
+                                            <input type="checkbox" checked={rule.enabled} onChange={() => {
+                                                const updated = [...triggerRules];
+                                                updated[i] = { ...rule, enabled: !rule.enabled };
+                                                setTriggerRules(updated);
+                                                showToast(`${rule.label} ${!rule.enabled ? 'enabled' : 'disabled'}`);
+                                            }} />
+                                            <span className="toggle-slider" />
+                                        </label>
+                                        <span className="material-icons-round" style={{ fontSize: 18, color: rule.enabled ? rule.color : 'var(--text-disabled)', marginTop: 1 }}>{rule.icon}</span>
+                                        <div style={{ flex: 1 }}>
+                                            <div style={{ fontWeight: 600, fontSize: 13, color: rule.enabled ? 'var(--text-primary)' : 'var(--text-muted)' }}>{rule.label}</div>
+                                            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 1 }}>{rule.desc}</div>
+                                            {rule.enabled && rule.threshold && (
+                                                <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+                                                    <span style={{ fontSize: 11, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>{rule.thresholdLabel}</span>
+                                                    <input className="input" type="number" defaultValue={rule.threshold} min={1} max={120} style={{ width: 64, fontSize: 12, padding: '4px 8px', height: 28 }} />
+                                                    <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>min</span>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                ))}
                             </div>
-                            <div>
-                                <label className="label">Applicable Departments</label>
+                            <div style={{ marginTop: 14 }}>
+                                <label className="label">Apply to Departments</label>
                                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                                     {depts.map(d => (
                                         <span key={d} className="badge badge-info" style={{ cursor: 'pointer' }} onClick={() => { setDepts(prev => prev.filter(x => x !== d)); showToast(`${d} removed`); }}>
