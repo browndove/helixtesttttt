@@ -49,8 +49,8 @@ export default function GroupsBroadcastManagement() {
     const filteredGroups = groupList.filter(g => g.name.toLowerCase().includes(searchGroups.toLowerCase()));
 
     return (
-        <div style={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
-            <Sidebar hospitalName="Korle Bu" hospitalSubtitle="Teaching Hospital" sections={navSections} footer={
+        <div className="app-shell">
+            <Sidebar hospitalName="Accra Medical Center" hospitalSubtitle="Medical Center" sections={navSections} footer={
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <div className="avatar" style={{ background: 'rgba(30,58,95,0.2)', color: 'var(--helix-primary-light)' }}>KA</div>
                     <div><div style={{ fontSize: 13, fontWeight: 600 }}>Kwame Asante</div><div style={{ fontSize: 11, color: 'var(--text-muted)' }}>System Admin</div></div>
@@ -65,7 +65,7 @@ export default function GroupsBroadcastManagement() {
                 </div>
             )}
 
-            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+            <div className="app-main">
                 <TopBar
                     title="Group Management"
                     breadcrumbs={['Dashboard', 'Broadcast Groups']}

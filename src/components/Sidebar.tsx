@@ -22,21 +22,19 @@ interface SidebarProps {
 }
 
 export default function Sidebar({
-    hospitalName = 'Korle Bu',
-    hospitalSubtitle = 'Teaching Hospital',
+    hospitalName = 'Accra Medical Center',
+    hospitalSubtitle = 'Admin Portal',
     sections,
     footer,
 }: SidebarProps) {
     const pathname = usePathname();
 
     return (
-        <aside style={{
-            width: 'var(--sidebar-width)',
+        <aside className="app-sidebar" style={{
             background: '#ffffff',
             borderRight: '1px solid var(--border-default)',
             display: 'flex',
             flexDirection: 'column',
-            flexShrink: 0,
             height: '100vh',
             position: 'sticky',
             top: 0,

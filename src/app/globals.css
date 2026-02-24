@@ -47,7 +47,7 @@
   --critical-bg: #f8f0f1;
 
   /* Sidebar */
-  --sidebar-width: 220px;
+  --sidebar-width: 240px;
   --sidebar-bg: #ffffff;
 
   /* Spacing */
@@ -773,5 +773,51 @@ select.input {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
+  }
+}
+
+/* ── App Grid Layout ───────────────────────────────────── */
+
+.app-shell {
+  display: grid;
+  grid-template-columns: var(--sidebar-width) 1fr;
+  min-height: 100vh;
+}
+
+.app-sidebar {
+  width: 100%;
+  min-width: 200px;
+}
+
+.app-main {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-width: 0;
+}
+
+/* Scale sidebar on large screens */
+@media (min-width: 1600px) {
+  :root { --sidebar-width: 260px; }
+}
+
+@media (min-width: 1920px) {
+  :root { --sidebar-width: 280px; }
+
+  .app-sidebar nav {
+    padding: 18px 14px;
+  }
+
+  .app-sidebar .nav-item {
+    padding: 11px 14px;
+    font-size: 14px;
+  }
+}
+
+@media (min-width: 2560px) {
+  :root { --sidebar-width: 300px; }
+
+  .app-main {
+    max-width: 1800px;
   }
 }

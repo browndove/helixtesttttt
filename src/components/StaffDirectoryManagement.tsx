@@ -1,279 +1,327 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import Sidebar from '@/components/Sidebar';
 import TopBar from '@/components/TopBar';
 import navSections from '@/components/navSections';
 
-type StaffMember = { id: number; name: string; email: string; role: string; dept: string; status: string; access: string; avatar: string; color: string };
+type StaffMember = { id: number; name: string; email: string; role: string; dept: string; status: string; access: string };
 
 const initialStaff: StaffMember[] = [
-    { id: 1, name: 'Dr. Ama Mensah', email: 'a.mensah@kbth.gov.gh', role: 'Senior Resident', dept: 'Cardiology', status: 'active', access: 'Administrator', avatar: 'AM', color: '#4a6fa5' },
-    { id: 2, name: 'Dr. Kwame Asante', email: 'k.asante@kbth.gov.gh', role: 'Attending Physician', dept: 'Internal Med', status: 'active', access: 'Supervisor', avatar: 'KA', color: '#5a7d8c' },
-    { id: 3, name: 'Abena Osei', email: 'a.osei@kbth.gov.gh', role: 'Head Nurse', dept: 'ICU', status: 'active', access: 'Staff', avatar: 'AO', color: '#5c8a6e' },
-    { id: 4, name: 'Kofi Boateng', email: 'k.boateng@kbth.gov.gh', role: 'Resident', dept: 'Pediatrics', status: 'on-leave', access: 'Staff', avatar: 'KB', color: '#8a7d5c' },
-    { id: 5, name: 'Dr. Efua Adjei', email: 'e.adjei@kbth.gov.gh', role: 'Cardiologist', dept: 'Cardiology', status: 'active', access: 'Supervisor', avatar: 'EA', color: '#4a6fa5' },
-    { id: 6, name: 'Yaw Darko', email: 'y.darko@kbth.gov.gh', role: 'Lead Nurse', dept: 'Emergency', status: 'active', access: 'Staff', avatar: 'YD', color: '#5a7d8c' },
-    { id: 7, name: 'Dr. Akosua Frimpong', email: 'a.frimpong@kbth.gov.gh', role: 'Intensivist', dept: 'ICU', status: 'active', access: 'Supervisor', avatar: 'AF', color: '#5c8a6e' },
-    { id: 8, name: 'Adwoa Tetteh', email: 'a.tetteh@kbth.gov.gh', role: 'Technician', dept: 'Radiology', status: 'active', access: 'Staff', avatar: 'AT', color: '#8a7d5c' },
-    { id: 9, name: 'Dr. Kwesi Owusu', email: 'k.owusu@kbth.gov.gh', role: 'Pediatrician', dept: 'Pediatrics', status: 'active', access: 'Supervisor', avatar: 'KO', color: '#4a6fa5' },
-    { id: 10, name: 'Esi Appiah', email: 'e.appiah@kbth.gov.gh', role: 'Pediatric Nurse', dept: 'Pediatrics', status: 'active', access: 'Staff', avatar: 'EA', color: '#5a7d8c' },
-    { id: 11, name: 'Nana Agyemang', email: 'n.agyemang@kbth.gov.gh', role: 'Paramedic', dept: 'Emergency', status: 'on-leave', access: 'Staff', avatar: 'NA', color: '#5c8a6e' },
-    { id: 12, name: 'Dr. Yaa Amoako', email: 'y.amoako@kbth.gov.gh', role: 'Surgeon', dept: 'Surgery', status: 'active', access: 'Administrator', avatar: 'YA', color: '#8a7d5c' },
-];
-
-const accessLevels = [
-    { id: 'admin', label: 'Administrator', desc: 'Full system access including user management.' },
-    { id: 'supervisor', label: 'Supervisor', desc: 'Can manage schedules and unit staff.' },
-    { id: 'staff', label: 'Staff', desc: 'View-only access for schedules and patients.' },
+    { id: 1, name: 'Dr. Ama Mensah', email: 'a.mensah@accramedical.com.gh', role: 'Senior Resident', dept: 'Cardiology', status: 'active', access: 'Administrator' },
+    { id: 2, name: 'Dr. Kwame Asante', email: 'k.asante@accramedical.com.gh', role: 'Attending Physician', dept: 'Internal Med', status: 'active', access: 'Supervisor' },
+    { id: 3, name: 'Abena Osei', email: 'a.osei@accramedical.com.gh', role: 'Head Nurse', dept: 'ICU', status: 'active', access: 'Staff' },
+    { id: 4, name: 'Kofi Boateng', email: 'k.boateng@accramedical.com.gh', role: 'Resident', dept: 'Pediatrics', status: 'disabled', access: 'Staff' },
+    { id: 5, name: 'Dr. Efua Adjei', email: 'e.adjei@accramedical.com.gh', role: 'Cardiologist', dept: 'Cardiology', status: 'active', access: 'Supervisor' },
+    { id: 6, name: 'Yaw Darko', email: 'y.darko@accramedical.com.gh', role: 'Lead Nurse', dept: 'Emergency', status: 'active', access: 'Staff' },
+    { id: 7, name: 'Dr. Akosua Frimpong', email: 'a.frimpong@accramedical.com.gh', role: 'Intensivist', dept: 'ICU', status: 'active', access: 'Supervisor' },
+    { id: 8, name: 'Adwoa Tetteh', email: 'a.tetteh@accramedical.com.gh', role: 'Technician', dept: 'Radiology', status: 'active', access: 'Staff' },
+    { id: 9, name: 'Dr. Kwesi Owusu', email: 'k.owusu@accramedical.com.gh', role: 'Pediatrician', dept: 'Pediatrics', status: 'active', access: 'Supervisor' },
+    { id: 10, name: 'Esi Appiah', email: 'e.appiah@accramedical.com.gh', role: 'Pediatric Nurse', dept: 'Pediatrics', status: 'active', access: 'Staff' },
+    { id: 11, name: 'Nana Agyemang', email: 'n.agyemang@accramedical.com.gh', role: 'Paramedic', dept: 'Emergency', status: 'disabled', access: 'Staff' },
+    { id: 12, name: 'Dr. Yaa Amoako', email: 'y.amoako@accramedical.com.gh', role: 'Surgeon', dept: 'Surgery', status: 'active', access: 'Administrator' },
 ];
 
 const statusColors: Record<string, { color: string; bg: string; label: string }> = {
     active: { color: 'var(--success)', bg: 'var(--success-bg)', label: 'Active' },
-    'on-leave': { color: 'var(--warning)', bg: 'var(--warning-bg)', label: 'On Leave' },
+    disabled: { color: 'var(--critical)', bg: 'var(--critical-bg)', label: 'Disabled' },
 };
 
-const colors = ['#4a6fa5', '#5a7d8c', '#5c8a6e', '#8a7d5c'];
+const accessBadge: Record<string, string> = { Administrator: 'badge-info', Supervisor: 'badge-warning', Staff: 'badge-neutral' };
+
+const importHistory = [
+    { id: 'IMP-001', file: 'staff_q4_import.csv', records: 142, status: 'success', warnings: 2, date: 'Nov 12, 2024', user: 'Dr. Kwame Asante' },
+    { id: 'IMP-002', file: 'nurses_batch_oct.xlsx', records: 34, status: 'success', warnings: 0, date: 'Oct 28, 2024', user: 'Admin' },
+    { id: 'IMP-003', file: 'staff_roles_v2.csv', records: 18, status: 'error', warnings: 0, date: 'Oct 14, 2024', user: 'Admin' },
+];
 
 export default function StaffDirectoryManagement() {
     const [staff, setStaff] = useState(initialStaff);
-    const [selected, setSelected] = useState(staff[1]);
     const [search, setSearch] = useState('');
-    const [accessLevel, setAccessLevel] = useState('supervisor');
     const [toast, setToast] = useState<string | null>(null);
+    const [deptFilter, setDeptFilter] = useState('all');
+    const [selected, setSelected] = useState<StaffMember | null>(null);
+    const [activeTab, setActiveTab] = useState<'directory' | 'import'>('directory');
     const [showAddForm, setShowAddForm] = useState(false);
     const [newName, setNewName] = useState('');
     const [newEmail, setNewEmail] = useState('');
     const [newRole, setNewRole] = useState('');
     const [newDept, setNewDept] = useState('Cardiology');
-    const [dirty, setDirty] = useState(false);
-    const [deptFilter, setDeptFilter] = useState('all');
-
-    useEffect(() => { setAccessLevel(selected.access === 'Administrator' ? 'admin' : selected.access === 'Supervisor' ? 'supervisor' : 'staff'); }, [selected]);
+    const [dragOver, setDragOver] = useState(false);
+    const [uploadedFile, setUploadedFile] = useState<string | null>(null);
+    const [bulkHistory, setBulkHistory] = useState(importHistory);
+    const [processing, setProcessing] = useState(false);
 
     const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(null), 2500); };
 
     const departments = ['all', ...Array.from(new Set(staff.map(s => s.dept)))];
 
     const filtered = staff.filter(s => {
-        const matchSearch = s.name.toLowerCase().includes(search.toLowerCase()) || s.dept.toLowerCase().includes(search.toLowerCase()) || s.email.toLowerCase().includes(search.toLowerCase());
+        const matchSearch = search === '' || s.name.toLowerCase().includes(search.toLowerCase()) || s.dept.toLowerCase().includes(search.toLowerCase()) || s.email.toLowerCase().includes(search.toLowerCase());
         const matchDept = deptFilter === 'all' || s.dept === deptFilter;
         return matchSearch && matchDept;
     });
 
-    const handleSave = () => {
-        const accessMap: Record<string, string> = { admin: 'Administrator', supervisor: 'Supervisor', staff: 'Staff' };
-        setStaff(prev => prev.map(s => s.id === selected.id ? { ...s, access: accessMap[accessLevel] } : s));
-        setSelected(prev => ({ ...prev, access: accessMap[accessLevel] }));
-        setDirty(false);
-        showToast('Profile saved successfully');
-    };
-
     const handleAdd = () => {
         if (!newName.trim() || !newEmail.trim()) return;
-        const avatar = newName.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
-        const newMember: StaffMember = {
-            id: Date.now(), name: newName, email: newEmail, role: newRole || 'Staff', dept: newDept,
-            status: 'active', access: 'Staff', avatar, color: colors[staff.length % colors.length],
-        };
+        const newMember: StaffMember = { id: Date.now(), name: newName, email: newEmail, role: newRole || 'Staff', dept: newDept, status: 'active', access: 'Staff' };
         setStaff(prev => [newMember, ...prev]);
-        setSelected(newMember);
         setShowAddForm(false);
         setNewName(''); setNewEmail(''); setNewRole('');
         showToast(`${newName} added to staff`);
     };
 
-    const handleDelete = () => {
-        const remaining = staff.filter(s => s.id !== selected.id);
-        if (remaining.length === 0) return;
-        setStaff(remaining);
-        setSelected(remaining[0]);
-        showToast('Staff member removed');
+    const handleRemove = (id: number) => {
+        const member = staff.find(s => s.id === id);
+        setStaff(prev => prev.filter(s => s.id !== id));
+        if (selected?.id === id) setSelected(null);
+        showToast(`${member?.name} removed`);
+    };
+
+    const toggleStatus = (id: number) => {
+        setStaff(prev => prev.map(s => s.id === id ? { ...s, status: s.status === 'active' ? 'disabled' : 'active' } : s));
+        const member = staff.find(s => s.id === id);
+        showToast(member?.status === 'active' ? `${member?.name} disabled` : `${member?.name} enabled`);
     };
 
     return (
-        <div style={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
-            <Sidebar sections={navSections} footer={
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <div className="avatar" style={{ background: '#1c1f35', color: 'var(--helix-primary-light)', border: '1px solid var(--border-default)' }}>AU</div>
-                    <div>
-                        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>Admin User</div>
-                        <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>Hospital Admin</div>
-                    </div>
-                </div>
-            } />
+        <div className="app-shell">
+            <Sidebar sections={navSections} />
 
-            {/* Toast */}
             {toast && (
-                <div className="toast-enter" style={{ position: 'fixed', top: 20, right: 20, zIndex: 999, background: 'var(--surface-card)', border: '1px solid var(--border-default)', borderRadius: 'var(--radius-md)', padding: '10px 18px', fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', display: 'flex', alignItems: 'center', gap: 8, }}>
+                <div className="toast-enter" style={{ position: 'fixed', top: 20, right: 20, zIndex: 999, background: 'var(--surface-card)', border: '1px solid var(--border-default)', borderRadius: 'var(--radius-md)', padding: '10px 18px', fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', display: 'flex', alignItems: 'center', gap: 8 }}>
                     <span className="material-icons-round" style={{ fontSize: 16, color: 'var(--success)' }}>check_circle</span>
                     {toast}
                 </div>
             )}
 
-            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+            <div className="app-main">
                 <TopBar
                     title="Staff Management"
-                    breadcrumbs={['Dashboard', 'Staff Directory']}
-                    search={{ placeholder: 'Search by name, ID, or email...', value: search, onChange: setSearch }}
+                    subtitle="Directory & Import"
+                    search={activeTab === 'directory' ? { placeholder: 'Search by name, dept, or email...', value: search, onChange: setSearch } : undefined}
                     actions={
-                        <button className="btn btn-primary btn-sm" onClick={() => setShowAddForm(!showAddForm)}>
-                            <span className="material-icons-round" style={{ fontSize: 14 }}>add</span>
-                            {showAddForm ? 'Cancel' : 'Add Staff Member'}
-                        </button>
+                        <div style={{ display: 'flex', gap: 8 }}>
+                            {activeTab === 'directory' && (
+                                <button className="btn btn-primary btn-sm" onClick={() => setShowAddForm(!showAddForm)}>
+                                    <span className="material-icons-round" style={{ fontSize: 14 }}>{showAddForm ? 'close' : 'add'}</span>
+                                    {showAddForm ? 'Cancel' : 'Add Staff'}
+                                </button>
+                            )}
+                        </div>
                     }
                 />
-                <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
-            {/* Staff List Panel */}
-            <div style={{ width: 300, background: 'var(--bg-800)', borderRight: '1px solid var(--border-subtle)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-                <div style={{ padding: '20px 16px', borderBottom: '1px solid var(--border-subtle)' }}>
-                    <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+
+                {/* Tabs */}
+                <div style={{ display: 'flex', gap: 0, borderBottom: '1px solid var(--border-default)', padding: '0 24px', background: '#fff' }}>
+                    {([['directory', 'groups', 'Staff Directory'], ['import', 'upload_file', 'Bulk Import']] as const).map(([id, icon, label]) => (
+                        <button key={id} onClick={() => setActiveTab(id as 'directory' | 'import')}
+                            style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '10px 16px', fontSize: 13, fontWeight: activeTab === id ? 600 : 500, color: activeTab === id ? 'var(--helix-primary)' : 'var(--text-muted)', background: 'transparent', border: 'none', borderBottom: activeTab === id ? '2px solid var(--helix-primary)' : '2px solid transparent', cursor: 'pointer', transition: 'all 0.2s' }}>
+                            <span className="material-icons-round" style={{ fontSize: 16 }}>{icon}</span>{label}
+                        </button>
+                    ))}
+                </div>
+
+                {activeTab === 'directory' ? (
+                <main style={{ flex: 1, overflow: 'auto', padding: '20px 24px', background: 'var(--bg-900)' }}>
+
+                    {/* Add Staff Form */}
+                    {showAddForm && (
+                        <div className="fade-in card" style={{ marginBottom: 18, padding: '18px 20px' }}>
+                            <h3 style={{ fontSize: 14, marginBottom: 12 }}>New Staff Member</h3>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 12, marginBottom: 14 }}>
+                                <div><label className="label">Full Name *</label><input className="input" value={newName} onChange={e => setNewName(e.target.value)} placeholder="Full name" style={{ fontSize: 12 }} /></div>
+                                <div><label className="label">Email *</label><input className="input" value={newEmail} onChange={e => setNewEmail(e.target.value)} placeholder="Email address" style={{ fontSize: 12 }} /></div>
+                                <div><label className="label">Job Title</label><input className="input" value={newRole} onChange={e => setNewRole(e.target.value)} placeholder="e.g. Nurse" style={{ fontSize: 12 }} /></div>
+                                <div><label className="label">Department</label><select className="input" value={newDept} onChange={e => setNewDept(e.target.value)} style={{ fontSize: 12 }}>{['Cardiology', 'ICU', 'Emergency', 'Pediatrics', 'Internal Med', 'Radiology', 'Surgery'].map(d => <option key={d}>{d}</option>)}</select></div>
+                            </div>
+                            <button className="btn btn-primary btn-sm" onClick={handleAdd} disabled={!newName.trim() || !newEmail.trim()}>
+                                <span className="material-icons-round" style={{ fontSize: 14 }}>person_add</span>Add Staff
+                            </button>
+                        </div>
+                    )}
+
+                    {/* Filters */}
+                    <div className="fade-in delay-1" style={{ display: 'flex', gap: 5, marginBottom: 16 }}>
                         {departments.map(d => (
                             <button key={d} className="btn btn-secondary btn-xs" onClick={() => setDeptFilter(d)}
-                                style={{ background: deptFilter === d ? '#edf1f7' : undefined, borderColor: deptFilter === d ? 'var(--helix-primary)' : undefined, color: deptFilter === d ? 'var(--helix-primary)' : undefined, fontSize: 10, padding: '2px 7px' }}>
-                                {d === 'all' ? 'All' : d}
+                                style={{ background: deptFilter === d ? '#edf1f7' : undefined, borderColor: deptFilter === d ? 'var(--helix-primary)' : undefined, color: deptFilter === d ? 'var(--helix-primary)' : undefined, fontWeight: deptFilter === d ? 600 : 400 }}>
+                                {d === 'all' ? 'All Departments' : d}
                             </button>
                         ))}
                     </div>
-                </div>
 
-                {/* Add Form */}
-                {showAddForm && (
-                    <div style={{ padding: '14px 16px', borderBottom: '1px solid var(--border-subtle)', background: 'var(--surface-2)' }}>
-                        <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 8, color: 'var(--text-primary)' }}>New Staff Member</div>
-                        <input className="input" placeholder="Full name *" value={newName} onChange={e => setNewName(e.target.value)} style={{ fontSize: 12, marginBottom: 6 }} />
-                        <input className="input" placeholder="Email *" value={newEmail} onChange={e => setNewEmail(e.target.value)} style={{ fontSize: 12, marginBottom: 6 }} />
-                        <input className="input" placeholder="Job title" value={newRole} onChange={e => setNewRole(e.target.value)} style={{ fontSize: 12, marginBottom: 6 }} />
-                        <select className="input" value={newDept} onChange={e => setNewDept(e.target.value)} style={{ fontSize: 12, marginBottom: 8 }}>
-                            {['Cardiology', 'ICU', 'Emergency', 'Pediatrics', 'Internal Med', 'Radiology', 'Surgery'].map(d => <option key={d}>{d}</option>)}
-                        </select>
-                        <button className="btn btn-primary btn-xs" style={{ width: '100%', justifyContent: 'center' }} onClick={handleAdd} disabled={!newName.trim() || !newEmail.trim()}>
-                            <span className="material-icons-round" style={{ fontSize: 14 }}>person_add</span>Add Staff
-                        </button>
-                    </div>
-                )}
-
-                <div style={{ flex: 1, overflowY: 'auto' }}>
-                    {filtered.map(s => {
-                        const st = statusColors[s.status] || statusColors.active;
-                        return (
-                            <div key={s.id} onClick={() => setSelected(s)} style={{
-                                display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px', cursor: 'pointer',
-                                background: selected.id === s.id ? '#edf1f7' : 'transparent',
-                                borderBottom: '1px solid var(--border-subtle)',
-                                borderLeft: selected.id === s.id ? '3px solid var(--helix-primary)' : '3px solid transparent',
-                                transition: 'all 0.15s',
-                            }}>
-                                <div className="avatar" style={{ background: `${s.color}22`, color: s.color, fontSize: 12, width: 36, height: 36 }}>{s.avatar}</div>
-                                <div style={{ flex: 1, minWidth: 0 }}>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                                        <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{s.name}</span>
-                                        <span style={{ width: 6, height: 6, borderRadius: '50%', background: st.color, flexShrink: 0 }} />
-                                    </div>
-                                    <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{s.role} · {s.dept}</div>
-                                </div>
+                    {/* Table + Detail */}
+                    <div style={{ display: 'grid', gridTemplateColumns: selected ? '1fr 340px' : '1fr', gap: 20 }}>
+                        <div className="fade-in delay-2 card" style={{ padding: 0, overflow: 'hidden' }}>
+                            <div className="table-wrapper">
+                                <table>
+                                    <thead>
+                                        <tr>
+                                            <th>Name</th>
+                                            <th>Email</th>
+                                            <th>Role</th>
+                                            <th>Department</th>
+                                            <th>Access</th>
+                                            <th>Status</th>
+                                            <th style={{ width: 40 }}></th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {filtered.map(s => {
+                                            const st = statusColors[s.status] || statusColors.active;
+                                            return (
+                                                <tr key={s.id} onClick={() => setSelected(selected?.id === s.id ? null : s)} style={{ cursor: 'pointer', background: selected?.id === s.id ? 'rgba(30,58,95,0.05)' : undefined }}>
+                                                    <td style={{ fontWeight: 600 }}>{s.name}</td>
+                                                    <td style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{s.email}</td>
+                                                    <td style={{ color: 'var(--text-secondary)' }}>{s.role}</td>
+                                                    <td style={{ color: 'var(--text-secondary)' }}>{s.dept}</td>
+                                                    <td><span className={`badge ${accessBadge[s.access] || 'badge-neutral'}`}>{s.access}</span></td>
+                                                    <td><span className="badge" style={{ background: st.bg, color: st.color }}>{st.label}</span></td>
+                                                    <td>
+                                                        <button className="btn btn-ghost btn-xs" onClick={e => { e.stopPropagation(); handleRemove(s.id); }}>
+                                                            <span className="material-icons-round" style={{ fontSize: 14, color: 'var(--text-muted)' }}>delete</span>
+                                                        </button>
+                                                    </td>
+                                                </tr>
+                                            );
+                                        })}
+                                    </tbody>
+                                </table>
                             </div>
-                        );
-                    })}
-                    <div style={{ padding: '10px 16px', fontSize: 12, color: 'var(--text-muted)' }}>Showing {filtered.length} of {staff.length} staff</div>
-                </div>
-            </div>
-
-            {/* Edit Panel */}
-            <main style={{ flex: 1, overflow: 'auto', padding: '20px 20px', background: 'var(--bg-900)' }}>
-                <div className="fade-in" key={selected.id}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 22 }}>
-                        <div><h2 style={{ fontSize: '1rem' }}>Edit Profile</h2><p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>Update staff details</p></div>
-                        <div style={{ display: 'flex', gap: 8 }}>
-                            <button className="btn btn-danger btn-sm" onClick={handleDelete}>
-                                <span className="material-icons-round" style={{ fontSize: 14 }}>delete</span>Remove
-                            </button>
-                            <button className="btn btn-secondary btn-sm" onClick={() => { setDirty(false); showToast('Changes discarded'); }}>Cancel</button>
-                            <button className="btn btn-primary btn-sm" onClick={handleSave}>
-                                <span className="material-icons-round" style={{ fontSize: 14 }}>save</span>Save
-                            </button>
-                        </div>
-                    </div>
-
-                    <div className="card" style={{ marginBottom: 16, display: 'flex', alignItems: 'center', gap: 16 }}>
-                        <div className="avatar" style={{ width: 52, height: 52, background: `${selected.color}22`, color: selected.color, fontSize: 18 }}>{selected.avatar}</div>
-                        <div style={{ flex: 1 }}>
-                            <div style={{ fontWeight: 700, fontSize: 16 }}>{selected.name}</div>
-                            <div style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 2 }}>{selected.role} · {selected.dept}</div>
-                        </div>
-                        <span className="badge" style={{ background: statusColors[selected.status]?.bg, color: statusColors[selected.status]?.color }}>
-                            {statusColors[selected.status]?.label}
-                        </span>
-                    </div>
-
-                    {/* 2-column grid for form + access */}
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, alignItems: 'start' }}>
-                        <div className="card" style={{ marginBottom: 0 }}>
-                            <h3 style={{ marginBottom: 14 }}>Personal Information</h3>
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                                {[
-                                    { label: 'First Name', val: selected.name.split(' ')[0], id: 'fname' },
-                                    { label: 'Last Name', val: selected.name.split(' ').slice(-1)[0], id: 'lname' },
-                                    { label: 'Email', val: selected.email, id: 'semail' },
-                                    { label: 'Department', val: selected.dept, id: 'sdept' },
-                                    { label: 'Job Title', val: selected.role, id: 'srole' },
-                                    { label: 'Employee ID', val: '#EMP-' + selected.id * 1234, id: 'empid' },
-                                ].map(f => (
-                                    <div key={f.id}>
-                                        <label className="label" htmlFor={f.id}>{f.label}</label>
-                                        <input id={f.id} className="input" defaultValue={f.val} onChange={() => setDirty(true)} style={{ fontSize: 13 }} />
-                                    </div>
-                                ))}
+                            <div style={{ padding: '12px 20px', borderTop: '1px solid var(--border-subtle)', fontSize: 12, color: 'var(--text-muted)' }}>
+                                Showing {filtered.length} of {staff.length} staff
                             </div>
                         </div>
 
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-                            <div className="card">
-                                <h3 style={{ marginBottom: 14 }}>Access Level</h3>
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                                    {accessLevels.map(level => (
-                                        <label key={level.id} htmlFor={`access-${level.id}`} style={{
-                                            display: 'flex', alignItems: 'flex-start', gap: 12, padding: '11px 13px',
-                                            borderRadius: 'var(--radius-md)',
-                                            border: `1px solid ${accessLevel === level.id ? 'var(--helix-primary)' : 'var(--border-subtle)'}`,
-                                            background: accessLevel === level.id ? '#edf1f7' : 'var(--surface-2)',
-                                            cursor: 'pointer', transition: 'all 0.15s',
-                                        }}>
-                                            <input id={`access-${level.id}`} type="radio" name="access" value={level.id} checked={accessLevel === level.id} onChange={() => { setAccessLevel(level.id); setDirty(true); }} style={{ marginTop: 3, accentColor: 'var(--helix-primary)' }} />
-                                            <div>
-                                                <div style={{ fontWeight: 600, fontSize: 13 }}>{level.label}</div>
-                                                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 1 }}>{level.desc}</div>
+                        {/* Detail Panel */}
+                        {selected && (
+                            <div className="slide-in-right" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                                <div className="card" style={{ padding: '18px' }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14 }}>
+                                        <div>
+                                            <h3 style={{ fontSize: 15 }}>{selected.name}</h3>
+                                            <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>{selected.role} · {selected.dept}</div>
+                                        </div>
+                                        <button className="btn btn-ghost btn-xs" onClick={() => setSelected(null)}>
+                                            <span className="material-icons-round" style={{ fontSize: 16 }}>close</span>
+                                        </button>
+                                    </div>
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                                        {[
+                                            { label: 'Email', value: selected.email, icon: 'mail' },
+                                            { label: 'Department', value: selected.dept, icon: 'domain' },
+                                            { label: 'Job Title', value: selected.role, icon: 'badge' },
+                                            { label: 'Access Level', value: selected.access, icon: 'admin_panel_settings' },
+                                            { label: 'Employee ID', value: `#EMP-${selected.id * 1234}`, icon: 'fingerprint' },
+                                        ].map(row => (
+                                            <div key={row.label} style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+                                                <span className="material-icons-round" style={{ fontSize: 16, color: 'var(--text-disabled)', marginTop: 1 }}>{row.icon}</span>
+                                                <div>
+                                                    <div style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 500 }}>{row.label}</div>
+                                                    <div style={{ fontSize: 13, color: 'var(--text-primary)', fontWeight: 500, marginTop: 1 }}>{row.value}</div>
+                                                </div>
                                             </div>
-                                        </label>
-                                    ))}
+                                        ))}
+                                    </div>
+                                </div>
+                                <div className="card" style={{ padding: '18px' }}>
+                                    <h3 style={{ fontSize: 14, marginBottom: 10 }}>Actions</h3>
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                                        <button className="btn btn-secondary btn-sm" style={{ justifyContent: 'flex-start' }} onClick={() => showToast('Password reset email sent')}>
+                                            <span className="material-icons-round" style={{ fontSize: 15 }}>lock_reset</span>Reset Password
+                                        </button>
+                                        <button className={`btn ${selected.status === 'active' ? 'btn-danger' : 'btn-secondary'} btn-sm`} style={{ justifyContent: 'flex-start' }} onClick={() => { toggleStatus(selected.id); setSelected(prev => prev ? { ...prev, status: prev.status === 'active' ? 'disabled' : 'active' } : null); }}>
+                                            <span className="material-icons-round" style={{ fontSize: 15 }}>{selected.status === 'active' ? 'block' : 'check_circle'}</span>
+                                            {selected.status === 'active' ? 'Disable Account' : 'Enable Account'}
+                                        </button>
+                                        <button className="btn btn-secondary btn-sm" style={{ justifyContent: 'flex-start' }} onClick={() => { handleRemove(selected.id); }}>
+                                            <span className="material-icons-round" style={{ fontSize: 15 }}>delete</span>Remove Staff
+                                        </button>
+                                    </div>
                                 </div>
                             </div>
+                        )}
+                    </div>
+                </main>
+                ) : (
+                /* Bulk Import Tab */
+                <main style={{ flex: 1, overflow: 'auto', padding: '20px 24px', background: 'var(--bg-900)' }}>
+                    <div className="fade-in" style={{ marginBottom: 20 }}>
+                        <p style={{ fontSize: 13, color: 'var(--text-muted)', maxWidth: 540 }}>Upload a CSV or Excel file to bulk-add staff members. Download a template first to ensure proper formatting.</p>
+                    </div>
 
-                            <div className="card">
-                                <h3 style={{ marginBottom: 14 }}>Quick Actions</h3>
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                                    <button className="btn btn-secondary btn-sm" style={{ justifyContent: 'flex-start' }} onClick={() => showToast('Password reset email sent')}>
-                                        <span className="material-icons-round" style={{ fontSize: 15 }}>lock_reset</span>Reset Password
-                                    </button>
-                                    <button className="btn btn-secondary btn-sm" style={{ justifyContent: 'flex-start' }} onClick={() => {
-                                        const newStatus = selected.status === 'active' ? 'on-leave' : 'active';
-                                        setStaff(prev => prev.map(s => s.id === selected.id ? { ...s, status: newStatus } : s));
-                                        setSelected(prev => ({ ...prev, status: newStatus }));
-                                        showToast(`Status changed to ${newStatus === 'active' ? 'Active' : 'On Leave'}`);
-                                    }}>
-                                        <span className="material-icons-round" style={{ fontSize: 15 }}>{selected.status === 'active' ? 'toggle_off' : 'toggle_on'}</span>
-                                        {selected.status === 'active' ? 'Set On Leave' : 'Set Active'}
-                                    </button>
-                                    <button className="btn btn-secondary btn-sm" style={{ justifyContent: 'flex-start' }} onClick={() => showToast('Audit log exported')}>
-                                        <span className="material-icons-round" style={{ fontSize: 15 }}>history</span>View Audit Log
-                                    </button>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 0.6fr', gap: 20, marginBottom: 24 }}>
+                        <div className="fade-in delay-1 card">
+                            <h3 style={{ marginBottom: 14 }}>Upload Staff File</h3>
+                            <div
+                                onDragOver={e => { e.preventDefault(); setDragOver(true); }}
+                                onDragLeave={() => setDragOver(false)}
+                                onDrop={e => { e.preventDefault(); setDragOver(false); setUploadedFile(e.dataTransfer.files[0]?.name || null); }}
+                                onClick={() => setUploadedFile('staff_q4_import.csv')}
+                                style={{ border: `2px dashed ${dragOver ? 'var(--helix-primary)' : 'var(--border-default)'}`, borderRadius: 'var(--radius-lg)', padding: '40px 20px', textAlign: 'center', cursor: 'pointer', background: dragOver ? 'rgba(30,58,95,0.05)' : 'var(--surface-2)', transition: 'all 0.2s' }}>
+                                <div style={{ width: 52, height: 52, background: uploadedFile ? 'var(--success-bg)' : 'rgba(30,58,95,0.1)', borderRadius: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 14px' }}>
+                                    <span className="material-icons-round" style={{ fontSize: 26, color: uploadedFile ? 'var(--success)' : 'var(--helix-primary-light)' }}>{uploadedFile ? 'check_circle' : 'cloud_upload'}</span>
                                 </div>
+                                {uploadedFile ? (
+                                    <><div style={{ fontWeight: 600, color: 'var(--success)' }}>{uploadedFile}</div><div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>File ready for import</div></>
+                                ) : (
+                                    <><div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>Click to upload or drag and drop</div><div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 6 }}>CSV, XLSX or XLS (max. 50MB)</div></>
+                                )}
                             </div>
+                            {uploadedFile && (
+                                <div style={{ marginTop: 14, display: 'flex', gap: 8 }}>
+                                    <button className="btn btn-primary" style={{ flex: 1, justifyContent: 'center' }} disabled={processing} onClick={() => {
+                                        setProcessing(true);
+                                        setTimeout(() => {
+                                            setBulkHistory(prev => [{ id: `IMP-${String(prev.length + 1).padStart(3, '0')}`, file: uploadedFile, records: 4, status: 'success', warnings: 1, date: new Date().toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' }), user: 'Admin' }, ...prev]);
+                                            setUploadedFile(null); setProcessing(false);
+                                            showToast('Import completed: 4 records processed');
+                                        }, 1200);
+                                    }}>
+                                        <span className="material-icons-round" style={{ fontSize: 16 }}>{processing ? 'hourglass_empty' : 'upload'}</span>{processing ? 'Processing...' : 'Process Import'}
+                                    </button>
+                                    <button className="btn btn-secondary btn-sm" onClick={() => setUploadedFile(null)}><span className="material-icons-round" style={{ fontSize: 16 }}>close</span></button>
+                                </div>
+                            )}
+                        </div>
+
+                        <div className="fade-in delay-2 card">
+                            <h3 style={{ marginBottom: 14 }}>Download Template</h3>
+                            {[
+                                { icon: 'badge', label: 'Staff Template', desc: 'Name, Role, Dept, Email, Shift', color: '#4a6fa5' },
+                                { icon: 'calendar_month', label: 'Schedule Template', desc: 'Shifts, assignments, rotations', color: '#5c8a6e' },
+                            ].map(t => (
+                                <div key={t.label} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-subtle)', marginBottom: 8, cursor: 'pointer', background: 'var(--surface-2)' }}>
+                                    <div style={{ width: 36, height: 36, borderRadius: 9, background: `${t.color}20`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                                        <span className="material-icons-round" style={{ fontSize: 18, color: t.color }}>{t.icon}</span>
+                                    </div>
+                                    <div style={{ flex: 1 }}><div style={{ fontWeight: 600, fontSize: 13 }}>{t.label}</div><div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{t.desc}</div></div>
+                                    <button className="btn btn-ghost btn-xs" onClick={() => showToast(`${t.label} downloaded`)}><span className="material-icons-round" style={{ fontSize: 16, color: 'var(--text-muted)' }}>download</span></button>
+                                </div>
+                            ))}
                         </div>
                     </div>
-                </div>
-            </main>
-                </div>
+
+                    <div className="fade-in delay-3 card">
+                        <h3 style={{ marginBottom: 14 }}>Import History</h3>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                            {bulkHistory.map(h => (
+                                <div key={h.id} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '12px 14px', borderRadius: 'var(--radius-md)', background: 'var(--surface-2)', border: '1px solid var(--border-subtle)' }}>
+                                    <div style={{ width: 36, height: 36, borderRadius: 9, flexShrink: 0, background: h.status === 'success' ? 'var(--success-bg)' : 'var(--error-bg)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                        <span className="material-icons-round" style={{ fontSize: 18, color: h.status === 'success' ? 'var(--success)' : 'var(--error)' }}>{h.status === 'success' ? 'check_circle' : 'error'}</span>
+                                    </div>
+                                    <div style={{ flex: 1 }}>
+                                        <div style={{ fontWeight: 600, fontSize: 13 }}>{h.file}</div>
+                                        <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 1 }}>{h.records} records · {h.date} · {h.user}</div>
+                                    </div>
+                                    {h.warnings > 0 && <span className="badge badge-warning">{h.warnings} warnings</span>}
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                </main>
+                )}
             </div>
         </div>
     );

@@ -133,8 +133,8 @@ export default function LiveDutyCoverageMonitor() {
     };
 
     return (
-        <div style={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
-            <Sidebar hospitalName="Korle Bu" sections={navSections} />
+        <div className="app-shell">
+            <Sidebar hospitalName="Accra Medical Center" sections={navSections} />
 
             {toast && (
                 <div className="toast-enter" style={{ position: 'fixed', top: 20, right: 20, zIndex: 999, background: 'var(--surface-card)', border: '1px solid var(--border-default)', borderRadius: 'var(--radius-md)', padding: '10px 18px', fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', display: 'flex', alignItems: 'center', gap: 8, }}>
@@ -143,7 +143,7 @@ export default function LiveDutyCoverageMonitor() {
                 </div>
             )}
 
-            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+            <div className="app-main">
                 <TopBar
                     title="Duty Monitor"
                     breadcrumbs={['Dashboard']}

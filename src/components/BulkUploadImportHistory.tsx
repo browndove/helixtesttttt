@@ -31,7 +31,7 @@ export default function BulkUploadImportHistory() {
     const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(null), 2500); };
 
     return (
-        <div style={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
+        <div className="app-shell">
             <Sidebar hospitalSubtitle="Clinical Admin" sections={navSections} footer={
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <div className="avatar" style={{ background: 'rgba(30,58,95,0.2)', color: 'var(--helix-primary-light)' }}>KA</div>
@@ -42,7 +42,7 @@ export default function BulkUploadImportHistory() {
                 </div>
             } />
 
-            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+            <div className="app-main">
                 <TopBar
                     title="Bulk Upload"
                     breadcrumbs={['Admin', 'Data Import']}

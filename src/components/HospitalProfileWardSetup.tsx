@@ -193,7 +193,7 @@ export default function HospitalProfileWardSetup() {
     const [tree, setTree] = useState(defaultTree);
     const [toast, setToast] = useState<string | null>(null);
     const [editingProfile, setEditingProfile] = useState(false);
-    const [hospitalName, setHospitalName] = useState('Korle Bu Teaching Hospital');
+    const [hospitalName, setHospitalName] = useState('Accra Medical Center Medical Center');
     const [hospitalPhone, setHospitalPhone] = useState('+233 30 266 5401');
     const [hospitalEmail, setHospitalEmail] = useState('admin@kbth.gov.gh');
     const [hospitalAddress, setHospitalAddress] = useState('Guggisberg Ave, Accra, Greater Accra Region, Ghana');
@@ -222,7 +222,7 @@ export default function HospitalProfileWardSetup() {
     const totalBeds = countBeds(tree);
 
     return (
-        <div style={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
+        <div className="app-shell">
             <Sidebar sections={navSections} />
 
             {/* Toast */}
@@ -233,7 +233,7 @@ export default function HospitalProfileWardSetup() {
                 </div>
             )}
 
-            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+            <div className="app-main">
                 <TopBar
                     title="Hospital Setup"
                     breadcrumbs={['Admin', 'Configuration']}

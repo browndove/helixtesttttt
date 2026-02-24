@@ -15,7 +15,6 @@ type Role = {
     alertMode: string;
     enabled: boolean;
     visibleInDirectory: boolean;
-    assigned: string[];
     perms: { label: string; enabled: boolean }[];
     color: string;
 };
@@ -30,22 +29,11 @@ const defaultPerms = [
 ];
 
 const initialRoles: Role[] = [
-    { id: 'r1', name: 'Trauma Surgeon', dept: 'Emergency Medicine', priority: 'Critical', type: 'duty-signin', routing: 'current-holder', alertMode: 'direct', enabled: true, visibleInDirectory: true, assigned: ['44210'], perms: [...defaultPerms], color: '#8c5a5e' },
-    { id: 'r2', name: 'ICU Charge Nurse', dept: 'ICU', priority: 'Critical', type: 'duty-signin', routing: 'current-holder', alertMode: 'direct', enabled: true, visibleInDirectory: true, assigned: ['44210', '84920'], perms: [...defaultPerms], color: '#4a6fa5' },
-    { id: 'r3', name: 'On-Call Cardiologist', dept: 'Cardiology', priority: 'High', type: 'role-pool', routing: 'all-members', alertMode: 'round-robin', enabled: true, visibleInDirectory: true, assigned: ['55102', '66301'], perms: [...defaultPerms], color: '#5a7d8c' },
-    { id: 'r4', name: 'Pediatrics Resident', dept: 'Pediatrics', priority: 'Standard', type: 'role-pool', routing: 'all-members', alertMode: 'broadcast', enabled: true, visibleInDirectory: false, assigned: ['77402'], perms: [...defaultPerms], color: '#5c8a6e' },
-    { id: 'r5', name: 'Radiology Tech Lead', dept: 'Radiology', priority: 'Standard', type: 'duty-signin', routing: 'current-holder', alertMode: 'direct', enabled: false, visibleInDirectory: false, assigned: ['88503'], perms: [...defaultPerms], color: '#8a7d5c' },
-];
-
-const eligibleStaff = [
-    { id: '84920', name: 'Dr. Ama Mensah', title: 'Senior Resident', dept: 'Cardiology', avatar: 'AM', color: '#4a6fa5' },
-    { id: '44210', name: 'Nurse Kofi Boateng', title: 'Lead Nurse', dept: 'ICU', avatar: 'KB', color: '#5a7d8c' },
-    { id: '11293', name: 'Dr. Kwame Asante', title: 'Attending', dept: 'Internal Med', avatar: 'KA', color: '#5c8a6e' },
-    { id: '99201', name: 'Dr. Efua Adjei', title: 'Fellow', dept: 'Endocrinology', avatar: 'EA', color: '#8a7d5c' },
-    { id: '55102', name: 'Dr. Akosua Frimpong', title: 'Cardiologist', dept: 'Cardiology', avatar: 'AF', color: '#4a6fa5' },
-    { id: '66301', name: 'Yaw Darko', title: 'Cardiac Nurse', dept: 'Cardiology', avatar: 'YD', color: '#5a7d8c' },
-    { id: '77402', name: 'Dr. Kwesi Owusu', title: 'Pediatrician', dept: 'Pediatrics', avatar: 'KO', color: '#5c8a6e' },
-    { id: '88503', name: 'Adwoa Tetteh', title: 'Technician', dept: 'Radiology', avatar: 'AT', color: '#8a7d5c' },
+    { id: 'r1', name: 'Trauma Surgeon', dept: 'Emergency Medicine', priority: 'Critical', type: 'duty-signin', routing: 'current-holder', alertMode: 'direct', enabled: true, visibleInDirectory: true, perms: [...defaultPerms], color: '#8c5a5e' },
+    { id: 'r2', name: 'ICU Charge Nurse', dept: 'ICU', priority: 'Critical', type: 'duty-signin', routing: 'current-holder', alertMode: 'direct', enabled: true, visibleInDirectory: true, perms: [...defaultPerms], color: '#4a6fa5' },
+    { id: 'r3', name: 'On-Call Cardiologist', dept: 'Cardiology', priority: 'High', type: 'role-pool', routing: 'all-members', alertMode: 'round-robin', enabled: true, visibleInDirectory: true, perms: [...defaultPerms], color: '#5a7d8c' },
+    { id: 'r4', name: 'Pediatrics Resident', dept: 'Pediatrics', priority: 'Standard', type: 'role-pool', routing: 'all-members', alertMode: 'broadcast', enabled: true, visibleInDirectory: false, perms: [...defaultPerms], color: '#5c8a6e' },
+    { id: 'r5', name: 'Radiology Tech Lead', dept: 'Radiology', priority: 'Standard', type: 'duty-signin', routing: 'current-holder', alertMode: 'direct', enabled: false, visibleInDirectory: false, perms: [...defaultPerms], color: '#8a7d5c' },
 ];
 
 const alertModes = [
@@ -60,7 +48,6 @@ export default function RolesBuilderAssignment() {
     const [roles, setRoles] = useState<Role[]>(initialRoles);
     const [selectedId, setSelectedId] = useState('r1');
     const [toast, setToast] = useState<string | null>(null);
-    const [staffSearch, setStaffSearch] = useState('');
     const [roleSearch, setRoleSearch] = useState('');
     const [showNewForm, setShowNewForm] = useState(false);
     const [newRoleName, setNewRoleName] = useState('');
@@ -71,10 +58,6 @@ export default function RolesBuilderAssignment() {
 
     const updateRole = (updates: Partial<Role>) => {
         setRoles(prev => prev.map(r => r.id === selectedId ? { ...r, ...updates } : r));
-    };
-
-    const toggleAssign = (staffId: string) => {
-        updateRole({ assigned: selected.assigned.includes(staffId) ? selected.assigned.filter(x => x !== staffId) : [...selected.assigned, staffId] });
     };
 
     const togglePerm = (idx: number) => {
@@ -95,7 +78,6 @@ export default function RolesBuilderAssignment() {
             alertMode: 'direct',
             enabled: true,
             visibleInDirectory: true,
-            assigned: [],
             perms: defaultPerms.map(p => ({ ...p })),
             color: roleColors[roles.length % roleColors.length],
         };
@@ -115,14 +97,10 @@ export default function RolesBuilderAssignment() {
     };
 
     const filteredRoles = roles.filter(r => r.name.toLowerCase().includes(roleSearch.toLowerCase()));
-    const filteredStaff = eligibleStaff.filter(s =>
-        s.name.toLowerCase().includes(staffSearch.toLowerCase()) ||
-        s.dept.toLowerCase().includes(staffSearch.toLowerCase())
-    );
 
     return (
-        <div style={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
-            <Sidebar hospitalName="Korle Bu" sections={navSections} footer={
+        <div className="app-shell">
+            <Sidebar hospitalName="Accra Medical Center" sections={navSections} footer={
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <div className="avatar" style={{ background: 'rgba(30,58,95,0.12)', color: 'var(--helix-primary-light)' }}>KA</div>
                     <div><div style={{ fontSize: 13, fontWeight: 600 }}>Kwame Asante</div><div style={{ fontSize: 11, color: 'var(--text-muted)' }}>System Admin</div></div>
@@ -137,11 +115,11 @@ export default function RolesBuilderAssignment() {
                 </div>
             )}
 
-            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+            <div className="app-main">
                 <TopBar
-                    title="Roles Builder"
-                    breadcrumbs={['Configuration', 'Roles']}
-                    search={{ placeholder: 'Search roles or staff...', value: roleSearch, onChange: setRoleSearch }}
+                    title="Roles"
+                    subtitle="Messaging Role Configuration"
+                    search={{ placeholder: 'Search roles...', value: roleSearch, onChange: setRoleSearch }}
                     actions={
                         <button className="btn btn-primary btn-sm" onClick={() => setShowNewForm(!showNewForm)}>
                             <span className="material-icons-round" style={{ fontSize: 14 }}>{showNewForm ? 'close' : 'add'}</span>
@@ -181,7 +159,7 @@ export default function RolesBuilderAssignment() {
                                 </div>
                                 <div style={{ flex: 1, minWidth: 0 }}>
                                     <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.name}</div>
-                                    <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 1 }}>{r.dept} · {r.assigned.length} staff</div>
+                                    <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 1 }}>{r.dept} · {r.priority}</div>
                                 </div>
                                 {!r.enabled && <span className="badge badge-neutral" style={{ fontSize: 9 }}>Disabled</span>}
                             </div>
@@ -211,7 +189,7 @@ export default function RolesBuilderAssignment() {
                             <button className="btn btn-danger btn-sm" onClick={handleDeleteRole}>
                                 <span className="material-icons-round" style={{ fontSize: 14 }}>delete</span>Delete
                             </button>
-                            <button className="btn btn-primary btn-sm" onClick={() => showToast(`Role "${selected.name}" saved with ${selected.assigned.length} staff assigned`)}>
+                            <button className="btn btn-primary btn-sm" onClick={() => showToast(`Role "${selected.name}" saved`)}>
                                 <span className="material-icons-round" style={{ fontSize: 14 }}>save</span>Save Role
                             </button>
                         </div>
@@ -341,52 +319,8 @@ export default function RolesBuilderAssignment() {
                             </div>
                         </div>
 
-                        {/* Right: Staff Assignment */}
+                        {/* Right: Role Summary */}
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
-                            <div className="fade-in delay-2 card" style={{ display: 'flex', flexDirection: 'column' }}>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-                                    <h3>Staff Assignment</h3>
-                                    <span className="badge badge-info">{eligibleStaff.length} Available</span>
-                                </div>
-                                <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 14 }}>Assign eligible employees to this role.</p>
-
-                                <input className="input" placeholder="Search staff..." value={staffSearch} onChange={e => setStaffSearch(e.target.value)} style={{ marginBottom: 14, fontSize: 13 }} />
-
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                                    {filteredStaff.map(s => {
-                                        const isAssigned = selected.assigned.includes(s.id);
-                                        return (
-                                            <div key={s.id} style={{
-                                                display: 'flex', alignItems: 'center', gap: 12, padding: '11px 12px',
-                                                borderRadius: 'var(--radius-md)', background: 'var(--surface-2)',
-                                                border: `1px solid ${isAssigned ? 'var(--helix-primary)' : 'var(--border-subtle)'}`,
-                                                transition: 'all 0.15s',
-                                            }}>
-                                                <div className="avatar" style={{ background: `${s.color}20`, color: s.color, fontSize: 12, width: 36, height: 36 }}>{s.avatar}</div>
-                                                <div style={{ flex: 1 }}>
-                                                    <div style={{ fontWeight: 600, fontSize: 13 }}>{s.name}</div>
-                                                    <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>ID: {s.id} · {s.title} · {s.dept}</div>
-                                                </div>
-                                                <button
-                                                    className={`btn btn-sm ${isAssigned ? 'btn-secondary' : 'btn-primary'}`}
-                                                    onClick={() => toggleAssign(s.id)}
-                                                >
-                                                    {isAssigned ? 'Unassign' : 'Assign'}
-                                                </button>
-                                            </div>
-                                        );
-                                    })}
-                                </div>
-
-                                <div style={{ marginTop: 16, padding: '12px 14px', borderRadius: 'var(--radius-md)', background: 'var(--info-bg)', border: '1px solid rgba(30,58,95,0.12)', display: 'flex', alignItems: 'center', gap: 8 }}>
-                                    <span className="material-icons-round" style={{ fontSize: 18, color: 'var(--helix-primary-light)' }}>info</span>
-                                    <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
-                                        <strong style={{ color: 'var(--text-primary)' }}>{selected.assigned.length} staff member{selected.assigned.length !== 1 ? 's' : ''}</strong> currently linked to this role.
-                                    </span>
-                                </div>
-                            </div>
-
-                            {/* Role Summary Card */}
                             <div className="fade-in delay-3 card" style={{ padding: '14px 18px' }}>
                                 <h3 style={{ marginBottom: 12 }}>Role Summary</h3>
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>

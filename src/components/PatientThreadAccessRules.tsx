@@ -49,8 +49,8 @@ export default function PatientThreadAccessRules() {
     const enabledPerms = Object.entries(perms).filter(([, v]) => v).length;
 
     return (
-        <div style={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
-            <Sidebar hospitalName="Korle Bu" sections={navSections} />
+        <div className="app-shell">
+            <Sidebar hospitalName="Accra Medical Center" sections={navSections} />
 
             {/* Toast */}
             {toast && (
@@ -60,7 +60,7 @@ export default function PatientThreadAccessRules() {
                 </div>
             )}
 
-            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+            <div className="app-main">
                 <TopBar
                     title="Access Rules"
                     breadcrumbs={['Admin', 'Security']}
