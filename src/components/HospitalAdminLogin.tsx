@@ -3,23 +3,36 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 
-type Step = 'login' | '2fa';
-
 export default function HospitalAdminLogin() {
     const router = useRouter();
-    const [step, setStep] = useState<Step>('login');
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
-    const [otp, setOtp] = useState(['', '', '', '', '', '']);
+    const [error, setError] = useState('');
+    const [loading, setLoading] = useState(false);
 
-    const handleOtpChange = (index: number, value: string) => {
-        if (value.length > 1) return;
-        const newOtp = [...otp];
-        newOtp[index] = value;
-        setOtp(newOtp);
-        if (value && index < 5) {
-            const next = document.getElementById(`otp-${index + 1}`);
-            next?.focus();
+    const handleLogin = async () => {
+        setError('');
+        if (!email || !password) {
+            setError('Please enter your email and password.');
+            return;
+        }
+        setLoading(true);
+        try {
+            const res = await fetch('/api/auth/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email, password }),
+            });
+            const data = await res.json();
+            if (!res.ok) {
+                setError(data.error || 'Login failed');
+                setLoading(false);
+                return;
+            }
+            router.push('/dashboard');
+        } catch {
+            setError('Network error. Please try again.');
+            setLoading(false);
         }
     };
 
@@ -61,120 +74,74 @@ export default function HospitalAdminLogin() {
                     padding: '32px 28px',
                     boxShadow: '0 1px 4px rgba(0,0,0,0.06), 0 0 0 1px rgba(0,0,0,0.02)',
                 }}>
-                    {step === 'login' ? (
-                        <>
-                            <h2 style={{ fontSize: '1.3rem', marginBottom: 4 }}>Admin Portal</h2>
-                            <p style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 28 }}>
-                                Sign in to manage hospital configurations.
-                            </p>
+                    <h2 style={{ fontSize: '1.3rem', marginBottom: 4 }}>Admin Portal</h2>
+                    <p style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 28 }}>
+                        Sign in to manage hospital configurations.
+                    </p>
 
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-                                <div>
-                                    <label className="label">Email Address</label>
-                                    <div style={{ position: 'relative' }}>
-                                        <span className="material-icons-round" style={{
-                                            position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)',
-                                            fontSize: 16, color: 'var(--text-muted)',
-                                        }}>mail</span>
-                                        <input
-                                            id="email"
-                                            className="input"
-                                            type="email"
-                                            placeholder="admin@kbth.gov.gh"
-                                            value={email}
-                                            onChange={e => setEmail(e.target.value)}
-                                            style={{ paddingLeft: 36 }}
-                                        />
-                                    </div>
-                                </div>
-                                <div>
-                                    <label className="label">Password</label>
-                                    <div style={{ position: 'relative' }}>
-                                        <span className="material-icons-round" style={{
-                                            position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)',
-                                            fontSize: 16, color: 'var(--text-muted)',
-                                        }}>lock</span>
-                                        <input
-                                            id="password"
-                                            className="input"
-                                            type="password"
-                                            placeholder="••••••••••"
-                                            value={password}
-                                            onChange={e => setPassword(e.target.value)}
-                                            style={{ paddingLeft: 36 }}
-                                        />
-                                    </div>
-                                </div>
-
-                                <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-                                    <button className="btn btn-ghost btn-sm" style={{ padding: '2px 0', fontSize: 12 }}>
-                                        Recovery?
-                                    </button>
-                                </div>
-
-                                <button
-                                    id="sign-in-btn"
-                                    className="btn btn-primary"
-                                    style={{ width: '100%', justifyContent: 'center', padding: '11px', fontSize: 14, marginTop: 4 }}
-                                    onClick={() => setStep('2fa')}
-                                >
-                                    Sign In
-                                    <span className="material-icons-round" style={{ fontSize: 16 }}>arrow_forward</span>
-                                </button>
-                            </div>
-                        </>
-                    ) : (
-                        <>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-                                <button className="btn btn-ghost btn-xs" onClick={() => setStep('login')} style={{ padding: '4px 6px' }}>
-                                    <span className="material-icons-round" style={{ fontSize: 16 }}>arrow_back</span>
-                                </button>
-                                <h2 style={{ fontSize: '1.3rem' }}>Verify Identity</h2>
-                            </div>
-
-                            <p style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 28 }}>
-                                Enter the 6-digit code sent to your secure device ending in{' '}
-                                <strong style={{ color: 'var(--text-secondary)' }}>...8834</strong>
-                            </p>
-
-                            {/* OTP Input */}
-                            <div style={{ display: 'flex', gap: 8, justifyContent: 'center', marginBottom: 24 }}>
-                                {otp.map((digit, i) => (
-                                    <input
-                                        key={i}
-                                        id={`otp-${i}`}
-                                        type="text"
-                                        inputMode="numeric"
-                                        maxLength={1}
-                                        value={digit}
-                                        onChange={e => handleOtpChange(i, e.target.value)}
-                                        style={{
-                                            width: 52, height: 56,
-                                            textAlign: 'center',
-                                            fontSize: 22,
-                                            fontWeight: 700,
-                                            fontFamily: 'JetBrains Mono, monospace',
-                                            background: 'var(--surface-3)',
-                                            border: `1px solid ${digit ? 'var(--helix-primary)' : 'var(--border-default)'}`,
-                                            borderRadius: 10,
-                                            color: 'var(--text-primary)',
-                                            outline: 'none',
-                                            transition: 'all 0.15s',
-                                        }}
-                                    />
-                                ))}
-                            </div>
-
-                            <button id="verify-btn" className="btn btn-primary" style={{ width: '100%', justifyContent: 'center', padding: '11px', fontSize: 14 }} onClick={() => router.push('/live-coverage')}>
-                                <span className="material-icons-round" style={{ fontSize: 16 }}>verified_user</span>
-                                Verify & Continue
-                            </button>
-
-                            <button className="btn btn-ghost btn-sm" style={{ width: '100%', justifyContent: 'center', marginTop: 12 }}>
-                                Resend Code
-                            </button>
-                        </>
+                    {error && (
+                        <div style={{ padding: '10px 14px', borderRadius: 'var(--radius-md)', background: 'var(--critical-bg)', border: '1px solid rgba(140,90,94,0.2)', marginBottom: 16, fontSize: 13, color: 'var(--critical)', fontWeight: 500 }}>
+                            {error}
+                        </div>
                     )}
+
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                        <div>
+                            <label className="label">Email Address</label>
+                            <div style={{ position: 'relative' }}>
+                                <span className="material-icons-round" style={{
+                                    position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)',
+                                    fontSize: 16, color: 'var(--text-muted)',
+                                }}>mail</span>
+                                <input
+                                    id="email"
+                                    className="input"
+                                    type="email"
+                                    placeholder="admin@accramedical.com.gh"
+                                    value={email}
+                                    onChange={e => setEmail(e.target.value)}
+                                    onKeyDown={e => e.key === 'Enter' && handleLogin()}
+                                    style={{ paddingLeft: 36 }}
+                                />
+                            </div>
+                        </div>
+                        <div>
+                            <label className="label">Password</label>
+                            <div style={{ position: 'relative' }}>
+                                <span className="material-icons-round" style={{
+                                    position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)',
+                                    fontSize: 16, color: 'var(--text-muted)',
+                                }}>lock</span>
+                                <input
+                                    id="password"
+                                    className="input"
+                                    type="password"
+                                    placeholder="••••••••••"
+                                    value={password}
+                                    onChange={e => setPassword(e.target.value)}
+                                    onKeyDown={e => e.key === 'Enter' && handleLogin()}
+                                    style={{ paddingLeft: 36 }}
+                                />
+                            </div>
+                        </div>
+
+                        <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                            <button className="btn btn-ghost btn-sm" style={{ padding: '2px 0', fontSize: 12 }}>
+                                Recovery?
+                            </button>
+                        </div>
+
+                        <button
+                            id="sign-in-btn"
+                            className="btn btn-primary"
+                            style={{ width: '100%', justifyContent: 'center', padding: '11px', fontSize: 14, marginTop: 4, opacity: loading ? 0.7 : 1 }}
+                            onClick={handleLogin}
+                            disabled={loading}
+                        >
+                            {loading ? 'Signing in...' : 'Sign In'}
+                            {!loading && <span className="material-icons-round" style={{ fontSize: 16 }}>arrow_forward</span>}
+                        </button>
+                    </div>
                 </div>
 
                 {/* Footer */}
@@ -189,8 +156,8 @@ export default function HospitalAdminLogin() {
                         </button>
                     ))}
                 </div>
-                <p style={{ textAlign: 'center', fontSize: 11, color: 'var(--text-disabled)', marginTop: 12 }}>
-                    Protected System • v4.2.0 • Ghana Health Service Compliant
+                <p style={{ textAlign: 'center', fontSize: 10.5, color: 'var(--text-disabled)', marginTop: 12 }}>
+                    &copy; {new Date().getFullYear()} Blvcksapphire Company Ltd
                 </p>
             </div>
         </div>
