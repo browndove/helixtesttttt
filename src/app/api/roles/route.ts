@@ -1,0 +1,35 @@
+import { NextResponse } from 'next/server';
+import sql from '@/lib/db';
+import { getSession } from '@/lib/auth';
+
+// GET all roles
+export async function GET() {
+    const session = await getSession();
+    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+    const roles = await sql`
+        SELECT id, name, department, mandatory, enabled, priority, alert_mode, visible_in_directory, created_at
+        FROM roles
+        WHERE hospital_id = ${session.hospitalId}
+        ORDER BY name ASC
+    `;
+
+    return NextResponse.json(roles);
+}
+
+// POST create a new role
+export async function POST(req: Request) {
+    const session = await getSession();
+    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+    const { name, department, mandatory } = await req.json();
+    if (!name?.trim()) return NextResponse.json({ error: 'Role name required' }, { status: 400 });
+
+    const rows = await sql`
+        INSERT INTO roles (hospital_id, name, department, mandatory, enabled)
+        VALUES (${session.hospitalId}, ${name.trim()}, ${department || ''}, ${mandatory || false}, true)
+        RETURNING id, name, department, mandatory, enabled, created_at
+    `;
+
+    return NextResponse.json(rows[0], { status: 201 });
+}

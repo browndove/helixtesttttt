@@ -1,79 +1,232 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import Sidebar from '@/components/Sidebar';
 import TopBar from '@/components/TopBar';
 import navSections from '@/components/navSections';
 
-type Department = { id: string; name: string; floors: string[]; wards: string[] };
-
-const initialDepts: Department[] = [
-    { id: 'd1', name: 'Emergency Medicine', floors: ['Ground Floor'], wards: ['Emergency Bay A', 'Emergency Bay B', 'Triage'] },
-    { id: 'd2', name: 'ICU', floors: ['Floor 2'], wards: ['ICU A', 'ICU B', 'Neuro ICU'] },
-    { id: 'd3', name: 'Cardiology', floors: ['Floor 3'], wards: ['Cardiac Ward', 'Cath Lab'] },
-    { id: 'd4', name: 'Pediatrics', floors: ['Floor 1'], wards: ['Peds General', 'NICU'] },
-    { id: 'd5', name: 'Surgery', floors: ['Floor 2', 'Floor 3'], wards: ['Surgical Suite A', 'Surgical Suite B', 'Recovery'] },
-];
+type FloorItem = { id: string; name: string };
+type WardItem = { id: string; name: string };
+type Department = { id: string; name: string; floors: FloorItem[]; wards: WardItem[] };
+type Hospital = { id: string; name: string; address: string; phone: string; email: string; license_type: string; license_expires_at: string; max_users: number };
 
 export default function DashboardPage() {
-    const [hospitalName, setHospitalName] = useState('Accra Medical Center');
-    const [hospitalAddress, setHospitalAddress] = useState('Ridge, Accra, Greater Accra Region, Ghana');
-    const [hospitalPhone, setHospitalPhone] = useState('+233 30 266 1111');
-    const [hospitalEmail, setHospitalEmail] = useState('admin@accramedical.com.gh');
-    const [departments, setDepartments] = useState(initialDepts);
+    const [hospital, setHospital] = useState<Hospital | null>(null);
+    const [hospitalName, setHospitalName] = useState('');
+    const [hospitalAddress, setHospitalAddress] = useState('');
+    const [hospitalPhone, setHospitalPhone] = useState('');
+    const [hospitalEmail, setHospitalEmail] = useState('');
+    const [departments, setDepartments] = useState<Department[]>([]);
     const [toast, setToast] = useState<string | null>(null);
     const [editingDept, setEditingDept] = useState<string | null>(null);
     const [newDeptName, setNewDeptName] = useState('');
     const [showAddDept, setShowAddDept] = useState(false);
     const [newWard, setNewWard] = useState('');
     const [newFloor, setNewFloor] = useState('');
+    const [loading, setLoading] = useState(true);
+    const [saving, setSaving] = useState(false);
 
     const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(null), 2500); };
 
-    const licenseExpiry = new Date('2027-03-15');
+    const fetchData = useCallback(async () => {
+        try {
+            const [hRes, dRes] = await Promise.all([
+                fetch('/api/hospital'),
+                fetch('/api/departments'),
+            ]);
+            if (hRes.ok) {
+                const h = await hRes.json();
+                setHospital(h);
+                setHospitalName(h.name || '');
+                setHospitalAddress(h.address || '');
+                setHospitalPhone(h.phone || '');
+                setHospitalEmail(h.email || '');
+            }
+            if (dRes.ok) {
+                const d = await dRes.json();
+                setDepartments(d);
+            }
+        } catch { showToast('Failed to load data'); }
+        setLoading(false);
+    }, []);
+
+    useEffect(() => { fetchData(); }, [fetchData]);
+
+    const licenseExpiry = hospital?.license_expires_at ? new Date(hospital.license_expires_at) : new Date();
     const now = new Date();
     const daysLeft = Math.ceil((licenseExpiry.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
     const licenseActive = daysLeft > 0;
     const licenseWarning = daysLeft > 0 && daysLeft <= 90;
 
-    const addDepartment = () => {
+    const saveProfile = async () => {
+        setSaving(true);
+        try {
+            const res = await fetch('/api/hospital', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: hospitalName, address: hospitalAddress, phone: hospitalPhone, email: hospitalEmail }),
+            });
+            if (res.ok) showToast('Profile saved');
+            else showToast('Failed to save');
+        } catch { showToast('Network error'); }
+        setSaving(false);
+    };
+
+    const addDepartment = async () => {
         if (!newDeptName.trim()) return;
-        setDepartments(prev => [...prev, { id: `d-${Date.now()}`, name: newDeptName, floors: [], wards: [] }]);
-        showToast(`${newDeptName} added`);
-        setNewDeptName('');
-        setShowAddDept(false);
+        try {
+            const res = await fetch('/api/departments', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: newDeptName.trim() }),
+            });
+            if (res.ok) {
+                const dept = await res.json();
+                setDepartments(prev => [...prev, dept]);
+                showToast(`${newDeptName} added`);
+                setNewDeptName('');
+                setShowAddDept(false);
+            }
+        } catch { showToast('Failed to add department'); }
     };
 
-    const removeDepartment = (id: string) => {
+    const removeDepartment = async (id: string) => {
         const dept = departments.find(d => d.id === id);
-        setDepartments(prev => prev.filter(d => d.id !== id));
-        showToast(`${dept?.name} removed`);
-        if (editingDept === id) setEditingDept(null);
+        try {
+            const res = await fetch(`/api/departments/${id}`, { method: 'DELETE' });
+            if (res.ok) {
+                setDepartments(prev => prev.filter(d => d.id !== id));
+                showToast(`${dept?.name} removed`);
+                if (editingDept === id) setEditingDept(null);
+            }
+        } catch { showToast('Failed to remove department'); }
     };
 
-    const addWard = (deptId: string) => {
+    const addWard = async (deptId: string) => {
         if (!newWard.trim()) return;
-        setDepartments(prev => prev.map(d => d.id === deptId ? { ...d, wards: [...d.wards, newWard] } : d));
-        showToast(`Ward "${newWard}" added`);
-        setNewWard('');
+        try {
+            const res = await fetch(`/api/departments/${deptId}/wards`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: newWard.trim() }),
+            });
+            if (res.ok) {
+                const ward = await res.json();
+                setDepartments(prev => prev.map(d => d.id === deptId ? { ...d, wards: [...d.wards, ward] } : d));
+                showToast(`Ward "${newWard}" added`);
+                setNewWard('');
+            }
+        } catch { showToast('Failed to add ward'); }
     };
 
-    const removeWard = (deptId: string, ward: string) => {
-        setDepartments(prev => prev.map(d => d.id === deptId ? { ...d, wards: d.wards.filter(w => w !== ward) } : d));
+    const removeWard = async (deptId: string, wardId: string) => {
+        try {
+            const res = await fetch(`/api/departments/${deptId}/wards/${wardId}`, { method: 'DELETE' });
+            if (res.ok) {
+                setDepartments(prev => prev.map(d => d.id === deptId ? { ...d, wards: d.wards.filter(w => w.id !== wardId) } : d));
+            }
+        } catch { showToast('Failed to remove ward'); }
     };
 
-    const addFloor = (deptId: string) => {
+    const addFloor = async (deptId: string) => {
         if (!newFloor.trim()) return;
-        setDepartments(prev => prev.map(d => d.id === deptId ? { ...d, floors: [...d.floors, newFloor] } : d));
-        showToast(`Floor "${newFloor}" added`);
-        setNewFloor('');
+        try {
+            const res = await fetch(`/api/departments/${deptId}/floors`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: newFloor.trim() }),
+            });
+            if (res.ok) {
+                const floor = await res.json();
+                setDepartments(prev => prev.map(d => d.id === deptId ? { ...d, floors: [...d.floors, floor] } : d));
+                showToast(`Floor "${newFloor}" added`);
+                setNewFloor('');
+            }
+        } catch { showToast('Failed to add floor'); }
     };
 
-    const removeFloor = (deptId: string, floor: string) => {
-        setDepartments(prev => prev.map(d => d.id === deptId ? { ...d, floors: d.floors.filter(f => f !== floor) } : d));
+    const removeFloor = async (deptId: string, floorId: string) => {
+        try {
+            const res = await fetch(`/api/departments/${deptId}/floors/${floorId}`, { method: 'DELETE' });
+            if (res.ok) {
+                setDepartments(prev => prev.map(d => d.id === deptId ? { ...d, floors: d.floors.filter(f => f.id !== floorId) } : d));
+            }
+        } catch { showToast('Failed to remove floor'); }
     };
 
     const editDept = departments.find(d => d.id === editingDept);
+
+    if (loading) {
+        const shimmer = {
+            background: 'linear-gradient(90deg, var(--surface-2) 25%, var(--border-subtle) 50%, var(--surface-2) 75%)',
+            backgroundSize: '400% 100%',
+            animation: 'shimmer 1.4s ease infinite',
+            borderRadius: 'var(--radius-md)',
+        };
+        const line = (w: string, h = 12) => <div style={{ ...shimmer, width: w, height: h, marginBottom: 8 }} />;
+        return (
+            <div className="app-shell">
+                <Sidebar sections={navSections} />
+                <div className="app-main">
+                    <TopBar title="Home" subtitle="Hospital Setup" />
+                    <main style={{ flex: 1, overflow: 'auto', padding: '24px 28px', background: 'var(--bg-900)' }}>
+                        {/* Checklist skeleton */}
+                        <div className="fade-in card" style={{ marginBottom: 20 }}>
+                            {line('200px', 16)}
+                            {line('120px', 10)}
+                            <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                                {[1, 2, 3, 4, 5].map(i => <div key={i} style={{ ...shimmer, height: 40, width: '100%' }} />)}
+                            </div>
+                        </div>
+
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+                                {/* Hospital Profile skeleton */}
+                                <div className="fade-in delay-1 card">
+                                    {line('160px', 16)}
+                                    <div style={{ display: 'flex', gap: 16, marginTop: 14 }}>
+                                        <div style={{ ...shimmer, width: 80, height: 80, borderRadius: 12, flexShrink: 0 }} />
+                                        <div style={{ flex: 1 }}>
+                                            {line('100%', 32)}
+                                            {line('100%', 32)}
+                                        </div>
+                                    </div>
+                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 12 }}>
+                                        <div style={{ ...shimmer, height: 32 }} />
+                                        <div style={{ ...shimmer, height: 32 }} />
+                                    </div>
+                                </div>
+                                {/* License skeleton */}
+                                <div className="fade-in delay-2 card">
+                                    {line('140px', 16)}
+                                    <div style={{ ...shimmer, height: 70, marginTop: 10 }} />
+                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 14 }}>
+                                        <div style={{ ...shimmer, height: 48 }} />
+                                        <div style={{ ...shimmer, height: 48 }} />
+                                    </div>
+                                </div>
+                            </div>
+                            {/* Departments skeleton */}
+                            <div className="fade-in delay-1 card">
+                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 14 }}>
+                                    {line('220px', 16)}
+                                    <div style={{ ...shimmer, width: 120, height: 28 }} />
+                                </div>
+                                <div style={{ display: 'flex', gap: 12 }}>
+                                    <div style={{ width: 200, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                                        {[1, 2, 3, 4, 5].map(i => <div key={i} style={{ ...shimmer, height: 44 }} />)}
+                                    </div>
+                                    <div style={{ flex: 1, borderLeft: '1px solid var(--border-subtle)', paddingLeft: 14 }}>
+                                        <div style={{ ...shimmer, height: '100%', minHeight: 200 }} />
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </main>
+                </div>
+            </div>
+        );
+    }
 
     return (
         <div className="app-shell">
@@ -88,8 +241,8 @@ export default function DashboardPage() {
 
             <div className="app-main">
                 <TopBar title="Home" subtitle="Hospital Setup" actions={
-                    <button className="btn btn-primary btn-sm" onClick={() => showToast('All settings saved')}>
-                        <span className="material-icons-round" style={{ fontSize: 14 }}>save</span>Save Changes
+                    <button className="btn btn-primary btn-sm" onClick={saveProfile} disabled={saving} style={{ opacity: saving ? 0.7 : 1 }}>
+                        <span className="material-icons-round" style={{ fontSize: 14 }}>save</span>{saving ? 'Saving...' : 'Save Changes'}
                     </button>
                 } />
 
@@ -215,11 +368,11 @@ export default function DashboardPage() {
                                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 14 }}>
                                     <div style={{ padding: '10px 12px', borderRadius: 'var(--radius-md)', background: 'var(--surface-2)', border: '1px solid var(--border-subtle)' }}>
                                         <div style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 500 }}>License Type</div>
-                                        <div style={{ fontSize: 13, fontWeight: 600, marginTop: 2 }}>Enterprise</div>
+                                        <div style={{ fontSize: 13, fontWeight: 600, marginTop: 2 }}>{hospital?.license_type || 'Enterprise'}</div>
                                     </div>
                                     <div style={{ padding: '10px 12px', borderRadius: 'var(--radius-md)', background: 'var(--surface-2)', border: '1px solid var(--border-subtle)' }}>
                                         <div style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 500 }}>Max Users</div>
-                                        <div style={{ fontSize: 13, fontWeight: 600, marginTop: 2 }}>500</div>
+                                        <div style={{ fontSize: 13, fontWeight: 600, marginTop: 2 }}>{hospital?.max_users || 500}</div>
                                     </div>
                                 </div>
                             </div>
@@ -233,7 +386,7 @@ export default function DashboardPage() {
                                         <span className="material-icons-round" style={{ fontSize: 20, color: 'var(--info)' }}>domain</span>
                                         Departments, Floors &amp; Wards
                                     </h3>
-                                    <button className="btn btn-primary btn-xs" onClick={() => setShowAddDept(!showAddDept)}>
+                                    <button className="btn btn-primary btn-sm" onClick={() => setShowAddDept(!showAddDept)}>
                                         <span className="material-icons-round" style={{ fontSize: 14 }}>{showAddDept ? 'close' : 'add'}</span>
                                         {showAddDept ? 'Cancel' : 'Add Department'}
                                     </button>
@@ -280,8 +433,8 @@ export default function DashboardPage() {
                                                     <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>Floors</div>
                                                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
                                                         {editDept.floors.map(f => (
-                                                            <span key={f} className="badge badge-info" style={{ cursor: 'pointer' }} onClick={() => removeFloor(editDept.id, f)}>
-                                                                {f} <span className="material-icons-round" style={{ fontSize: 11 }}>close</span>
+                                                            <span key={f.id} className="badge badge-info" style={{ cursor: 'pointer' }} onClick={() => removeFloor(editDept.id, f.id)}>
+                                                                {f.name} <span className="material-icons-round" style={{ fontSize: 11 }}>close</span>
                                                             </span>
                                                         ))}
                                                         {editDept.floors.length === 0 && <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>No floors added</span>}
@@ -297,8 +450,8 @@ export default function DashboardPage() {
                                                     <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>Wards</div>
                                                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
                                                         {editDept.wards.map(w => (
-                                                            <span key={w} className="badge badge-neutral" style={{ cursor: 'pointer' }} onClick={() => removeWard(editDept.id, w)}>
-                                                                {w} <span className="material-icons-round" style={{ fontSize: 11 }}>close</span>
+                                                            <span key={w.id} className="badge badge-neutral" style={{ cursor: 'pointer' }} onClick={() => removeWard(editDept.id, w.id)}>
+                                                                {w.name} <span className="material-icons-round" style={{ fontSize: 11 }}>close</span>
                                                             </span>
                                                         ))}
                                                         {editDept.wards.length === 0 && <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>No wards added</span>}
