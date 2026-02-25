@@ -256,7 +256,6 @@ export default function DashboardPage() {
                             { label: 'Departments, Floors & Wards', desc: 'Set up organizational structure', href: '', done: departments.length > 0 },
                             { label: 'Roles', desc: 'Define messaging roles and routing', href: '/roles', done: false },
                             { label: 'Staff Management', desc: 'Add staff members and assign roles', href: '/staff', done: false },
-                            { label: 'Patients', desc: 'Register patients into the system', href: '/patients', done: false },
                             { label: 'Escalation Config', desc: 'Set up battery alerts and message routing', href: '/escalation', done: false },
                         ];
                         const completedCount = configSteps.filter(s => s.done).length;

@@ -5,21 +5,23 @@ import Sidebar from '@/components/Sidebar';
 import TopBar from '@/components/TopBar';
 import navSections from '@/components/navSections';
 
-type StaffMember = { id: number; name: string; email: string; role: string; dept: string; status: string; access: string };
+type StaffMember = { id: number; first_name: string; last_name: string; email: string; role: string; dept: string; status: string; access: string; employee_id: string };
+
+type SortKey = 'first_name' | 'last_name' | 'employee_id' | 'dept' | 'role' | 'status';
 
 const initialStaff: StaffMember[] = [
-    { id: 1, name: 'Dr. Ama Mensah', email: 'a.mensah@accramedical.com.gh', role: 'Senior Resident', dept: 'Cardiology', status: 'active', access: 'Administrator' },
-    { id: 2, name: 'Dr. Kwame Asante', email: 'k.asante@accramedical.com.gh', role: 'Attending Physician', dept: 'Internal Med', status: 'active', access: 'Supervisor' },
-    { id: 3, name: 'Abena Osei', email: 'a.osei@accramedical.com.gh', role: 'Head Nurse', dept: 'ICU', status: 'active', access: 'Staff' },
-    { id: 4, name: 'Kofi Boateng', email: 'k.boateng@accramedical.com.gh', role: 'Resident', dept: 'Pediatrics', status: 'disabled', access: 'Staff' },
-    { id: 5, name: 'Dr. Efua Adjei', email: 'e.adjei@accramedical.com.gh', role: 'Cardiologist', dept: 'Cardiology', status: 'active', access: 'Supervisor' },
-    { id: 6, name: 'Yaw Darko', email: 'y.darko@accramedical.com.gh', role: 'Lead Nurse', dept: 'Emergency', status: 'active', access: 'Staff' },
-    { id: 7, name: 'Dr. Akosua Frimpong', email: 'a.frimpong@accramedical.com.gh', role: 'Intensivist', dept: 'ICU', status: 'active', access: 'Supervisor' },
-    { id: 8, name: 'Adwoa Tetteh', email: 'a.tetteh@accramedical.com.gh', role: 'Technician', dept: 'Radiology', status: 'active', access: 'Staff' },
-    { id: 9, name: 'Dr. Kwesi Owusu', email: 'k.owusu@accramedical.com.gh', role: 'Pediatrician', dept: 'Pediatrics', status: 'active', access: 'Supervisor' },
-    { id: 10, name: 'Esi Appiah', email: 'e.appiah@accramedical.com.gh', role: 'Pediatric Nurse', dept: 'Pediatrics', status: 'active', access: 'Staff' },
-    { id: 11, name: 'Nana Agyemang', email: 'n.agyemang@accramedical.com.gh', role: 'Paramedic', dept: 'Emergency', status: 'disabled', access: 'Staff' },
-    { id: 12, name: 'Dr. Yaa Amoako', email: 'y.amoako@accramedical.com.gh', role: 'Surgeon', dept: 'Surgery', status: 'active', access: 'Administrator' },
+    { id: 1, first_name: 'Ama', last_name: 'Mensah', email: 'a.mensah@accramedical.com.gh', role: 'Senior Resident', dept: 'Cardiology', status: 'active', access: 'Administrator', employee_id: 'AMC-0012' },
+    { id: 2, first_name: 'Kwame', last_name: 'Asante', email: 'k.asante@accramedical.com.gh', role: 'Attending Physician', dept: 'Internal Med', status: 'active', access: 'Supervisor', employee_id: 'AMC-0045' },
+    { id: 3, first_name: 'Abena', last_name: 'Osei', email: 'a.osei@accramedical.com.gh', role: 'Head Nurse', dept: 'ICU', status: 'active', access: 'Staff', employee_id: 'AMC-0078' },
+    { id: 4, first_name: 'Kofi', last_name: 'Boateng', email: 'k.boateng@accramedical.com.gh', role: 'Resident', dept: 'Pediatrics', status: 'disabled', access: 'Staff', employee_id: 'AMC-0091' },
+    { id: 5, first_name: 'Efua', last_name: 'Adjei', email: 'e.adjei@accramedical.com.gh', role: 'Cardiologist', dept: 'Cardiology', status: 'active', access: 'Supervisor', employee_id: 'AMC-0103' },
+    { id: 6, first_name: 'Yaw', last_name: 'Darko', email: 'y.darko@accramedical.com.gh', role: 'Lead Nurse', dept: 'Emergency', status: 'active', access: 'Staff', employee_id: 'AMC-0156' },
+    { id: 7, first_name: 'Akosua', last_name: 'Frimpong', email: 'a.frimpong@accramedical.com.gh', role: 'Intensivist', dept: 'ICU', status: 'active', access: 'Supervisor', employee_id: 'AMC-0187' },
+    { id: 8, first_name: 'Adwoa', last_name: 'Tetteh', email: 'a.tetteh@accramedical.com.gh', role: 'Technician', dept: 'Radiology', status: 'active', access: 'Staff', employee_id: 'AMC-0204' },
+    { id: 9, first_name: 'Kwesi', last_name: 'Owusu', email: 'k.owusu@accramedical.com.gh', role: 'Pediatrician', dept: 'Pediatrics', status: 'active', access: 'Supervisor', employee_id: 'AMC-0231' },
+    { id: 10, first_name: 'Esi', last_name: 'Appiah', email: 'e.appiah@accramedical.com.gh', role: 'Pediatric Nurse', dept: 'Pediatrics', status: 'active', access: 'Staff', employee_id: 'AMC-0267' },
+    { id: 11, first_name: 'Nana', last_name: 'Agyemang', email: 'n.agyemang@accramedical.com.gh', role: 'Paramedic', dept: 'Emergency', status: 'disabled', access: 'Staff', employee_id: 'AMC-0289' },
+    { id: 12, first_name: 'Yaa', last_name: 'Amoako', email: 'y.amoako@accramedical.com.gh', role: 'Surgeon', dept: 'Surgery', status: 'active', access: 'Administrator', employee_id: 'AMC-0312' },
 ];
 
 const statusColors: Record<string, { color: string; bg: string; label: string }> = {
@@ -27,7 +29,6 @@ const statusColors: Record<string, { color: string; bg: string; label: string }>
     disabled: { color: 'var(--critical)', bg: 'var(--critical-bg)', label: 'Disabled' },
 };
 
-const accessBadge: Record<string, string> = { Administrator: 'badge-info', Supervisor: 'badge-warning', Staff: 'badge-neutral' };
 
 const importHistory = [
     { id: 'IMP-001', file: 'staff_q4_import.csv', records: 142, status: 'success', warnings: 2, date: 'Nov 12, 2024', user: 'Dr. Kwame Asante' },
@@ -43,10 +44,15 @@ export default function StaffDirectoryManagement() {
     const [selected, setSelected] = useState<StaffMember | null>(null);
     const [activeTab, setActiveTab] = useState<'directory' | 'import'>('directory');
     const [showAddForm, setShowAddForm] = useState(false);
-    const [newName, setNewName] = useState('');
+    const [newFirstName, setNewFirstName] = useState('');
+    const [newLastName, setNewLastName] = useState('');
     const [newEmail, setNewEmail] = useState('');
     const [newRole, setNewRole] = useState('');
     const [newDept, setNewDept] = useState('Cardiology');
+    const [newEmpId, setNewEmpId] = useState('');
+    const [sortKey, setSortKey] = useState<SortKey>('last_name');
+    const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
+    const [statusFilter, setStatusFilter] = useState('all');
     const [dragOver, setDragOver] = useState(false);
     const [uploadedFile, setUploadedFile] = useState<string | null>(null);
     const [bulkHistory, setBulkHistory] = useState(importHistory);
@@ -56,32 +62,43 @@ export default function StaffDirectoryManagement() {
 
     const departments = ['all', ...Array.from(new Set(staff.map(s => s.dept)))];
 
+    const toggleSort = (key: SortKey) => {
+        if (sortKey === key) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
+        else { setSortKey(key); setSortDir('asc'); }
+    };
+
     const filtered = staff.filter(s => {
-        const matchSearch = search === '' || s.name.toLowerCase().includes(search.toLowerCase()) || s.dept.toLowerCase().includes(search.toLowerCase()) || s.email.toLowerCase().includes(search.toLowerCase());
+        const q = search.toLowerCase();
+        const matchSearch = search === '' || s.first_name.toLowerCase().includes(q) || s.last_name.toLowerCase().includes(q) || s.dept.toLowerCase().includes(q) || s.email.toLowerCase().includes(q) || s.employee_id.toLowerCase().includes(q);
         const matchDept = deptFilter === 'all' || s.dept === deptFilter;
-        return matchSearch && matchDept;
+        const matchStatus = statusFilter === 'all' || s.status === statusFilter;
+        return matchSearch && matchDept && matchStatus;
+    }).sort((a, b) => {
+        const av = a[sortKey].toLowerCase();
+        const bv = b[sortKey].toLowerCase();
+        return sortDir === 'asc' ? av.localeCompare(bv) : bv.localeCompare(av);
     });
 
     const handleAdd = () => {
-        if (!newName.trim() || !newEmail.trim()) return;
-        const newMember: StaffMember = { id: Date.now(), name: newName, email: newEmail, role: newRole || 'Staff', dept: newDept, status: 'active', access: 'Staff' };
+        if (!newFirstName.trim() || !newLastName.trim() || !newEmail.trim() || !newEmpId.trim()) return;
+        const newMember: StaffMember = { id: Date.now(), first_name: newFirstName.trim(), last_name: newLastName.trim(), email: newEmail, role: newRole || 'Staff', dept: newDept, status: 'active', access: 'Staff', employee_id: newEmpId.trim() };
         setStaff(prev => [newMember, ...prev]);
         setShowAddForm(false);
-        setNewName(''); setNewEmail(''); setNewRole('');
-        showToast(`${newName} added to staff`);
+        setNewFirstName(''); setNewLastName(''); setNewEmail(''); setNewRole(''); setNewEmpId('');
+        showToast(`${newFirstName} ${newLastName} added to staff`);
     };
 
     const handleRemove = (id: number) => {
         const member = staff.find(s => s.id === id);
         setStaff(prev => prev.filter(s => s.id !== id));
         if (selected?.id === id) setSelected(null);
-        showToast(`${member?.name} removed`);
+        showToast(`${member?.first_name} ${member?.last_name} removed`);
     };
 
     const toggleStatus = (id: number) => {
         setStaff(prev => prev.map(s => s.id === id ? { ...s, status: s.status === 'active' ? 'disabled' : 'active' } : s));
         const member = staff.find(s => s.id === id);
-        showToast(member?.status === 'active' ? `${member?.name} disabled` : `${member?.name} enabled`);
+        showToast(member?.status === 'active' ? `${member?.first_name} ${member?.last_name} disabled` : `${member?.first_name} ${member?.last_name} enabled`);
     };
 
     return (
@@ -129,26 +146,53 @@ export default function StaffDirectoryManagement() {
                     {showAddForm && (
                         <div className="fade-in card" style={{ marginBottom: 18, padding: '18px 20px' }}>
                             <h3 style={{ fontSize: 14, marginBottom: 12 }}>New Staff Member</h3>
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 12, marginBottom: 14 }}>
-                                <div><label className="label">Full Name *</label><input className="input" value={newName} onChange={e => setNewName(e.target.value)} placeholder="Full name" style={{ fontSize: 12 }} /></div>
+                            <div style={{ display: 'grid', gridTemplateColumns: '0.8fr 1fr 1fr 1.2fr 1fr 1fr', gap: 12, marginBottom: 14 }}>
+                                <div><label className="label">Employee ID *</label><input className="input" value={newEmpId} onChange={e => setNewEmpId(e.target.value)} placeholder="e.g. AMC-0400" style={{ fontSize: 12 }} /></div>
+                                <div><label className="label">First Name *</label><input className="input" value={newFirstName} onChange={e => setNewFirstName(e.target.value)} placeholder="First name" style={{ fontSize: 12 }} /></div>
+                                <div><label className="label">Last Name *</label><input className="input" value={newLastName} onChange={e => setNewLastName(e.target.value)} placeholder="Last name" style={{ fontSize: 12 }} /></div>
                                 <div><label className="label">Email *</label><input className="input" value={newEmail} onChange={e => setNewEmail(e.target.value)} placeholder="Email address" style={{ fontSize: 12 }} /></div>
                                 <div><label className="label">Job Title</label><input className="input" value={newRole} onChange={e => setNewRole(e.target.value)} placeholder="e.g. Nurse" style={{ fontSize: 12 }} /></div>
                                 <div><label className="label">Department</label><select className="input" value={newDept} onChange={e => setNewDept(e.target.value)} style={{ fontSize: 12 }}>{['Cardiology', 'ICU', 'Emergency', 'Pediatrics', 'Internal Med', 'Radiology', 'Surgery'].map(d => <option key={d}>{d}</option>)}</select></div>
                             </div>
-                            <button className="btn btn-primary btn-sm" onClick={handleAdd} disabled={!newName.trim() || !newEmail.trim()}>
+                            <button className="btn btn-primary btn-sm" onClick={handleAdd} disabled={!newFirstName.trim() || !newLastName.trim() || !newEmail.trim() || !newEmpId.trim()}>
                                 <span className="material-icons-round" style={{ fontSize: 14 }}>person_add</span>Add Staff
                             </button>
                         </div>
                     )}
 
-                    {/* Filters */}
-                    <div className="fade-in delay-1" style={{ display: 'flex', gap: 5, marginBottom: 16 }}>
-                        {departments.map(d => (
-                            <button key={d} className="btn btn-secondary btn-xs" onClick={() => setDeptFilter(d)}
-                                style={{ background: deptFilter === d ? '#edf1f7' : undefined, borderColor: deptFilter === d ? 'var(--helix-primary)' : undefined, color: deptFilter === d ? 'var(--helix-primary)' : undefined, fontWeight: deptFilter === d ? 600 : 400 }}>
-                                {d === 'all' ? 'All Departments' : d}
-                            </button>
-                        ))}
+                    {/* Filters & Sort */}
+                    <div className="fade-in delay-1" style={{ display: 'flex', gap: 12, marginBottom: 16, alignItems: 'center', flexWrap: 'wrap' }}>
+                        <div style={{ display: 'flex', gap: 5 }}>
+                            {departments.map(d => (
+                                <button key={d} className="btn btn-secondary btn-xs" onClick={() => setDeptFilter(d)}
+                                    style={{ background: deptFilter === d ? '#edf1f7' : undefined, borderColor: deptFilter === d ? 'var(--helix-primary)' : undefined, color: deptFilter === d ? 'var(--helix-primary)' : undefined, fontWeight: deptFilter === d ? 600 : 400 }}>
+                                    {d === 'all' ? 'All Depts' : d}
+                                </button>
+                            ))}
+                        </div>
+                        <div style={{ width: 1, height: 20, background: 'var(--border-subtle)' }} />
+                        <div style={{ display: 'flex', gap: 5 }}>
+                            {['all', 'active', 'disabled'].map(s => (
+                                <button key={s} className="btn btn-secondary btn-xs" onClick={() => setStatusFilter(s)}
+                                    style={{ background: statusFilter === s ? '#edf1f7' : undefined, borderColor: statusFilter === s ? 'var(--helix-primary)' : undefined, color: statusFilter === s ? 'var(--helix-primary)' : undefined, fontWeight: statusFilter === s ? 600 : 400 }}>
+                                    {s === 'all' ? 'All Status' : s.charAt(0).toUpperCase() + s.slice(1)}
+                                </button>
+                            ))}
+                        </div>
+                        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-muted)' }}>
+                            <span className="material-icons-round" style={{ fontSize: 14 }}>sort</span>
+                            <select className="input" value={`${sortKey}-${sortDir}`} onChange={e => { const [k, d] = e.target.value.split('-'); setSortKey(k as SortKey); setSortDir(d as 'asc' | 'desc'); }} style={{ fontSize: 11, padding: '4px 8px', height: 28, minWidth: 140 }}>
+                                <option value="last_name-asc">Last Name A-Z</option>
+                                <option value="last_name-desc">Last Name Z-A</option>
+                                <option value="first_name-asc">First Name A-Z</option>
+                                <option value="first_name-desc">First Name Z-A</option>
+                                <option value="dept-asc">Department A-Z</option>
+                                <option value="dept-desc">Department Z-A</option>
+                                <option value="role-asc">Role A-Z</option>
+                                <option value="employee_id-asc">Employee ID A-Z</option>
+                                <option value="status-asc">Status A-Z</option>
+                            </select>
+                        </div>
                     </div>
 
                     {/* Table + Detail */}
@@ -158,12 +202,13 @@ export default function StaffDirectoryManagement() {
                                 <table>
                                     <thead>
                                         <tr>
-                                            <th>Name</th>
+                                            <th style={{ cursor: 'pointer' }} onClick={() => toggleSort('employee_id')}>Employee ID {sortKey === 'employee_id' && (sortDir === 'asc' ? '↑' : '↓')}</th>
+                                            <th style={{ cursor: 'pointer' }} onClick={() => toggleSort('first_name')}>First Name {sortKey === 'first_name' && (sortDir === 'asc' ? '↑' : '↓')}</th>
+                                            <th style={{ cursor: 'pointer' }} onClick={() => toggleSort('last_name')}>Last Name {sortKey === 'last_name' && (sortDir === 'asc' ? '↑' : '↓')}</th>
                                             <th>Email</th>
-                                            <th>Role</th>
-                                            <th>Department</th>
-                                            <th>Access</th>
-                                            <th>Status</th>
+                                            <th style={{ cursor: 'pointer' }} onClick={() => toggleSort('role')}>Role {sortKey === 'role' && (sortDir === 'asc' ? '↑' : '↓')}</th>
+                                            <th style={{ cursor: 'pointer' }} onClick={() => toggleSort('dept')}>Department {sortKey === 'dept' && (sortDir === 'asc' ? '↑' : '↓')}</th>
+                                            <th style={{ cursor: 'pointer' }} onClick={() => toggleSort('status')}>Status {sortKey === 'status' && (sortDir === 'asc' ? '↑' : '↓')}</th>
                                             <th style={{ width: 40 }}></th>
                                         </tr>
                                     </thead>
@@ -172,11 +217,12 @@ export default function StaffDirectoryManagement() {
                                             const st = statusColors[s.status] || statusColors.active;
                                             return (
                                                 <tr key={s.id} onClick={() => setSelected(selected?.id === s.id ? null : s)} style={{ cursor: 'pointer', background: selected?.id === s.id ? 'rgba(30,58,95,0.05)' : undefined }}>
-                                                    <td style={{ fontWeight: 600 }}>{s.name}</td>
+                                                    <td style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', fontFamily: "'Montserrat', sans-serif" }}>{s.employee_id}</td>
+                                                    <td style={{ fontWeight: 500 }}>{s.first_name}</td>
+                                                    <td style={{ fontWeight: 600 }}>{s.last_name}</td>
                                                     <td style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{s.email}</td>
                                                     <td style={{ color: 'var(--text-secondary)' }}>{s.role}</td>
                                                     <td style={{ color: 'var(--text-secondary)' }}>{s.dept}</td>
-                                                    <td><span className={`badge ${accessBadge[s.access] || 'badge-neutral'}`}>{s.access}</span></td>
                                                     <td><span className="badge" style={{ background: st.bg, color: st.color }}>{st.label}</span></td>
                                                     <td>
                                                         <button className="btn btn-ghost btn-xs" onClick={e => { e.stopPropagation(); handleRemove(s.id); }}>
@@ -200,7 +246,7 @@ export default function StaffDirectoryManagement() {
                                 <div className="card" style={{ padding: '18px' }}>
                                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14 }}>
                                         <div>
-                                            <h3 style={{ fontSize: 15 }}>{selected.name}</h3>
+                                            <h3 style={{ fontSize: 15 }}>{selected.first_name} {selected.last_name}</h3>
                                             <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>{selected.role} · {selected.dept}</div>
                                         </div>
                                         <button className="btn btn-ghost btn-xs" onClick={() => setSelected(null)}>
@@ -212,8 +258,7 @@ export default function StaffDirectoryManagement() {
                                             { label: 'Email', value: selected.email, icon: 'mail' },
                                             { label: 'Department', value: selected.dept, icon: 'domain' },
                                             { label: 'Job Title', value: selected.role, icon: 'badge' },
-                                            { label: 'Access Level', value: selected.access, icon: 'admin_panel_settings' },
-                                            { label: 'Employee ID', value: `#EMP-${selected.id * 1234}`, icon: 'fingerprint' },
+                                            { label: 'Employee ID', value: selected.employee_id, icon: 'fingerprint' },
                                         ].map(row => (
                                             <div key={row.label} style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
                                                 <span className="material-icons-round" style={{ fontSize: 16, color: 'var(--text-disabled)', marginTop: 1 }}>{row.icon}</span>

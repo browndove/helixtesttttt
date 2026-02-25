@@ -68,6 +68,7 @@ CREATE TABLE IF NOT EXISTS role_permissions (
 CREATE TABLE IF NOT EXISTS staff (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     hospital_id UUID NOT NULL REFERENCES hospitals(id) ON DELETE CASCADE,
+    employee_id VARCHAR(50),
     name VARCHAR(255) NOT NULL,
     email VARCHAR(255) NOT NULL UNIQUE,
     role VARCHAR(100),
