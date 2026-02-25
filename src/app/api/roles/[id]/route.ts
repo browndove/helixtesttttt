@@ -8,7 +8,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
     const { id } = await params;
-    const { name, department, mandatory, priority, alert_mode, enabled, visible_in_directory } = await req.json();
+    const { name, department, mandatory, priority, enabled, visible_in_directory, escalation_routing, escalation_levels } = await req.json();
 
     const existing = await sql`SELECT id FROM roles WHERE id = ${id} AND hospital_id = ${session.hospitalId}`;
     if (existing.length === 0) return NextResponse.json({ error: 'Not found' }, { status: 404 });
@@ -16,10 +16,12 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     const rows = await sql`
         UPDATE roles
         SET name = ${name}, department = ${department || ''}, mandatory = ${mandatory || false},
-            priority = ${priority || 'Standard'}, alert_mode = ${alert_mode || 'direct'},
-            enabled = ${enabled ?? true}, visible_in_directory = ${visible_in_directory ?? true}
+            priority = ${priority || 'Standard'},
+            enabled = ${enabled ?? true}, visible_in_directory = ${visible_in_directory ?? true},
+            escalation_routing = ${JSON.stringify(escalation_routing || [])},
+            escalation_levels = ${JSON.stringify(escalation_levels || [])}
         WHERE id = ${id}
-        RETURNING id, name, department, mandatory, enabled, priority, alert_mode, visible_in_directory, created_at
+        RETURNING id, name, department, mandatory, enabled, priority, visible_in_directory, escalation_routing, escalation_levels, created_at
     `;
 
     return NextResponse.json(rows[0]);
