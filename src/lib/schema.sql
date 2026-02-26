@@ -45,6 +45,7 @@ CREATE TABLE IF NOT EXISTS roles (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     hospital_id UUID NOT NULL REFERENCES hospitals(id) ON DELETE CASCADE,
     name VARCHAR(255) NOT NULL,
+    description TEXT DEFAULT '',
     department VARCHAR(255),
     priority VARCHAR(50) DEFAULT 'Standard',
     type VARCHAR(50) DEFAULT 'duty-signin',
