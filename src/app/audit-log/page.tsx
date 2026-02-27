@@ -4,6 +4,7 @@ import { useState, useMemo } from 'react';
 import Sidebar from '@/components/Sidebar';
 import TopBar from '@/components/TopBar';
 import navSections from '@/components/navSections';
+import CalendarRangePicker from '@/components/CalendarRangePicker';
 
 type LogEntry = {
     id: string;
@@ -18,24 +19,24 @@ type LogEntry = {
 };
 
 const mockLogs: LogEntry[] = [
-    { id: '1', action: 'Staff Added', category: 'Staff', firstName: 'Kwame', lastName: 'Asante', target: 'Ama Serwaa', details: 'Added new staff member to Emergency Department', timestamp: '2026-02-26T11:20:00Z', ip: '192.168.1.10' },
+    { id: '1', action: 'Staff Added', category: 'Staff', firstName: 'Kwame', lastName: 'Asante', target: 'Ama Serwaa', details: 'Added new staff member to Emergency Department', timestamp: '2026-02-27T08:20:00Z', ip: '192.168.1.10' },
     { id: '2', action: 'Role Created', category: 'Roles', firstName: 'Kwame', lastName: 'Asante', target: 'ICU Charge Nurse', details: 'Created role from ICU Critical template', timestamp: '2026-02-26T10:45:00Z', ip: '192.168.1.10' },
-    { id: '3', action: 'Staff Removed', category: 'Staff', firstName: 'Ama', lastName: 'Mensah', target: 'Kofi Darko', details: 'Removed staff member from Radiology', timestamp: '2026-02-26T09:30:00Z', ip: '192.168.1.22' },
-    { id: '4', action: 'Escalation Updated', category: 'Escalation', firstName: 'Kwame', lastName: 'Asante', target: 'Emergency Critical Chain', details: 'Changed escalation delay from 5 min to 3 min', timestamp: '2026-02-25T16:10:00Z', ip: '192.168.1.10' },
-    { id: '5', action: 'Role Edited', category: 'Roles', firstName: 'Ama', lastName: 'Mensah', target: 'Charge Nurse', details: 'Changed priority from Standard to Critical', timestamp: '2026-02-25T14:22:00Z', ip: '192.168.1.22' },
-    { id: '6', action: 'Department Added', category: 'Hospital', firstName: 'Kwame', lastName: 'Asante', target: 'Oncology', details: 'Added new department Oncology', timestamp: '2026-02-25T11:05:00Z', ip: '192.168.1.10' },
-    { id: '7', action: 'Staff Added', category: 'Staff', firstName: 'Kofi', lastName: 'Boateng', target: 'Yaa Amponsah', details: 'Added new staff member to ICU', timestamp: '2026-02-25T09:48:00Z', ip: '192.168.1.35' },
-    { id: '8', action: 'Admin Invited', category: 'Admin', firstName: 'Kwame', lastName: 'Asante', target: 'Efua Darko', details: 'Invited as Viewer role', timestamp: '2026-02-24T15:30:00Z', ip: '192.168.1.10' },
-    { id: '9', action: 'Role Created', category: 'Roles', firstName: 'Ama', lastName: 'Mensah', target: 'Safety Officer', details: 'Created role from Safety Threat template', timestamp: '2026-02-24T13:15:00Z', ip: '192.168.1.22' },
-    { id: '10', action: 'Hospital Profile Updated', category: 'Hospital', firstName: 'Kwame', lastName: 'Asante', target: 'Accra Medical Center', details: 'Updated hospital phone number and email', timestamp: '2026-02-24T10:00:00Z', ip: '192.168.1.10' },
-    { id: '11', action: 'Staff Role Changed', category: 'Staff', firstName: 'Kwame', lastName: 'Asante', target: 'Ama Serwaa', details: 'Changed role from Ward Nurse to Charge Nurse', timestamp: '2026-02-23T16:45:00Z', ip: '192.168.1.10' },
-    { id: '12', action: 'Escalation Created', category: 'Escalation', firstName: 'Ama', lastName: 'Mensah', target: 'ICU Critical Chain', details: 'Created new escalation chain with 4 levels', timestamp: '2026-02-23T14:20:00Z', ip: '192.168.1.22' },
-    { id: '13', action: 'Ward Added', category: 'Hospital', firstName: 'Kofi', lastName: 'Boateng', target: 'Ward C - Oncology', details: 'Added ward to Oncology department', timestamp: '2026-02-23T11:10:00Z', ip: '192.168.1.35' },
-    { id: '14', action: 'Login', category: 'Auth', firstName: 'Kwame', lastName: 'Asante', target: 'System', details: 'Successful login from Chrome on macOS', timestamp: '2026-02-23T08:00:00Z', ip: '192.168.1.10' },
-    { id: '15', action: 'Staff Added', category: 'Staff', firstName: 'Ama', lastName: 'Mensah', target: 'Kofi Mensah', details: 'Added new staff member to Surgery', timestamp: '2026-02-22T15:30:00Z', ip: '192.168.1.22' },
-    { id: '16', action: 'Login Failed', category: 'Auth', firstName: 'Unknown', lastName: '', target: 'System', details: 'Failed login attempt with email admin@accra.com', timestamp: '2026-02-22T03:15:00Z', ip: '41.215.88.12' },
-    { id: '17', action: 'Role Deleted', category: 'Roles', firstName: 'Kwame', lastName: 'Asante', target: 'Temp Nurse', details: 'Deleted unused temporary role', timestamp: '2026-02-21T17:00:00Z', ip: '192.168.1.10' },
-    { id: '18', action: 'Staff Deactivated', category: 'Staff', firstName: 'Ama', lastName: 'Mensah', target: 'James Owusu', details: 'Deactivated staff account', timestamp: '2026-02-21T14:30:00Z', ip: '192.168.1.22' },
+    { id: '3', action: 'Staff Removed', category: 'Staff', firstName: 'Ama', lastName: 'Mensah', target: 'Kofi Darko', details: 'Removed staff member from Radiology', timestamp: '2026-02-25T09:30:00Z', ip: '192.168.1.22' },
+    { id: '4', action: 'Escalation Updated', category: 'Escalation', firstName: 'Kwame', lastName: 'Asante', target: 'Emergency Critical Chain', details: 'Changed escalation delay from 5 min to 3 min', timestamp: '2026-02-24T16:10:00Z', ip: '192.168.1.10' },
+    { id: '5', action: 'Role Edited', category: 'Roles', firstName: 'Ama', lastName: 'Mensah', target: 'Charge Nurse', details: 'Changed priority from Standard to Critical', timestamp: '2026-02-22T14:22:00Z', ip: '192.168.1.22' },
+    { id: '6', action: 'Department Added', category: 'Hospital', firstName: 'Kwame', lastName: 'Asante', target: 'Oncology', details: 'Added new department Oncology', timestamp: '2026-02-20T11:05:00Z', ip: '192.168.1.10' },
+    { id: '7', action: 'Staff Added', category: 'Staff', firstName: 'Kofi', lastName: 'Boateng', target: 'Yaa Amponsah', details: 'Added new staff member to ICU', timestamp: '2026-02-18T09:48:00Z', ip: '192.168.1.35' },
+    { id: '8', action: 'Admin Invited', category: 'Admin', firstName: 'Kwame', lastName: 'Asante', target: 'Efua Darko', details: 'Invited as Viewer role', timestamp: '2026-02-15T15:30:00Z', ip: '192.168.1.10' },
+    { id: '9', action: 'Role Created', category: 'Roles', firstName: 'Ama', lastName: 'Mensah', target: 'Safety Officer', details: 'Created role from Safety Threat template', timestamp: '2026-02-10T13:15:00Z', ip: '192.168.1.22' },
+    { id: '10', action: 'Hospital Profile Updated', category: 'Hospital', firstName: 'Kwame', lastName: 'Asante', target: 'Accra Medical Center', details: 'Updated hospital phone number and email', timestamp: '2026-02-05T10:00:00Z', ip: '192.168.1.10' },
+    { id: '11', action: 'Staff Role Changed', category: 'Staff', firstName: 'Kwame', lastName: 'Asante', target: 'Ama Serwaa', details: 'Changed role from Ward Nurse to Charge Nurse', timestamp: '2026-02-01T16:45:00Z', ip: '192.168.1.10' },
+    { id: '12', action: 'Escalation Created', category: 'Escalation', firstName: 'Ama', lastName: 'Mensah', target: 'ICU Critical Chain', details: 'Created new escalation chain with 4 levels', timestamp: '2026-01-28T14:20:00Z', ip: '192.168.1.22' },
+    { id: '13', action: 'Ward Added', category: 'Hospital', firstName: 'Kofi', lastName: 'Boateng', target: 'Ward C - Oncology', details: 'Added ward to Oncology department', timestamp: '2026-01-22T11:10:00Z', ip: '192.168.1.35' },
+    { id: '14', action: 'Login', category: 'Auth', firstName: 'Kwame', lastName: 'Asante', target: 'System', details: 'Successful login from Chrome on macOS', timestamp: '2026-01-15T08:00:00Z', ip: '192.168.1.10' },
+    { id: '15', action: 'Staff Added', category: 'Staff', firstName: 'Ama', lastName: 'Mensah', target: 'Kofi Mensah', details: 'Added new staff member to Surgery', timestamp: '2026-01-08T15:30:00Z', ip: '192.168.1.22' },
+    { id: '16', action: 'Login Failed', category: 'Auth', firstName: 'Unknown', lastName: '', target: 'System', details: 'Failed login attempt with email admin@accra.com', timestamp: '2025-12-28T03:15:00Z', ip: '41.215.88.12' },
+    { id: '17', action: 'Role Deleted', category: 'Roles', firstName: 'Kwame', lastName: 'Asante', target: 'Temp Nurse', details: 'Deleted unused temporary role', timestamp: '2025-12-15T17:00:00Z', ip: '192.168.1.10' },
+    { id: '18', action: 'Staff Deactivated', category: 'Staff', firstName: 'Ama', lastName: 'Mensah', target: 'James Owusu', details: 'Deactivated staff account', timestamp: '2025-12-01T14:30:00Z', ip: '192.168.1.22' },
 ];
 
 const categories = ['All', 'Staff', 'Roles', 'Escalation', 'Hospital', 'Admin', 'Auth'];
@@ -70,6 +71,8 @@ export default function AuditLogPage() {
     const [sortField, setSortField] = useState<SortField>('time');
     const [sortDir, setSortDir] = useState<SortDir>('desc');
     const [expandedId, setExpandedId] = useState<string | null>(null);
+    const [dateFrom, setDateFrom] = useState('');
+    const [dateTo, setDateTo] = useState('');
 
     const handleSort = (field: SortField) => {
         if (sortField === field) {
@@ -85,6 +88,16 @@ export default function AuditLogPage() {
 
         if (categoryFilter !== 'All') {
             logs = logs.filter(l => l.category === categoryFilter);
+        }
+
+        if (dateFrom) {
+            const from = new Date(dateFrom);
+            logs = logs.filter(l => new Date(l.timestamp) >= from);
+        }
+        if (dateTo) {
+            const to = new Date(dateTo);
+            to.setHours(23, 59, 59, 999);
+            logs = logs.filter(l => new Date(l.timestamp) <= to);
         }
 
         if (search.trim()) {
@@ -112,7 +125,7 @@ export default function AuditLogPage() {
         });
 
         return logs;
-    }, [search, categoryFilter, sortField, sortDir]);
+    }, [search, categoryFilter, sortField, sortDir, dateFrom, dateTo]);
 
     const SortIcon = ({ field }: { field: SortField }) => (
         <span className="material-icons-round" style={{
@@ -132,7 +145,7 @@ export default function AuditLogPage() {
 
                 <main style={{ flex: 1, overflow: 'auto', padding: '24px 28px', background: 'var(--bg-900)' }}>
                     {/* Filters Row */}
-                    <div className="fade-in" style={{ display: 'flex', gap: 12, marginBottom: 18, alignItems: 'center', flexWrap: 'wrap' }}>
+                    <div className="fade-in" style={{ display: 'flex', gap: 12, marginBottom: 18, alignItems: 'center', flexWrap: 'wrap', position: 'relative', zIndex: 10 }}>
                         <div style={{ position: 'relative', flex: 1, minWidth: 200, maxWidth: 320 }}>
                             <span className="material-icons-round" style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', fontSize: 16, color: 'var(--text-disabled)', pointerEvents: 'none' }}>search</span>
                             <input
@@ -163,6 +176,12 @@ export default function AuditLogPage() {
                                 </button>
                             ))}
                         </div>
+
+                        <CalendarRangePicker
+                            from={dateFrom}
+                            to={dateTo}
+                            onChange={(f, t) => { setDateFrom(f); setDateTo(t); }}
+                        />
 
                         <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
                             {filtered.length} {filtered.length === 1 ? 'entry' : 'entries'}

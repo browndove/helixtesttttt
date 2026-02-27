@@ -65,34 +65,6 @@ export default function EscalationAlertSettings() {
                         </p>
                     </div>
 
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
-                            {/* Escalation Ladder */}
-                            <div className="fade-in delay-1 card">
-                                <h3 style={{ marginBottom: 4 }}>Escalation Ladder</h3>
-                                <p style={{ fontSize: 11.5, color: 'var(--text-muted)', marginBottom: 14 }}>When a message goes unacknowledged, it escalates through these levels.</p>
-                                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                                    <thead>
-                                        <tr>
-                                            <th style={{ textAlign: 'left', fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', padding: '6px 10px', borderBottom: '1px solid var(--border-default)' }}>Level</th>
-                                            <th style={{ textAlign: 'left', fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', padding: '6px 10px', borderBottom: '1px solid var(--border-default)' }}>Target</th>
-                                            <th style={{ textAlign: 'left', fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', padding: '6px 10px', borderBottom: '1px solid var(--border-default)' }}>Delay</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {escalationLevels.map(lvl => (
-                                            <tr key={lvl.level}>
-                                                <td style={{ padding: '10px', fontSize: 13, fontWeight: 600, borderBottom: '1px solid var(--border-subtle)' }}>{lvl.level}</td>
-                                                <td style={{ padding: '10px', borderBottom: '1px solid var(--border-subtle)' }}>
-                                                    <div style={{ fontWeight: 600, fontSize: 13 }}>{lvl.target}</div>
-                                                    <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 1 }}>{lvl.desc}</div>
-                                                </td>
-                                                <td style={{ padding: '10px', fontSize: 12, color: 'var(--text-secondary)', borderBottom: '1px solid var(--border-subtle)' }}>+{lvl.delay}</td>
-                                            </tr>
-                                        ))}
-                                    </tbody>
-                                </table>
-                            </div>
-                        </div>
                 </main>
             </div>
         </div>

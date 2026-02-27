@@ -83,6 +83,25 @@ const mockTeams: Team[] = [
 const departments = ['All', 'Emergency', 'ICU', 'Surgery', 'Pediatrics', 'Radiology', 'Oncology'];
 const roleOptions = ['Team Lead', 'Charge Nurse', 'Nurse', 'Resident', 'Surgeon', 'Intensivist', 'ICU Nurse', 'Anesthesiologist', 'Scrub Nurse', 'Pediatrician', 'Physician'];
 
+type StaffEntry = { id: number; first_name: string; last_name: string; role: string; dept: string; employee_id: string };
+
+const allStaff: StaffEntry[] = [
+    { id: 1, first_name: 'Ama', last_name: 'Mensah', role: 'Senior Resident', dept: 'Cardiology', employee_id: 'AMC-0012' },
+    { id: 2, first_name: 'Kwame', last_name: 'Asante', role: 'Attending Physician', dept: 'Internal Med', employee_id: 'AMC-0045' },
+    { id: 3, first_name: 'Abena', last_name: 'Osei', role: 'Head Nurse', dept: 'ICU', employee_id: 'AMC-0078' },
+    { id: 4, first_name: 'Kofi', last_name: 'Boateng', role: 'Resident', dept: 'Pediatrics', employee_id: 'AMC-0091' },
+    { id: 5, first_name: 'Efua', last_name: 'Adjei', role: 'Cardiologist', dept: 'Cardiology', employee_id: 'AMC-0103' },
+    { id: 6, first_name: 'Yaw', last_name: 'Darko', role: 'Lead Nurse', dept: 'Emergency', employee_id: 'AMC-0156' },
+    { id: 7, first_name: 'Akosua', last_name: 'Frimpong', role: 'Intensivist', dept: 'ICU', employee_id: 'AMC-0187' },
+    { id: 8, first_name: 'Adwoa', last_name: 'Tetteh', role: 'Technician', dept: 'Radiology', employee_id: 'AMC-0204' },
+    { id: 9, first_name: 'Kwesi', last_name: 'Owusu', role: 'Pediatrician', dept: 'Pediatrics', employee_id: 'AMC-0231' },
+    { id: 10, first_name: 'Esi', last_name: 'Appiah', role: 'Pediatric Nurse', dept: 'Pediatrics', employee_id: 'AMC-0267' },
+    { id: 11, first_name: 'Nana', last_name: 'Agyemang', role: 'Paramedic', dept: 'Emergency', employee_id: 'AMC-0289' },
+    { id: 12, first_name: 'Yaa', last_name: 'Amoako', role: 'Surgeon', dept: 'Surgery', employee_id: 'AMC-0312' },
+];
+
+const staffDepartments = ['All', ...Array.from(new Set(allStaff.map(s => s.dept)))];
+
 const statusColor: Record<string, string> = {
     Active: 'var(--success)',
     'On Leave': 'var(--warning)',
@@ -104,8 +123,9 @@ export default function ProviderTeamsPage() {
 
     // Add member
     const [showAddMember, setShowAddMember] = useState(false);
-    const [memberFirstName, setMemberFirstName] = useState('');
-    const [memberLastName, setMemberLastName] = useState('');
+    const [staffSearch, setStaffSearch] = useState('');
+    const [staffDeptFilter, setStaffDeptFilter] = useState('All');
+    const [selectedStaffId, setSelectedStaffId] = useState<number | null>(null);
     const [memberRole, setMemberRole] = useState(roleOptions[0]);
 
     // Edit team
@@ -155,12 +175,27 @@ export default function ProviderTeamsPage() {
         showToast(`Team "${team?.name}" deleted`);
     };
 
+    const existingMemberIds = selectedTeam ? selectedTeam.members.map(m => m.id) : [];
+    const filteredStaff = allStaff.filter(s => {
+        if (existingMemberIds.includes(s.id.toString())) return false;
+        if (staffDeptFilter !== 'All' && s.dept !== staffDeptFilter) return false;
+        if (staffSearch.trim()) {
+            const q = staffSearch.toLowerCase();
+            return `${s.first_name} ${s.last_name}`.toLowerCase().includes(q) ||
+                s.role.toLowerCase().includes(q) ||
+                s.employee_id.toLowerCase().includes(q);
+        }
+        return true;
+    });
+
+    const selectedStaff = allStaff.find(s => s.id === selectedStaffId) || null;
+
     const handleAddMember = () => {
-        if (!memberFirstName.trim() || !memberLastName.trim() || !selectedTeam) return;
+        if (!selectedStaff || !selectedTeam) return;
         const member: Member = {
-            id: Date.now().toString(),
-            firstName: memberFirstName.trim(),
-            lastName: memberLastName.trim(),
+            id: selectedStaff.id.toString(),
+            firstName: selectedStaff.first_name,
+            lastName: selectedStaff.last_name,
             role: memberRole,
             status: 'Active',
         };
@@ -170,8 +205,9 @@ export default function ProviderTeamsPage() {
                 : t
         ));
         setShowAddMember(false);
-        setMemberFirstName('');
-        setMemberLastName('');
+        setStaffSearch('');
+        setStaffDeptFilter('All');
+        setSelectedStaffId(null);
         setMemberRole(roleOptions[0]);
         showToast(`${member.firstName} ${member.lastName} added`);
     };
@@ -408,24 +444,71 @@ export default function ProviderTeamsPage() {
                                                 display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 12, padding: 12,
                                                 background: 'var(--surface-2)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-default)',
                                             }}>
-                                                <div style={{ display: 'flex', gap: 8 }}>
-                                                    <div style={{ flex: 1 }}>
-                                                        <label className="label">First Name</label>
-                                                        <input className="input" value={memberFirstName} onChange={e => setMemberFirstName(e.target.value)} placeholder="First name" style={{ fontSize: 12 }} />
+                                                <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
+                                                    <div style={{ flex: 1, position: 'relative' }}>
+                                                        <label className="label">Search Staff</label>
+                                                        <div style={{ position: 'relative' }}>
+                                                            <span className="material-icons-round" style={{ position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)', fontSize: 14, color: 'var(--text-disabled)', pointerEvents: 'none' }}>search</span>
+                                                            <input className="input" value={staffSearch} onChange={e => { setStaffSearch(e.target.value); setSelectedStaffId(null); }} placeholder="Search by name, role, or ID..." style={{ fontSize: 12, paddingLeft: 28 }} />
+                                                        </div>
                                                     </div>
-                                                    <div style={{ flex: 1 }}>
-                                                        <label className="label">Last Name</label>
-                                                        <input className="input" value={memberLastName} onChange={e => setMemberLastName(e.target.value)} placeholder="Last name" style={{ fontSize: 12 }} />
+                                                    <div style={{ minWidth: 110 }}>
+                                                        <label className="label">Department</label>
+                                                        <select className="input" value={staffDeptFilter} onChange={e => { setStaffDeptFilter(e.target.value); setSelectedStaffId(null); }} style={{ fontSize: 12 }}>
+                                                            {staffDepartments.map(d => <option key={d} value={d}>{d}</option>)}
+                                                        </select>
                                                     </div>
                                                 </div>
-                                                <div>
-                                                    <label className="label">Role</label>
-                                                    <select className="input" value={memberRole} onChange={e => setMemberRole(e.target.value)} style={{ fontSize: 12 }}>
-                                                        {roleOptions.map(r => <option key={r} value={r}>{r}</option>)}
-                                                    </select>
+
+                                                {/* Staff results */}
+                                                <div style={{ maxHeight: 160, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 4 }}>
+                                                    {filteredStaff.length === 0 ? (
+                                                        <div style={{ fontSize: 11, color: 'var(--text-muted)', textAlign: 'center', padding: '10px 0' }}>No matching staff found</div>
+                                                    ) : (
+                                                        filteredStaff.map(s => {
+                                                            const isChosen = selectedStaffId === s.id;
+                                                            return (
+                                                                <div
+                                                                    key={s.id}
+                                                                    onClick={() => { setSelectedStaffId(isChosen ? null : s.id); setMemberRole(s.role); }}
+                                                                    style={{
+                                                                        display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px',
+                                                                        borderRadius: 'var(--radius-sm)', cursor: 'pointer', transition: 'all 0.12s',
+                                                                        background: isChosen ? 'rgba(59,130,246,0.08)' : 'var(--surface-card)',
+                                                                        border: isChosen ? '1px solid var(--helix-primary)' : '1px solid var(--border-subtle)',
+                                                                    }}
+                                                                >
+                                                                    <div style={{
+                                                                        width: 24, height: 24, borderRadius: '50%',
+                                                                        background: isChosen ? 'var(--helix-primary)' : 'var(--surface-2)', color: isChosen ? '#fff' : 'var(--text-secondary)',
+                                                                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                                                        fontSize: 9, fontWeight: 700, flexShrink: 0,
+                                                                    }}>
+                                                                        {s.first_name[0]}{s.last_name[0]}
+                                                                    </div>
+                                                                    <div style={{ flex: 1, minWidth: 0 }}>
+                                                                        <div style={{ fontSize: 11.5, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{s.first_name} {s.last_name}</div>
+                                                                        <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>{s.role} · {s.dept} · {s.employee_id}</div>
+                                                                    </div>
+                                                                    {isChosen && <span className="material-icons-round" style={{ fontSize: 14, color: 'var(--helix-primary)' }}>check_circle</span>}
+                                                                </div>
+                                                            );
+                                                        })
+                                                    )}
                                                 </div>
-                                                <button className="btn btn-primary btn-xs" style={{ width: '100%', justifyContent: 'center' }} onClick={handleAddMember} disabled={!memberFirstName.trim() || !memberLastName.trim()}>
-                                                    Add Member
+
+                                                {selectedStaff && (
+                                                    <div>
+                                                        <label className="label">Role in Team</label>
+                                                        <select className="input" value={memberRole} onChange={e => setMemberRole(e.target.value)} style={{ fontSize: 12 }}>
+                                                            {roleOptions.map(r => <option key={r} value={r}>{r}</option>)}
+                                                        </select>
+                                                    </div>
+                                                )}
+
+                                                <button className="btn btn-primary btn-xs" style={{ alignSelf: 'flex-end', justifyContent: 'center' }} onClick={handleAddMember} disabled={!selectedStaff}>
+                                                    <span className="material-icons-round" style={{ fontSize: 12 }}>person_add</span>
+                                                    Add
                                                 </button>
                                             </div>
                                         )}
