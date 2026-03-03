@@ -25,4 +25,12 @@ export const API_ENDPOINTS = {
   // Roles
   ROLES: `/api/proxy/roles`,
   ROLE: (id: string) => `/api/proxy/roles/${id}`,
+
+  // Escalation Policies
+  ESCALATION_POLICIES: `/api/proxy/escalation-policies`,
+  ESCALATION_POLICY: (id: string) => `/api/proxy/escalation-policies/${id}`,
+  ESCALATION_POLICY_BY_ROLE: (roleId: string) => `/api/proxy/escalation-policies/by-role/${roleId}`,
+  ESCALATION_POLICY_STEPS: (id: string) => `/api/proxy/escalation-policies/${id}/steps`,
+  ESCALATION_POLICY_STEPS_BULK: (id: string) => `/api/proxy/escalation-policies/${id}/steps/bulk`,
+  ESCALATION_POLICY_STEP: (id: string, stepId: string) => `/api/proxy/escalation-policies/${id}/steps/${stepId}`,
 };

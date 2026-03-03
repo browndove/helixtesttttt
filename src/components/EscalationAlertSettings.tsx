@@ -8,7 +8,28 @@ import navSections from '@/components/navSections';
 type EscalationLevel = {
     level: number;
     target: string;
+    target_role_id?: string;
     delay: string;
+    stepId?: string;
+};
+
+type EscalationStep = {
+    id: string;
+    step_order: number;
+    target_role_id: string;
+    target_role_name: string;
+    target_user_id?: string;
+    target_user_name?: string;
+    timeout_seconds: number;
+};
+
+type Policy = {
+    id: string;
+    role_id: string;
+    initial_timeout_seconds: number;
+    steps: EscalationStep[];
+    created_at?: string;
+    updated_at?: string;
 };
 
 type Role = {
@@ -23,8 +44,10 @@ type Role = {
 };
 
 function normalizeRoleForUi<T extends Role>(role: T): T {
-    const priority = role.mandatory ? 'Critical' : 'Standard';
-    return { ...role, priority } as T;
+    const isCritical = role.priority?.toString().trim().toLowerCase() === 'critical';
+    const priority = isCritical ? 'Critical' : 'Standard';
+    const mandatory = isCritical;
+    return { ...role, mandatory, priority } as T;
 }
 
 type ChainGroup = {
@@ -36,6 +59,8 @@ type ChainGroup = {
     department: string;
     enabled: boolean;
     primaryRoleId: string;
+    policyId: string;
+    initial_timeout_seconds: number;
 };
 
 type EscalationTemplate = {
@@ -64,6 +89,28 @@ const levelColor = (i: number) => {
     return '#c26b6b';
 };
 
+function secondsToDelay(s: number): string {
+    const mins = Math.round(s / 60);
+    return `${mins} min`;
+}
+
+function delayToSeconds(d: string): number {
+    const match = d.match(/(\d+)/);
+    return match ? parseInt(match[1]) * 60 : 0;
+}
+
+function stepsToLevels(steps: EscalationStep[], roleNameMap?: Map<string, string>): EscalationLevel[] {
+    return [...steps]
+        .sort((a, b) => a.step_order - b.step_order)
+        .map(s => ({
+            level: s.step_order,
+            target: s.target_role_name || s.target_user_name || (roleNameMap?.get(s.target_role_id) ?? ''),
+            target_role_id: s.target_role_id || '',
+            delay: secondsToDelay(s.timeout_seconds),
+            stepId: s.id,
+        }));
+}
+
 function extractDepartmentNames(raw: unknown): string[] {
     const list = Array.isArray(raw)
         ? raw
@@ -88,7 +135,9 @@ function extractDepartmentNames(raw: unknown): string[] {
 
 export default function EscalationAlertSettings() {
     const [roles, setRoles] = useState<Role[]>([]);
+    const [policies, setPolicies] = useState<Policy[]>([]);
     const [departments, setDepartments] = useState<string[]>([]);
+    const [deptIdMap, setDeptIdMap] = useState<Map<string, string>>(new Map());
     const [loading, setLoading] = useState(true);
     const [selectedChainKey, setSelectedChainKey] = useState<string | null>(null);
     const [search, setSearch] = useState('');
@@ -106,12 +155,15 @@ export default function EscalationAlertSettings() {
     ]);
 
     // Edit modal
+    const [editPolicyId, setEditPolicyId] = useState<string | null>(null);
     const [editRole, setEditRole] = useState<Role | null>(null);
     const [editStep, setEditStep] = useState(0);
     const [editName, setEditName] = useState('');
     const [editDesc, setEditDesc] = useState('');
     const [editLevels, setEditLevels] = useState<EscalationLevel[]>([]);
     const [editSaving, setEditSaving] = useState(false);
+
+    const closeEditModal = () => { setEditPolicyId(null); setEditRole(null); };
 
     // Delete confirm
     const [confirmDelete, setConfirmDelete] = useState<ChainGroup | null>(null);
@@ -120,20 +172,44 @@ export default function EscalationAlertSettings() {
 
     const fetchData = useCallback(async () => {
         try {
-            const [rolesRes, deptsRes] = await Promise.all([
+            const [rolesRes, deptsRes, policiesRes] = await Promise.all([
                 fetch('/api/proxy/roles'),
                 fetch('/api/proxy/departments'),
+                fetch('/api/proxy/escalation-policies'),
             ]);
-            if (rolesRes.ok) {
-                const data = await rolesRes.json();
-                setRoles(data.map((r: Role) => normalizeRoleForUi({
-                    ...r,
-                    escalation_levels: r.escalation_levels?.length ? r.escalation_levels : [],
-                })));
-            }
+            // Build department ID → name map
+            let deptMap = new Map<string, string>();
             if (deptsRes.ok) {
                 const depts = await deptsRes.json();
                 setDepartments(extractDepartmentNames(depts));
+                const list = Array.isArray(depts) ? depts : (depts?.items || depts?.data || depts?.departments || []);
+                const nameToId = new Map<string, string>();
+                if (Array.isArray(list)) {
+                    for (const d of list) {
+                        if (d && typeof d === 'object' && d.id) {
+                            const name = d.name || d.department_name || '';
+                            if (name) {
+                                deptMap.set(d.id, name);
+                                nameToId.set(name, d.id);
+                            }
+                        }
+                    }
+                }
+                setDeptIdMap(nameToId);
+            }
+            if (rolesRes.ok) {
+                const data = await rolesRes.json();
+                const rolesArr = Array.isArray(data) ? data : [];
+                setRoles(rolesArr.map((r: Role & { department_id?: string }) => normalizeRoleForUi({
+                    ...r,
+                    department: r.department || (r.department_id ? deptMap.get(r.department_id) || '' : ''),
+                    escalation_levels: r.escalation_levels?.length ? r.escalation_levels : [],
+                })));
+            }
+            if (policiesRes.ok) {
+                const pData = await policiesRes.json();
+                const policiesArr = Array.isArray(pData) ? pData : [];
+                setPolicies(policiesArr);
             }
         } catch { showToast('Failed to load data'); }
         setLoading(false);
@@ -141,45 +217,38 @@ export default function EscalationAlertSettings() {
 
     useEffect(() => { fetchData(); }, [fetchData]);
 
-    // Only show Critical/mandatory roles that have escalation chains
-    const criticalRoles = useMemo(() =>
-        roles.filter(r => r.priority === 'Critical' && r.mandatory && r.escalation_levels.length > 0),
-    [roles]);
-
-    // Group roles by their escalation chain signature (same targets+delays = same chain)
+    // Build display rows from escalation policies (one policy = one row)
     const chainGroups = useMemo(() => {
-        const groups = new Map<string, ChainGroup>();
-        for (const role of criticalRoles) {
-            const sorted = [...role.escalation_levels].sort((a, b) => a.level - b.level);
-            const key = sorted.map(l => `${l.target}|${l.delay}`).join('::');
-            if (!groups.has(key)) {
-                // Try to match to a known template by role names
-                const targetNames = sorted.map(l => l.target).filter(Boolean);
-                const matchedTemplate = escalationTemplates.find(t =>
-                    t.roleNames.length === targetNames.length &&
-                    t.roleNames.every((name, idx) => name === targetNames[idx])
-                );
-                const chainName = matchedTemplate?.name || targetNames.join(' \u2192 ') || 'Unnamed Chain';
-                const description = matchedTemplate?.description || `${targetNames.length} step escalation chain`;
-                groups.set(key, {
-                    key,
-                    chainName,
-                    description,
-                    levels: sorted,
-                    roles: [],
-                    department: role.department || '',
-                    enabled: role.enabled,
-                    primaryRoleId: role.id,
-                });
-            }
-            groups.get(key)!.roles.push(role);
-        }
-        return Array.from(groups.values());
-    }, [criticalRoles]);
+        const roleMap = new Map(roles.map(r => [r.id, r]));
+        const roleNameMap = new Map(roles.map(r => [r.id, r.name]));
+        return policies.map(p => {
+            const role = roleMap.get(p.role_id);
+            const levels = stepsToLevels(p.steps || [], roleNameMap);
+            const targetNames = levels.map(l => l.target).filter(Boolean);
+            const matchedTemplate = escalationTemplates.find(t =>
+                t.roleNames.length === targetNames.length &&
+                t.roleNames.every((name, idx) => name === targetNames[idx])
+            );
+            const chainName = matchedTemplate?.name || role?.name || targetNames.join(' \u2192 ') || 'Unnamed Policy';
+            const description = matchedTemplate?.description || role?.description || `${levels.length} step escalation chain`;
+            return {
+                key: p.id,
+                chainName,
+                description,
+                levels,
+                roles: role ? [role] : [],
+                department: role?.department || '',
+                enabled: role?.enabled ?? true,
+                primaryRoleId: p.role_id,
+                policyId: p.id,
+                initial_timeout_seconds: p.initial_timeout_seconds,
+            } as ChainGroup;
+        });
+    }, [policies, roles]);
 
-    // All roles with their details for target selection
+    // All roles with their details for target selection (includes ID for API calls)
     const allRolesForSelect = useMemo(() =>
-        roles.map(r => ({ name: r.name, description: r.description, department: r.department })).sort((a, b) => a.name.localeCompare(b.name)),
+        roles.map(r => ({ id: r.id, name: r.name, description: r.description, department: r.department })).sort((a, b) => a.name.localeCompare(b.name)),
     [roles]);
 
     // Departments for the create form (from DB, not from existing roles)
@@ -202,63 +271,113 @@ export default function EscalationAlertSettings() {
     const handleCreate = async () => {
         if (!newName.trim()) return;
         try {
-            const res = await fetch('/api/proxy/roles', {
+            // 1. Create the role with Critical priority
+            const roleRes = await fetch('/api/proxy/roles', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     name: newName.trim(),
                     description: newDesc.trim(),
-                    department: newDept,
-                    mandatory: true,
-                    priority: 'Critical',
-                    escalation_levels: newLevels,
+                    department_id: deptIdMap.get(newDept) || undefined,
+                    priority: 'critical',
                 }),
             });
-            if (res.ok) {
-                const role = await res.json();
-                setRoles(prev => [...prev, normalizeRoleForUi({ ...role, escalation_levels: role.escalation_levels || newLevels })]);
-                showToast(`"${newName}" created`);
-                resetCreate();
+            if (!roleRes.ok) { showToast('Failed to create role'); return; }
+            const role = await roleRes.json();
+
+            // 2. Create escalation policy for the role
+            const policyRes = await fetch('/api/proxy/escalation-policies', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    role_id: role.id,
+                    initial_timeout_seconds: Math.max(30, delayToSeconds(newLevels[0]?.delay || '3 min')),
+                }),
+            });
+            if (!policyRes.ok) { showToast('Failed to create escalation policy'); return; }
+            const policy = await policyRes.json();
+
+            // 3. Bulk add escalation steps
+            const steps = newLevels
+                .filter(l => l.target)
+                .map(l => ({
+                    target_role_id: l.target_role_id || allRolesForSelect.find(r => r.name === l.target)?.id || '',
+                    timeout_seconds: Math.max(30, delayToSeconds(l.delay)),
+                }));
+            if (steps.length > 0) {
+                await fetch(`/api/proxy/escalation-policies/${policy.id}/steps/bulk`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ steps }),
+                });
             }
+
+            showToast(`"${newName}" created`);
+            resetCreate();
+            fetchData();
         } catch { showToast('Failed to create escalation'); }
     };
 
     // --- Edit ---
     const openEditChain = (chain: ChainGroup) => {
-        const primary = chain.roles[0];
+        const primary = chain.roles[0] || null;
+        setEditPolicyId(chain.policyId);
         setEditRole(primary); setEditStep(0);
         setEditName(chain.chainName); setEditDesc(chain.description);
         setEditLevels(chain.levels.map(l => ({ ...l })));
     };
 
     const handleSaveEdit = async () => {
-        if (!editRole || !editName.trim()) return;
+        if (!editPolicyId || !editName.trim()) return;
         setEditSaving(true);
         try {
-            const res = await fetch(`/api/proxy/roles/${editRole.id}`, {
+            // 1. Update policy initial timeout
+            await fetch(`/api/proxy/escalation-policies/${editPolicyId}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    name: editName.trim(),
-                    description: editDesc.trim(),
-                    department: editRole.department,
-                    mandatory: true,
-                    priority: 'Critical',
-                    enabled: editRole.enabled,
-                    visible_in_directory: true,
-                    escalation_routing: [],
-                    escalation_levels: editLevels,
+                    initial_timeout_seconds: Math.max(30, delayToSeconds(editLevels[0]?.delay || '3 min')),
                 }),
             });
-            if (res.ok) {
-                const updated = await res.json();
-                setRoles(prev => prev.map(r => r.id === editRole.id ? {
-                    ...normalizeRoleForUi({ ...r, ...updated }),
-                    escalation_levels: updated.escalation_levels?.length ? updated.escalation_levels : editLevels,
-                } : r));
-                showToast(`"${editName}" updated`);
-                setEditRole(null);
+
+            // 2. Delete existing steps
+            const existing = policies.find(p => p.id === editPolicyId);
+            if (existing?.steps) {
+                for (const step of existing.steps) {
+                    await fetch(`/api/proxy/escalation-policies/${editPolicyId}/steps/${step.id}`, { method: 'DELETE' });
+                }
             }
+
+            // 3. Bulk add new steps
+            const steps = editLevels
+                .filter(l => l.target)
+                .map(l => ({
+                    target_role_id: l.target_role_id || allRolesForSelect.find(r => r.name === l.target)?.id || '',
+                    timeout_seconds: Math.max(30, delayToSeconds(l.delay)),
+                }));
+            if (steps.length > 0) {
+                await fetch(`/api/proxy/escalation-policies/${editPolicyId}/steps/bulk`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ steps }),
+                });
+            }
+
+            // 4. Update associated role name/description
+            if (editRole) {
+                await fetch(`/api/proxy/roles/${editRole.id}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        name: editName.trim(),
+                        description: editDesc.trim(),
+                    }),
+                });
+            }
+
+            showToast(`"${editName}" updated`);
+            closeEditModal();
+            fetchData();
         } catch { showToast('Failed to save changes'); }
         setEditSaving(false);
     };
@@ -266,14 +385,12 @@ export default function EscalationAlertSettings() {
     // --- Delete ---
     const handleDeleteChain = async (chain: ChainGroup) => {
         try {
-            // Delete all roles in this chain group
-            const ids = chain.roles.map(r => r.id);
-            for (const id of ids) {
-                await fetch(`/api/proxy/roles/${id}`, { method: 'DELETE' });
-            }
-            setRoles(prev => prev.filter(r => !ids.includes(r.id)));
+            // Delete the escalation policy (cascades to all steps)
+            const res = await fetch(`/api/proxy/escalation-policies/${chain.policyId}`, { method: 'DELETE' });
+            if (!res.ok) { showToast('Failed to delete policy'); setConfirmDelete(null); return; }
             if (selectedChainKey === chain.key) setSelectedChainKey(null);
-            showToast(`"${chain.chainName}" deleted (${ids.length} role${ids.length > 1 ? 's' : ''})`);
+            showToast(`"${chain.chainName}" deleted`);
+            fetchData();
         } catch { showToast('Failed to delete'); }
         setConfirmDelete(null);
     };
@@ -331,7 +448,7 @@ export default function EscalationAlertSettings() {
                                                 <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>{lvl.target}</div>
                                                 {(() => { const r = allRolesForSelect.find(r => r.name === lvl.target); return r?.description ? <div style={{ fontSize: 11, color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.description}</div> : null; })()}
                                             </div>
-                                            <button type="button" onClick={() => { const u = levels.map(l => l.level === lvl.level ? { ...l, target: '' } : l); setLevels(u); }} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2, display: 'inline-flex', color: 'var(--text-muted)' }} title="Change role">
+                                            <button type="button" onClick={() => { const u = levels.map(l => l.level === lvl.level ? { ...l, target: '', target_role_id: undefined } : l); setLevels(u); }} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2, display: 'inline-flex', color: 'var(--text-muted)' }} title="Change role">
                                                 <span className="material-icons-round" style={{ fontSize: 14 }}>swap_horiz</span>
                                             </button>
                                         </div>
@@ -340,7 +457,7 @@ export default function EscalationAlertSettings() {
                                             {available.length === 0 ? (
                                                 <div style={{ padding: '12px', textAlign: 'center', fontSize: 12, color: 'var(--text-muted)' }}>No more roles available</div>
                                             ) : available.map(r => (
-                                                <button key={r.name} type="button" onClick={() => { const u = levels.map(l => l.level === lvl.level ? { ...l, target: r.name } : l); setLevels(u); }}
+                                                <button key={r.name} type="button" onClick={() => { const u = levels.map(l => l.level === lvl.level ? { ...l, target: r.name, target_role_id: r.id } : l); setLevels(u); }}
                                                     style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 10px', borderRadius: 'var(--radius-sm)', background: 'transparent', border: '1px solid transparent', cursor: 'pointer', textAlign: 'left', transition: 'all 0.12s', width: '100%' }}
                                                     onMouseEnter={e => { e.currentTarget.style.background = 'var(--surface-2)'; e.currentTarget.style.borderColor = 'var(--border-subtle)'; }}
                                                     onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.borderColor = 'transparent'; }}
@@ -502,8 +619,8 @@ export default function EscalationAlertSettings() {
             )}
 
             {/* Edit Modal */}
-            {editRole && (
-                <div style={{ position: 'fixed', inset: 0, zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.4)' }} onClick={() => setEditRole(null)}>
+            {editPolicyId && (
+                <div style={{ position: 'fixed', inset: 0, zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.4)' }} onClick={closeEditModal}>
                     <div className="fade-in card" style={{ width: 560, maxHeight: '85vh', overflow: 'auto', padding: '28px', boxShadow: '0 8px 32px rgba(0,0,0,0.18)' }} onClick={e => e.stopPropagation()}>
                         <h3 style={{ fontSize: 16, marginBottom: 16 }}>Edit Escalation Chain</h3>
 
@@ -530,7 +647,7 @@ export default function EscalationAlertSettings() {
                                     </div>
                                 </div>
                                 <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 18 }}>
-                                    <button className="btn btn-secondary btn-sm" onClick={() => setEditRole(null)}>Cancel</button>
+                                    <button className="btn btn-secondary btn-sm" onClick={closeEditModal}>Cancel</button>
                                     <button className="btn btn-primary btn-sm" onClick={() => setEditStep(1)} disabled={!editName.trim()}>
                                         Next: Levels <span className="material-icons-round" style={{ fontSize: 14 }}>arrow_forward</span>
                                     </button>
@@ -575,7 +692,7 @@ export default function EscalationAlertSettings() {
                     <div className="fade-in card" style={{ width: 400, padding: '24px 28px', boxShadow: '0 8px 32px rgba(0,0,0,0.18)' }} onClick={e => e.stopPropagation()}>
                         <h3 style={{ fontSize: 16, marginBottom: 8 }}>Delete Escalation Chain</h3>
                         <p style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 20, lineHeight: 1.5 }}>
-                            Are you sure you want to delete <strong style={{ color: 'var(--text-primary)' }}>{confirmDelete.chainName}</strong>? This will remove {confirmDelete.roles.length} associated role{confirmDelete.roles.length > 1 ? 's' : ''} and the escalation chain. This action cannot be undone.
+                            Are you sure you want to delete <strong style={{ color: 'var(--text-primary)' }}>{confirmDelete.chainName}</strong>? This will remove the escalation policy and all its steps. This action cannot be undone.
                         </p>
                         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
                             <button className="btn btn-secondary btn-sm" onClick={() => setConfirmDelete(null)}>Cancel</button>

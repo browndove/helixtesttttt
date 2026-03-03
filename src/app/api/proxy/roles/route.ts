@@ -17,30 +17,48 @@ type IncomingRoleBody = {
 };
 
 async function resolveDepartmentIdByName(req: NextRequest, facilityId: string, departmentName?: string): Promise<string | undefined> {
-    if (!departmentName?.trim()) return undefined;
+    if (!departmentName?.trim()) {
+        console.log('[resolveDept] No department name provided');
+        return undefined;
+    }
 
     try {
         const url = new URL(`${API_BASE_URL}/api/v1/departments`);
         url.searchParams.set('facility_id', facilityId);
 
+        console.log('[resolveDept] Fetching departments from:', url.toString());
+
         const res = await fetch(url.toString(), {
             method: 'GET',
             headers: getProxyHeaders(req),
         });
-        if (!res.ok) return undefined;
+        if (!res.ok) {
+            console.log('[resolveDept] Backend returned status:', res.status);
+            return undefined;
+        }
 
         const data: unknown = await res.json();
-        if (!Array.isArray(data)) return undefined;
+        console.log('[resolveDept] Raw departments response:', JSON.stringify(data).substring(0, 500));
+
+        if (!Array.isArray(data)) {
+            console.log('[resolveDept] Response is not an array');
+            return undefined;
+        }
 
         const normalizedName = departmentName.trim().toLowerCase();
+        console.log('[resolveDept] Looking for department:', normalizedName, 'in', data.length, 'departments');
+
         const matched = data.find((item: unknown) => {
             if (!item || typeof item !== 'object') return false;
-            const rec = item as { name?: string };
-            return typeof rec.name === 'string' && rec.name.trim().toLowerCase() === normalizedName;
+            const rec = item as { name?: string; department_name?: string };
+            const itemName = rec.name || rec.department_name || '';
+            return itemName.trim().toLowerCase() === normalizedName;
         }) as { id?: string } | undefined;
 
+        console.log('[resolveDept] Matched:', matched ? JSON.stringify(matched).substring(0, 200) : 'none');
         return matched?.id;
-    } catch {
+    } catch (err) {
+        console.error('[resolveDept] Error:', err);
         return undefined;
     }
 }
@@ -103,11 +121,14 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
     try {
         const body = await req.json() as IncomingRoleBody;
+        console.log('[createRole] Incoming body:', JSON.stringify({ name: body.name, department: body.department, department_id: body.department_id, facility_id: body.facility_id }));
         const facilityId = body.facility_id || body.facilityId || await resolveFacilityId(req, API_BASE_URL);
+        console.log('[createRole] Resolved facilityId:', facilityId);
         const departmentIdFromBody = body.department_id || body.departmentId;
         const departmentId = facilityId
             ? (departmentIdFromBody || await resolveDepartmentIdByName(req, facilityId, body.department))
             : departmentIdFromBody;
+        console.log('[createRole] Resolved departmentId:', departmentId);
         const payload = {
             name: body.name,
             description: body.description || '',
@@ -117,7 +138,7 @@ export async function POST(req: NextRequest) {
         };
         const url = `${API_BASE_URL}/api/v1/roles`;
 
-        console.log('Proxy create role request to:', url);
+        console.log('[createRole] Final payload:', JSON.stringify(payload));
 
         const res = await fetch(url, {
             method: 'POST',

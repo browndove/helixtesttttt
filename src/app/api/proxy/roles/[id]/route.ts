@@ -66,7 +66,10 @@ export async function PUT(
     try {
         const { id } = await params;
         const body = await req.json() as RoleUpdateBody;
-        const payload: RoleUpdateBody = { ...body };
+        // Backend only accepts: name, description, priority
+        const payload: Record<string, unknown> = {};
+        if (body.name !== undefined) payload.name = body.name;
+        if (body.description !== undefined) payload.description = body.description;
         if (Object.prototype.hasOwnProperty.call(body, 'mandatory') || Object.prototype.hasOwnProperty.call(body, 'priority')) {
             payload.priority = resolvePriority(body);
         }

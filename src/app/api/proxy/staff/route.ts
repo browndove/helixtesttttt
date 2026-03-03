@@ -62,6 +62,7 @@ export async function GET(req: NextRequest) {
         const { searchParams } = new URL(req.url);
         const url = new URL(`${API_BASE_URL}/api/v1/staff`);
         const facilityId = searchParams.get('facility_id') || await resolveFacilityId(req, API_BASE_URL);
+        console.log('[listStaff] Resolved facilityId:', facilityId);
         if (facilityId) url.searchParams.set('facility_id', facilityId);
 
         // Forward all supported query params
@@ -71,7 +72,7 @@ export async function GET(req: NextRequest) {
             if (value) url.searchParams.set(param, value);
         });
 
-        console.log('Proxy list staff request to:', url.toString());
+        console.log('[listStaff] Request to:', url.toString());
 
         const res = await fetch(url.toString(), {
             method: 'GET',

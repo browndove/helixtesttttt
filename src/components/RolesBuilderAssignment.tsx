@@ -11,6 +11,44 @@ type EscalationLevel = {
     delay: string;
 };
 
+type EscalationStep = {
+    id: string;
+    step_order: number;
+    target_role_id: string;
+    target_role_name?: string;
+    target_user_id?: string | null;
+    timeout_seconds: number;
+};
+
+type Policy = {
+    id: string;
+    role_id: string;
+    initial_timeout_seconds: number;
+    steps: EscalationStep[];
+};
+
+function delayToSeconds(d: string): number {
+    const match = d.match(/(\d+)/);
+    return match ? parseInt(match[1]) * 60 : 0;
+}
+
+function secondsToDelay(s: number): string {
+    if (s <= 0) return '0 min';
+    if (s < 60) return `${s} sec`;
+    return `${Math.round(s / 60)} min`;
+}
+
+function stepsToLevels(steps: EscalationStep[], roleNameMap?: Map<string, string>): EscalationLevel[] {
+    return steps
+        .slice()
+        .sort((a, b) => a.step_order - b.step_order)
+        .map((s, i) => ({
+            level: i + 1,
+            target: s.target_role_name || (roleNameMap?.get(s.target_role_id) ?? ''),
+            delay: secondsToDelay(s.timeout_seconds),
+        }));
+}
+
 type RoutingRule = {
     id: string;
     label: string;
@@ -32,8 +70,9 @@ type Role = {
 };
 
 function normalizeRoleForUi<T extends Role>(role: T): T {
-    const mandatory = Boolean(role.mandatory);
-    const priority = mandatory ? 'Critical' : 'Standard';
+    const isCritical = role.priority?.toString().trim().toLowerCase() === 'critical';
+    const priority = isCritical ? 'Critical' : 'Standard';
+    const mandatory = isCritical;
     return {
         ...role,
         mandatory,
@@ -190,7 +229,9 @@ function extractDepartmentNames(raw: unknown): string[] {
 
 export default function RolesBuilderAssignment() {
     const [roles, setRoles] = useState<Role[]>([]);
+    const [policies, setPolicies] = useState<Policy[]>([]);
     const [departments, setDepartments] = useState<string[]>([]);
+    const [deptIdMap, setDeptIdMap] = useState<Map<string, string>>(new Map());
     const [toast, setToast] = useState<string | null>(null);
     const [search, setSearch] = useState('');
     const [loading, setLoading] = useState(true);
@@ -206,8 +247,8 @@ export default function RolesBuilderAssignment() {
     const [newRoleDesc, setNewRoleDesc] = useState('');
     const [newRoleDept, setNewRoleDept] = useState('');
     const [newRoleMandatory, setNewRoleMandatory] = useState(false);
-    const [newRouting, setNewRouting] = useState<RoutingRule[]>(defaultRoutingRules.map(r => ({ ...r })));
-    const [newEscLevels, setNewEscLevels] = useState<EscalationLevel[]>(defaultEscalationLevels.map(l => ({ ...l })));
+    const [newRouting, setNewRouting] = useState<RoutingRule[]>([]);
+    const [newEscLevels, setNewEscLevels] = useState<EscalationLevel[]>([]);
 
     // Edit modal state
     const [editingRole, setEditingRole] = useState<Role | null>(null);
@@ -255,21 +296,55 @@ export default function RolesBuilderAssignment() {
 
     const fetchData = useCallback(async () => {
         try {
-            const [rolesRes, deptsRes] = await Promise.all([
+            const [rolesRes, deptsRes, policiesRes] = await Promise.all([
                 fetch('/api/proxy/roles'),
                 fetch('/api/proxy/departments'),
+                fetch('/api/proxy/escalation-policies'),
             ]);
-            if (rolesRes.ok) {
-                const data = await rolesRes.json();
-                setRoles(data.map((r: Role) => normalizeRoleForUi({
-                    ...r,
-                    escalation_routing: r.escalation_routing?.length ? r.escalation_routing : defaultRoutingRules,
-                    escalation_levels: r.escalation_levels?.length ? r.escalation_levels : defaultEscalationLevels,
-                })));
-            }
+            // Build department ID → name map
+            let deptMap = new Map<string, string>();
             if (deptsRes.ok) {
                 const depts = await deptsRes.json();
                 setDepartments(extractDepartmentNames(depts));
+                const list = Array.isArray(depts) ? depts : (depts?.items || depts?.data || depts?.departments || []);
+                const nameToId = new Map<string, string>();
+                if (Array.isArray(list)) {
+                    for (const d of list) {
+                        if (d && typeof d === 'object' && d.id) {
+                            const name = d.name || d.department_name || '';
+                            if (name) {
+                                deptMap.set(d.id, name);
+                                nameToId.set(name, d.id);
+                            }
+                        }
+                    }
+                }
+                setDeptIdMap(nameToId);
+            }
+            // Fetch policies
+            let policiesArr: Policy[] = [];
+            if (policiesRes.ok) {
+                const pData = await policiesRes.json();
+                policiesArr = Array.isArray(pData) ? pData : [];
+                setPolicies(policiesArr);
+            }
+            if (rolesRes.ok) {
+                const data = await rolesRes.json();
+                const rolesArr = Array.isArray(data) ? data : [];
+                // Build role ID → name map for step name resolution
+                const roleNameMap = new Map(rolesArr.map((r: Role) => [r.id, r.name]));
+                // Build role_id → policy map
+                const policyByRole = new Map(policiesArr.map(p => [p.role_id, p]));
+                setRoles(rolesArr.map((r: Role & { department_id?: string }) => {
+                    const policy = policyByRole.get(r.id);
+                    const policyLevels = policy ? stepsToLevels(policy.steps || [], roleNameMap) : [];
+                    return normalizeRoleForUi({
+                        ...r,
+                        department: r.department || (r.department_id ? deptMap.get(r.department_id) || '' : ''),
+                        escalation_routing: r.escalation_routing || [],
+                        escalation_levels: policyLevels,
+                    });
+                }));
             }
         } catch { showToast('Failed to load data'); }
         setLoading(false);
@@ -292,8 +367,8 @@ export default function RolesBuilderAssignment() {
         setNewRoleDesc('');
         setNewRoleDept('');
         setNewRoleMandatory(false);
-        setNewRouting(defaultRoutingRules.map(r => ({ ...r })));
-        setNewEscLevels(defaultEscalationLevels.map(l => ({ ...l })));
+        setNewRouting([]);
+        setNewEscLevels([]);
         setAddStep(0);
         setShowAddForm(false);
     };
@@ -320,38 +395,64 @@ export default function RolesBuilderAssignment() {
             const existingNames = new Set(roles.map(r => r.name.toLowerCase()));
             const createdRoles: Role[] = [];
             const skippedNames: string[] = [];
+
+            // 1. Create all roles with Critical priority
             for (const tr of selectedTemplate.roles) {
                 if (existingNames.has(tr.name.toLowerCase())) {
                     skippedNames.push(tr.name);
                     continue;
                 }
-                const escalationLevels: EscalationLevel[] = selectedTemplate.roles.map((r, idx) => ({
-                    level: idx + 1,
-                    target: r.name,
-                    delay: r.delay,
-                }));
                 const res = await fetch('/api/proxy/roles', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         name: tr.name,
                         description: tr.description,
-                        department: templateDept,
-                        mandatory: true,
-                        priority: 'Critical',
-                        escalation_routing: defaultRoutingRules,
-                        escalation_levels: escalationLevels,
+                        department_id: deptIdMap.get(templateDept) || undefined,
+                        priority: 'critical',
                     }),
                 });
                 if (res.ok) {
                     const role = await res.json();
                     createdRoles.push({
                         ...normalizeRoleForUi(role),
-                        escalation_routing: role.escalation_routing?.length ? role.escalation_routing : defaultRoutingRules,
-                        escalation_levels: role.escalation_levels?.length ? role.escalation_levels : escalationLevels,
+                        escalation_routing: [],
+                        escalation_levels: [],
                     });
                 }
             }
+
+            // 2. Create escalation policy for the first role and add steps
+            if (createdRoles.length > 0) {
+                const policyRes = await fetch('/api/proxy/escalation-policies', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        role_id: createdRoles[0].id,
+                        initial_timeout_seconds: Math.max(30, delayToSeconds(selectedTemplate.roles[0]?.delay || '3 min')),
+                    }),
+                });
+                if (policyRes.ok) {
+                    const policy = await policyRes.json();
+                    // Build steps: for each template role, find the created or existing role ID
+                    const steps = selectedTemplate.roles
+                        .map(tr => {
+                            const created = createdRoles.find(r => r.name.toLowerCase() === tr.name.toLowerCase());
+                            const existing = roles.find(r => r.name.toLowerCase() === tr.name.toLowerCase());
+                            const roleId = created?.id || existing?.id;
+                            return roleId ? { target_role_id: roleId, timeout_seconds: Math.max(30, delayToSeconds(tr.delay)) } : null;
+                        })
+                        .filter(Boolean);
+                    if (steps.length > 0) {
+                        await fetch(`/api/proxy/escalation-policies/${policy.id}/steps/bulk`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ steps }),
+                        });
+                    }
+                }
+            }
+
             setRoles(prev => [...prev, ...createdRoles]);
             if (skippedNames.length > 0 && createdRoles.length > 0) {
                 showToast(`${createdRoles.length} created, ${skippedNames.length} skipped (already exist)`);
@@ -374,11 +475,8 @@ export default function RolesBuilderAssignment() {
                 body: JSON.stringify({
                     name: newRoleName.trim(),
                     description: newRoleDesc.trim(),
-                    department: newRoleDept,
-                    mandatory: newRoleMandatory,
-                    priority: newRoleMandatory ? 'Critical' : 'Standard',
-                    escalation_routing: newRouting,
-                    escalation_levels: newEscLevels,
+                    department_id: deptIdMap.get(newRoleDept) || undefined,
+                    priority: newRoleMandatory ? 'critical' : 'standard',
                 }),
             });
             if (res.ok) {
@@ -406,22 +504,30 @@ export default function RolesBuilderAssignment() {
     };
 
     const handleToggleMandatory = async (role: Role) => {
+        const newMandatory = !role.mandatory;
+        // Optimistic update
+        setRoles(prev => prev.map(r => r.id === role.id ? normalizeRoleForUi({ ...r, mandatory: newMandatory }) : r));
         try {
-            const newMandatory = !role.mandatory;
             const res = await fetch(`/api/proxy/roles/${role.id}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ 
-                    ...role, 
-                    mandatory: newMandatory,
-                    priority: newMandatory ? 'Critical' : 'Standard'
+                body: JSON.stringify({
+                    priority: newMandatory ? 'critical' : 'standard',
                 }),
             });
             if (res.ok) {
                 const updated = await res.json();
                 setRoles(prev => prev.map(r => r.id === role.id ? normalizeRoleForUi({ ...r, ...updated }) : r));
+            } else {
+                // Rollback on failure
+                setRoles(prev => prev.map(r => r.id === role.id ? normalizeRoleForUi({ ...r, mandatory: role.mandatory }) : r));
+                showToast('Failed to update role');
             }
-        } catch { showToast('Failed to update role'); }
+        } catch {
+            // Rollback on error
+            setRoles(prev => prev.map(r => r.id === role.id ? normalizeRoleForUi({ ...r, mandatory: role.mandatory }) : r));
+            showToast('Failed to update role');
+        }
     };
 
     const openEditModal = (role: Role) => {
@@ -433,8 +539,8 @@ export default function RolesBuilderAssignment() {
         setEditMandatory(Boolean(role.mandatory));
         setEditEnabled(role.enabled ?? true);
         setEditVisible(role.visible_in_directory ?? true);
-        setEditRouting((role.escalation_routing || defaultRoutingRules).map(r => ({ ...r })));
-        setEditEscLevels((role.escalation_levels || defaultEscalationLevels).map(l => ({ ...l })));
+        setEditRouting((role.escalation_routing || []).map(r => ({ ...r })));
+        setEditEscLevels((role.escalation_levels || []).map(l => ({ ...l })));
     };
 
     const handleSaveEdit = async () => {
@@ -447,13 +553,7 @@ export default function RolesBuilderAssignment() {
                 body: JSON.stringify({
                     name: editName.trim(),
                     description: editDesc.trim(),
-                    department: editDept,
-                    mandatory: editMandatory,
-                    priority: editMandatory ? 'Critical' : 'Standard',
-                    enabled: editEnabled,
-                    visible_in_directory: editVisible,
-                    escalation_routing: editRouting,
-                    escalation_levels: editEscLevels,
+                    priority: editMandatory ? 'critical' : 'standard',
                 }),
             });
             if (res.ok) {
@@ -1051,9 +1151,13 @@ export default function RolesBuilderAssignment() {
                                                     </td>
                                                     <td style={{ padding: '12px 16px', textAlign: 'center' }}>
                                                         {role.priority === 'Critical' ? (
-                                                            <span className="badge badge-info" style={{ fontSize: 10 }}>
-                                                                {activeRules}/{totalRules} rules
-                                                            </span>
+                                                            role.escalation_levels?.length > 0 ? (
+                                                                <span className="badge badge-info" style={{ fontSize: 10 }}>
+                                                                    {role.escalation_levels.length} steps
+                                                                </span>
+                                                            ) : (
+                                                                <span style={{ fontSize: 11, color: 'var(--text-disabled)' }}>No policy</span>
+                                                            )
                                                         ) : (
                                                             <span style={{ fontSize: 11, color: 'var(--text-disabled)' }}>N/A</span>
                                                         )}
@@ -1164,8 +1268,17 @@ export default function RolesBuilderAssignment() {
                                         allChains.push({ source: r.name, sourceId: r.id, levels: levels.slice().sort((a, b) => a.level - b.level) });
                                     }
                                     if (allChains.length === 0) {
-                                        const fallback = selectedRole.escalation_levels?.length ? selectedRole.escalation_levels : defaultEscalationLevels;
-                                        allChains.push({ source: selectedRole.name, sourceId: selectedRole.id, levels: fallback.slice().sort((a, b) => a.level - b.level) });
+                                        if (selectedRole.escalation_levels?.length) {
+                                            allChains.push({ source: selectedRole.name, sourceId: selectedRole.id, levels: selectedRole.escalation_levels.slice().sort((a, b) => a.level - b.level) });
+                                        } else {
+                                            return (
+                                                <div className="card" style={{ padding: '24px 20px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', background: 'var(--surface-2)', border: '1px dashed var(--border-subtle)', boxShadow: 'none' }}>
+                                                    <span className="material-icons-round" style={{ fontSize: 28, color: 'var(--text-disabled)', marginBottom: 10 }}>link_off</span>
+                                                    <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)' }}>No Escalation Policy</div>
+                                                    <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4, maxWidth: 220, lineHeight: 1.4 }}>This role has no escalation policy configured yet. Create one in the Escalation Config page.</div>
+                                                </div>
+                                            );
+                                        }
                                     }
                                     // Separate own chain from others
                                     const ownIdx = allChains.findIndex(c => c.sourceId === selectedRole.id);
