@@ -385,15 +385,27 @@ export default function StaffDirectoryManagement() {
                                         ))}
                                     </div>
 
-                                    {/* Patient Access - distinct styled row */}
-                                    <div style={{ marginTop: 6, padding: '10px 12px', borderRadius: 'var(--radius-md)', background: selected.patient_access ? 'rgba(34,139,34,0.05)' : 'rgba(120,120,120,0.04)', border: `1px solid ${selected.patient_access ? 'rgba(34,139,34,0.15)' : 'rgba(120,120,120,0.12)'}` }}>
+                                    {/* Patient Access - toggleable */}
+                                    <div style={{ marginTop: 6, padding: '10px 12px', borderRadius: 'var(--radius-md)', background: selected.patient_access ? 'rgba(34,139,34,0.05)' : 'rgba(120,120,120,0.04)', border: `1px solid ${selected.patient_access ? 'rgba(34,139,34,0.15)' : 'rgba(120,120,120,0.12)'}`, transition: 'all 0.2s' }}>
                                         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                                             <span className="material-icons-round" style={{ fontSize: 18, color: selected.patient_access ? '#2d8a4e' : '#999' }}>{selected.patient_access ? 'verified_user' : 'shield'}</span>
                                             <div style={{ flex: 1 }}>
                                                 <div style={{ fontSize: 12, fontWeight: 600, color: selected.patient_access ? '#2d8a4e' : '#888' }}>Patient Records Access</div>
-                                                <div style={{ fontSize: 10.5, color: 'var(--text-muted)', marginTop: 1 }}>{selected.patient_access ? 'This staff member can view and manage patient records.' : 'No access to patient records.'}</div>
+                                                <div style={{ fontSize: 10.5, color: 'var(--text-muted)', marginTop: 1 }}>{selected.patient_access ? 'Can view and manage patient records.' : 'No access to patient records.'}</div>
                                             </div>
-                                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 8px', borderRadius: 12, fontSize: 10, fontWeight: 700, letterSpacing: '0.03em', background: selected.patient_access ? 'rgba(34,139,34,0.12)' : 'rgba(120,120,120,0.1)', color: selected.patient_access ? '#2d8a4e' : '#888' }}>{selected.patient_access ? 'GRANTED' : 'NONE'}</span>
+                                            <button type="button" onClick={() => {
+                                                const newVal = !selected.patient_access;
+                                                setStaff(prev => prev.map(s => s.id === selected.id ? { ...s, patient_access: newVal } : s));
+                                                setSelected(prev => prev ? { ...prev, patient_access: newVal } : null);
+                                                showToast(`Patient access ${newVal ? 'granted' : 'revoked'} for ${selected.first_name} ${selected.last_name}`);
+                                            }}
+                                                style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 10px', borderRadius: 14, fontSize: 10.5, fontWeight: 700, letterSpacing: '0.03em', cursor: 'pointer', transition: 'all 0.15s', border: `1px solid ${selected.patient_access ? 'rgba(34,139,34,0.25)' : 'rgba(120,120,120,0.2)'}`, background: selected.patient_access ? 'rgba(34,139,34,0.12)' : 'rgba(120,120,120,0.1)', color: selected.patient_access ? '#2d8a4e' : '#888' }}
+                                                onMouseEnter={e => { e.currentTarget.style.opacity = '0.8'; }}
+                                                onMouseLeave={e => { e.currentTarget.style.opacity = '1'; }}
+                                            >
+                                                <span className="material-icons-round" style={{ fontSize: 12 }}>{selected.patient_access ? 'toggle_on' : 'toggle_off'}</span>
+                                                {selected.patient_access ? 'GRANTED' : 'NONE'}
+                                            </button>
                                         </div>
                                     </div>
                                 </div>
