@@ -29,6 +29,8 @@ export const API_ENDPOINTS = {
 
   // Hospital
   HOSPITAL: `/api/proxy/hospital`,
+  FACILITIES: `/api/proxy/facilities`,
+  FACILITY: (id: string) => `/api/proxy/facilities/${id}`,
 
   // Roles
   ROLES: `/api/proxy/roles`,

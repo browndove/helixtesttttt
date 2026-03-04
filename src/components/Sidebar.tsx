@@ -34,8 +34,42 @@ function formatRoleLabel(role?: string): string {
         .join(' ');
 }
 
+function getFacilityNameFromPayload(data: unknown): string | null {
+    if (!data || typeof data !== 'object') return null;
+
+    if (Array.isArray(data)) {
+        const first = data[0];
+        if (first && typeof first === 'object') {
+            const rec = first as Record<string, unknown>;
+            const name = String(rec.name || '').trim();
+            return name || null;
+        }
+        return null;
+    }
+
+    const rec = data as Record<string, unknown>;
+    const directName = String(rec.name || '').trim();
+    if (directName) return directName;
+
+    const nested = rec.data;
+    if (nested && typeof nested === 'object') {
+        const nestedRec = nested as Record<string, unknown>;
+        const nestedName = String(nestedRec.name || '').trim();
+        if (nestedName) return nestedName;
+    }
+
+    const items = rec.items;
+    if (Array.isArray(items) && items[0] && typeof items[0] === 'object') {
+        const first = items[0] as Record<string, unknown>;
+        const name = String(first.name || '').trim();
+        if (name) return name;
+    }
+
+    return null;
+}
+
 export default function Sidebar({
-    hospitalName = 'Accra Medical Center',
+    hospitalName: hospitalNameProp,
     hospitalSubtitle = 'Admin Portal',
     sections,
     footer,
@@ -45,30 +79,67 @@ export default function Sidebar({
     const pathname = usePathname();
     const isSettingsActive = pathname === '/settings';
     const [sessionUser, setSessionUser] = useState<{ name: string; email: string; role: string } | null>(null);
+    const [facilityName, setFacilityName] = useState<string | null>(null);
 
     useEffect(() => {
-        fetch(API_ENDPOINTS.AUTH_ME)
-            .then(r => r.ok ? r.json() : null)
-            .then(data => {
-                const user = data?.user && typeof data.user === 'object' ? data.user : data;
+        let cancelled = false;
+
+        const loadSidebarContext = async () => {
+            try {
+                const meRes = await fetch(API_ENDPOINTS.AUTH_ME);
+                if (!meRes.ok) return;
+                const meData = await meRes.json();
+                const user = meData?.user && typeof meData.user === 'object' ? meData.user : meData;
                 if (!user || typeof user !== 'object') return;
 
                 const firstName = String(user.first_name || '').trim();
                 const lastName = String(user.last_name || '').trim();
                 const fallbackName = `${firstName} ${lastName}`.trim();
                 const name = String(user.name || fallbackName || '').trim();
-                if (!name) return;
 
                 const role = formatRoleLabel(String(user.role || user.system_role || 'Admin'));
-                setSessionUser({
-                    name,
-                    email: String(user.email || ''),
-                    role,
-                });
-            })
-            .catch(() => {});
+                if (!cancelled && name) {
+                    setSessionUser({
+                        name,
+                        email: String(user.email || ''),
+                        role,
+                    });
+                }
+
+                const facilityNameFromUser = String(
+                    user.facility_name
+                    || (user.facility && typeof user.facility === 'object' ? (user.facility as Record<string, unknown>).name : '')
+                    || ''
+                ).trim();
+                if (!cancelled && facilityNameFromUser) {
+                    setFacilityName(facilityNameFromUser);
+                }
+
+                const facilityId = String(
+                    user.facility_id
+                    || user.facilityId
+                    || user.hospital_id
+                    || user.hospitalId
+                    || ''
+                ).trim();
+
+                if (!facilityId) return;
+                const facilityRes = await fetch(API_ENDPOINTS.FACILITY(facilityId));
+                if (facilityRes.ok) {
+                    const facilityData = await facilityRes.json();
+                    const resolvedName = getFacilityNameFromPayload(facilityData);
+                    if (!cancelled && resolvedName) setFacilityName(resolvedName);
+                }
+            } catch {
+                // Best-effort only: keep fallbacks when backend context is unavailable.
+            }
+        };
+
+        loadSidebarContext();
+        return () => { cancelled = true; };
     }, []);
 
+    const hospitalName = facilityName || hospitalNameProp || 'Accra Medical Center';
     const adminName = adminNameProp || sessionUser?.name || 'User';
     const resolvedAdminRole = adminRole || sessionUser?.role || 'Admin';
 

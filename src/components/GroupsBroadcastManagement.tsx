@@ -50,7 +50,7 @@ export default function GroupsBroadcastManagement() {
 
     return (
         <div className="app-shell">
-            <Sidebar hospitalName="Accra Medical Center" hospitalSubtitle="Medical Center" sections={navSections} footer={
+            <Sidebar hospitalSubtitle="Medical Center" sections={navSections} footer={
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <div className="avatar" style={{ background: 'rgba(30,58,95,0.2)', color: 'var(--helix-primary-light)' }}>KA</div>
                     <div><div style={{ fontSize: 13, fontWeight: 600 }}>Kwame Asante</div><div style={{ fontSize: 11, color: 'var(--text-muted)' }}>System Admin</div></div>
