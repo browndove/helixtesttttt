@@ -19,6 +19,23 @@ type StaffMember = {
 };
 
 type SortKey = 'first_name' | 'last_name' | 'employee_id' | 'dept' | 'job_title' | 'status';
+type ImportStatus = 'success' | 'error';
+
+type ImportHistoryEntry = {
+    id: string;
+    file: string;
+    records: number;
+    status: ImportStatus;
+    warnings: number;
+    date: string;
+    user: string;
+};
+
+type BulkUploadSummary = {
+    records: number;
+    warnings: number;
+    message: string;
+};
 
 
 function looksLikeStaffRecord(value: unknown): boolean {
@@ -97,11 +114,65 @@ const statusColors: Record<string, { color: string; bg: string; label: string }>
 };
 
 
-const importHistory = [
+const importHistory: ImportHistoryEntry[] = [
     { id: 'IMP-001', file: 'staff_q4_import.csv', records: 142, status: 'success', warnings: 2, date: 'Nov 12, 2024', user: 'Dr. Kwame Asante' },
     { id: 'IMP-002', file: 'nurses_batch_oct.xlsx', records: 34, status: 'success', warnings: 0, date: 'Oct 28, 2024', user: 'Admin' },
     { id: 'IMP-003', file: 'staff_roles_v2.csv', records: 18, status: 'error', warnings: 0, date: 'Oct 14, 2024', user: 'Admin' },
 ];
+
+function readNumber(value: unknown): number {
+    return typeof value === 'number' && Number.isFinite(value) ? value : 0;
+}
+
+function parseBulkUploadSummary(raw: unknown): BulkUploadSummary {
+    const rec = raw && typeof raw === 'object' ? raw as Record<string, unknown> : {};
+    const records = [
+        rec.records_processed,
+        rec.processed,
+        rec.created,
+        rec.created_count,
+        rec.success_count,
+        rec.total_records,
+        rec.total,
+        rec.count,
+    ].map(readNumber).find(v => v > 0) || 0;
+    const warnings = [
+        rec.warnings_count,
+        rec.warning_count,
+        rec.warnings,
+    ].map(readNumber).find(v => v >= 0) || 0;
+    const message = String(rec.message || rec.detail || rec.status || '').trim();
+    return { records, warnings, message };
+}
+
+function getFacilityIdFromAuthMe(raw: unknown): string {
+    const rec = raw && typeof raw === 'object' ? raw as Record<string, unknown> : {};
+    const user = rec.user && typeof rec.user === 'object' ? rec.user as Record<string, unknown> : null;
+    const rootCandidates = [rec.facility_id, rec.facilityId, rec.current_facility_id, rec.currentFacilityId];
+    const userCandidates = user ? [user.facility_id, user.facilityId, user.current_facility_id, user.currentFacilityId] : [];
+    const resolved = [...rootCandidates, ...userCandidates].find(v => typeof v === 'string' && v.trim());
+    return typeof resolved === 'string' ? resolved.trim() : '';
+}
+
+function getFacilityIdFromFacilityPayload(raw: unknown): string {
+    if (Array.isArray(raw)) {
+        const first = raw[0];
+        return getFacilityIdFromFacilityPayload(first);
+    }
+    const rec = raw && typeof raw === 'object' ? raw as Record<string, unknown> : {};
+    const id = [rec.id, rec.facility_id, rec.facilityId]
+        .find(v => typeof v === 'string' && v.trim());
+    return typeof id === 'string' ? id.trim() : '';
+}
+
+function getUserNameFromAuthMe(raw: unknown): string {
+    const rec = raw && typeof raw === 'object' ? raw as Record<string, unknown> : {};
+    const user = rec.user && typeof rec.user === 'object' ? rec.user as Record<string, unknown> : rec;
+    const first = String((user as Record<string, unknown>).first_name || '').trim();
+    const last = String((user as Record<string, unknown>).last_name || '').trim();
+    const full = `${first} ${last}`.trim();
+    return String((user as Record<string, unknown>).name || full || 'Admin').trim();
+}
 
 export default function StaffDirectoryManagement() {
     const [staff, setStaff] = useState<StaffMember[]>([]);
@@ -124,7 +195,7 @@ export default function StaffDirectoryManagement() {
     const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
     const [statusFilter, setStatusFilter] = useState('all');
     const [dragOver, setDragOver] = useState(false);
-    const [uploadedFile, setUploadedFile] = useState<string | null>(null);
+    const [uploadedFile, setUploadedFile] = useState<File | null>(null);
     const [bulkHistory, setBulkHistory] = useState(importHistory);
     const [processing, setProcessing] = useState(false);
     const [adding, setAdding] = useState(false);
@@ -156,6 +227,94 @@ export default function StaffDirectoryManagement() {
     const toggleSort = (key: SortKey) => {
         if (sortKey === key) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
         else { setSortKey(key); setSortDir('asc'); }
+    };
+
+    const clearUploadedFile = () => {
+        setUploadedFile(null);
+        if (fileInputRef.current) fileInputRef.current.value = '';
+    };
+
+    const handleBulkImport = async () => {
+        if (!uploadedFile) return;
+        setProcessing(true);
+        try {
+            let facilityId = '';
+            let importedBy = 'Admin';
+
+            // Priority 0: Read from helix-facility cookie (set by facility selector)
+            const cookieMatch = document.cookie.match(/helix-facility=([^;]+)/);
+            if (cookieMatch) facilityId = cookieMatch[1];
+
+            const meRes = await fetch('/api/proxy/auth/me');
+            if (meRes.ok) {
+                const meData = await meRes.json().catch(() => ({}));
+                if (!facilityId) facilityId = getFacilityIdFromAuthMe(meData);
+                importedBy = getUserNameFromAuthMe(meData);
+            }
+            if (!facilityId) {
+                const hospitalRes = await fetch('/api/proxy/hospital');
+                if (hospitalRes.ok) {
+                    const hospitalData = await hospitalRes.json().catch(() => ({}));
+                    facilityId = getFacilityIdFromFacilityPayload(hospitalData);
+                }
+            }
+            if (!facilityId) {
+                const facilitiesRes = await fetch('/api/proxy/facilities');
+                if (facilitiesRes.ok) {
+                    const facilitiesData = await facilitiesRes.json().catch(() => ([]));
+                    facilityId = getFacilityIdFromFacilityPayload(facilitiesData);
+                }
+            }
+            if (!facilityId) {
+                showToast('Unable to determine facility for bulk upload');
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append('file', uploadedFile);
+            formData.append('facility_id', facilityId);
+            formData.append('facilityId', facilityId);
+
+            const res = await fetch('/api/proxy/staff/bulk', {
+                method: 'POST',
+                body: formData,
+            });
+            const data = await res.json().catch(() => ({}));
+            const parsed = parseBulkUploadSummary(data);
+
+            if (!res.ok) {
+                const msg = String((data as { message?: string; detail?: string; error?: string }).message || (data as { message?: string; detail?: string; error?: string }).detail || (data as { message?: string; detail?: string; error?: string }).error || 'Bulk import failed');
+                setBulkHistory(prev => [{
+                    id: `IMP-${String(prev.length + 1).padStart(3, '0')}`,
+                    file: uploadedFile.name,
+                    records: parsed.records,
+                    status: 'error',
+                    warnings: parsed.warnings,
+                    date: new Date().toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' }),
+                    user: importedBy,
+                }, ...prev]);
+                showToast(msg);
+                return;
+            }
+
+            setBulkHistory(prev => [{
+                id: `IMP-${String(prev.length + 1).padStart(3, '0')}`,
+                file: uploadedFile.name,
+                records: parsed.records,
+                status: 'success',
+                warnings: parsed.warnings,
+                date: new Date().toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' }),
+                user: importedBy,
+            }, ...prev]);
+            showToast(parsed.message || `Import completed: ${parsed.records} records processed`);
+            clearUploadedFile();
+            setLoading(true);
+            fetchStaff();
+        } catch {
+            showToast('Bulk import failed');
+        } finally {
+            setProcessing(false);
+        }
     };
 
     const filtered = staff.filter(s => {
@@ -523,37 +682,35 @@ export default function StaffDirectoryManagement() {
                                 style={{ display: 'none' }}
                                 onChange={e => {
                                     const file = e.target.files?.[0];
-                                    if (file) setUploadedFile(file.name);
+                                    if (file) setUploadedFile(file);
                                 }}
                             />
                             <div
                                 onDragOver={e => { e.preventDefault(); setDragOver(true); }}
                                 onDragLeave={() => setDragOver(false)}
-                                onDrop={e => { e.preventDefault(); setDragOver(false); setUploadedFile(e.dataTransfer.files[0]?.name || null); }}
+                                onDrop={e => {
+                                    e.preventDefault();
+                                    setDragOver(false);
+                                    const file = e.dataTransfer.files?.[0];
+                                    if (file) setUploadedFile(file);
+                                }}
                                 onClick={() => fileInputRef.current?.click()}
                                 style={{ border: `2px dashed ${dragOver ? 'var(--helix-primary)' : 'var(--border-default)'}`, borderRadius: 'var(--radius-lg)', padding: '40px 20px', textAlign: 'center', cursor: 'pointer', background: dragOver ? 'rgba(30,58,95,0.05)' : 'var(--surface-2)', transition: 'all 0.2s' }}>
                                 <div style={{ width: 52, height: 52, background: uploadedFile ? 'var(--success-bg)' : 'rgba(30,58,95,0.1)', borderRadius: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 14px' }}>
                                     <span className="material-icons-round" style={{ fontSize: 26, color: uploadedFile ? 'var(--success)' : 'var(--helix-primary-light)' }}>{uploadedFile ? 'check_circle' : 'cloud_upload'}</span>
                                 </div>
                                 {uploadedFile ? (
-                                    <><div style={{ fontWeight: 600, color: 'var(--success)' }}>{uploadedFile}</div><div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>File ready for import</div></>
+                                    <><div style={{ fontWeight: 600, color: 'var(--success)' }}>{uploadedFile.name}</div><div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>File ready for import</div></>
                                 ) : (
                                     <><div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>Click to upload or drag and drop</div><div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 6 }}>CSV, XLSX or XLS (max. 50MB)</div></>
                                 )}
                             </div>
                             {uploadedFile && (
                                 <div style={{ marginTop: 14, display: 'flex', gap: 8 }}>
-                                    <button className="btn btn-primary" style={{ flex: 1, justifyContent: 'center' }} disabled={processing} onClick={() => {
-                                        setProcessing(true);
-                                        setTimeout(() => {
-                                            setBulkHistory(prev => [{ id: `IMP-${String(prev.length + 1).padStart(3, '0')}`, file: uploadedFile, records: 4, status: 'success', warnings: 1, date: new Date().toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' }), user: 'Admin' }, ...prev]);
-                                            setUploadedFile(null); setProcessing(false);
-                                            showToast('Import completed: 4 records processed');
-                                        }, 1200);
-                                    }}>
+                                    <button className="btn btn-primary" style={{ flex: 1, justifyContent: 'center' }} disabled={processing} onClick={handleBulkImport}>
                                         <span className="material-icons-round" style={{ fontSize: 16 }}>{processing ? 'hourglass_empty' : 'upload'}</span>{processing ? 'Processing...' : 'Process Import'}
                                     </button>
-                                    <button className="btn btn-secondary btn-sm" onClick={() => setUploadedFile(null)}><span className="material-icons-round" style={{ fontSize: 16 }}>close</span></button>
+                                    <button className="btn btn-secondary btn-sm" onClick={clearUploadedFile}><span className="material-icons-round" style={{ fontSize: 16 }}>close</span></button>
                                 </div>
                             )}
                         </div>
@@ -561,14 +718,21 @@ export default function StaffDirectoryManagement() {
                         <div className="fade-in delay-2 card">
                             <h3 style={{ marginBottom: 14 }}>Download Template</h3>
                             {[
-                                { icon: 'badge', label: 'Staff Template', desc: 'Name, Role, Dept, Email, Shift', color: '#4a6fa5' },
+                                { icon: 'badge', label: 'Staff Template', desc: 'Email, names, phone, title, department, patient access', color: '#4a6fa5', href: '/templates/staff_bulk_upload.csv' },
                             ].map(t => (
                                 <div key={t.label} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-subtle)', marginBottom: 8, cursor: 'pointer', background: 'var(--surface-2)' }}>
                                     <div style={{ width: 36, height: 36, borderRadius: 9, background: `${t.color}20`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                                         <span className="material-icons-round" style={{ fontSize: 18, color: t.color }}>{t.icon}</span>
                                     </div>
                                     <div style={{ flex: 1 }}><div style={{ fontWeight: 600, fontSize: 13 }}>{t.label}</div><div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{t.desc}</div></div>
-                                    <button className="btn btn-ghost btn-xs" onClick={() => showToast(`${t.label} downloaded`)}><span className="material-icons-round" style={{ fontSize: 16, color: 'var(--text-muted)' }}>download</span></button>
+                                    <a
+                                        className="btn btn-ghost btn-xs"
+                                        href={t.href}
+                                        download
+                                        onClick={() => showToast(`${t.label} downloaded`)}
+                                    >
+                                        <span className="material-icons-round" style={{ fontSize: 16, color: 'var(--text-muted)' }}>download</span>
+                                    </a>
                                 </div>
                             ))}
                         </div>

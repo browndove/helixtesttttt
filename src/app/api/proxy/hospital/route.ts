@@ -1,14 +1,21 @@
 import { getProxyHeaders } from '@/lib/proxy-auth';
+import { resolveFacilityId } from '@/lib/proxy-facility';
 import { NextRequest, NextResponse } from 'next/server';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3000';
 
-// GET /hospital - Get hospital/facility info
+// GET /hospital - Get hospital/facility info for the logged-in user
 export async function GET(req: NextRequest) {
     try {
-        const url = `${API_BASE_URL}/api/v1/facilities`;
+        // First resolve the user's actual facility ID
+        const facilityId = await resolveFacilityId(req, API_BASE_URL);
 
-        console.log('Proxy get hospital request to:', url);
+        // If we have a specific facility ID, fetch that one directly
+        const url = facilityId
+            ? `${API_BASE_URL}/api/v1/facilities/${facilityId}`
+            : `${API_BASE_URL}/api/v1/facilities`;
+
+        console.log('[hospital] GET request to:', url);
 
         const res = await fetch(url, {
             method: 'GET',
@@ -16,7 +23,7 @@ export async function GET(req: NextRequest) {
         });
 
         const text = await res.text();
-        console.log('Backend response status:', res.status);
+        console.log('[hospital] Response status:', res.status);
 
         let data;
         try {
@@ -29,8 +36,11 @@ export async function GET(req: NextRequest) {
             );
         }
 
-        // If backend returns an array of facilities, return the first one as the hospital
-        const hospital = Array.isArray(data) ? data[0] || null : data;
+        // If backend returns an array, find the matching facility or return first
+        let hospital = data;
+        if (Array.isArray(data)) {
+            hospital = (facilityId ? data.find((f: { id?: string }) => f.id === facilityId) : null) || data[0] || null;
+        }
         return NextResponse.json(hospital, { status: res.status });
     } catch (err) {
         console.error('Proxy error:', err);
@@ -43,13 +53,12 @@ export async function GET(req: NextRequest) {
 export async function PUT(req: NextRequest) {
     try {
         const body = await req.json();
-        // If we have a facility ID, use it; otherwise update first facility
-        const facilityId = body.id || body.facility_id;
+        const facilityId = body.id || body.facility_id || await resolveFacilityId(req, API_BASE_URL);
         const url = facilityId
             ? `${API_BASE_URL}/api/v1/facilities/${facilityId}`
             : `${API_BASE_URL}/api/v1/facilities`;
 
-        console.log('Proxy update hospital request to:', url);
+        console.log('[hospital] PUT request to:', url);
 
         const res = await fetch(url, {
             method: 'PUT',

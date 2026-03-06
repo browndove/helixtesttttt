@@ -1,0 +1,11 @@
+email,first_name,last_name,phone,job_title,department_id,patient_access
+dr.kwame.mensah@hospital.com,Kwame,Mensah,+233201234567,Doctor,,true
+dr.abena.osei@hospital.com,Abena,Osei,+233209876543,Doctor,,true
+nurse.esi.addo@hospital.com,Esi,Addo,+233241112233,Nurse,,true
+nurse.kofi.ampong@hospital.com,Kofi,Ampong,+233242223344,Nurse,,true
+admin.ama.badu@hospital.com,Ama,Badu,+233243334455,Administrator,,false
+staff.yaw.mensah@hospital.com,Yaw,Mensah,+233244445566,Receptionist,,false
+dr.akosua.nkrumah@hospital.com,Akosua,Nkrumah,+233245556677,Surgeon,,true
+nurse.kwesi.darko@hospital.com,Kwesi,Darko,+233246667788,Nurse,,true
+staff.efua.asante@hospital.com,Efua,Asante,+233247778899,Pharmacist,,true
+dr.kojo.boateng@hospital.com,Kojo,Boateng,+233248889900,Radiologist,,true

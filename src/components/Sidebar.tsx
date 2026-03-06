@@ -48,20 +48,20 @@ function getFacilityNameFromPayload(data: unknown): string | null {
     }
 
     const rec = data as Record<string, unknown>;
-    const directName = String(rec.name || '').trim();
+    const directName = String(rec.name || rec.facility_name || rec.hospital_name || '').trim();
     if (directName) return directName;
 
     const nested = rec.data;
     if (nested && typeof nested === 'object') {
         const nestedRec = nested as Record<string, unknown>;
-        const nestedName = String(nestedRec.name || '').trim();
+        const nestedName = String(nestedRec.name || nestedRec.facility_name || nestedRec.hospital_name || '').trim();
         if (nestedName) return nestedName;
     }
 
     const items = rec.items;
     if (Array.isArray(items) && items[0] && typeof items[0] === 'object') {
         const first = items[0] as Record<string, unknown>;
-        const name = String(first.name || '').trim();
+        const name = String(first.name || first.facility_name || first.hospital_name || '').trim();
         if (name) return name;
     }
 
@@ -108,6 +108,9 @@ export default function Sidebar({
 
                 const facilityNameFromUser = String(
                     user.facility_name
+                    || user.current_facility_name
+                    || user.facilityName
+                    || user.currentFacilityName
                     || (user.facility && typeof user.facility === 'object' ? (user.facility as Record<string, unknown>).name : '')
                     || ''
                 ).trim();
@@ -115,21 +118,16 @@ export default function Sidebar({
                     setFacilityName(facilityNameFromUser);
                 }
 
-                const facilityId = String(
-                    user.facility_id
-                    || user.facilityId
-                    || user.hospital_id
-                    || user.hospitalId
-                    || ''
-                ).trim();
+                // Fetch hospital name from hospital proxy (most reliable for current facility)
+                try {
+                    const hospitalRes = await fetch(API_ENDPOINTS.HOSPITAL);
+                    if (hospitalRes.ok) {
+                        const hospitalData = await hospitalRes.json();
+                        const resolvedName = getFacilityNameFromPayload(hospitalData);
+                        if (!cancelled && resolvedName) setFacilityName(resolvedName);
+                    }
+                } catch { /* best effort */ }
 
-                if (!facilityId) return;
-                const facilityRes = await fetch(API_ENDPOINTS.FACILITY(facilityId));
-                if (facilityRes.ok) {
-                    const facilityData = await facilityRes.json();
-                    const resolvedName = getFacilityNameFromPayload(facilityData);
-                    if (!cancelled && resolvedName) setFacilityName(resolvedName);
-                }
             } catch {
                 // Best-effort only: keep fallbacks when backend context is unavailable.
             }
@@ -139,7 +137,7 @@ export default function Sidebar({
         return () => { cancelled = true; };
     }, []);
 
-    const hospitalName = facilityName || hospitalNameProp || 'Accra Medical Center';
+    const hospitalName = facilityName || hospitalNameProp || 'Facility';
     const adminName = adminNameProp || sessionUser?.name || 'User';
     const resolvedAdminRole = adminRole || sessionUser?.role || 'Admin';
 
@@ -178,8 +176,8 @@ export default function Sidebar({
                     }}>
                         <span className="material-icons-round" style={{ fontSize: 18, color: '#fff' }}>local_hospital</span>
                     </div>
-                    <div>
-                        <div style={{ fontWeight: 700, fontSize: 14, letterSpacing: '-0.01em', color: 'var(--text-primary)' }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontWeight: 700, fontSize: 14, letterSpacing: '-0.01em', color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                             {hospitalName}
                         </div>
                         <div style={{ fontSize: 10.5, color: 'var(--text-muted)', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.04em' }}>

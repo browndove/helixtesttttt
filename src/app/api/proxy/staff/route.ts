@@ -61,9 +61,22 @@ export async function GET(req: NextRequest) {
     try {
         const { searchParams } = new URL(req.url);
         const url = new URL(`${API_BASE_URL}/api/v1/staff`);
-        const facilityId = searchParams.get('facility_id') || await resolveFacilityId(req, API_BASE_URL);
-        console.log('[listStaff] Resolved facilityId:', facilityId);
-        if (facilityId) url.searchParams.set('facility_id', facilityId);
+        const requestedFacilityId = searchParams.get('facility_id');
+        const sessionFacilityId = await resolveFacilityId(req, API_BASE_URL);
+        console.log('[listStaff] Resolved facilityId:', sessionFacilityId);
+        if (!sessionFacilityId) {
+            return NextResponse.json(
+                { error: 'Unable to resolve facility for current session. Please log in again.' },
+                { status: 400 }
+            );
+        }
+        if (requestedFacilityId && requestedFacilityId !== sessionFacilityId) {
+            return NextResponse.json(
+                { error: 'Facility mismatch. Staff listing is restricted to your logged-in facility.' },
+                { status: 403 }
+            );
+        }
+        url.searchParams.set('facility_id', sessionFacilityId);
 
         // Forward all supported query params
         const queryParams = ['page_size', 'page_id', 'role', 'job_title', 'status', 'search'];
@@ -105,7 +118,21 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
     try {
         const body = await req.json() as IncomingStaffBody;
-        const facilityId = body.facility_id || body.facilityId || await resolveFacilityId(req, API_BASE_URL);
+        const requestedFacilityId = body.facility_id || body.facilityId;
+        const sessionFacilityId = await resolveFacilityId(req, API_BASE_URL);
+        if (!sessionFacilityId) {
+            return NextResponse.json(
+                { error: 'Unable to resolve facility for current session. Please log in again.' },
+                { status: 400 }
+            );
+        }
+        if (requestedFacilityId && requestedFacilityId !== sessionFacilityId) {
+            return NextResponse.json(
+                { error: 'Facility mismatch. Staff can only be created in your logged-in facility.' },
+                { status: 403 }
+            );
+        }
+        const facilityId = sessionFacilityId;
         const departmentId = body.department_id
             || body.departmentId
             || (facilityId ? await resolveDepartmentIdByName(req, facilityId, body.department || body.dept) : undefined);
@@ -122,6 +149,7 @@ export async function POST(req: NextRequest) {
         const url = `${API_BASE_URL}/api/v1/staff`;
 
         console.log('Proxy create staff request to:', url);
+        console.log('[createStaff] Payload:', JSON.stringify(payload));
 
         const res = await fetch(url, {
             method: 'POST',
@@ -131,6 +159,7 @@ export async function POST(req: NextRequest) {
 
         const text = await res.text();
         console.log('Backend response status:', res.status);
+        if (!res.ok) console.log('[createStaff] Error response:', text.substring(0, 500));
 
         let data;
         try {

@@ -1,8 +1,8 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3000';
 
-export async function POST(req: NextRequest) {
+export async function POST() {
     try {
         const url = `${API_BASE_URL}/api/v1/auth/logout`;
         
@@ -27,7 +27,10 @@ export async function POST(req: NextRequest) {
             );
         }
         
-        return NextResponse.json(data, { status: res.status });
+        const response = NextResponse.json(data, { status: res.status });
+        response.cookies.delete('helix-session');
+        response.cookies.delete('helix-facility');
+        return response;
     } catch (err) {
         console.error('Proxy error:', err);
         const message = err instanceof Error ? err.message : 'Unknown error';

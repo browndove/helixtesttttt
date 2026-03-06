@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import Sidebar from '@/components/Sidebar';
 import TopBar from '@/components/TopBar';
 import navSections from '@/components/navSections';
@@ -12,6 +12,33 @@ type DeptNode = {
     beds?: number;
     children?: DeptNode[];
 };
+
+type HospitalProfile = {
+    id: string;
+    name: string;
+    address: string;
+    phone: string;
+    email: string;
+};
+
+function parseHospital(raw: unknown): HospitalProfile | null {
+    if (Array.isArray(raw)) {
+        return parseHospital(raw[0]);
+    }
+    if (!raw || typeof raw !== 'object') return null;
+    const rec = raw as Record<string, unknown>;
+    const nested = rec.data && typeof rec.data === 'object' ? rec.data as Record<string, unknown> : null;
+    const src = nested || rec;
+    const id = String(src.id || src.facility_id || '').trim();
+    if (!id) return null;
+    return {
+        id,
+        name: String(src.name || '').trim(),
+        address: String(src.address || '').trim(),
+        phone: String(src.phone || '').trim(),
+        email: String(src.email || '').trim(),
+    };
+}
 
 const defaultTree: DeptNode[] = [
     {
@@ -193,15 +220,65 @@ export default function HospitalProfileWardSetup() {
     const [tree, setTree] = useState(defaultTree);
     const [toast, setToast] = useState<string | null>(null);
     const [editingProfile, setEditingProfile] = useState(false);
-    const [hospitalName, setHospitalName] = useState('Accra Medical Center Medical Center');
-    const [hospitalPhone, setHospitalPhone] = useState('+233 30 266 5401');
-    const [hospitalEmail, setHospitalEmail] = useState('admin@kbth.gov.gh');
-    const [hospitalAddress, setHospitalAddress] = useState('Guggisberg Ave, Accra, Greater Accra Region, Ghana');
+    const [hospitalId, setHospitalId] = useState('');
+    const [hospitalName, setHospitalName] = useState('');
+    const [hospitalPhone, setHospitalPhone] = useState('');
+    const [hospitalEmail, setHospitalEmail] = useState('');
+    const [hospitalAddress, setHospitalAddress] = useState('');
+    const [savingProfile, setSavingProfile] = useState(false);
     const [newDeptName, setNewDeptName] = useState('');
     const [showAddDept, setShowAddDept] = useState(false);
     const [treeSearch, setTreeSearch] = useState('');
 
     const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(null), 2500); };
+
+    const fetchHospitalProfile = useCallback(async () => {
+        try {
+            const res = await fetch('/api/proxy/hospital');
+            if (!res.ok) return;
+            const data = await res.json();
+            const profile = parseHospital(data);
+            if (!profile) return;
+            setHospitalId(profile.id);
+            setHospitalName(profile.name);
+            setHospitalAddress(profile.address);
+            setHospitalPhone(profile.phone);
+            setHospitalEmail(profile.email);
+        } catch {
+            // Keep editable UI even when profile fetch fails.
+        }
+    }, []);
+
+    useEffect(() => { fetchHospitalProfile(); }, [fetchHospitalProfile]);
+
+    const saveProfile = async () => {
+        setSavingProfile(true);
+        try {
+            const res = await fetch('/api/proxy/hospital', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    id: hospitalId || undefined,
+                    facility_id: hospitalId || undefined,
+                    name: hospitalName.trim(),
+                    address: hospitalAddress.trim(),
+                    phone: hospitalPhone.trim(),
+                    email: hospitalEmail.trim(),
+                }),
+            });
+            if (!res.ok) {
+                showToast('Failed to save profile');
+                return;
+            }
+            showToast('Profile updated');
+            setEditingProfile(false);
+            fetchHospitalProfile();
+        } catch {
+            showToast('Failed to save profile');
+        } finally {
+            setSavingProfile(false);
+        }
+    };
 
     const handleDeleteNode = (id: string) => {
         setTree(prev => removeNode(prev, id));
@@ -238,9 +315,9 @@ export default function HospitalProfileWardSetup() {
                     title="Hospital Setup"
                     breadcrumbs={['Admin', 'Configuration']}
                     actions={
-                        <button className="btn btn-primary btn-sm" onClick={() => showToast('All changes saved')}>
+                        <button className="btn btn-primary btn-sm" onClick={saveProfile} disabled={savingProfile}>
                             <span className="material-icons-round" style={{ fontSize: 15 }}>save</span>
-                            Save Changes
+                            {savingProfile ? 'Saving...' : 'Save Changes'}
                         </button>
                     }
                 />
@@ -256,7 +333,7 @@ export default function HospitalProfileWardSetup() {
                                 borderBottom: '1px solid var(--border-subtle)',
                             }}>
                                 <div className="badge badge-success" style={{ marginBottom: 10 }}>Active License</div>
-                                <h2>{hospitalName}</h2>
+                                <h2>{hospitalName || 'Hospital Profile'}</h2>
                                 <div style={{ fontSize: 12, color: 'var(--text-muted)', fontFamily: 'JetBrains Mono, monospace', marginTop: 4 }}>
                                     License #GH-9822-X
                                 </div>
@@ -281,8 +358,8 @@ export default function HospitalProfileWardSetup() {
                                         <input className="input" value={hospitalEmail} onChange={e => setHospitalEmail(e.target.value)} style={{ fontSize: 13 }} />
                                     </div>
                                     <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
-                                        <button className="btn btn-primary btn-sm" style={{ flex: 1, justifyContent: 'center' }} onClick={() => { setEditingProfile(false); showToast('Profile updated'); }}>
-                                            <span className="material-icons-round" style={{ fontSize: 14 }}>save</span>Save
+                                        <button className="btn btn-primary btn-sm" style={{ flex: 1, justifyContent: 'center' }} onClick={saveProfile} disabled={savingProfile}>
+                                            <span className="material-icons-round" style={{ fontSize: 14 }}>save</span>{savingProfile ? 'Saving...' : 'Save'}
                                         </button>
                                         <button className="btn btn-secondary btn-sm" onClick={() => setEditingProfile(false)}>Cancel</button>
                                     </div>
@@ -290,9 +367,9 @@ export default function HospitalProfileWardSetup() {
                             ) : (
                                 <div style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 12 }}>
                                     {[
-                                        { icon: 'location_on', label: hospitalAddress },
-                                        { icon: 'phone', label: hospitalPhone },
-                                        { icon: 'email', label: hospitalEmail },
+                                        { icon: 'location_on', label: hospitalAddress || '-' },
+                                        { icon: 'phone', label: hospitalPhone || '-' },
+                                        { icon: 'email', label: hospitalEmail || '-' },
                                         { icon: 'bed', label: `${totalBeds} Licensed Beds` },
                                         { icon: 'local_hospital', label: 'National Referral Centre' },
                                     ].map(row => (
@@ -311,7 +388,7 @@ export default function HospitalProfileWardSetup() {
                                 </button>
                                 <button className="btn btn-ghost btn-sm" onClick={() => showToast('Logo upload coming soon')}>
                                     <span className="material-icons-round" style={{ fontSize: 14 }}>upload</span>
-                                    Logo
+                                    Upload Logo
                                 </button>
                             </div>
                         </div>

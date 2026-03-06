@@ -10,7 +10,7 @@ export const API_ENDPOINTS = {
   REQUEST_RESET: `/api/proxy/auth/request-reset`,
   RESET_PASSWORD: `/api/proxy/auth/reset-password`,
   SEND_OTP: `/api/proxy/auth/send-otp`,
-  VERIFY_OTP: `/api/proxy/auth/verify-otp`,
+  VERIFY_OTP: `/api/proxy/auth/admin/verify-otp`,
   ADMIN_VERIFY_OTP: `/api/proxy/auth/admin/verify-otp`,
   SETUP: `/api/proxy/auth/setup`,
   SETUP_PREFILL: `/api/proxy/auth/setup-prefill`,

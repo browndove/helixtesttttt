@@ -765,7 +765,7 @@ export default function EscalationAlertSettings() {
                                             Next: Levels <span className="material-icons-round" style={{ fontSize: 14 }}>arrow_forward</span>
                                         </button>
                                     </div>
-                                </>
+                                </> 
                             )}
 
                             {createStep === 1 && (
