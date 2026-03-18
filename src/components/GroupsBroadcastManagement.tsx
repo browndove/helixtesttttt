@@ -4,6 +4,7 @@ import { useState } from 'react';
 import Sidebar from '@/components/Sidebar';
 import TopBar from '@/components/TopBar';
 import navSections from '@/components/navSections';
+import CustomSelect from '@/components/CustomSelect';
 
 const groups = [
     { id: '1', name: 'Emergency Dept — All Hands', desc: 'General broadcast for ED staff. Includes all on-call personnel.', members: 48, type: 'broadcast', priority: 'high', color: '#8c5a5e' },
@@ -43,6 +44,7 @@ export default function GroupsBroadcastManagement() {
     const [members, setMembers] = useState(groupMembers);
     const [sentCount, setSentCount] = useState(0);
     const [searchGroups, setSearchGroups] = useState('');
+    const [broadcastPriority, setBroadcastPriority] = useState('Standard Priority');
 
     const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(null), 2500); };
 
@@ -212,11 +214,12 @@ export default function GroupsBroadcastManagement() {
                                     style={{ resize: 'vertical', fontSize: 13, lineHeight: 1.5 }}
                                 />
                                 <div style={{ marginTop: 8, display: 'flex', gap: 6, alignItems: 'center' }}>
-                                    <select className="input" style={{ flex: 1, fontSize: 12, padding: '5px 10px' }}>
-                                        <option>Standard Priority</option>
-                                        <option>Urgent</option>
-                                        <option>Critical</option>
-                                    </select>
+                                    <CustomSelect
+                                        value={broadcastPriority}
+                                        onChange={v => setBroadcastPriority(v)}
+                                        options={[{ label: 'Standard Priority', value: 'Standard Priority' }, { label: 'Urgent', value: 'Urgent' }, { label: 'Critical', value: 'Critical' }]}
+                                        style={{ flex: 1 }}
+                                    />
                                     <button className="btn btn-primary btn-sm" disabled={!broadcastText} onClick={() => {
                                         setSentCount(prev => prev + 1);
                                         showToast(`Broadcast sent to ${selected.members} members`);

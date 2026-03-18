@@ -4,6 +4,7 @@ import { useState } from 'react';
 import Sidebar from '@/components/Sidebar';
 import TopBar from '@/components/TopBar';
 import navSections from '@/components/navSections';
+import CustomSelect from '@/components/CustomSelect';
 
 const importHistory = [
     { id: 'IMP-001', file: 'staff_q4_import.csv', type: 'Staff', records: 142, status: 'success', warnings: 2, date: 'Nov 12, 2024 09:14', user: 'Dr. Kwame Asante' },
@@ -62,11 +63,12 @@ export default function BulkUploadImportHistory() {
                             <h2 style={{ fontSize: '1rem' }}>Upload Data File</h2>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                                 <label className="label" style={{ margin: 0 }}>Entity Type:</label>
-                                <select className="input" value={entityType} onChange={e => setEntityType(e.target.value)} style={{ width: 'auto', fontSize: 13, padding: '5px 28px 5px 10px' }}>
-                                    <option value="staff">Staff</option>
-                                    <option value="patient">Patient</option>
-                                    <option value="schedule">Schedule</option>
-                                </select>
+                                <CustomSelect
+                                    value={entityType}
+                                    onChange={v => setEntityType(v)}
+                                    options={[{ label: 'Staff', value: 'staff' }, { label: 'Patient', value: 'patient' }, { label: 'Schedule', value: 'schedule' }]}
+                                    style={{ width: 140 }}
+                                />
                             </div>
                         </div>
 

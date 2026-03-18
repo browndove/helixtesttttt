@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Sidebar from '@/components/Sidebar';
 import TopBar from '@/components/TopBar';
 import navSections from '@/components/navSections';
+import CustomSelect from '@/components/CustomSelect';
 
 type StaffMember = {
     id: string;
@@ -16,6 +17,7 @@ type StaffMember = {
     access: string;
     employee_id: string;
     patient_access: boolean;
+    role: 'staff' | 'admin';
 };
 
 type SortKey = 'first_name' | 'last_name' | 'employee_id' | 'dept' | 'job_title' | 'status';
@@ -103,6 +105,7 @@ function parseStaffList(raw: unknown): StaffMember[] {
                 access: String(r.system_role || r.access || 'Staff'),
                 employee_id: String(r.employee_id || r.username || id),
                 patient_access: Boolean(r.patient_access ?? r.can_access_patients ?? false),
+                role: String(r.system_role || r.role || 'staff').toLowerCase().includes('admin') ? 'admin' as const : 'staff' as const,
             };
         })
         .filter((s): s is StaffMember => Boolean(s));
@@ -366,6 +369,7 @@ export default function StaffDirectoryManagement() {
                 access: 'Staff',
                 employee_id: '',
                 patient_access: newPatientAccess,
+                role: 'staff',
             };
 
             setStaff(prev => [created || fallbackMember, ...prev]);
@@ -428,6 +432,30 @@ export default function StaffDirectoryManagement() {
         }
     };
 
+    const assignRole = async (id: string, newRole: 'staff' | 'admin') => {
+        const member = staff.find(s => s.id === id);
+        const oldRole = member?.role || 'staff';
+        setStaff(prev => prev.map(s => s.id === id ? { ...s, role: newRole } : s));
+        setSelected(prev => prev && prev.id === id ? { ...prev, role: newRole } : prev);
+        showToast(`${member?.first_name} ${member?.last_name} is now ${newRole === 'admin' ? 'an Admin' : 'Staff'}`);
+        try {
+            const res = await fetch(`/api/proxy/staff/${id}/assign-role`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ role: newRole }),
+            });
+            if (!res.ok) {
+                setStaff(prev => prev.map(s => s.id === id ? { ...s, role: oldRole } : s));
+                setSelected(prev => prev && prev.id === id ? { ...prev, role: oldRole } : prev);
+                showToast('Failed to assign role');
+            }
+        } catch {
+            setStaff(prev => prev.map(s => s.id === id ? { ...s, role: oldRole } : s));
+            setSelected(prev => prev && prev.id === id ? { ...prev, role: oldRole } : prev);
+            showToast('Failed to assign role');
+        }
+    };
+
     return (
         <div className="app-shell">
             <Sidebar sections={navSections} />
@@ -479,8 +507,8 @@ export default function StaffDirectoryManagement() {
                                 <div><label className="label">Email *</label><input className="input" value={newEmail} onChange={e => setNewEmail(e.target.value)} placeholder="Email address" style={{ fontSize: 12 }} /></div>
                                 <div><label className="label">Phone</label><input className="input" value={newPhone} onChange={e => setNewPhone(e.target.value)} placeholder="+233241234567" style={{ fontSize: 12 }} /></div>
                                 <div><label className="label">Job Title</label><input className="input" value={newRole} onChange={e => setNewRole(e.target.value)} placeholder="e.g. Nurse" style={{ fontSize: 12 }} /></div>
-                                <div><label className="label">Department</label><select className="input" value={newDept} onChange={e => setNewDept(e.target.value)} style={{ fontSize: 12 }}>{['Cardiology', 'ICU', 'Emergency', 'Pediatrics', 'Internal Med', 'Radiology', 'Surgery'].map(d => <option key={d}>{d}</option>)}</select></div>
-                                <div><label className="label">Patient Access</label><select className="input" value={newPatientAccess ? 'yes' : 'no'} onChange={e => setNewPatientAccess(e.target.value === 'yes')} style={{ fontSize: 12 }}><option value="yes">Yes</option><option value="no">No</option></select></div>
+                                <div><label className="label">Department</label><CustomSelect value={newDept} onChange={v => setNewDept(v)} options={['Cardiology', 'ICU', 'Emergency', 'Pediatrics', 'Internal Med', 'Radiology', 'Surgery'].map(d => ({ label: d, value: d }))} placeholder="-- Select --" /></div>
+                                <div><label className="label">Patient Access</label><CustomSelect value={newPatientAccess ? 'yes' : 'no'} onChange={v => setNewPatientAccess(v === 'yes')} options={[{ label: 'Yes', value: 'yes' }, { label: 'No', value: 'no' }]} placeholder="-- Select --" /></div>
                             </div>
                             <button className="btn btn-primary btn-sm" onClick={handleAdd} disabled={adding || !newFirstName.trim() || !newLastName.trim() || !newEmail.trim()}>
                                 <span className="material-icons-round" style={{ fontSize: 14 }}>{adding ? 'hourglass_empty' : 'person_add'}</span>{adding ? 'Adding...' : 'Add Staff'}
@@ -509,17 +537,23 @@ export default function StaffDirectoryManagement() {
                         </div>
                         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-muted)' }}>
                             <span className="material-icons-round" style={{ fontSize: 14 }}>sort</span>
-                            <select className="input" value={`${sortKey}-${sortDir}`} onChange={e => { const [k, d] = e.target.value.split('-'); setSortKey(k as SortKey); setSortDir(d as 'asc' | 'desc'); }} style={{ fontSize: 11, padding: '4px 8px', height: 28, minWidth: 140 }}>
-                                <option value="last_name-asc">Last Name A-Z</option>
-                                <option value="last_name-desc">Last Name Z-A</option>
-                                <option value="first_name-asc">First Name A-Z</option>
-                                <option value="first_name-desc">First Name Z-A</option>
-                                <option value="dept-asc">Department A-Z</option>
-                                <option value="dept-desc">Department Z-A</option>
-                                <option value="job_title-asc">Job Title A-Z</option>
-                                <option value="employee_id-asc">Employee ID A-Z</option>
-                                <option value="status-asc">Status A-Z</option>
-                            </select>
+                            <CustomSelect
+                                value={`${sortKey}-${sortDir}`}
+                                onChange={v => { const [k, d] = v.split('-'); setSortKey(k as SortKey); setSortDir(d as 'asc' | 'desc'); }}
+                                options={[
+                                    { label: 'Last Name A-Z', value: 'last_name-asc' },
+                                    { label: 'Last Name Z-A', value: 'last_name-desc' },
+                                    { label: 'First Name A-Z', value: 'first_name-asc' },
+                                    { label: 'First Name Z-A', value: 'first_name-desc' },
+                                    { label: 'Department A-Z', value: 'dept-asc' },
+                                    { label: 'Department Z-A', value: 'dept-desc' },
+                                    { label: 'Job Title A-Z', value: 'job_title-asc' },
+                                    { label: 'Employee ID A-Z', value: 'employee_id-asc' },
+                                    { label: 'Status A-Z', value: 'status-asc' },
+                                ]}
+                                style={{ minWidth: 160 }}
+                                maxH={200}
+                            />
                         </div>
                     </div>
 
@@ -646,6 +680,58 @@ export default function StaffDirectoryManagement() {
                                         </div>
                                     </div>
                                 </div>
+
+                                {/* System Role */}
+                                <div className="card" style={{ padding: '18px' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                            <span className="material-icons-round" style={{ fontSize: 15, color: 'var(--text-muted)' }}>admin_panel_settings</span>
+                                            <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>System Role</span>
+                                        </div>
+                                        <span style={{
+                                            fontSize: 10, fontWeight: 700, letterSpacing: '0.04em', padding: '2px 8px', borderRadius: 10,
+                                            background: selected.role === 'admin' ? 'rgba(99,102,241,0.1)' : 'rgba(34,139,34,0.08)',
+                                            color: selected.role === 'admin' ? 'var(--helix-primary)' : '#2d8a4e',
+                                        }}>
+                                            {selected.role === 'admin' ? 'ADMIN' : 'STAFF'}
+                                        </span>
+                                    </div>
+                                    <div style={{ display: 'flex', background: 'var(--surface-2)', borderRadius: 8, padding: 3, gap: 2 }}>
+                                        {(['staff', 'admin'] as const).map(r => {
+                                            const isActive = selected.role === r;
+                                            const isAdmin = r === 'admin';
+                                            return (
+                                                <button
+                                                    key={r}
+                                                    type="button"
+                                                    onClick={() => { if (!isActive) assignRole(selected.id, r); }}
+                                                    style={{
+                                                        flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                                                        padding: '7px 0', borderRadius: 6, fontSize: 12, fontWeight: isActive ? 600 : 500,
+                                                        border: 'none', cursor: isActive ? 'default' : 'pointer',
+                                                        background: isActive ? 'var(--surface-card)' : 'transparent',
+                                                        color: isActive ? (isAdmin ? 'var(--helix-primary)' : '#2d8a4e') : 'var(--text-muted)',
+                                                        boxShadow: isActive ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
+                                                        transition: 'all 0.18s ease',
+                                                    }}
+                                                    onMouseEnter={e => { if (!isActive) e.currentTarget.style.color = 'var(--text-primary)'; }}
+                                                    onMouseLeave={e => { if (!isActive) e.currentTarget.style.color = 'var(--text-muted)'; }}
+                                                >
+                                                    <span className="material-icons-round" style={{ fontSize: 14 }}>
+                                                        {isAdmin ? 'shield' : 'person'}
+                                                    </span>
+                                                    {isAdmin ? 'Admin' : 'Staff'}
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+                                    <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 10, lineHeight: 1.4 }}>
+                                        {selected.role === 'admin'
+                                            ? 'Full access to manage staff, roles, and system settings.'
+                                            : 'Standard access based on assigned clinical roles.'}
+                                    </div>
+                                </div>
+
                                 <div className="card" style={{ padding: '18px' }}>
                                     <h3 style={{ fontSize: 14, marginBottom: 10 }}>Actions</h3>
                                     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>

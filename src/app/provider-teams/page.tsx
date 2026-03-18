@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import Sidebar from '@/components/Sidebar';
 import TopBar from '@/components/TopBar';
 import navSections from '@/components/navSections';
+import CustomSelect from '@/components/CustomSelect';
 
 type Member = {
     id: string;
@@ -150,6 +151,8 @@ export default function ProviderTeamsPage() {
     const [newDeptId, setNewDeptId] = useState('');
     const [newLeadId, setNewLeadId] = useState('');
     const [newDesc, setNewDesc] = useState('');
+    const [newMembers, setNewMembers] = useState<{ id: string; name: string; jobTitle: string }[]>([]);
+    const [newMemberSearch, setNewMemberSearch] = useState('');
 
     // Add member
     const [showAddMember, setShowAddMember] = useState(false);
@@ -249,11 +252,25 @@ export default function ProviderTeamsPage() {
 
             const created = await res.json();
             const parsed = parseTeams([created], departments)[0];
-            if (parsed) setTeams(prev => [...prev, parsed]);
+            if (parsed) {
+                // Include members selected during creation
+                const membersToAdd: Member[] = newMembers.map(m => ({
+                    id: m.id,
+                    firstName: m.name.split(' ')[0] || '',
+                    lastName: m.name.split(' ').slice(1).join(' ') || '',
+                    jobTitle: m.jobTitle,
+                    status: 'Active',
+                }));
+                const withMembers = { ...parsed, members: [...parsed.members, ...membersToAdd], memberCount: parsed.memberCount + membersToAdd.length };
+                setTeams(prev => [...prev, withMembers]);
+                setSelectedTeamId(withMembers.id);
+            }
             setShowCreate(false);
             setNewName('');
             setNewDesc('');
             setNewLeadId('');
+            setNewMembers([]);
+            setNewMemberSearch('');
             showToast(`Team "${parsed?.name || newName.trim()}" created`);
         } catch {
             showToast('Failed to create team');
@@ -360,6 +377,8 @@ export default function ProviderTeamsPage() {
         setEditingTeam(true);
     };
 
+    const detailOpen = selectedTeam || showCreate;
+
     return (
         <div className="app-shell">
             <Sidebar sections={navSections} />
@@ -375,7 +394,7 @@ export default function ProviderTeamsPage() {
                 <TopBar title="Provider Teams" subtitle="Manage clinical teams and their members" />
 
                 <main style={{ flex: 1, overflow: 'auto', padding: '24px 28px', background: 'var(--bg-900)' }}>
-                    {/* Filters + Create */}
+                    {/* Filters */}
                     <div className="fade-in" style={{ display: 'flex', gap: 12, marginBottom: 18, alignItems: 'center', flexWrap: 'wrap' }}>
                         <div style={{ position: 'relative', flex: 1, minWidth: 200, maxWidth: 300 }}>
                             <span className="material-icons-round" style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', fontSize: 16, color: 'var(--text-disabled)', pointerEvents: 'none' }}>search</span>
@@ -388,177 +407,270 @@ export default function ProviderTeamsPage() {
                             />
                         </div>
 
-                        <div style={{ display: 'flex', gap: 4, background: 'var(--surface-2)', borderRadius: 'var(--radius-md)', padding: 3 }}>
-                            {departmentFilters.map(d => (
-                                <button
-                                    key={d}
-                                    onClick={() => setDeptFilter(d)}
-                                    style={{
-                                        padding: '5px 12px', borderRadius: 'var(--radius-sm)',
-                                        fontSize: 11, fontWeight: deptFilter === d ? 600 : 500,
-                                        color: deptFilter === d ? 'var(--helix-primary)' : 'var(--text-secondary)',
-                                        background: deptFilter === d ? '#fff' : 'transparent',
-                                        border: deptFilter === d ? '1px solid var(--border-default)' : '1px solid transparent',
-                                        boxShadow: deptFilter === d ? '0 1px 3px rgba(0,0,0,0.06)' : 'none',
-                                        cursor: 'pointer', transition: 'all 0.15s',
-                                    }}
-                                >
-                                    {d}
-                                </button>
-                            ))}
-                        </div>
+                        <CustomSelect
+                            value={deptFilter}
+                            onChange={v => setDeptFilter(v)}
+                            options={departmentFilters.map(d => ({ label: d === 'All' ? 'All Departments' : d, value: d }))}
+                            placeholder="All Departments"
+                            style={{ width: 190 }}
+                        />
 
-                        <div style={{ marginLeft: 'auto' }}>
-                            <button className="btn btn-primary btn-sm" onClick={() => setShowCreate(!showCreate)}>
+                        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{filtered.length} team{filtered.length !== 1 ? 's' : ''}</span>
+                            <button className="btn btn-primary btn-sm" onClick={() => { setShowCreate(!showCreate); setSelectedTeamId(null); setEditingTeam(false); }}>
                                 <span className="material-icons-round" style={{ fontSize: 14 }}>{showCreate ? 'close' : 'add'}</span>
                                 {showCreate ? 'Cancel' : 'New Team'}
                             </button>
                         </div>
                     </div>
 
-                    {/* Create Team Form */}
-                    {showCreate && (
-                        <div className="fade-in card" style={{ marginBottom: 18, maxWidth: 520 }}>
-                            <h3 style={{ marginBottom: 14 }}>Create Team</h3>
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                                <div>
-                                    <label className="label">Team Name</label>
-                                    <input className="input" value={newName} onChange={e => setNewName(e.target.value)} placeholder="e.g. Cardiology Team B" style={{ fontSize: 13 }} />
-                                </div>
-                                <div>
-                                    <label className="label">Department</label>
-                                    <select className="input" value={newDeptId} onChange={e => setNewDeptId(e.target.value)} style={{ fontSize: 13 }}>
-                                        {departments.map(d => (
-                                            <option key={d.id} value={d.id}>{d.name}</option>
-                                        ))}
-                                    </select>
-                                </div>
-                                <div>
-                                    <label className="label">Lead</label>
-                                    <select className="input" value={newLeadId} onChange={e => setNewLeadId(e.target.value)} style={{ fontSize: 13 }}>
-                                        <option value="">Unassigned</option>
-                                        {allStaff.map(s => (
-                                            <option key={s.id} value={s.id}>{s.first_name} {s.last_name} ({s.job_title})</option>
-                                        ))}
-                                    </select>
-                                </div>
-                                <div>
-                                    <label className="label">Description</label>
-                                    <input className="input" value={newDesc} onChange={e => setNewDesc(e.target.value)} placeholder="Brief description of the team" style={{ fontSize: 13 }} />
-                                </div>
-                            </div>
-                            <button className="btn btn-primary btn-sm" style={{ marginTop: 14, width: '100%', justifyContent: 'center' }} onClick={handleCreateTeam} disabled={!newName.trim()}>
-                                Create Team
-                            </button>
-                        </div>
-                    )}
-
-                    {/* Main Content: Teams List + Detail */}
-                    <div className="fade-in" style={{ display: 'grid', gridTemplateColumns: selectedTeam ? '1fr 1fr' : '1fr', gap: 20 }}>
-                        {/* Teams List */}
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                            {filtered.length === 0 ? (
-                                <div className="card" style={{ textAlign: 'center', padding: '40px 20px' }}>
-                                    <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)' }}>No teams found</div>
-                                    <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>Try adjusting your search or filters</div>
-                                </div>
-                            ) : (
-                                filtered.map(team => {
-                                    const isSelected = selectedTeamId === team.id;
-                                    const activeCount = team.members.filter(m => m.status === 'Active').length;
-                                    const totalMembers = team.memberCount || team.members.length;
-                                    return (
-                                        <div
-                                            key={team.id}
-                                            className="card"
-                                            onClick={() => { setSelectedTeamId(isSelected ? null : team.id); setEditingTeam(false); setShowAddMember(false); }}
-                                            style={{
-                                                cursor: 'pointer', transition: 'all 0.15s',
-                                                border: isSelected ? '1px solid var(--helix-primary)' : '1px solid var(--border-default)',
-                                                background: isSelected ? 'rgba(59,130,246,0.03)' : 'var(--surface-card)',
-                                            }}
-                                        >
-                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                                                <div style={{ flex: 1 }}>
-                                                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                                                        <h3 style={{ fontSize: 14, fontWeight: 700 }}>{team.name}</h3>
-                                                        <span style={{
-                                                            fontSize: 10, fontWeight: 600, padding: '2px 8px', borderRadius: 8,
-                                                            background: 'var(--surface-2)', color: 'var(--text-secondary)', border: '1px solid var(--border-subtle)',
-                                                        }}>
-                                                            {team.department}
-                                                        </span>
-                                                    </div>
-                                                    <p style={{ fontSize: 11.5, color: 'var(--text-muted)', marginBottom: 8, lineHeight: 1.4 }}>{team.description}</p>
-                                                    <div style={{ display: 'flex', gap: 16, fontSize: 11.5, color: 'var(--text-secondary)' }}>
-                                                        <span><strong>{totalMembers}</strong> members</span>
-                                                        <span><strong>{activeCount}</strong> active</span>
-                                                        <span>Lead: <strong>{team.lead}</strong></span>
-                                                    </div>
-                                                </div>
-                                                <button
-                                                    className="btn btn-danger btn-xs"
-                                                    onClick={e => { e.stopPropagation(); handleDeleteTeam(team.id); }}
-                                                    title="Delete team"
+                    {/* Table + Detail Panel */}
+                    <div className="fade-in" style={{ display: 'grid', gridTemplateColumns: detailOpen ? '1fr 380px' : '1fr', gap: 20, alignItems: 'start' }}>
+                        {/* Teams Table */}
+                        <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+                            <div className="table-wrapper">
+                                <table>
+                                    <thead>
+                                        <tr>
+                                            <th style={{ width: '30%' }}>Team Name</th>
+                                            <th>Department</th>
+                                            <th>Lead</th>
+                                            <th style={{ textAlign: 'center' }}>Members</th>
+                                            <th>Created</th>
+                                            <th style={{ width: 60, textAlign: 'center' }}>Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {loading ? (
+                                            <tr><td colSpan={6} style={{ textAlign: 'center', padding: 40, color: 'var(--text-muted)', fontSize: 13 }}>Loading teams...</td></tr>
+                                        ) : filtered.length === 0 ? (
+                                            <tr><td colSpan={6} style={{ textAlign: 'center', padding: 40, color: 'var(--text-muted)', fontSize: 13 }}>No teams found</td></tr>
+                                        ) : filtered.map(team => {
+                                            const isSelected = selectedTeamId === team.id;
+                                            const totalMembers = team.memberCount || team.members.length;
+                                            return (
+                                                <tr
+                                                    key={team.id}
+                                                    onClick={() => { setSelectedTeamId(isSelected ? null : team.id); setShowCreate(false); setEditingTeam(false); setShowAddMember(false); }}
+                                                    style={{
+                                                        cursor: 'pointer', transition: 'background 0.12s',
+                                                        background: isSelected ? 'rgba(59,130,246,0.04)' : undefined,
+                                                    }}
                                                 >
-                                                    <span className="material-icons-round" style={{ fontSize: 12 }}>delete</span>
-                                                </button>
-                                            </div>
-                                        </div>
-                                    );
-                                })
-                            )}
+                                                    <td>
+                                                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                                                            <div style={{
+                                                                width: 30, height: 30, borderRadius: 'var(--radius-sm)',
+                                                                background: isSelected ? 'var(--helix-primary)' : 'var(--surface-2)',
+                                                                color: isSelected ? '#fff' : 'var(--text-secondary)',
+                                                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                                                fontSize: 12, flexShrink: 0,
+                                                            }}>
+                                                                <span className="material-icons-round" style={{ fontSize: 16 }}>groups</span>
+                                                            </div>
+                                                            <div>
+                                                                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>{team.name}</div>
+                                                                {team.description && <div style={{ fontSize: 11, color: 'var(--text-muted)', maxWidth: 220, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{team.description}</div>}
+                                                            </div>
+                                                        </div>
+                                                    </td>
+                                                    <td><span className="badge badge-neutral" style={{ fontSize: 10 }}>{team.department}</span></td>
+                                                    <td style={{ fontSize: 12.5, color: 'var(--text-secondary)' }}>{team.lead}</td>
+                                                    <td style={{ textAlign: 'center', fontSize: 12.5, fontWeight: 600 }}>{totalMembers}</td>
+                                                    <td style={{ fontSize: 12, color: 'var(--text-muted)' }}>{team.createdAt || '—'}</td>
+                                                    <td style={{ textAlign: 'center' }}>
+                                                        <button
+                                                            className="btn btn-danger btn-xs"
+                                                            onClick={e => { e.stopPropagation(); handleDeleteTeam(team.id); }}
+                                                            title="Delete team"
+                                                            style={{ padding: '3px 6px' }}
+                                                        >
+                                                            <span className="material-icons-round" style={{ fontSize: 13 }}>delete</span>
+                                                        </button>
+                                                    </td>
+                                                </tr>
+                                            );
+                                        })}
+                                    </tbody>
+                                </table>
+                            </div>
                         </div>
 
-                        {/* Detail Panel */}
-                        {selectedTeam && (
-                            <div className="card" style={{ alignSelf: 'start', position: 'sticky', top: 24 }}>
+                        {/* Detail / Create Panel */}
+                        {showCreate && (
+                            <div className="fade-in card" style={{ position: 'sticky', top: 24 }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                                    <h3 style={{ fontSize: 15, fontWeight: 700 }}>Create Team</h3>
+                                    <button onClick={() => setShowCreate(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: 2 }}>
+                                        <span className="material-icons-round" style={{ fontSize: 16 }}>close</span>
+                                    </button>
+                                </div>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                                    <div>
+                                        <label className="label">Team Name</label>
+                                        <input className="input" value={newName} onChange={e => setNewName(e.target.value)} placeholder="e.g. Cardiology Team B" style={{ fontSize: 13 }} />
+                                    </div>
+                                    <div>
+                                        <label className="label">Department</label>
+                                        <CustomSelect
+                                            value={newDeptId}
+                                            onChange={v => setNewDeptId(v)}
+                                            options={departments.map(d => ({ label: d.name, value: d.id }))}
+                                            placeholder="-- Select Department --"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="label">Lead</label>
+                                        <CustomSelect
+                                            value={newLeadId}
+                                            onChange={v => setNewLeadId(v)}
+                                            options={[{ label: 'Unassigned', value: '' }, ...allStaff.map(s => ({ label: `${s.first_name} ${s.last_name} (${s.job_title})`, value: s.id }))]}
+                                            placeholder="Unassigned"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="label">Description</label>
+                                        <textarea className="input" value={newDesc} onChange={e => setNewDesc(e.target.value)} placeholder="Brief description of the team" style={{ fontSize: 13, minHeight: 60, resize: 'vertical' }} />
+                                    </div>
+
+                                    {/* Members picker */}
+                                    <div>
+                                        <label className="label">Members</label>
+                                        {newMembers.length > 0 && (
+                                            <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 8 }}>
+                                                {newMembers.map(m => (
+                                                    <div key={m.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 8px', borderRadius: 'var(--radius-sm)', background: 'var(--surface-2)', border: '1px solid var(--border-subtle)' }}>
+                                                        <div style={{ width: 22, height: 22, borderRadius: '50%', background: 'var(--helix-primary)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 8, fontWeight: 700, flexShrink: 0 }}>
+                                                            {m.name.split(' ').map(w => w[0]).join('').slice(0, 2)}
+                                                        </div>
+                                                        <div style={{ flex: 1, minWidth: 0 }}>
+                                                            <div style={{ fontSize: 11.5, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{m.name}</div>
+                                                            <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>{m.jobTitle}</div>
+                                                        </div>
+                                                        <button type="button" onClick={() => setNewMembers(prev => prev.filter(x => x.id !== m.id))} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: 2 }} title="Remove">
+                                                            <span className="material-icons-round" style={{ fontSize: 13 }}>close</span>
+                                                        </button>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
+                                        <div style={{ position: 'relative' }}>
+                                            <span className="material-icons-round" style={{ position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)', fontSize: 14, color: 'var(--text-disabled)', pointerEvents: 'none' }}>person_add</span>
+                                            <input className="input" value={newMemberSearch} onChange={e => setNewMemberSearch(e.target.value)} placeholder="Search staff to add..." style={{ fontSize: 12, paddingLeft: 28 }} />
+                                        </div>
+                                        {newMemberSearch.trim() && (() => {
+                                            const memberIds = new Set(newMembers.map(m => m.id));
+                                            const q = newMemberSearch.toLowerCase();
+                                            const matches = allStaff.filter(s =>
+                                                !memberIds.has(s.id) &&
+                                                (`${s.first_name} ${s.last_name}`.toLowerCase().includes(q) || s.job_title.toLowerCase().includes(q) || s.employee_id.toLowerCase().includes(q))
+                                            ).slice(0, 10);
+                                            return matches.length > 0 ? (
+                                                <div style={{ maxHeight: 140, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 2, marginTop: 4 }}>
+                                                    {matches.map(s => (
+                                                        <div
+                                                            key={s.id}
+                                                            onClick={() => {
+                                                                setNewMembers(prev => [...prev, { id: s.id, name: `${s.first_name} ${s.last_name}`, jobTitle: s.job_title }]);
+                                                                setNewMemberSearch('');
+                                                            }}
+                                                            style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 8px', borderRadius: 'var(--radius-sm)', cursor: 'pointer', background: 'var(--surface-card)', border: '1px solid var(--border-subtle)', transition: 'background 0.1s' }}
+                                                            onMouseEnter={e => (e.currentTarget.style.background = 'var(--surface-2)')}
+                                                            onMouseLeave={e => (e.currentTarget.style.background = 'var(--surface-card)')}
+                                                        >
+                                                            <div style={{ width: 22, height: 22, borderRadius: '50%', background: 'var(--surface-2)', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 8, fontWeight: 700, flexShrink: 0 }}>
+                                                                {s.first_name[0]}{s.last_name[0]}
+                                                            </div>
+                                                            <div style={{ flex: 1, minWidth: 0 }}>
+                                                                <div style={{ fontSize: 11.5, fontWeight: 600 }}>{s.first_name} {s.last_name}</div>
+                                                                <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>{s.job_title} · {s.dept}</div>
+                                                            </div>
+                                                            <span className="material-icons-round" style={{ fontSize: 14, color: 'var(--text-muted)' }}>add</span>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            ) : (
+                                                <div style={{ fontSize: 11, color: 'var(--text-muted)', textAlign: 'center', padding: '8px 0' }}>No matching staff</div>
+                                            );
+                                        })()}
+                                    </div>
+                                </div>
+                                <button className="btn btn-primary btn-sm" style={{ marginTop: 16, width: '100%', justifyContent: 'center' }} onClick={handleCreateTeam} disabled={!newName.trim()}>
+                                    <span className="material-icons-round" style={{ fontSize: 14 }}>add</span>
+                                    Create Team{newMembers.length > 0 ? ` with ${newMembers.length} member${newMembers.length > 1 ? 's' : ''}` : ''}
+                                </button>
+                            </div>
+                        )}
+
+                        {selectedTeam && !showCreate && (
+                            <div className="fade-in card" style={{ position: 'sticky', top: 24 }}>
                                 {editingTeam ? (
                                     <>
-                                        <h3 style={{ marginBottom: 14 }}>Edit Team</h3>
-                                        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                                            <h3 style={{ fontSize: 15, fontWeight: 700 }}>Edit Team</h3>
+                                            <button onClick={() => setEditingTeam(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: 2 }}>
+                                                <span className="material-icons-round" style={{ fontSize: 16 }}>close</span>
+                                            </button>
+                                        </div>
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                                             <div>
                                                 <label className="label">Team Name</label>
                                                 <input className="input" value={editName} onChange={e => setEditName(e.target.value)} style={{ fontSize: 13 }} />
                                             </div>
                                             <div>
                                                 <label className="label">Department</label>
-                                                <select className="input" value={editDept} onChange={e => setEditDept(e.target.value)} style={{ fontSize: 13 }}>
-                                                    {departments.map(d => (
-                                                        <option key={d.id} value={d.name}>{d.name}</option>
-                                                    ))}
-                                                </select>
+                                                <CustomSelect
+                                                    value={editDept}
+                                                    onChange={v => setEditDept(v)}
+                                                    options={departments.map(d => ({ label: d.name, value: d.name }))}
+                                                    placeholder="-- Select Department --"
+                                                />
                                             </div>
                                             <div>
                                                 <label className="label">Description</label>
-                                                <input className="input" value={editDesc} onChange={e => setEditDesc(e.target.value)} style={{ fontSize: 13 }} />
+                                                <textarea className="input" value={editDesc} onChange={e => setEditDesc(e.target.value)} style={{ fontSize: 13, minHeight: 60, resize: 'vertical' }} />
                                             </div>
                                         </div>
-                                        <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
-                                            <button className="btn btn-primary btn-sm" style={{ flex: 1, justifyContent: 'center' }} onClick={handleSaveEdit} disabled={!editName.trim()}>Save</button>
+                                        <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
+                                            <button className="btn btn-primary btn-sm" style={{ flex: 1, justifyContent: 'center' }} onClick={handleSaveEdit} disabled={!editName.trim()}>Save Changes</button>
                                             <button className="btn btn-secondary btn-sm" style={{ flex: 1, justifyContent: 'center' }} onClick={() => setEditingTeam(false)}>Cancel</button>
                                         </div>
                                     </>
                                 ) : (
                                     <>
-                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
-                                            <div>
+                                        {/* Team Header */}
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
+                                            <div style={{ flex: 1, minWidth: 0 }}>
                                                 <h3 style={{ fontSize: 16, fontWeight: 700, marginBottom: 2 }}>{selectedTeam.name}</h3>
-                                                <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>{selectedTeam.department} · Created {selectedTeam.createdAt}</p>
+                                                <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                                                    <span className="badge badge-neutral" style={{ fontSize: 10 }}>{selectedTeam.department}</span>
+                                                    {selectedTeam.createdAt && <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>Created {selectedTeam.createdAt}</span>}
+                                                </div>
                                             </div>
-                                            <button className="btn btn-secondary btn-xs" onClick={openEdit}>
-                                                <span className="material-icons-round" style={{ fontSize: 12 }}>edit</span>
-                                                Edit
-                                            </button>
+                                            <div style={{ display: 'flex', gap: 4 }}>
+                                                <button className="btn btn-secondary btn-xs" onClick={openEdit} title="Edit">
+                                                    <span className="material-icons-round" style={{ fontSize: 13 }}>edit</span>
+                                                </button>
+                                                <button onClick={() => setSelectedTeamId(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: 2 }}>
+                                                    <span className="material-icons-round" style={{ fontSize: 16 }}>close</span>
+                                                </button>
+                                            </div>
                                         </div>
 
                                         {selectedTeam.description && (
-                                            <p style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 16, lineHeight: 1.5 }}>{selectedTeam.description}</p>
+                                            <p style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 12, lineHeight: 1.5 }}>{selectedTeam.description}</p>
                                         )}
+
+                                        {/* Lead */}
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderRadius: 'var(--radius-md)', background: 'var(--surface-2)', marginBottom: 16 }}>
+                                            <span className="material-icons-round" style={{ fontSize: 14, color: 'var(--text-muted)' }}>star</span>
+                                            <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Lead:</span>
+                                            <span style={{ fontSize: 12, fontWeight: 600 }}>{selectedTeam.lead}</span>
+                                        </div>
 
                                         {/* Members */}
                                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-                                            <h4 style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-muted)' }}>
+                                            <h4 style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-muted)' }}>
                                                 Members ({selectedTeam.members.length})
                                             </h4>
                                             <button className="btn btn-primary btn-xs" onClick={() => setShowAddMember(!showAddMember)}>
@@ -572,28 +684,16 @@ export default function ProviderTeamsPage() {
                                                 display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 12, padding: 12,
                                                 background: 'var(--surface-2)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-default)',
                                             }}>
-                                                <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
-                                                    <div style={{ flex: 1, position: 'relative' }}>
-                                                        <label className="label">Search Staff</label>
-                                                        <div style={{ position: 'relative' }}>
-                                                            <span className="material-icons-round" style={{ position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)', fontSize: 14, color: 'var(--text-disabled)', pointerEvents: 'none' }}>search</span>
-                                                            <input className="input" value={staffSearch} onChange={e => { setStaffSearch(e.target.value); setSelectedStaffId(null); }} placeholder="Search by name, role, or ID..." style={{ fontSize: 12, paddingLeft: 28 }} />
-                                                        </div>
-                                                    </div>
-                                                    <div style={{ minWidth: 110 }}>
-                                                        <label className="label">Department</label>
-                                                        <select className="input" value={staffDeptFilter} onChange={e => { setStaffDeptFilter(e.target.value); setSelectedStaffId(null); }} style={{ fontSize: 12 }}>
-                                                            {staffDepartments.map(d => <option key={d} value={d}>{d}</option>)}
-                                                        </select>
-                                                    </div>
+                                                <div style={{ position: 'relative' }}>
+                                                    <span className="material-icons-round" style={{ position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)', fontSize: 14, color: 'var(--text-disabled)', pointerEvents: 'none' }}>search</span>
+                                                    <input className="input" value={staffSearch} onChange={e => { setStaffSearch(e.target.value); setSelectedStaffId(null); }} placeholder="Search staff..." style={{ fontSize: 12, paddingLeft: 28 }} />
                                                 </div>
 
-                                                {/* Staff results */}
                                                 <div style={{ maxHeight: 160, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 4 }}>
                                                     {filteredStaff.length === 0 ? (
                                                         <div style={{ fontSize: 11, color: 'var(--text-muted)', textAlign: 'center', padding: '10px 0' }}>No matching staff found</div>
                                                     ) : (
-                                                        filteredStaff.map(s => {
+                                                        filteredStaff.slice(0, 20).map(s => {
                                                             const isChosen = selectedStaffId === s.id;
                                                             return (
                                                                 <div
@@ -616,7 +716,7 @@ export default function ProviderTeamsPage() {
                                                                     </div>
                                                                     <div style={{ flex: 1, minWidth: 0 }}>
                                                                         <div style={{ fontSize: 11.5, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{s.first_name} {s.last_name}</div>
-                                                                        <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>{s.job_title} · {s.dept} · {s.employee_id}</div>
+                                                                        <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>{s.job_title} · {s.dept}</div>
                                                                     </div>
                                                                     {isChosen && <span className="material-icons-round" style={{ fontSize: 14, color: 'var(--helix-primary)' }}>check_circle</span>}
                                                                 </div>
@@ -628,25 +728,28 @@ export default function ProviderTeamsPage() {
                                                 {selectedStaff && (
                                                     <div>
                                                         <label className="label">Role in Team</label>
-                                                        <select className="input" value={memberRole} onChange={e => setMemberRole(e.target.value)} style={{ fontSize: 12 }}>
-                                                            {roleOptions.map(r => <option key={r} value={r}>{r}</option>)}
-                                                        </select>
+                                                        <CustomSelect
+                                                            value={memberRole}
+                                                            onChange={v => setMemberRole(v)}
+                                                            options={roleOptions.map(r => ({ label: r, value: r }))}
+                                                            placeholder="-- Select Role --"
+                                                        />
                                                     </div>
                                                 )}
 
-                                                <button className="btn btn-primary btn-xs" style={{ alignSelf: 'flex-end', justifyContent: 'center' }} onClick={handleAddMember} disabled={!selectedStaff}>
+                                                <button className="btn btn-primary btn-xs" style={{ alignSelf: 'flex-end' }} onClick={handleAddMember} disabled={!selectedStaff}>
                                                     <span className="material-icons-round" style={{ fontSize: 12 }}>person_add</span>
-                                                    Add
+                                                    Add Member
                                                 </button>
                                             </div>
                                         )}
 
                                         {selectedTeam.members.length === 0 ? (
                                             <div style={{ padding: '20px 0', textAlign: 'center', fontSize: 12, color: 'var(--text-muted)' }}>
-                                                No members yet. Add the first member above.
+                                                No members yet. Click &quot;Add&quot; to add the first member.
                                             </div>
                                         ) : (
-                                            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                                            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                                                 {selectedTeam.members.map(member => (
                                                     <div key={member.id} style={{
                                                         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
@@ -655,10 +758,10 @@ export default function ProviderTeamsPage() {
                                                     }}>
                                                         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                                                             <div style={{
-                                                                width: 28, height: 28, borderRadius: '50%',
+                                                                width: 26, height: 26, borderRadius: '50%',
                                                                 background: 'var(--helix-primary)', color: '#fff',
                                                                 display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                                                fontSize: 10, fontWeight: 700, flexShrink: 0,
+                                                                fontSize: 9, fontWeight: 700, flexShrink: 0,
                                                             }}>
                                                                 {member.firstName[0]}{member.lastName[0]}
                                                             </div>
@@ -674,6 +777,7 @@ export default function ProviderTeamsPage() {
                                                             className="btn btn-danger btn-xs"
                                                             onClick={() => handleRemoveMember(member.id)}
                                                             title="Remove member"
+                                                            style={{ padding: '3px 6px' }}
                                                         >
                                                             <span className="material-icons-round" style={{ fontSize: 12 }}>close</span>
                                                         </button>

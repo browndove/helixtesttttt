@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import Sidebar from '@/components/Sidebar';
 import TopBar from '@/components/TopBar';
 import navSections from '@/components/navSections';
+import CustomSelect from '@/components/CustomSelect';
 
 type EscalationLevel = {
     level: number;
@@ -17,14 +18,20 @@ type EscalationStep = {
     target_role_id: string;
     target_role_name?: string;
     target_user_id?: string | null;
+    target_user_name?: string;
     timeout_seconds: number;
 };
 
 type Policy = {
     id: string;
     role_id: string;
+    role_name?: string;
+    user_id?: string | null;
+    user_name?: string;
     initial_timeout_seconds: number;
     steps: EscalationStep[];
+    created_at?: string;
+    updated_at?: string;
 };
 
 function delayToSeconds(d: string): number {
@@ -479,16 +486,58 @@ export default function RolesBuilderAssignment() {
                     priority: newRoleMandatory ? 'critical' : 'standard',
                 }),
             });
-            if (res.ok) {
-                const role = await res.json();
-                setRoles(prev => [...prev, {
-                    ...normalizeRoleForUi(role),
-                    escalation_routing: role.escalation_routing || newRouting,
-                    escalation_levels: role.escalation_levels || newEscLevels,
-                }]);
-                showToast(`"${newRoleName}" created`);
-                resetAddForm();
+            if (!res.ok) { showToast('Failed to add role'); return; }
+            const role = await res.json();
+
+            // Create escalation policy + steps for critical/mandatory roles
+            let policyLevels = newEscLevels;
+            if (newRoleMandatory && newEscLevels.length > 0) {
+                const policyRes = await fetch('/api/proxy/escalation-policies', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        role_id: role.id,
+                        initial_timeout_seconds: Math.max(30, delayToSeconds(newEscLevels[0]?.delay || '3 min')),
+                    }),
+                });
+                if (policyRes.ok) {
+                    const policy = await policyRes.json();
+                    const steps = newEscLevels
+                        .filter(l => l.target)
+                        .map(l => {
+                            const match = roles.find(r => r.name === l.target);
+                            return {
+                                target_role_id: match?.id || '',
+                                target_role_name: l.target,
+                                timeout_seconds: Math.max(30, delayToSeconds(l.delay)),
+                            };
+                        })
+                        .filter(s => s.target_role_id);
+                    if (steps.length > 0) {
+                        await fetch(`/api/proxy/escalation-policies/${policy.id}/steps/bulk`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ steps }),
+                        });
+                    }
+                    // Re-fetch policy to get steps with IDs
+                    const updatedPolicyRes = await fetch(`/api/proxy/escalation-policies/by-role/${role.id}`);
+                    if (updatedPolicyRes.ok) {
+                        const updatedPolicy = await updatedPolicyRes.json();
+                        const roleNameMap = new Map(roles.map(r => [r.id, r.name]));
+                        policyLevels = stepsToLevels(updatedPolicy.steps || [], roleNameMap);
+                    }
+                }
             }
+
+            setRoles(prev => [...prev, {
+                ...normalizeRoleForUi(role),
+                escalation_routing: role.escalation_routing || newRouting,
+                escalation_levels: policyLevels,
+            }]);
+            showToast(`"${newRoleName}" created`);
+            resetAddForm();
+            fetchData();
         } catch { showToast('Failed to add role'); }
     };
 
@@ -540,13 +589,20 @@ export default function RolesBuilderAssignment() {
         setEditEnabled(role.enabled ?? true);
         setEditVisible(role.visible_in_directory ?? true);
         setEditRouting((role.escalation_routing || []).map(r => ({ ...r })));
-        setEditEscLevels((role.escalation_levels || []).map(l => ({ ...l })));
+        // Pre-fill level 1 with the role being edited if no levels exist
+        const existing = (role.escalation_levels || []).map(l => ({ ...l }));
+        if (existing.length > 0) {
+            setEditEscLevels(existing);
+        } else {
+            setEditEscLevels([{ level: 1, target: role.name, delay: '5 min' }]);
+        }
     };
 
     const handleSaveEdit = async () => {
         if (!editingRole || !editName.trim()) return;
         setEditSaving(true);
         try {
+            // 1. Update the role itself
             const res = await fetch(`/api/proxy/roles/${editingRole.id}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
@@ -556,26 +612,108 @@ export default function RolesBuilderAssignment() {
                     priority: editMandatory ? 'critical' : 'standard',
                 }),
             });
-            if (res.ok) {
-                const updated = await res.json();
-                setRoles(prev => prev.map(r => r.id === editingRole.id ? {
-                    ...normalizeRoleForUi({ ...r, ...updated }),
-                    escalation_routing: updated.escalation_routing || editRouting,
-                    escalation_levels: updated.escalation_levels || editEscLevels,
-                } : r));
-                showToast(`"${editName}" updated`);
-                setEditingRole(null);
+            if (!res.ok) { showToast('Failed to save changes'); setEditSaving(false); return; }
+            const updated = await res.json();
+
+            // 2. Create or update escalation policy for critical/mandatory roles
+            let finalLevels = editEscLevels;
+            if (editMandatory && editEscLevels.length > 0) {
+                // Check if a policy already exists for this role
+                const existingPolicyRes = await fetch(`/api/proxy/escalation-policies/by-role/${editingRole.id}`);
+                let policyId: string | null = null;
+
+                if (existingPolicyRes.ok) {
+                    const existingPolicy = await existingPolicyRes.json();
+                    if (existingPolicy?.id) {
+                        policyId = existingPolicy.id;
+                        // Update timeout
+                        await fetch(`/api/proxy/escalation-policies/${policyId}`, {
+                            method: 'PUT',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                initial_timeout_seconds: Math.max(30, delayToSeconds(editEscLevels[0]?.delay || '3 min')),
+                            }),
+                        });
+                        // Delete old steps
+                        if (existingPolicy.steps) {
+                            for (const step of existingPolicy.steps) {
+                                await fetch(`/api/proxy/escalation-policies/${policyId}/steps/${step.id}`, { method: 'DELETE' });
+                            }
+                        }
+                    }
+                }
+
+                // Create new policy if none exists
+                if (!policyId) {
+                    const policyRes = await fetch('/api/proxy/escalation-policies', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            role_id: editingRole.id,
+                            initial_timeout_seconds: Math.max(30, delayToSeconds(editEscLevels[0]?.delay || '3 min')),
+                        }),
+                    });
+                    if (policyRes.ok) {
+                        const policy = await policyRes.json();
+                        policyId = policy.id;
+                    }
+                }
+
+                // Bulk add new steps
+                if (policyId) {
+                    const steps = editEscLevels
+                        .filter(l => l.target)
+                        .map(l => {
+                            const match = roles.find(r => r.name === l.target);
+                            return {
+                                target_role_id: match?.id || '',
+                                target_role_name: l.target,
+                                timeout_seconds: Math.max(30, delayToSeconds(l.delay)),
+                            };
+                        })
+                        .filter(s => s.target_role_id);
+                    if (steps.length > 0) {
+                        await fetch(`/api/proxy/escalation-policies/${policyId}/steps/bulk`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ steps }),
+                        });
+                    }
+                    // Re-fetch to get fresh steps
+                    const refreshRes = await fetch(`/api/proxy/escalation-policies/by-role/${editingRole.id}`);
+                    if (refreshRes.ok) {
+                        const refreshed = await refreshRes.json();
+                        const roleNameMap = new Map(roles.map(r => [r.id, r.name]));
+                        finalLevels = stepsToLevels(refreshed.steps || [], roleNameMap);
+                    }
+                }
             }
+
+            setRoles(prev => prev.map(r => r.id === editingRole.id ? {
+                ...normalizeRoleForUi({ ...r, ...updated }),
+                escalation_routing: updated.escalation_routing || editRouting,
+                escalation_levels: finalLevels,
+            } : r));
+            showToast(`"${editName}" updated`);
+            setEditingRole(null);
+            fetchData();
         } catch { showToast('Failed to save changes'); }
         setEditSaving(false);
     };
 
+    const roleTargetOptions = useMemo(() => {
+        const names = roles.map(r => r.name).filter(Boolean);
+        return names.length > 0 ? Array.from(new Set(names)) : escalationTargetOptions;
+    }, [roles]);
+
     const renderEscalationLadder = (levels: EscalationLevel[], setLevels: (levels: EscalationLevel[]) => void) => {
         const sorted = [...levels].sort((a, b) => a.level - b.level);
 
+        const MAX_STEPS = 3;
         const handleAddLevel = () => {
+            if (levels.length >= MAX_STEPS) return;
             const nextLevel = sorted.length > 0 ? sorted[sorted.length - 1].level + 1 : 1;
-            setLevels([...levels, { level: nextLevel, target: escalationTargetOptions[0], delay: '5 min' }]);
+            setLevels([...levels, { level: nextLevel, target: '', delay: '5 min' }]);
         };
 
         const handleRemoveLevel = (levelNum: number) => {
@@ -602,18 +740,21 @@ export default function RolesBuilderAssignment() {
                             </div>
                             {/* Row content */}
                             <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', marginBottom: i < sorted.length - 1 ? 0 : 0, borderRadius: 'var(--radius-md)', background: 'var(--surface-2)', border: '1px solid var(--border-subtle)', marginTop: i === 0 ? 0 : 4 }}>
-                                <select className="input" value={lvl.target} onChange={e => {
-                                    const updated = levels.map(l => l.level === lvl.level ? { ...l, target: e.target.value } : l);
-                                    setLevels(updated);
-                                }} style={{ fontSize: 12, height: 30, padding: '0 8px', flex: 1 }}>
-                                    {escalationTargetOptions.map(t => <option key={t} value={t}>{t}</option>)}
-                                </select>
-                                <select className="input" value={lvl.delay} onChange={e => {
-                                    const updated = levels.map(l => l.level === lvl.level ? { ...l, delay: e.target.value } : l);
-                                    setLevels(updated);
-                                }} style={{ fontSize: 12, height: 30, padding: '0 8px', width: 90 }}>
-                                    {delayOptions.map(d => <option key={d} value={d}>{d}</option>)}
-                                </select>
+                                <CustomSelect
+                                    value={lvl.target}
+                                    onChange={v => { const updated = levels.map(l => l.level === lvl.level ? { ...l, target: v } : l); setLevels(updated); }}
+                                    options={roleTargetOptions.map(t => ({ label: t, value: t }))}
+                                    placeholder="-- Select Role --"
+                                    style={{ flex: 1 }}
+                                />
+                                <CustomSelect
+                                    value={lvl.delay}
+                                    onChange={v => { const updated = levels.map(l => l.level === lvl.level ? { ...l, delay: v } : l); setLevels(updated); }}
+                                    options={delayOptions.map(d => ({ label: d, value: d }))}
+                                    placeholder="Delay"
+                                    style={{ width: 100 }}
+                                    maxH={160}
+                                />
                                 {sorted.length > 1 && (
                                     <button
                                         type="button"
@@ -630,15 +771,17 @@ export default function RolesBuilderAssignment() {
                         </div>
                     ))}
                 </div>
-                <button
-                    type="button"
-                    className="btn btn-secondary btn-xs"
-                    onClick={handleAddLevel}
-                    style={{ alignSelf: 'flex-start', marginTop: 4 }}
-                >
-                    <span className="material-icons-round" style={{ fontSize: 13 }}>add</span>
-                    Add Level
-                </button>
+                {sorted.length < MAX_STEPS && (
+                    <button
+                        type="button"
+                        className="btn btn-secondary btn-xs"
+                        onClick={handleAddLevel}
+                        style={{ alignSelf: 'flex-start', marginTop: 4 }}
+                    >
+                        <span className="material-icons-round" style={{ fontSize: 13 }}>add</span>
+                        Add Level
+                    </button>
+                )}
             </div>
         );
     };
@@ -735,10 +878,12 @@ export default function RolesBuilderAssignment() {
 
                                 <div style={{ marginBottom: 14 }}>
                                     <label className="label">Department</label>
-                                    <select className="input" value={editDept} onChange={e => setEditDept(e.target.value)} style={{ fontSize: 13 }}>
-                                        <option value="">-- Select Department --</option>
-                                        {departments.map(d => <option key={d} value={d}>{d}</option>)}
-                                    </select>
+                                    <CustomSelect
+                                        value={editDept}
+                                        onChange={v => setEditDept(v)}
+                                        options={departments.map(d => ({ label: d, value: d }))}
+                                        placeholder="-- Select Department --"
+                                    />
                                 </div>
 
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 20 }}>
@@ -937,10 +1082,12 @@ export default function RolesBuilderAssignment() {
 
                                     <div style={{ marginBottom: 18 }}>
                                         <label className="label">Department (optional)</label>
-                                        <select className="input" value={templateDept} onChange={e => setTemplateDept(e.target.value)} style={{ fontSize: 13 }}>
-                                            <option value="">-- Select Department --</option>
-                                            {departments.map(d => <option key={d} value={d}>{d}</option>)}
-                                        </select>
+                                        <CustomSelect
+                                            value={templateDept}
+                                            onChange={v => setTemplateDept(v)}
+                                            options={departments.map(d => ({ label: d, value: d }))}
+                                            placeholder="-- Select Department --"
+                                        />
                                         <div style={{ fontSize: 10.5, color: 'var(--text-muted)', marginTop: 4 }}>All roles in the chain will be assigned to this department.</div>
                                     </div>
 
@@ -970,10 +1117,12 @@ export default function RolesBuilderAssignment() {
                                         </div>
                                         <div>
                                             <label className="label">Department</label>
-                                            <select className="input" value={newRoleDept} onChange={e => setNewRoleDept(e.target.value)} style={{ fontSize: 13 }}>
-                                                <option value="">-- Select --</option>
-                                                {departments.map(d => <option key={d} value={d}>{d}</option>)}
-                                            </select>
+                                            <CustomSelect
+                                                value={newRoleDept}
+                                                onChange={v => setNewRoleDept(v)}
+                                                options={departments.map(d => ({ label: d, value: d }))}
+                                                placeholder="-- Select --"
+                                            />
                                         </div>
                                     </div>
 

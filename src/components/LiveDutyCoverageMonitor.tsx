@@ -4,6 +4,7 @@ import { useState } from 'react';
 import Sidebar from '@/components/Sidebar';
 import TopBar from '@/components/TopBar';
 import navSections from '@/components/navSections';
+import CustomSelect from '@/components/CustomSelect';
 
 type StaffMember = { name: string; role: string; status: 'online' | 'away' | 'offline' | 'vacant'; urgency?: 'Urgent' | 'Standard' };
 type Unit = { name: string; staff: StaffMember[] };
@@ -175,10 +176,12 @@ export default function LiveDutyCoverageMonitor() {
                             </div>
                             <div style={{ flex: 1, minWidth: 160 }}>
                                 <label className="label">Unit</label>
-                                <select className="input" value={assignUnit} onChange={e => setAssignUnit(e.target.value)} style={{ fontSize: 13 }}>
-                                    <option value="">Select unit...</option>
-                                    {units.map(u => <option key={u.name} value={u.name}>{u.name}</option>)}
-                                </select>
+                                <CustomSelect
+                                    value={assignUnit}
+                                    onChange={v => setAssignUnit(v)}
+                                    options={units.map(u => ({ label: u.name, value: u.name }))}
+                                    placeholder="Select unit..."
+                                />
                             </div>
                             <button className="btn btn-primary btn-sm" onClick={handleAssign} disabled={!assignName.trim() || !assignUnit} style={{ height: 36 }}>
                                 <span className="material-icons-round" style={{ fontSize: 15 }}>person_add</span>Assign

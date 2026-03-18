@@ -5,6 +5,7 @@ import Sidebar from '@/components/Sidebar';
 import TopBar from '@/components/TopBar';
 import navSections from '@/components/navSections';
 import CalendarRangePicker from '@/components/CalendarRangePicker';
+import CustomSelect from '@/components/CustomSelect';
 
 type LogEntry = {
     id: string;
@@ -387,9 +388,13 @@ export default function AuditLogPage() {
                             ))}
                         </div>
 
-                        <select className="input" value={actionFilter} onChange={e => setActionFilter(e.target.value)} style={{ fontSize: 12, height: 36, minWidth: 140 }}>
-                            {actionTypes.map(a => <option key={a} value={a}>{a === 'All' ? 'All Actions' : prettify(a)}</option>)}
-                        </select>
+                        <CustomSelect
+                            value={actionFilter}
+                            onChange={v => setActionFilter(v)}
+                            options={actionTypes.map(a => ({ label: a === 'All' ? 'All Actions' : prettify(a), value: a }))}
+                            placeholder="All Actions"
+                            style={{ minWidth: 150 }}
+                        />
 
                         <input
                             className="input"
@@ -399,11 +404,12 @@ export default function AuditLogPage() {
                             style={{ fontSize: 12, height: 36, width: 160 }}
                         />
 
-                        <select className="input" value={String(pageSize)} onChange={e => setPageSize(Number(e.target.value))} style={{ fontSize: 12, height: 36, width: 110 }}>
-                            <option value="20">20 / page</option>
-                            <option value="50">50 / page</option>
-                            <option value="100">100 / page</option>
-                        </select>
+                        <CustomSelect
+                            value={String(pageSize)}
+                            onChange={v => setPageSize(Number(v))}
+                            options={[{ label: '20 / page', value: '20' }, { label: '50 / page', value: '50' }, { label: '100 / page', value: '100' }]}
+                            style={{ width: 120 }}
+                        />
 
                         <CalendarRangePicker
                             from={dateFrom}

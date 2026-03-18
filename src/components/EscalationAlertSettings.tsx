@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import Sidebar from '@/components/Sidebar';
 import TopBar from '@/components/TopBar';
 import navSections from '@/components/navSections';
+import CustomSelect from '@/components/CustomSelect';
 
 type EscalationLevel = {
     level: number;
@@ -26,6 +27,9 @@ type EscalationStep = {
 type Policy = {
     id: string;
     role_id: string;
+    role_name?: string;
+    user_id?: string | null;
+    user_name?: string;
     initial_timeout_seconds: number;
     steps: EscalationStep[];
     created_at?: string;
@@ -208,7 +212,25 @@ export default function EscalationAlertSettings() {
             }
             if (policiesRes.ok) {
                 const pData = await policiesRes.json();
-                const policiesArr = Array.isArray(pData) ? pData : [];
+                let policiesArr: Policy[] = Array.isArray(pData) ? pData : [];
+                // Hydrate policies that are missing steps by fetching individually
+                const needsHydration = policiesArr.some(p => !p.steps || p.steps.length === 0);
+                if (needsHydration && policiesArr.length > 0) {
+                    const hydrated = await Promise.all(
+                        policiesArr.map(async (p) => {
+                            if (p.steps && p.steps.length > 0) return p;
+                            try {
+                                const res = await fetch(`/api/proxy/escalation-policies/${p.id}`);
+                                if (res.ok) {
+                                    const full = await res.json();
+                                    return { ...p, ...full };
+                                }
+                            } catch { /* keep original */ }
+                            return p;
+                        })
+                    );
+                    policiesArr = hydrated;
+                }
                 setPolicies(policiesArr);
             }
         } catch { showToast('Failed to load data'); }
@@ -303,13 +325,18 @@ export default function EscalationAlertSettings() {
                 .map(l => ({
                     target_role_id: l.target_role_id || allRolesForSelect.find(r => r.name === l.target)?.id || '',
                     timeout_seconds: Math.max(30, delayToSeconds(l.delay)),
-                }));
+                }))
+                .filter(s => s.target_role_id);
             if (steps.length > 0) {
-                await fetch(`/api/proxy/escalation-policies/${policy.id}/steps/bulk`, {
+                const bulkRes = await fetch(`/api/proxy/escalation-policies/${policy.id}/steps/bulk`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ steps }),
                 });
+                if (!bulkRes.ok) {
+                    console.error('[createPolicy] Bulk add failed:', await bulkRes.text().catch(() => ''));
+                    showToast('Warning: steps may not have saved correctly');
+                }
             }
 
             showToast(`"${newName}" created`);
@@ -332,38 +359,51 @@ export default function EscalationAlertSettings() {
         setEditSaving(true);
         try {
             // 1. Update policy initial timeout
-            await fetch(`/api/proxy/escalation-policies/${editPolicyId}`, {
+            const putRes = await fetch(`/api/proxy/escalation-policies/${editPolicyId}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     initial_timeout_seconds: Math.max(30, delayToSeconds(editLevels[0]?.delay || '3 min')),
                 }),
             });
+            if (!putRes.ok) { showToast('Failed to update policy timeout'); setEditSaving(false); return; }
 
-            // 2. Delete existing steps
+            // 2. Build new steps (validate before deleting old ones)
+            const steps = editLevels
+                .filter(l => l.target)
+                .map(l => {
+                    const roleId = l.target_role_id || allRolesForSelect.find(r => r.name === l.target)?.id || '';
+                    return {
+                        target_role_id: roleId,
+                        timeout_seconds: Math.max(30, delayToSeconds(l.delay)),
+                    };
+                })
+                .filter(s => s.target_role_id);
+
+            // 3. Delete existing steps
             const existing = policies.find(p => p.id === editPolicyId);
             if (existing?.steps) {
                 for (const step of existing.steps) {
-                    await fetch(`/api/proxy/escalation-policies/${editPolicyId}/steps/${step.id}`, { method: 'DELETE' });
+                    if (step.id) {
+                        await fetch(`/api/proxy/escalation-policies/${editPolicyId}/steps/${step.id}`, { method: 'DELETE' });
+                    }
                 }
             }
 
-            // 3. Bulk add new steps
-            const steps = editLevels
-                .filter(l => l.target)
-                .map(l => ({
-                    target_role_id: l.target_role_id || allRolesForSelect.find(r => r.name === l.target)?.id || '',
-                    timeout_seconds: Math.max(30, delayToSeconds(l.delay)),
-                }));
+            // 4. Bulk add new steps
             if (steps.length > 0) {
-                await fetch(`/api/proxy/escalation-policies/${editPolicyId}/steps/bulk`, {
+                const bulkRes = await fetch(`/api/proxy/escalation-policies/${editPolicyId}/steps/bulk`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ steps }),
                 });
+                if (!bulkRes.ok) {
+                    console.error('[editPolicy] Bulk add failed:', await bulkRes.text().catch(() => ''));
+                    showToast('Warning: steps may not have saved correctly');
+                }
             }
 
-            // 4. Update associated role name/description
+            // 5. Update associated role name/description
             if (editRole) {
                 await fetch(`/api/proxy/roles/${editRole.id}`, {
                     method: 'PUT',
@@ -400,7 +440,9 @@ export default function EscalationAlertSettings() {
         const sorted = [...levels].sort((a, b) => a.level - b.level);
         const selectedTargets = new Set(levels.map(l => l.target).filter(Boolean));
 
+        const MAX_STEPS = 3;
         const addLevel = () => {
+            if (levels.length >= MAX_STEPS) return;
             const next = sorted.length > 0 ? sorted[sorted.length - 1].level + 1 : 1;
             setLevels([...levels, { level: next, target: '', delay: '5 min' }]);
         };
@@ -477,17 +519,24 @@ export default function EscalationAlertSettings() {
                                 <div style={{ padding: '8px 12px', display: 'flex', alignItems: 'center', gap: 8, background: 'var(--surface-2)' }}>
                                     <span className="material-icons-round" style={{ fontSize: 14, color: 'var(--text-muted)' }}>schedule</span>
                                     <span style={{ fontSize: 11, color: 'var(--text-muted)', flexShrink: 0 }}>Delay:</span>
-                                    <select className="input" value={lvl.delay} onChange={e => { const u = levels.map(l => l.level === lvl.level ? { ...l, delay: e.target.value } : l); setLevels(u); }} style={{ fontSize: 12, height: 28, padding: '0 8px', width: 90 }}>
-                                        {delayOptions.map(d => <option key={d} value={d}>{d}</option>)}
-                                    </select>
+                                    <CustomSelect
+                                        value={lvl.delay}
+                                        onChange={v => { const u = levels.map(l => l.level === lvl.level ? { ...l, delay: v } : l); setLevels(u); }}
+                                        options={delayOptions.map(d => ({ label: d, value: d }))}
+                                        placeholder="Delay"
+                                        style={{ width: 100 }}
+                                        maxH={160}
+                                    />
                                 </div>
                             </div>
                         </div>
                     );
                 })}
-                <button type="button" className="btn btn-secondary btn-xs" onClick={addLevel} style={{ alignSelf: 'flex-start', marginTop: 4 }}>
-                    <span className="material-icons-round" style={{ fontSize: 13 }}>add</span>Add Level
-                </button>
+                {sorted.length < MAX_STEPS && (
+                    <button type="button" className="btn btn-secondary btn-xs" onClick={addLevel} style={{ alignSelf: 'flex-start', marginTop: 4 }}>
+                        <span className="material-icons-round" style={{ fontSize: 13 }}>add</span>Add Level
+                    </button>
+                )}
                 {/* Duplicate warning */}
                 {(() => {
                     const targets = levels.map(l => l.target).filter(Boolean);
@@ -745,10 +794,12 @@ export default function EscalationAlertSettings() {
                                         </div>
                                         <div>
                                             <label className="label">Department (optional)</label>
-                                            <select className="input" value={newDept} onChange={e => setNewDept(e.target.value)} style={{ fontSize: 13 }}>
-                                                <option value="">-- Select Department --</option>
-                                                {departments.map(d => <option key={d} value={d}>{d}</option>)}
-                                            </select>
+                                            <CustomSelect
+                                                value={newDept}
+                                                onChange={v => setNewDept(v)}
+                                                options={departments.map(d => ({ label: d, value: d }))}
+                                                placeholder="-- Select Department --"
+                                            />
                                         </div>
                                         <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderRadius: 'var(--radius-md)', background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.2)' }}>
                                             <span className="material-icons-round" style={{ fontSize: 16, color: 'var(--danger)' }}>priority_high</span>

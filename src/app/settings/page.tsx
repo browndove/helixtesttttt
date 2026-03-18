@@ -6,6 +6,7 @@ import Sidebar from '@/components/Sidebar';
 import TopBar from '@/components/TopBar';
 import navSections from '@/components/navSections';
 import { API_ENDPOINTS } from '@/lib/config';
+import CustomSelect from '@/components/CustomSelect';
 
 type Admin = {
     id: string;
@@ -637,13 +638,17 @@ export default function SettingsPage() {
                                 <h3 style={{ marginBottom: 16 }}>Session Settings</h3>
                                 <div>
                                     <label className="label">Auto-logout after inactivity</label>
-                                    <select className="input" value={sessionTimeout} onChange={e => setSessionTimeout(e.target.value)} style={{ fontSize: 13 }}>
-                                        <option value="15">15 minutes</option>
-                                        <option value="30">30 minutes</option>
-                                        <option value="60">1 hour</option>
-                                        <option value="120">2 hours</option>
-                                        <option value="never">Never</option>
-                                    </select>
+                                    <CustomSelect
+                                        value={sessionTimeout}
+                                        onChange={v => setSessionTimeout(v)}
+                                        options={[
+                                            { label: '15 minutes', value: '15' },
+                                            { label: '30 minutes', value: '30' },
+                                            { label: '1 hour', value: '60' },
+                                            { label: '2 hours', value: '120' },
+                                            { label: 'Never', value: 'never' },
+                                        ]}
+                                    />
                                 </div>
                                 <button className="btn btn-primary btn-sm" style={{ marginTop: 16, width: '100%', justifyContent: 'center' }} onClick={saveSessionSettings} disabled={savingSecurity}>
                                     <span className="material-icons-round" style={{ fontSize: 14 }}>save</span>
