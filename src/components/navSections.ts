@@ -2,6 +2,7 @@ const navSections = [
     {
         items: [
             { icon: 'home', label: 'Home', href: '/dashboard' },
+            { icon: 'analytics', label: 'Usage', href: '/usage' },
         ],
     },
     {

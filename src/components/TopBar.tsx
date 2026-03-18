@@ -19,7 +19,7 @@ export default function TopBar({ title, subtitle, breadcrumbs, actions, search }
         <div style={{
             position: 'sticky',
             top: 0,
-            zIndex: 50,
+            zIndex: 40,
             background: '#ffffff',
             borderBottom: '1px solid var(--border-default)',
             padding: '0 24px',

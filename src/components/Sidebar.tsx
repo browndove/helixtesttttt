@@ -156,9 +156,6 @@ export default function Sidebar({
             borderRight: '1px solid var(--border-default)',
             display: 'flex',
             flexDirection: 'column',
-            height: '100vh',
-            position: 'sticky',
-            top: 0,
             overflow: 'hidden',
         }}>
             {/* Brand */}

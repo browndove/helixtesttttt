@@ -1,5 +1,9 @@
 @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
 @import url('https://fonts.googleapis.com/icon?family=Material+Icons+Round');
+@import "tailwindcss";
+
+/* Ensure usage dashboard and all app components are scanned for Tailwind utilities (e.g. grid, grid-cols-*) */
+@source "../**/*.{js,ts,jsx,tsx}";
 
 :root {
   /* Brand Colors — Deep Navy / Slate */
@@ -294,6 +298,32 @@ a.card:hover,
 .card-lift:hover {
   transform: translateY(-2px);
   box-shadow: 0 6px 16px rgba(0, 0, 0, 0.08);
+}
+
+/* Usage page — orange accent */
+.usage-page {
+  --usage-accent: #ff7a32;
+  --usage-accent-light: #ff9966;
+  --usage-peak: #e85a1a;
+  --usage-low: #fef5ef;
+}
+.usage-page .section-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  margin-bottom: 16px;
+}
+.usage-page .section-title-bar {
+  width: 4px;
+  height: 16px;
+  border-radius: 2px;
+  background: var(--usage-accent);
+  flex-shrink: 0;
 }
 
 /* Input */
@@ -779,21 +809,25 @@ select.input {
 /* ── App Grid Layout ───────────────────────────────────── */
 
 .app-shell {
-  display: grid;
-  grid-template-columns: var(--sidebar-width) 1fr;
   min-height: 100vh;
 }
 
 .app-sidebar {
-  width: 100%;
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: var(--sidebar-width);
   min-width: 200px;
+  height: 100vh;
+  z-index: 50;
+  overflow-y: auto;
 }
 
 .app-main {
   display: flex;
   flex-direction: column;
-  overflow: hidden;
   min-width: 0;
+  margin-left: var(--sidebar-width);
 }
 
 /* Scale sidebar on large screens */
@@ -816,8 +850,4 @@ select.input {
 
 @media (min-width: 2560px) {
   :root { --sidebar-width: 300px; }
-
-  .app-main {
-    max-width: 1800px;
-  }
 }

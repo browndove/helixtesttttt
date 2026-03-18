@@ -12,10 +12,13 @@
   "dependencies": {
     "@neondatabase/serverless": "^1.0.2",
     "@vercel/analytics": "^1.6.1",
+    "apexcharts": "^5.10.4",
     "bcryptjs": "^3.0.3",
+    "framer-motion": "^12.38.0",
     "jose": "^6.1.3",
     "next": "16.1.6",
     "react": "19.2.3",
+    "react-apexcharts": "^2.1.0",
     "react-dom": "19.2.3"
   },
   "devDependencies": {
