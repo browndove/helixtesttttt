@@ -51,7 +51,7 @@ export async function POST(
         const body = await req.json();
         const url = `${API_BASE_URL}/api/v1/teams/${id}/members`;
 
-        console.log('Proxy add team member request to:', url);
+        console.log('Proxy add team member request to:', url, 'body:', JSON.stringify(body));
 
         const res = await fetch(url, {
             method: 'POST',
@@ -60,7 +60,7 @@ export async function POST(
         });
 
         const text = await res.text();
-        console.log('Backend response status:', res.status);
+        console.log('Backend add-member response status:', res.status, 'body:', text.substring(0, 300));
 
         let data;
         try {
