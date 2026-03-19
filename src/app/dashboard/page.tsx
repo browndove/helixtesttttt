@@ -229,15 +229,6 @@ export default function DashboardPage() {
                 <div className="app-main">
                     <TopBar title="Home" subtitle="Hospital Setup" />
                     <main style={{ flex: 1, overflow: 'auto', padding: '24px 28px', background: 'var(--bg-900)' }}>
-                        {/* Checklist skeleton */}
-                        <div className="fade-in card" style={{ marginBottom: 20 }}>
-                            {line('200px', 16)}
-                            {line('120px', 10)}
-                            <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column', gap: 8 }}>
-                                {[1, 2, 3, 4, 5].map(i => <div key={i} style={{ ...shimmer, height: 40, width: '100%' }} />)}
-                            </div>
-                        </div>
-
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
                             <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
                                 {/* Hospital Profile skeleton */}
@@ -306,55 +297,6 @@ export default function DashboardPage() {
                 } />
 
                 <main style={{ flex: 1, overflow: 'auto', padding: '24px 28px', background: 'var(--bg-900)' }}>
-
-                    {/* Configuration Checklist */}
-                    {(() => {
-                        const configSteps = [
-                            { label: 'Hospital Profile', desc: 'Name, address, contact details, logo', href: '', done: !!hospitalName.trim() && !!hospitalAddress.trim() },
-                            { label: 'License', desc: 'Verify active license status', href: '', done: licenseActive },
-                            { label: 'Departments, Floors & Wards', desc: 'Set up organizational structure', href: '', done: departments.length > 0 },
-                            { label: 'Roles', desc: 'Define messaging roles and routing', href: '/roles', done: false },
-                            { label: 'Staff Management', desc: 'Add staff members and assign roles', href: '/staff', done: false },
-                            { label: 'Escalation Config', desc: 'Set up battery alerts and message routing', href: '/escalation', done: false },
-                        ];
-                        const completedCount = configSteps.filter(s => s.done).length;
-                        return (
-                            <div className="fade-in card" style={{ marginBottom: 20 }}>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-                                    <div>
-                                        <h3 style={{ marginBottom: 2 }}>Configuration Checklist</h3>
-                                        <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>{completedCount} of {configSteps.length} completed</p>
-                                    </div>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                        <div style={{ width: 120, height: 6, borderRadius: 3, background: 'var(--border-subtle)', overflow: 'hidden' }}>
-                                            <div style={{ width: `${(completedCount / configSteps.length) * 100}%`, height: '100%', borderRadius: 3, background: 'var(--success)', transition: 'width 0.3s' }} />
-                                        </div>
-                                        <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)' }}>{Math.round((completedCount / configSteps.length) * 100)}%</span>
-                                    </div>
-                                </div>
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                                    {configSteps.map(step => (
-                                        <div key={step.label} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '9px 12px', borderRadius: 'var(--radius-md)', background: step.done ? 'transparent' : 'var(--surface-2)', border: `1px solid ${step.done ? 'var(--border-subtle)' : 'var(--border-default)'}`, opacity: step.done ? 0.6 : 1 }}>
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                                                <span className="material-icons-round" style={{ fontSize: 16, color: step.done ? 'var(--success)' : 'var(--text-disabled)' }}>
-                                                    {step.done ? 'check_circle' : 'radio_button_unchecked'}
-                                                </span>
-                                                <div>
-                                                    <div style={{ fontSize: 13, fontWeight: 600, textDecoration: step.done ? 'line-through' : 'none', color: step.done ? 'var(--text-muted)' : 'var(--text-primary)' }}>{step.label}</div>
-                                                    <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{step.desc}</div>
-                                                </div>
-                                            </div>
-                                            {!step.done && step.href && (
-                                                <a href={step.href} style={{ fontSize: 12, fontWeight: 600, color: 'var(--helix-primary)', textDecoration: 'none' }}>Configure</a>
-                                            )}
-                                            {step.done && <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--success)' }}>Done</span>}
-                                        </div>
-                                    ))}
-                                </div>
-                            </div>
-                        );
-                    })()}
-
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
                         {/* Left Column */}
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
