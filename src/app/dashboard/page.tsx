@@ -44,7 +44,6 @@ export default function DashboardPage() {
     const [newWard, setNewWard] = useState('');
     const [newFloor, setNewFloor] = useState('');
     const [loading, setLoading] = useState(true);
-    const [saving, setSaving] = useState(false);
 
     // Hospital-wide settings
     const [screenshotsAllowed, setScreenshotsAllowed] = useState(false);
@@ -93,20 +92,6 @@ export default function DashboardPage() {
     const daysLeft = Math.ceil((licenseExpiry.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
     const licenseActive = daysLeft > 0;
     const licenseWarning = daysLeft > 0 && daysLeft <= 90;
-
-    const saveProfile = async () => {
-        setSaving(true);
-        try {
-            const res = await fetch('/api/proxy/hospital', {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ name: hospitalName, address: hospitalAddress, phone: hospitalPhone, email: hospitalEmail }),
-            });
-            if (res.ok) showToast('Profile saved');
-            else showToast('Failed to save');
-        } catch { showToast('Network error'); }
-        setSaving(false);
-    };
 
     const addDepartment = async () => {
         if (!newDeptName.trim()) return;
@@ -290,11 +275,7 @@ export default function DashboardPage() {
             )}
 
             <div className="app-main">
-                <TopBar title="Home" subtitle="Hospital Setup" actions={
-                    <button className="btn btn-primary btn-sm" onClick={saveProfile} disabled={saving} style={{ opacity: saving ? 0.7 : 1 }}>
-                        <span className="material-icons-round" style={{ fontSize: 14 }}>save</span>{saving ? 'Saving...' : 'Save Changes'}
-                    </button>
-                } />
+                <TopBar title="Home" subtitle="Hospital Setup" />
 
                 <main style={{ flex: 1, overflow: 'auto', padding: '24px 28px', background: 'var(--bg-900)' }}>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
@@ -310,18 +291,18 @@ export default function DashboardPage() {
 
                                 <div style={{ display: 'flex', gap: 16, marginBottom: 18 }}>
                                     {/* Logo Placeholder */}
-                                    <div style={{ width: 80, height: 80, borderRadius: 12, border: '2px dashed var(--border-default)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', background: 'var(--surface-2)', flexShrink: 0, transition: 'all 0.2s' }} onClick={() => showToast('Logo upload coming soon')}>
+                                    <div style={{ width: 80, height: 80, borderRadius: 12, border: '2px dashed var(--border-default)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', cursor: 'default', background: 'var(--surface-2)', flexShrink: 0, transition: 'all 0.2s' }}>
                                         <span className="material-icons-round" style={{ fontSize: 24, color: 'var(--text-disabled)' }}>add_photo_alternate</span>
-                                        <span style={{ fontSize: 9, color: 'var(--text-muted)', marginTop: 2 }}>Upload Logo</span>
+                                        <span style={{ fontSize: 9, color: 'var(--text-muted)', marginTop: 2 }}>Logo</span>
                                     </div>
                                     <div style={{ flex: 1 }}>
                                         <div style={{ marginBottom: 10 }}>
                                             <label className="label">Hospital Name</label>
-                                            <input className="input" value={hospitalName} onChange={e => setHospitalName(e.target.value)} style={{ fontSize: 13 }} />
+                                            <input className="input" value={hospitalName} readOnly disabled style={{ fontSize: 13 }} />
                                         </div>
                                         <div>
                                             <label className="label">Address</label>
-                                            <input className="input" value={hospitalAddress} onChange={e => setHospitalAddress(e.target.value)} style={{ fontSize: 13 }} />
+                                            <input className="input" value={hospitalAddress} readOnly disabled style={{ fontSize: 13 }} />
                                         </div>
                                     </div>
                                 </div>
@@ -329,11 +310,11 @@ export default function DashboardPage() {
                                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                                     <div>
                                         <label className="label">Phone</label>
-                                        <input className="input" value={hospitalPhone} onChange={e => setHospitalPhone(e.target.value)} style={{ fontSize: 13 }} />
+                                        <input className="input" value={hospitalPhone} readOnly disabled style={{ fontSize: 13 }} />
                                     </div>
                                     <div>
                                         <label className="label">Email</label>
-                                        <input className="input" value={hospitalEmail} onChange={e => setHospitalEmail(e.target.value)} style={{ fontSize: 13 }} />
+                                        <input className="input" value={hospitalEmail} readOnly disabled style={{ fontSize: 13 }} />
                                     </div>
                                 </div>
                             </div>

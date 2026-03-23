@@ -32,6 +32,17 @@ type PagedPatients = {
     page_size: number;
 };
 
+function formatPhoneForCall(raw: string): string {
+    const input = raw.trim();
+    if (!input) return '-';
+    const digits = input.replace(/\D/g, '');
+    if (!digits) return '-';
+    const local = digits.startsWith('233') ? digits.slice(3) : (digits.startsWith('0') ? digits.slice(1) : digits);
+    const nine = local.slice(0, 9);
+    if (!nine) return '-';
+    return `+233 ${nine}`;
+}
+
 function parsePatients(raw: unknown): PagedPatients {
     const rec = raw && typeof raw === 'object' ? raw as Record<string, unknown> : {};
     const listRaw = Array.isArray(raw)
@@ -194,6 +205,9 @@ export default function PatientsDirectoryManagement() {
                                 <tr style={{ borderBottom: '1px solid var(--border-default)' }}>
                                     <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Name</th>
                                     <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase' }}>MRN</th>
+                                    <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase' }}>DOB</th>
+                                    <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Gender</th>
+                                    <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Phone</th>
                                     <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Department</th>
                                     <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Unit</th>
                                     <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Room/Bed</th>
@@ -203,21 +217,24 @@ export default function PatientsDirectoryManagement() {
                             </thead>
                             <tbody>
                                 {loading && (
-                                    <tr><td colSpan={7} style={{ padding: 30, textAlign: 'center', color: 'var(--text-muted)' }}>Loading patients...</td></tr>
+                                    <tr><td colSpan={10} style={{ padding: 30, textAlign: 'center', color: 'var(--text-muted)' }}>Loading patients...</td></tr>
                                 )}
                                 {!loading && error && (
-                                    <tr><td colSpan={7} style={{ padding: 30, textAlign: 'center', color: 'var(--critical)' }}>{error}</td></tr>
+                                    <tr><td colSpan={10} style={{ padding: 30, textAlign: 'center', color: 'var(--critical)' }}>{error}</td></tr>
                                 )}
                                 {!loading && !error && patients.length === 0 && (
-                                    <tr><td colSpan={7} style={{ padding: 30, textAlign: 'center', color: 'var(--text-muted)' }}>No patients found.</td></tr>
+                                    <tr><td colSpan={10} style={{ padding: 30, textAlign: 'center', color: 'var(--text-muted)' }}>No patients found.</td></tr>
                                 )}
                                 {!loading && !error && patients.map((p) => (
                                     <tr key={p.id} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
                                         <td style={{ padding: '12px 16px' }}>
                                             <div style={{ fontWeight: 600, fontSize: 13 }}>{p.first_name} {p.last_name}</div>
-                                            <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{p.email || p.phone || '-'}</div>
+                                            <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{p.email || '-'}</div>
                                         </td>
                                         <td style={{ padding: '12px 16px', fontSize: 12 }}>{p.medical_record_number || '-'}</td>
+                                        <td style={{ padding: '12px 16px', fontSize: 12 }}>{p.dob || '-'}</td>
+                                        <td style={{ padding: '12px 16px', fontSize: 12, textTransform: 'capitalize' }}>{p.gender || '-'}</td>
+                                        <td style={{ padding: '12px 16px', fontSize: 12, fontFamily: 'var(--font-mono, monospace)' }}>{formatPhoneForCall(p.phone)}</td>
                                         <td style={{ padding: '12px 16px', fontSize: 12 }}>{p.department_name || '-'}</td>
                                         <td style={{ padding: '12px 16px', fontSize: 12 }}>{p.unit || '-'}</td>
                                         <td style={{ padding: '12px 16px', fontSize: 12 }}>{[p.room, p.bed].filter(Boolean).join(' / ') || '-'}</td>

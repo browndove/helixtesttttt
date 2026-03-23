@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { API_ENDPOINTS } from '@/lib/config';
+import { formatGhanaPhoneInput, isValidGhanaPhone } from '@/lib/phone';
 
 export default function SetupAccountForm({ token }: { token: string }) {
     const [firstName, setFirstName] = useState('');
@@ -39,7 +40,7 @@ export default function SetupAccountForm({ token }: { token: string }) {
 
                 if (typeof data.first_name === 'string') setFirstName(data.first_name);
                 if (typeof data.last_name === 'string') setLastName(data.last_name);
-                if (typeof data.phone === 'string') setPhone(data.phone);
+                if (typeof data.phone === 'string') setPhone(formatGhanaPhoneInput(data.phone));
             } catch {
                 // Prefill is best-effort. Form still works without it.
             } finally {
@@ -63,6 +64,10 @@ export default function SetupAccountForm({ token }: { token: string }) {
             setError('Please fill all required fields.');
             return;
         }
+        if (!isValidGhanaPhone(phone)) {
+            setError('Phone must be in +233 format with 9 digits after it.');
+            return;
+        }
         if (!passwordIsValid) {
             setError('Password does not meet all requirements.');
             return;
@@ -80,7 +85,7 @@ export default function SetupAccountForm({ token }: { token: string }) {
                 body: JSON.stringify({
                     first_name: firstName.trim(),
                     last_name: lastName.trim(),
-                    phone: phone.trim(),
+                    phone: formatGhanaPhoneInput(phone),
                     password,
                     token,
                 }),
@@ -163,7 +168,12 @@ export default function SetupAccountForm({ token }: { token: string }) {
 
                             <div style={{ marginTop: 10 }}>
                                 <label className="label">Phone *</label>
-                                <input className="input" value={phone} onChange={e => setPhone(e.target.value)} placeholder="+233201234567" />
+                                <input
+                                    className="input"
+                                    value={phone}
+                                    onChange={e => setPhone(formatGhanaPhoneInput(e.target.value))}
+                                    placeholder="+233201234567"
+                                />
                             </div>
 
                             <div style={{ marginTop: 10 }}>

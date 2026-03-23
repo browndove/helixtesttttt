@@ -360,7 +360,7 @@ export default function EscalationAlertSettings() {
     };
 
     const handleSaveEdit = async () => {
-        if (!editPolicyId || !editName.trim()) return;
+        if (!editPolicyId) return;
         setEditSaving(true);
         try {
             // 1. Update policy initial timeout
@@ -408,13 +408,14 @@ export default function EscalationAlertSettings() {
                 }
             }
 
-            // 5. Update associated role name/description
+            // 5. Update associated role description only.
+            // Escalation name in this modal is display-only and should not rename the role.
             if (editRole) {
                 await fetch(`/api/proxy/roles/${editRole.id}`, {
                     method: 'PUT',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        name: editName.trim(),
+                        name: editRole.name,
                         description: editDesc.trim(),
                     }),
                 });
@@ -686,8 +687,8 @@ export default function EscalationAlertSettings() {
                             <>
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                                     <div>
-                                        <label className="label">Escalation Name</label>
-                                        <input className="input" value={editName} onChange={e => setEditName(e.target.value)} style={{ fontSize: 13 }} />
+                                        <label className="label">Escalation Name (read-only)</label>
+                                        <input className="input" value={editName} readOnly disabled style={{ fontSize: 13 }} />
                                     </div>
                                     <div>
                                         <label className="label">Description</label>
@@ -704,7 +705,7 @@ export default function EscalationAlertSettings() {
                                 </div>
                                 <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 18 }}>
                                     <button className="btn btn-secondary btn-sm" onClick={closeEditModal}>Cancel</button>
-                                    <button className="btn btn-primary btn-sm" onClick={() => setEditStep(1)} disabled={!editName.trim()}>
+                                    <button className="btn btn-primary btn-sm" onClick={() => setEditStep(1)}>
                                         Next: Levels <span className="material-icons-round" style={{ fontSize: 14 }}>arrow_forward</span>
                                     </button>
                                 </div>
@@ -732,7 +733,7 @@ export default function EscalationAlertSettings() {
                                     <button className="btn btn-secondary btn-sm" onClick={() => setEditStep(1)}>
                                         <span className="material-icons-round" style={{ fontSize: 14 }}>arrow_back</span> Back
                                     </button>
-                                    <button className="btn btn-primary btn-sm" onClick={handleSaveEdit} disabled={editSaving || !editName.trim() || editLevels.some(l => !l.target)}>
+                                    <button className="btn btn-primary btn-sm" onClick={handleSaveEdit} disabled={editSaving || editLevels.some(l => !l.target)}>
                                         <span className="material-icons-round" style={{ fontSize: 14 }}>check</span> {editSaving ? 'Saving...' : 'Save Changes'}
                                     </button>
                                 </div>

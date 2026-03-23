@@ -614,6 +614,7 @@ export default function RolesBuilderAssignment() {
                 body: JSON.stringify({
                     name: editName.trim(),
                     description: editDesc.trim(),
+                    department_id: deptIdMap.get(editDept) || undefined,
                     priority: editMandatory ? 'critical' : 'standard',
                 }),
             });
@@ -711,7 +712,11 @@ export default function RolesBuilderAssignment() {
         return names.length > 0 ? Array.from(new Set(names)) : escalationTargetOptions;
     }, [roles]);
 
-    const renderEscalationLadder = (levels: EscalationLevel[], setLevels: (levels: EscalationLevel[]) => void) => {
+    const renderEscalationLadder = (
+        levels: EscalationLevel[],
+        setLevels: (levels: EscalationLevel[]) => void,
+        fixedFirstTarget?: string
+    ) => {
         const sorted = [...levels].sort((a, b) => a.level - b.level);
 
         const MAX_STEPS = 3;
@@ -731,7 +736,9 @@ export default function RolesBuilderAssignment() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 16 }}>
                 <div style={{ marginBottom: 2 }}>
                     <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 2 }}>Escalation Ladder</div>
-                    <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>When a message goes unacknowledged, it escalates through these levels.</div>
+                    <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                        Level 1 is always this role (primary receiver). If it goes unacknowledged, the message escalates to the next listed role.
+                    </div>
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
                     {sorted.map((lvl, i) => (
@@ -745,16 +752,48 @@ export default function RolesBuilderAssignment() {
                             </div>
                             {/* Row content */}
                             <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', marginBottom: i < sorted.length - 1 ? 0 : 0, borderRadius: 'var(--radius-md)', background: 'var(--surface-2)', border: '1px solid var(--border-subtle)', marginTop: i === 0 ? 0 : 4 }}>
-                                <CustomSelect
-                                    value={lvl.target}
-                                    onChange={v => { const updated = levels.map(l => l.level === lvl.level ? { ...l, target: v } : l); setLevels(updated); }}
-                                    options={roleTargetOptions.map(t => ({ label: t, value: t }))}
-                                    placeholder="-- Select Role --"
-                                    style={{ flex: 1 }}
-                                />
+                                {lvl.level === 1 && fixedFirstTarget ? (
+                                    <div
+                                        style={{
+                                            flex: 1,
+                                            height: 36,
+                                            padding: '0 10px',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            border: '1px solid var(--border-default)',
+                                            borderRadius: 'var(--radius-md)',
+                                            background: 'var(--surface-3)',
+                                            color: 'var(--text-secondary)',
+                                            fontSize: 13,
+                                            fontWeight: 600,
+                                        }}
+                                        title="Level 1 is fixed to this role"
+                                    >
+                                        {fixedFirstTarget}
+                                    </div>
+                                ) : (
+                                    <CustomSelect
+                                        value={lvl.target}
+                                        onChange={v => { const updated = levels.map(l => l.level === lvl.level ? { ...l, target: v } : l); setLevels(updated); }}
+                                        options={roleTargetOptions.map(t => ({ label: t, value: t }))}
+                                        placeholder="-- Select Role --"
+                                        style={{ flex: 1 }}
+                                    />
+                                )}
                                 <CustomSelect
                                     value={lvl.delay}
-                                    onChange={v => { const updated = levels.map(l => l.level === lvl.level ? { ...l, delay: v } : l); setLevels(updated); }}
+                                    onChange={v => {
+                                        const updated = levels.map(l =>
+                                            l.level === lvl.level
+                                                ? {
+                                                    ...l,
+                                                    delay: v,
+                                                    ...(l.level === 1 && fixedFirstTarget ? { target: fixedFirstTarget } : {}),
+                                                }
+                                                : l
+                                        );
+                                        setLevels(updated);
+                                    }}
                                     options={delayOptions.map(d => ({ label: d, value: d }))}
                                     placeholder="Delay"
                                     style={{ width: 100 }}
@@ -762,7 +801,7 @@ export default function RolesBuilderAssignment() {
                                     allowCustom
                                     customPlaceholder="e.g. 45 sec, 2 min, 1 hr"
                                 />
-                                {sorted.length > 1 && (
+                                {sorted.length > 1 && lvl.level !== 1 && (
                                     <button
                                         type="button"
                                         onClick={() => handleRemoveLevel(lvl.level)}
@@ -865,7 +904,7 @@ export default function RolesBuilderAssignment() {
 
             {/* Edit Modal */}
             {editingRole && (
-                <div style={{ position: 'fixed', inset: 0, zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.4)' }} onClick={() => setEditingRole(null)}>
+                <div style={{ position: 'fixed', inset: 0, zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.4)' }}>
                     <div className="fade-in card" style={{ width: 540, maxHeight: '85vh', overflow: 'auto', padding: '28px 28px 24px', boxShadow: '0 8px 32px rgba(0,0,0,0.18)' }} onClick={e => e.stopPropagation()}>
                         <h3 style={{ fontSize: 16, marginBottom: 16 }}>Edit Role</h3>
 
@@ -944,7 +983,7 @@ export default function RolesBuilderAssignment() {
 
                         {editStep === 2 && (
                             <>
-                                {renderEscalationLadder(editEscLevels, setEditEscLevels)}
+                                {renderEscalationLadder(editEscLevels, setEditEscLevels, editName || editingRole.name)}
 
                                 <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginTop: 20 }}>
                                     <button className="btn btn-secondary btn-sm" onClick={() => setEditStep(1)}>
@@ -1172,7 +1211,7 @@ export default function RolesBuilderAssignment() {
                             {/* Step 3: Custom Role — Escalation Settings */}
                             {addStep === 3 && (
                                 <>
-                                    {renderEscalationLadder(newEscLevels, setNewEscLevels)}
+                                    {renderEscalationLadder(newEscLevels, setNewEscLevels, newRoleName || 'This role')}
 
                                     <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginTop: 20 }}>
                                         <button className="btn btn-secondary btn-sm" onClick={() => setAddStep(2)}>
@@ -1198,7 +1237,6 @@ export default function RolesBuilderAssignment() {
                                         <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Role Name</th>
                                         <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Department</th>
                                         <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Priority</th>
-                                        <th style={{ padding: '12px 16px', textAlign: 'center', fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Mandatory</th>
                                         <th style={{ padding: '12px 16px', textAlign: 'center', fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Escalation</th>
                                         <th style={{ padding: '12px 16px', textAlign: 'right', fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Actions</th>
                                     </tr>
@@ -1206,7 +1244,7 @@ export default function RolesBuilderAssignment() {
                                 <tbody>
                                     {filteredRoles.length === 0 ? (
                                         <tr>
-                                            <td colSpan={6} style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)', fontSize: 13 }}>
+                                            <td colSpan={5} style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)', fontSize: 13 }}>
                                                 {search ? 'No roles match your search.' : 'No roles configured yet. Click "Add Role" to get started.'}
                                             </td>
                                         </tr>
@@ -1295,15 +1333,6 @@ export default function RolesBuilderAssignment() {
                                                         <span className={`badge ${role.priority === 'Critical' ? 'badge-critical' : role.priority === 'High' ? 'badge-warning' : 'badge-neutral'}`} style={{ fontSize: 10 }}>
                                                             {role.priority || 'Standard'}
                                                         </span>
-                                                    </td>
-                                                    <td style={{ padding: '12px 16px', textAlign: 'center' }}>
-                                                        <input
-                                                            type="checkbox"
-                                                            className="checkbox"
-                                                            checked={role.mandatory}
-                                                            onChange={e => { e.stopPropagation(); handleToggleMandatory(role); }}
-                                                            onClick={e => e.stopPropagation()}
-                                                        />
                                                     </td>
                                                     <td style={{ padding: '12px 16px', textAlign: 'center' }}>
                                                         {role.priority === 'Critical' ? (

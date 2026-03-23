@@ -6,6 +6,7 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3
 type RoleUpdateBody = {
     priority?: string;
     mandatory?: boolean;
+    department_id?: string;
     [key: string]: unknown;
 };
 
@@ -66,10 +67,11 @@ export async function PUT(
     try {
         const { id } = await params;
         const body = await req.json() as RoleUpdateBody;
-        // Backend only accepts: name, description, priority
+        // Forward supported editable fields for role updates.
         const payload: Record<string, unknown> = {};
         if (body.name !== undefined) payload.name = body.name;
         if (body.description !== undefined) payload.description = body.description;
+        if (body.department_id !== undefined) payload.department_id = body.department_id;
         if (Object.prototype.hasOwnProperty.call(body, 'mandatory') || Object.prototype.hasOwnProperty.call(body, 'priority')) {
             payload.priority = resolvePriority(body);
         }

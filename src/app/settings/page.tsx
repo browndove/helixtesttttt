@@ -7,6 +7,7 @@ import TopBar from '@/components/TopBar';
 import navSections from '@/components/navSections';
 import { API_ENDPOINTS } from '@/lib/config';
 import CustomSelect from '@/components/CustomSelect';
+import { formatGhanaPhoneInput, isValidGhanaPhone } from '@/lib/phone';
 
 type Admin = {
     id: string;
@@ -228,7 +229,7 @@ export default function SettingsPage() {
                 const derivedName = String(user?.name || `${first} ${last}`.trim());
                 if (derivedName) setFullName(derivedName);
                 if (user?.email) setEmail(String(user.email));
-                if (user?.phone) setPhone(String(user.phone));
+                if (user?.phone) setPhone(formatGhanaPhoneInput(String(user.phone)));
                 if (user?.job_title || user?.title) setJobTitle(String(user?.job_title || user?.title));
                 if (user?.role) setUserRole(formatRoleLabel(String(user.role)));
                 resolvedFacilityId = String(
@@ -373,6 +374,10 @@ export default function SettingsPage() {
             showToast('Please fill first name, last name, email, and phone');
             return;
         }
+        if (!isValidGhanaPhone(invitePhone)) {
+            showToast('Phone must be +233 followed by 9 digits');
+            return;
+        }
 
         setInvitingAdmin(true);
         try {
@@ -384,7 +389,7 @@ export default function SettingsPage() {
                     first_name: inviteFirstName.trim(),
                     last_name: inviteLastName.trim(),
                     email: inviteEmail.trim(),
-                    phone: invitePhone.trim(),
+                    phone: formatGhanaPhoneInput(invitePhone),
                     job_title: inviteJobTitle.trim() || 'Administrator',
                     role: 'admin',
                 }),
@@ -421,7 +426,7 @@ export default function SettingsPage() {
                                 first_name: inviteFirstName.trim() || existing.first_name,
                                 last_name: inviteLastName.trim() || existing.last_name,
                                 email: inviteEmail.trim(),
-                                phone: invitePhone.trim() || existing.phone,
+                                phone: invitePhone.trim() ? formatGhanaPhoneInput(invitePhone) : existing.phone,
                                 job_title: inviteJobTitle.trim() || existing.job_title || 'Administrator',
                                 role: 'admin',
                                 status: existing.status || 'active',
@@ -564,7 +569,7 @@ export default function SettingsPage() {
                                     </div>
                                     <div>
                                         <label className="label">Phone</label>
-                                        <input className="input" value={phone} onChange={e => setPhone(e.target.value)} style={{ fontSize: 13 }} />
+                                        <input className="input" value={phone} onChange={e => setPhone(formatGhanaPhoneInput(e.target.value))} style={{ fontSize: 13 }} />
                                     </div>
                                 </div>
                                 <button className="btn btn-primary btn-sm" style={{ marginTop: 16, width: '100%', justifyContent: 'center' }} onClick={() => showToast('Profile updated')}>
@@ -739,9 +744,9 @@ export default function SettingsPage() {
                                             />
                                             <input
                                                 className="input"
-                                                placeholder="Phone number"
+                                                placeholder="+233201234567"
                                                 value={invitePhone}
-                                                onChange={e => setInvitePhone(e.target.value)}
+                                                onChange={e => setInvitePhone(formatGhanaPhoneInput(e.target.value))}
                                                 style={{ fontSize: 12 }}
                                             />
                                         </div>

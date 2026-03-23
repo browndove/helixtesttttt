@@ -15,7 +15,10 @@ type IncomingStaffBody = {
     last_name?: string;
     email?: string;
     phone?: string;
+    title?: string;
     job_title?: string;
+    highest_qualification?: string;
+    is_doctor?: boolean;
     role?: string;
 };
 
@@ -143,7 +146,10 @@ export async function POST(req: NextRequest) {
             last_name: (body.last_name || '').trim(),
             email: (body.email || '').trim(),
             phone: (body.phone || '').trim(),
+            title: (body.title || '').trim(),
             job_title: (body.job_title || '').trim(),
+            highest_qualification: (body.highest_qualification || '').trim(),
+            is_doctor: Boolean(body.is_doctor),
             role: (body.role || 'staff').toLowerCase(),
         };
         const url = `${API_BASE_URL}/api/v1/staff`;

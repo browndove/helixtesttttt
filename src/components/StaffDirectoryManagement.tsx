@@ -5,6 +5,8 @@ import Sidebar from '@/components/Sidebar';
 import TopBar from '@/components/TopBar';
 import navSections from '@/components/navSections';
 import CustomSelect from '@/components/CustomSelect';
+import DatePicker from '@/components/DatePicker';
+import { formatGhanaPhoneInput, isValidGhanaPhone } from '@/lib/phone';
 
 type StaffMember = {
     id: string;
@@ -18,6 +20,12 @@ type StaffMember = {
     employee_id: string;
     patient_access: boolean;
     role: 'staff' | 'admin';
+    phone?: string;
+    dob?: string;
+    gender?: string;
+    title?: string;
+    highest_qualification?: string;
+    is_doctor?: boolean;
 };
 
 type SortKey = 'first_name' | 'last_name' | 'employee_id' | 'dept' | 'job_title' | 'status';
@@ -106,10 +114,31 @@ function parseStaffList(raw: unknown): StaffMember[] {
                 employee_id: String(r.employee_id || r.username || id),
                 patient_access: Boolean(r.patient_access ?? r.can_access_patients ?? false),
                 role: String(r.system_role || r.role || 'staff').toLowerCase().includes('admin') ? 'admin' as const : 'staff' as const,
+                phone: String(r.phone || '').trim(),
+                dob: String(r.dob || '').trim(),
+                gender: String(r.gender || '').trim().toLowerCase(),
+                title: String(r.title || r.job_title || '').trim(),
+                highest_qualification: String(r.highest_qualification || r.qualification || '').trim(),
+                is_doctor: Boolean(r.is_doctor ?? String(r.title_prefix || '').toLowerCase() === 'dr'),
             };
         })
         .filter((s): s is StaffMember => Boolean(s));
 }
+
+const STAFF_TITLE_OPTIONS = [
+    'House Officer',
+    'Medical Officer',
+    'Resident',
+    'Specialist',
+    'Consultant',
+    'Chief of Surgery',
+    'Nurse',
+    'Pharmacist',
+    'Physiotherapist',
+    'Lab Scientist',
+];
+
+const QUALIFICATION_OPTIONS = ['MBBS', 'RN', 'MSc', 'PhD', 'MD', 'BPharm', 'BSc'];
 
 const statusColors: Record<string, { color: string; bg: string; label: string }> = {
     active: { color: 'var(--success)', bg: 'var(--success-bg)', label: 'Active' },
@@ -185,28 +214,47 @@ export default function StaffDirectoryManagement() {
     const [toast, setToast] = useState<string | null>(null);
     const [deptFilter, setDeptFilter] = useState('all');
     const [selected, setSelected] = useState<StaffMember | null>(null);
+    const [editingSelected, setEditingSelected] = useState(false);
+    const [editFirstName, setEditFirstName] = useState('');
+    const [editLastName, setEditLastName] = useState('');
+    const [editEmail, setEditEmail] = useState('');
+    const [editPhone, setEditPhone] = useState('+233');
+    const [editDob, setEditDob] = useState('');
+    const [editGender, setEditGender] = useState('');
+    const [editJobTitle, setEditJobTitle] = useState('');
+    const [editHighestQualification, setEditHighestQualification] = useState('');
+    const [editIsDoctor, setEditIsDoctor] = useState<'dr' | 'other'>('other');
+    const [editDept, setEditDept] = useState('');
+    const [savingEdit, setSavingEdit] = useState(false);
     const [activeTab, setActiveTab] = useState<'directory' | 'import'>('directory');
     const [showAddForm, setShowAddForm] = useState(false);
     const [newFirstName, setNewFirstName] = useState('');
     const [newLastName, setNewLastName] = useState('');
     const [newEmail, setNewEmail] = useState('');
     const [newPhone, setNewPhone] = useState('');
+    const [newDob, setNewDob] = useState('');
+    const [newGender, setNewGender] = useState('');
     const [newRole, setNewRole] = useState('');
-    const [newDept, setNewDept] = useState('Cardiology');
+    const [newHighestQualification, setNewHighestQualification] = useState('');
+    const [newIsDoctor, setNewIsDoctor] = useState<'dr' | 'other'>('other');
+    const [newDept, setNewDept] = useState('');
     const [newPatientAccess, setNewPatientAccess] = useState(true);
     const [sortKey, setSortKey] = useState<SortKey>('last_name');
     const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
     const [statusFilter, setStatusFilter] = useState('all');
+    const [staffPage, setStaffPage] = useState(1);
+    const staffPageSize = 15;
     const [dragOver, setDragOver] = useState(false);
     const [uploadedFile, setUploadedFile] = useState<File | null>(null);
     const [bulkHistory, setBulkHistory] = useState(importHistory);
     const [processing, setProcessing] = useState(false);
     const [adding, setAdding] = useState(false);
+    const [departmentOptions, setDepartmentOptions] = useState<string[]>([]);
     const fileInputRef = useRef<HTMLInputElement | null>(null);
 
     const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(null), 2500); };
 
-    const departments = useMemo(() => ['all', ...Array.from(new Set(staff.map(s => s.dept)))], [staff]);
+    const departments = useMemo(() => ['all', ...departmentOptions], [departmentOptions]);
 
     const fetchStaff = useCallback(async () => {
         setFetchError(false);
@@ -225,7 +273,46 @@ export default function StaffDirectoryManagement() {
         setLoading(false);
     }, []);
 
+    const fetchDepartments = useCallback(async () => {
+        try {
+            const res = await fetch('/api/proxy/departments');
+            if (!res.ok) return;
+            const data = await res.json();
+            const list = Array.isArray(data) ? data : (Array.isArray(data?.items) ? data.items : []);
+            const names = list
+                .map((d: unknown) => {
+                    if (!d || typeof d !== 'object') return '';
+                    const r = d as Record<string, unknown>;
+                    return String(r.name || r.department_name || '').trim();
+                })
+                .filter(Boolean);
+            setDepartmentOptions(Array.from(new Set(names)));
+        } catch {
+            // best effort
+        }
+    }, []);
+
     useEffect(() => { fetchStaff(); }, [fetchStaff]);
+    useEffect(() => { fetchDepartments(); }, [fetchDepartments]);
+    useEffect(() => {
+        if (!newDept && departmentOptions.length > 0) setNewDept(departmentOptions[0]);
+    }, [newDept, departmentOptions]);
+    useEffect(() => {
+        if (!selected) {
+            setEditingSelected(false);
+            return;
+        }
+        setEditFirstName(selected.first_name || '');
+        setEditLastName(selected.last_name || '');
+        setEditEmail(selected.email || '');
+        setEditPhone(selected.phone ? formatGhanaPhoneInput(selected.phone) : '+233');
+        setEditDob(selected.dob || '');
+        setEditGender(selected.gender || '');
+        setEditJobTitle(selected.title || selected.job_title || '');
+        setEditHighestQualification(selected.highest_qualification || '');
+        setEditIsDoctor(selected.is_doctor ? 'dr' : 'other');
+        setEditDept(selected.dept || '');
+    }, [selected]);
 
     const toggleSort = (key: SortKey) => {
         if (sortKey === key) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
@@ -332,8 +419,26 @@ export default function StaffDirectoryManagement() {
         return sortDir === 'asc' ? av.localeCompare(bv) : bv.localeCompare(av);
     });
 
+    const staffTotalPages = useMemo(() => Math.max(1, Math.ceil(filtered.length / staffPageSize)), [filtered.length, staffPageSize]);
+    const paginatedFiltered = useMemo(
+        () => filtered.slice((staffPage - 1) * staffPageSize, staffPage * staffPageSize),
+        [filtered, staffPage, staffPageSize]
+    );
+
+    useEffect(() => {
+        setStaffPage(1);
+    }, [search, deptFilter, statusFilter, sortKey, sortDir]);
+
+    useEffect(() => {
+        if (staffPage > staffTotalPages) setStaffPage(staffTotalPages);
+    }, [staffPage, staffTotalPages]);
+
     const handleAdd = async () => {
         if (!newFirstName.trim() || !newLastName.trim() || !newEmail.trim()) return;
+        if (newPhone.trim() && !isValidGhanaPhone(newPhone)) {
+            showToast('Phone must be +233 followed by 9 digits');
+            return;
+        }
         setAdding(true);
         try {
             const res = await fetch('/api/proxy/staff', {
@@ -343,8 +448,13 @@ export default function StaffDirectoryManagement() {
                     first_name: newFirstName.trim(),
                     last_name: newLastName.trim(),
                     email: newEmail.trim(),
-                    phone: newPhone.trim(),
+                    phone: newPhone.trim() ? formatGhanaPhoneInput(newPhone) : '',
+                    dob: newDob.trim() || undefined,
+                    gender: newGender.trim() || undefined,
+                    title: (newRole || 'Staff').trim(),
                     job_title: (newRole || 'Staff').trim(),
+                    highest_qualification: newHighestQualification.trim() || undefined,
+                    is_doctor: newIsDoctor === 'dr',
                     role: 'staff',
                     department: newDept,
                 }),
@@ -364,6 +474,9 @@ export default function StaffDirectoryManagement() {
                 last_name: newLastName.trim(),
                 email: newEmail.trim(),
                 job_title: (newRole || 'Staff').trim(),
+                title: (newRole || 'Staff').trim(),
+                highest_qualification: newHighestQualification.trim(),
+                is_doctor: newIsDoctor === 'dr',
                 dept: newDept,
                 status: 'active',
                 access: 'Staff',
@@ -378,7 +491,11 @@ export default function StaffDirectoryManagement() {
             setNewLastName('');
             setNewEmail('');
             setNewPhone('');
+            setNewDob('');
+            setNewGender('');
             setNewRole('');
+            setNewHighestQualification('');
+            setNewIsDoctor('other');
             setNewPatientAccess(true);
             showToast(`${newFirstName} ${newLastName} added to staff`);
         } catch {
@@ -456,6 +573,71 @@ export default function StaffDirectoryManagement() {
         }
     };
 
+    const handleSaveSelected = async () => {
+        if (!selected) return;
+        if (!editFirstName.trim() || !editLastName.trim() || !editEmail.trim()) {
+            showToast('First name, last name, and email are required');
+            return;
+        }
+        if (editPhone.trim() && !isValidGhanaPhone(editPhone)) {
+            showToast('Phone must be +233 followed by 9 digits');
+            return;
+        }
+
+        setSavingEdit(true);
+        try {
+            const payload = {
+                first_name: editFirstName.trim(),
+                last_name: editLastName.trim(),
+                email: editEmail.trim(),
+                phone: editPhone.trim() ? formatGhanaPhoneInput(editPhone) : '',
+                dob: editDob.trim() || undefined,
+                gender: editGender.trim() || undefined,
+                title: editJobTitle.trim(),
+                job_title: editJobTitle.trim(),
+                highest_qualification: editHighestQualification.trim() || undefined,
+                is_doctor: editIsDoctor === 'dr',
+                department: editDept.trim(),
+                status: selected.status,
+                role: selected.role,
+                patient_access: selected.patient_access,
+            };
+            const res = await fetch(`/api/proxy/staff/${selected.id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+            });
+            if (!res.ok) {
+                const err = await res.json().catch(() => ({} as { message?: string; detail?: string; error?: string }));
+                showToast(String(err.message || err.detail || err.error || 'Failed to update staff'));
+                return;
+            }
+
+            const updatedLocal: StaffMember = {
+                ...selected,
+                first_name: payload.first_name,
+                last_name: payload.last_name,
+                email: payload.email,
+                phone: payload.phone,
+                dob: payload.dob || '',
+                gender: payload.gender || '',
+                title: payload.title || selected.title || '',
+                job_title: payload.job_title || selected.job_title,
+                highest_qualification: payload.highest_qualification || selected.highest_qualification || '',
+                is_doctor: payload.is_doctor,
+                dept: payload.department || selected.dept,
+            };
+            setStaff(prev => prev.map(s => (s.id === selected.id ? { ...s, ...updatedLocal } : s)));
+            setSelected(updatedLocal);
+            setEditingSelected(false);
+            showToast('Staff updated');
+        } catch {
+            showToast('Failed to update staff');
+        } finally {
+            setSavingEdit(false);
+        }
+    };
+
     return (
         <div className="app-shell">
             <Sidebar sections={navSections} />
@@ -501,13 +683,80 @@ export default function StaffDirectoryManagement() {
                     {showAddForm && (
                         <div className="fade-in card" style={{ marginBottom: 18, padding: '18px 20px' }}>
                             <h3 style={{ fontSize: 14, marginBottom: 12 }}>New Staff Member</h3>
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1.2fr 1fr 1fr 1fr 0.8fr', gap: 12, marginBottom: 14 }}>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 12, marginBottom: 14 }}>
                                 <div><label className="label">First Name *</label><input className="input" value={newFirstName} onChange={e => setNewFirstName(e.target.value)} placeholder="First name" style={{ fontSize: 12 }} /></div>
                                 <div><label className="label">Last Name *</label><input className="input" value={newLastName} onChange={e => setNewLastName(e.target.value)} placeholder="Last name" style={{ fontSize: 12 }} /></div>
                                 <div><label className="label">Email *</label><input className="input" value={newEmail} onChange={e => setNewEmail(e.target.value)} placeholder="Email address" style={{ fontSize: 12 }} /></div>
-                                <div><label className="label">Phone</label><input className="input" value={newPhone} onChange={e => setNewPhone(e.target.value)} placeholder="+233241234567" style={{ fontSize: 12 }} /></div>
-                                <div><label className="label">Job Title</label><input className="input" value={newRole} onChange={e => setNewRole(e.target.value)} placeholder="e.g. Nurse" style={{ fontSize: 12 }} /></div>
-                                <div><label className="label">Department</label><CustomSelect value={newDept} onChange={v => setNewDept(v)} options={['Cardiology', 'ICU', 'Emergency', 'Pediatrics', 'Internal Med', 'Radiology', 'Surgery'].map(d => ({ label: d, value: d }))} placeholder="-- Select --" /></div>
+                                <div>
+                                    <label className="label">Phone</label>
+                                    <input
+                                        className="input"
+                                        value={newPhone}
+                                        onChange={e => setNewPhone(formatGhanaPhoneInput(e.target.value))}
+                                        placeholder="+233241234567"
+                                        style={{ fontSize: 12 }}
+                                    />
+                                </div>
+                                <div>
+                                    <label className="label">DOB</label>
+                                    <DatePicker value={newDob} onChange={setNewDob} placeholder="Select DOB" />
+                                </div>
+                                <div>
+                                    <label className="label">Gender</label>
+                                    <CustomSelect
+                                        value={newGender}
+                                        onChange={v => setNewGender(v)}
+                                        options={[
+                                            { label: 'Male', value: 'male' },
+                                            { label: 'Female', value: 'female' },
+                                            { label: 'Other', value: 'other' },
+                                        ]}
+                                        placeholder="-- Select --"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="label">Title</label>
+                                    <CustomSelect
+                                        value={newRole}
+                                        onChange={v => setNewRole(v)}
+                                        options={STAFF_TITLE_OPTIONS.map(t => ({ label: t, value: t }))}
+                                        placeholder="-- Select Title --"
+                                        allowCustom
+                                        customPlaceholder="Type title and press Enter"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="label">Highest Qualification</label>
+                                    <CustomSelect
+                                        value={newHighestQualification}
+                                        onChange={v => setNewHighestQualification(v)}
+                                        options={QUALIFICATION_OPTIONS.map(q => ({ label: q, value: q }))}
+                                        placeholder="-- Select Qualification --"
+                                        allowCustom
+                                        customPlaceholder="Type qualification and press Enter"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="label">Is Doctor</label>
+                                    <CustomSelect
+                                        value={newIsDoctor}
+                                        onChange={v => setNewIsDoctor((v === 'dr' ? 'dr' : 'other'))}
+                                        options={[
+                                            { label: 'Dr.', value: 'dr' },
+                                            { label: 'Other', value: 'other' },
+                                        ]}
+                                        placeholder="-- Select --"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="label">Department</label>
+                                    <CustomSelect
+                                        value={newDept}
+                                        onChange={v => setNewDept(v)}
+                                        options={departmentOptions.map(d => ({ label: d, value: d }))}
+                                        placeholder="-- Select --"
+                                    />
+                                </div>
                                 <div><label className="label">Patient Access</label><CustomSelect value={newPatientAccess ? 'yes' : 'no'} onChange={v => setNewPatientAccess(v === 'yes')} options={[{ label: 'Yes', value: 'yes' }, { label: 'No', value: 'no' }]} placeholder="-- Select --" /></div>
                             </div>
                             <button className="btn btn-primary btn-sm" onClick={handleAdd} disabled={adding || !newFirstName.trim() || !newLastName.trim() || !newEmail.trim()}>
@@ -518,13 +767,13 @@ export default function StaffDirectoryManagement() {
 
                     {/* Filters & Sort */}
                     <div className="fade-in delay-1" style={{ display: 'flex', gap: 12, marginBottom: 16, alignItems: 'center', flexWrap: 'wrap' }}>
-                        <div style={{ display: 'flex', gap: 5 }}>
-                            {departments.map(d => (
-                                <button key={d} className="btn btn-secondary btn-xs" onClick={() => setDeptFilter(d)}
-                                    style={{ background: deptFilter === d ? '#edf1f7' : undefined, borderColor: deptFilter === d ? 'var(--helix-primary)' : undefined, color: deptFilter === d ? 'var(--helix-primary)' : undefined, fontWeight: deptFilter === d ? 600 : 400 }}>
-                                    {d === 'all' ? 'All Depts' : d}
-                                </button>
-                            ))}
+                        <div style={{ minWidth: 240 }}>
+                            <CustomSelect
+                                value={deptFilter}
+                                onChange={setDeptFilter}
+                                options={departments.map(d => ({ label: d === 'all' ? 'All Depts' : d, value: d }))}
+                                placeholder="All Depts"
+                            />
                         </div>
                         <div style={{ width: 1, height: 20, background: 'var(--border-subtle)' }} />
                         <div style={{ display: 'flex', gap: 5 }}>
@@ -598,7 +847,7 @@ export default function StaffDirectoryManagement() {
                                                 {search || deptFilter !== 'all' || statusFilter !== 'all' ? 'No staff match your filters.' : 'No staff members yet. Add staff above to get started.'}
                                             </td></tr>
                                         )}
-                                        {filtered.map(s => {
+                                        {paginatedFiltered.map(s => {
                                             const st = statusColors[s.status] || statusColors.active;
                                             return (
                                                 <tr key={s.id} onClick={() => setSelected(selected?.id === s.id ? null : s)} style={{ cursor: 'pointer', background: selected?.id === s.id ? 'rgba(30,58,95,0.05)' : undefined }}>
@@ -627,7 +876,24 @@ export default function StaffDirectoryManagement() {
                                 </table>
                             </div>
                             <div style={{ padding: '12px 20px', borderTop: '1px solid var(--border-subtle)', fontSize: 12, color: 'var(--text-muted)' }}>
-                                {loading ? 'Loading staff...' : `Showing ${filtered.length} of ${staff.length} staff`}
+                                {loading ? 'Loading staff...' : (
+                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+                                        <span>
+                                            Showing {filtered.length === 0 ? 0 : (staffPage - 1) * staffPageSize + 1}
+                                            -
+                                            {Math.min(staffPage * staffPageSize, filtered.length)} of {filtered.length}
+                                        </span>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                            <button className="btn btn-secondary btn-xs" disabled={staffPage <= 1} onClick={() => setStaffPage(p => Math.max(1, p - 1))}>
+                                                Prev
+                                            </button>
+                                            <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Page {staffPage} / {staffTotalPages}</span>
+                                            <button className="btn btn-secondary btn-xs" disabled={staffPage >= staffTotalPages} onClick={() => setStaffPage(p => Math.min(staffTotalPages, p + 1))}>
+                                                Next
+                                            </button>
+                                        </div>
+                                    </div>
+                                )}
                             </div>
                         </div>
 
@@ -640,25 +906,131 @@ export default function StaffDirectoryManagement() {
                                             <h3 style={{ fontSize: 15 }}>{selected.first_name} {selected.last_name}</h3>
                                             <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>{selected.job_title} · {selected.dept}</div>
                                         </div>
-                                        <button className="btn btn-ghost btn-xs" onClick={() => setSelected(null)}>
+                                        <button className="btn btn-ghost btn-xs" onClick={() => { setEditingSelected(false); setSelected(null); }}>
                                             <span className="material-icons-round" style={{ fontSize: 16 }}>close</span>
                                         </button>
                                     </div>
-                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                                        {[
-                                            { label: 'Email', value: selected.email, icon: 'mail' },
-                                            { label: 'Department', value: selected.dept, icon: 'domain' },
-                                            { label: 'Job Title', value: selected.job_title, icon: 'badge' },
-                                            { label: 'Employee ID', value: selected.employee_id, icon: 'fingerprint' },
-                                        ].map(row => (
-                                            <div key={row.label} style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
-                                                <span className="material-icons-round" style={{ fontSize: 16, color: 'var(--text-disabled)', marginTop: 1 }}>{row.icon}</span>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                                        <div style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                                            Profile Details
+                                        </div>
+                                        <button
+                                            className="btn btn-secondary btn-xs"
+                                            onClick={() => setEditingSelected(v => !v)}
+                                            disabled={savingEdit}
+                                        >
+                                            <span className="material-icons-round" style={{ fontSize: 14 }}>{editingSelected ? 'close' : 'edit'}</span>
+                                            {editingSelected ? 'Cancel Edit' : 'Edit'}
+                                        </button>
+                                    </div>
+                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                                        <div>
+                                            <label className="label">First Name</label>
+                                            <input className="input" value={editFirstName} onChange={e => setEditFirstName(e.target.value)} disabled={!editingSelected || savingEdit} style={{ fontSize: 12 }} />
+                                        </div>
+                                        <div>
+                                            <label className="label">Last Name</label>
+                                            <input className="input" value={editLastName} onChange={e => setEditLastName(e.target.value)} disabled={!editingSelected || savingEdit} style={{ fontSize: 12 }} />
+                                        </div>
+                                        <div style={{ gridColumn: '1 / -1' }}>
+                                            <label className="label">Email</label>
+                                            <input className="input" value={editEmail} onChange={e => setEditEmail(e.target.value)} disabled={!editingSelected || savingEdit} style={{ fontSize: 12 }} />
+                                        </div>
+                                        <div>
+                                            <label className="label">Phone</label>
+                                            <input className="input" value={editPhone} onChange={e => setEditPhone(formatGhanaPhoneInput(e.target.value))} disabled={!editingSelected || savingEdit} style={{ fontSize: 12 }} />
+                                        </div>
+                                        <div>
+                                            <label className="label">DOB</label>
+                                            <DatePicker
+                                                value={editDob}
+                                                onChange={setEditDob}
+                                                placeholder="Select DOB"
+                                                disabled={!editingSelected || savingEdit}
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="label">Gender</label>
+                                            <div style={{ opacity: !editingSelected || savingEdit ? 0.65 : 1, pointerEvents: !editingSelected || savingEdit ? 'none' : 'auto' }}>
+                                                <CustomSelect
+                                                    value={editGender}
+                                                    onChange={v => setEditGender(v)}
+                                                    options={[
+                                                        { label: 'Male', value: 'male' },
+                                                        { label: 'Female', value: 'female' },
+                                                        { label: 'Other', value: 'other' },
+                                                    ]}
+                                                    placeholder="-- Select --"
+                                                />
+                                            </div>
+                                        </div>
+                                        <div>
+                                            <label className="label">Department</label>
+                                            <div style={{ opacity: !editingSelected || savingEdit ? 0.65 : 1, pointerEvents: !editingSelected || savingEdit ? 'none' : 'auto' }}>
+                                                <CustomSelect
+                                                    value={editDept}
+                                                    onChange={setEditDept}
+                                                    options={departmentOptions
+                                                        .map(d => ({ label: d, value: d }))}
+                                                    placeholder="-- Select Department --"
+                                                />
+                                            </div>
+                                        </div>
+                                        <div>
+                                            <label className="label">Title</label>
+                                            <div style={{ opacity: !editingSelected || savingEdit ? 0.65 : 1, pointerEvents: !editingSelected || savingEdit ? 'none' : 'auto' }}>
+                                                <CustomSelect
+                                                    value={editJobTitle}
+                                                    onChange={setEditJobTitle}
+                                                    options={STAFF_TITLE_OPTIONS.map(t => ({ label: t, value: t }))}
+                                                    placeholder="-- Select Title --"
+                                                    allowCustom
+                                                    customPlaceholder="Type title and press Enter"
+                                                />
+                                            </div>
+                                        </div>
+                                        <div>
+                                            <label className="label">Highest Qualification</label>
+                                            <div style={{ opacity: !editingSelected || savingEdit ? 0.65 : 1, pointerEvents: !editingSelected || savingEdit ? 'none' : 'auto' }}>
+                                                <CustomSelect
+                                                    value={editHighestQualification}
+                                                    onChange={setEditHighestQualification}
+                                                    options={QUALIFICATION_OPTIONS.map(q => ({ label: q, value: q }))}
+                                                    placeholder="-- Select Qualification --"
+                                                    allowCustom
+                                                    customPlaceholder="Type qualification and press Enter"
+                                                />
+                                            </div>
+                                        </div>
+                                        <div>
+                                            <label className="label">Is Doctor</label>
+                                            <div style={{ opacity: !editingSelected || savingEdit ? 0.65 : 1, pointerEvents: !editingSelected || savingEdit ? 'none' : 'auto' }}>
+                                                <CustomSelect
+                                                    value={editIsDoctor}
+                                                    onChange={v => setEditIsDoctor((v === 'dr' ? 'dr' : 'other'))}
+                                                    options={[
+                                                        { label: 'Dr.', value: 'dr' },
+                                                        { label: 'Other', value: 'other' },
+                                                    ]}
+                                                    placeholder="-- Select --"
+                                                />
+                                            </div>
+                                        </div>
+                                        <div style={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 4 }}>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                                <span className="material-icons-round" style={{ fontSize: 16, color: 'var(--text-disabled)' }}>fingerprint</span>
                                                 <div>
-                                                    <div style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 500 }}>{row.label}</div>
-                                                    <div style={{ fontSize: 13, color: 'var(--text-primary)', fontWeight: 500, marginTop: 1 }}>{row.value}</div>
+                                                    <div style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 500 }}>Employee ID</div>
+                                                    <div style={{ fontSize: 12, color: 'var(--text-primary)', fontWeight: 600 }}>{selected.employee_id}</div>
                                                 </div>
                                             </div>
-                                        ))}
+                                            {editingSelected && (
+                                                <button className="btn btn-primary btn-sm" onClick={handleSaveSelected} disabled={savingEdit}>
+                                                    <span className="material-icons-round" style={{ fontSize: 14 }}>{savingEdit ? 'hourglass_empty' : 'save'}</span>
+                                                    {savingEdit ? 'Saving...' : 'Save Changes'}
+                                                </button>
+                                            )}
+                                        </div>
                                     </div>
 
                                     {/* Patient Access - toggleable */}
