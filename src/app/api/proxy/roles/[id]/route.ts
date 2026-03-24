@@ -1,4 +1,5 @@
 import { getProxyHeaders } from '@/lib/proxy-auth';
+import { resolveFacilityId } from '@/lib/proxy-facility';
 import { NextRequest, NextResponse } from 'next/server';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3000';
@@ -7,8 +8,46 @@ type RoleUpdateBody = {
     priority?: string;
     mandatory?: boolean;
     department_id?: string;
+    departmentId?: string;
+    department?: string;
+    sign_in_allowed_user_ids?: string[];
     [key: string]: unknown;
 };
+
+async function resolveDepartmentIdByName(
+    req: NextRequest,
+    facilityId: string,
+    departmentName?: string
+): Promise<string | undefined> {
+    if (!departmentName?.trim()) return undefined;
+    try {
+        const url = new URL(`${API_BASE_URL}/api/v1/departments`);
+        url.searchParams.set('facility_id', facilityId);
+        const res = await fetch(url.toString(), {
+            method: 'GET',
+            headers: getProxyHeaders(req),
+        });
+        if (!res.ok) return undefined;
+        const data: unknown = await res.json();
+        const list = Array.isArray(data)
+            ? data
+            : (data && typeof data === 'object'
+                ? ((data as { items?: unknown; data?: unknown; departments?: unknown }).items
+                    || (data as { items?: unknown; data?: unknown; departments?: unknown }).data
+                    || (data as { items?: unknown; data?: unknown; departments?: unknown }).departments)
+                : []);
+        if (!Array.isArray(list)) return undefined;
+        const name = departmentName.trim().toLowerCase();
+        const match = list.find((item: unknown) => {
+            if (!item || typeof item !== 'object') return false;
+            const rec = item as { name?: string; department_name?: string };
+            return String(rec.name || rec.department_name || '').trim().toLowerCase() === name;
+        }) as { id?: string; department_id?: string } | undefined;
+        return match?.id || match?.department_id;
+    } catch {
+        return undefined;
+    }
+}
 
 function normalizePriority(priority?: string): 'critical' | 'standard' {
     return priority?.trim().toLowerCase() === 'critical' ? 'critical' : 'standard';
@@ -71,7 +110,24 @@ export async function PUT(
         const payload: Record<string, unknown> = {};
         if (body.name !== undefined) payload.name = body.name;
         if (body.description !== undefined) payload.description = body.description;
-        if (body.department_id !== undefined) payload.department_id = body.department_id;
+        if (body.department !== undefined) payload.department = body.department;
+        let resolvedDepartmentId = body.department_id || body.departmentId;
+        if (!resolvedDepartmentId && body.department?.trim()) {
+            try {
+                const facilityId = await resolveFacilityId(req, API_BASE_URL);
+                if (facilityId) {
+                    resolvedDepartmentId = await resolveDepartmentIdByName(req, facilityId, body.department);
+                }
+            } catch {
+                // best effort resolution
+            }
+        }
+        if (resolvedDepartmentId !== undefined) payload.department_id = resolvedDepartmentId;
+        if (Object.prototype.hasOwnProperty.call(body, 'sign_in_allowed_user_ids')) {
+            payload.sign_in_allowed_user_ids = Array.isArray(body.sign_in_allowed_user_ids)
+                ? body.sign_in_allowed_user_ids
+                : [];
+        }
         if (Object.prototype.hasOwnProperty.call(body, 'mandatory') || Object.prototype.hasOwnProperty.call(body, 'priority')) {
             payload.priority = resolvePriority(body);
         }

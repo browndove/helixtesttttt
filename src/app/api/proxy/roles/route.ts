@@ -14,6 +14,7 @@ type IncomingRoleBody = {
     department?: string;
     priority?: string;
     mandatory?: boolean;
+    sign_in_allowed_user_ids?: string[];
 };
 
 async function resolveDepartmentIdByName(req: NextRequest, facilityId: string, departmentName?: string): Promise<string | undefined> {
@@ -133,8 +134,12 @@ export async function POST(req: NextRequest) {
             name: body.name,
             description: body.description || '',
             facility_id: facilityId,
+            department: body.department,
             department_id: departmentId,
             priority: resolvePriority(body),
+            sign_in_allowed_user_ids: Array.isArray(body.sign_in_allowed_user_ids)
+                ? body.sign_in_allowed_user_ids
+                : undefined,
         };
         const url = `${API_BASE_URL}/api/v1/roles`;
 

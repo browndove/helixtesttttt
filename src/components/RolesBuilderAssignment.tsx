@@ -80,9 +80,28 @@ type Role = {
     enabled: boolean;
     priority: string;
     visible_in_directory: boolean;
+    sign_in_restricted?: boolean;
+    sign_in_allowed_user_ids?: string[];
+    signed_in_by?: string;
+    signed_in_user?: {
+        id?: string;
+        first_name?: string;
+        last_name?: string;
+        name?: string;
+        email?: string;
+    };
     escalation_routing: RoutingRule[];
     escalation_levels: EscalationLevel[];
 };
+
+type StaffOption = {
+    id: string;
+    label: string;
+};
+
+function staffNameOnly(label: string): string {
+    return label.replace(/\s*\([^)]*\)\s*$/, '').trim();
+}
 
 function normalizeRoleForUi<T extends Role>(role: T): T {
     const isCritical = role.priority?.toString().trim().toLowerCase() === 'critical';
@@ -242,6 +261,129 @@ function extractDepartmentNames(raw: unknown): string[] {
     return Array.from(new Set(names));
 }
 
+function extractStaffOptions(raw: unknown): StaffOption[] {
+    let list: unknown = Array.isArray(raw)
+        ? raw
+        : (raw && typeof raw === 'object'
+            ? ((raw as {
+                items?: unknown;
+                data?: unknown;
+                staff?: unknown;
+                results?: unknown;
+                users?: unknown;
+                rows?: unknown;
+                records?: unknown;
+            }).items
+                || (raw as {
+                    items?: unknown;
+                    data?: unknown;
+                    staff?: unknown;
+                    results?: unknown;
+                    users?: unknown;
+                    rows?: unknown;
+                    records?: unknown;
+                }).data
+                || (raw as {
+                    items?: unknown;
+                    data?: unknown;
+                    staff?: unknown;
+                    results?: unknown;
+                    users?: unknown;
+                    rows?: unknown;
+                    records?: unknown;
+                }).staff
+                || (raw as {
+                    items?: unknown;
+                    data?: unknown;
+                    staff?: unknown;
+                    results?: unknown;
+                    users?: unknown;
+                    rows?: unknown;
+                    records?: unknown;
+                }).results
+                || (raw as {
+                    items?: unknown;
+                    data?: unknown;
+                    staff?: unknown;
+                    results?: unknown;
+                    users?: unknown;
+                    rows?: unknown;
+                    records?: unknown;
+                }).users
+                || (raw as {
+                    items?: unknown;
+                    data?: unknown;
+                    staff?: unknown;
+                    results?: unknown;
+                    users?: unknown;
+                    rows?: unknown;
+                    records?: unknown;
+                }).rows
+                || (raw as {
+                    items?: unknown;
+                    data?: unknown;
+                    staff?: unknown;
+                    results?: unknown;
+                    users?: unknown;
+                    rows?: unknown;
+                    records?: unknown;
+                }).records)
+            : []);
+    if ((!Array.isArray(list) || list.length === 0) && raw && typeof raw === 'object' && !Array.isArray(raw)) {
+        const firstArray = Object.values(raw as Record<string, unknown>).find(v => Array.isArray(v));
+        if (firstArray) list = firstArray;
+    }
+    if (!Array.isArray(list)) return [];
+    const rows = list
+        .map((item): StaffOption | null => {
+            if (!item || typeof item !== 'object') return null;
+            const r = item as Record<string, unknown>;
+            const id = String(r.id || r.staff_id || '').trim();
+            if (!id) return null;
+            const first = String(r.first_name || '').trim();
+            const last = String(r.last_name || '').trim();
+            const full = String(r.name || `${first} ${last}`.trim()).trim();
+            const email = String(r.email || '').trim();
+            const label = full || email || id;
+            return { id, label: email ? `${label} (${email})` : label };
+        })
+        .filter((s): s is StaffOption => Boolean(s));
+    const seen = new Set<string>();
+    return rows.filter(s => {
+        if (seen.has(s.id)) return false;
+        seen.add(s.id);
+        return true;
+    });
+}
+
+function resolveRoleDepartment(
+    role: Record<string, unknown>,
+    deptMap: Map<string, string>
+): string {
+    const deptRaw = role.department;
+    const deptName = String(role.department_name || '').trim();
+    const deptId = String(role.department_id || '').trim();
+
+    if (deptName) return deptName;
+
+    if (deptRaw && typeof deptRaw === 'object' && !Array.isArray(deptRaw)) {
+        const nested = deptRaw as Record<string, unknown>;
+        const nestedName = String(nested.name || nested.department_name || '').trim();
+        if (nestedName) return nestedName;
+        const nestedId = String(nested.id || nested.department_id || '').trim();
+        if (nestedId && deptMap.has(nestedId)) return deptMap.get(nestedId) || '';
+    }
+
+    if (typeof deptRaw === 'string' && deptRaw.trim()) {
+        const raw = deptRaw.trim();
+        if (deptMap.has(raw)) return deptMap.get(raw) || '';
+        return raw;
+    }
+
+    if (deptId && deptMap.has(deptId)) return deptMap.get(deptId) || '';
+    return '';
+}
+
 export default function RolesBuilderAssignment() {
     const [roles, setRoles] = useState<Role[]>([]);
     const [policies, setPolicies] = useState<Policy[]>([]);
@@ -262,6 +404,8 @@ export default function RolesBuilderAssignment() {
     const [newRoleDesc, setNewRoleDesc] = useState('');
     const [newRoleDept, setNewRoleDept] = useState('');
     const [newRoleMandatory, setNewRoleMandatory] = useState(false);
+    const [newRestricted, setNewRestricted] = useState(false);
+    const [newAllowedUserIds, setNewAllowedUserIds] = useState<string[]>([]);
     const [newRouting, setNewRouting] = useState<RoutingRule[]>([]);
     const [newEscLevels, setNewEscLevels] = useState<EscalationLevel[]>([]);
 
@@ -272,14 +416,16 @@ export default function RolesBuilderAssignment() {
     const [editDesc, setEditDesc] = useState('');
     const [editDept, setEditDept] = useState('');
     const [editMandatory, setEditMandatory] = useState(false);
+    const [editRestricted, setEditRestricted] = useState(false);
+    const [editAllowedUserIds, setEditAllowedUserIds] = useState<string[]>([]);
     const [editEnabled, setEditEnabled] = useState(true);
-    const [editVisible, setEditVisible] = useState(true);
     const [editRouting, setEditRouting] = useState<RoutingRule[]>([]);
     const [editEscLevels, setEditEscLevels] = useState<EscalationLevel[]>([]);
     const [editSaving, setEditSaving] = useState(false);
 
     // Confirm delete state
     const [confirmDelete, setConfirmDelete] = useState<Role | null>(null);
+    const [staffOptions, setStaffOptions] = useState<StaffOption[]>([]);
 
     // Expanded chain indicator in table
     const [expandedChainRoleId, setExpandedChainRoleId] = useState<string | null>(null);
@@ -311,10 +457,11 @@ export default function RolesBuilderAssignment() {
 
     const fetchData = useCallback(async () => {
         try {
-            const [rolesRes, deptsRes, policiesRes] = await Promise.all([
+            const [rolesRes, deptsRes, policiesRes, staffRes] = await Promise.all([
                 fetch('/api/proxy/roles'),
                 fetch('/api/proxy/departments'),
                 fetch('/api/proxy/escalation-policies'),
+                fetch('/api/proxy/staff?page_size=100&page_id=1'),
             ]);
             // Build department ID → name map
             let deptMap = new Map<string, string>();
@@ -325,11 +472,13 @@ export default function RolesBuilderAssignment() {
                 const nameToId = new Map<string, string>();
                 if (Array.isArray(list)) {
                     for (const d of list) {
-                        if (d && typeof d === 'object' && d.id) {
-                            const name = d.name || d.department_name || '';
+                        if (d && typeof d === 'object') {
+                            const rec = d as { id?: string; department_id?: string; name?: string; department_name?: string };
+                            const depId = rec.id || rec.department_id;
+                            const name = rec.name || rec.department_name || '';
                             if (name) {
-                                deptMap.set(d.id, name);
-                                nameToId.set(name, d.id);
+                                if (depId) deptMap.set(depId, name);
+                                if (depId) nameToId.set(name, depId);
                             }
                         }
                     }
@@ -343,6 +492,12 @@ export default function RolesBuilderAssignment() {
                 policiesArr = Array.isArray(pData) ? pData : [];
                 setPolicies(policiesArr);
             }
+            if (staffRes.ok) {
+                const staffData = await staffRes.json();
+                setStaffOptions(extractStaffOptions(staffData));
+            } else {
+                setStaffOptions([]);
+            }
             if (rolesRes.ok) {
                 const data = await rolesRes.json();
                 const rolesArr = Array.isArray(data) ? data : [];
@@ -350,12 +505,12 @@ export default function RolesBuilderAssignment() {
                 const roleNameMap = new Map(rolesArr.map((r: Role) => [r.id, r.name]));
                 // Build role_id → policy map
                 const policyByRole = new Map(policiesArr.map(p => [p.role_id, p]));
-                setRoles(rolesArr.map((r: Role & { department_id?: string }) => {
+                setRoles(rolesArr.map((r: Role & { department_id?: string; department_name?: string; department?: unknown }) => {
                     const policy = policyByRole.get(r.id);
                     const policyLevels = policy ? stepsToLevels(policy.steps || [], roleNameMap) : [];
                     return normalizeRoleForUi({
                         ...r,
-                        department: r.department || (r.department_id ? deptMap.get(r.department_id) || '' : ''),
+                        department: resolveRoleDepartment(r as unknown as Record<string, unknown>, deptMap),
                         escalation_routing: r.escalation_routing || [],
                         escalation_levels: policyLevels,
                     });
@@ -374,11 +529,40 @@ export default function RolesBuilderAssignment() {
 
     const selectedRole = roles.find(r => r.id === selectedId) || null;
 
+    useEffect(() => {
+        if (!selectedId) return;
+        // Role list can omit full allowlist; fetch detail for accurate sign-in assignment view.
+        fetch(`/api/proxy/roles/${selectedId}`)
+            .then(async (res) => {
+                if (!res.ok) return null;
+                const detail = await res.json();
+                return detail && typeof detail === 'object'
+                    ? detail as Partial<Role> & { id: string }
+                    : null;
+            })
+            .then((detail) => {
+                if (!detail?.id) return;
+                setRoles(prev => prev.map(r => (r.id === detail.id
+                    ? normalizeRoleForUi({
+                        ...r,
+                        ...detail,
+                        sign_in_allowed_user_ids: Array.isArray(detail.sign_in_allowed_user_ids) ? detail.sign_in_allowed_user_ids : (r.sign_in_allowed_user_ids || []),
+                        sign_in_restricted: Boolean(detail.sign_in_restricted) || (Array.isArray(detail.sign_in_allowed_user_ids) && detail.sign_in_allowed_user_ids.length > 0),
+                    } as Role)
+                    : r)));
+            })
+            .catch(() => {
+                // best effort
+            });
+    }, [selectedId]);
+
     const resetAddForm = () => {
         setNewRoleName('');
         setNewRoleDesc('');
         setNewRoleDept('');
         setNewRoleMandatory(false);
+        setNewRestricted(false);
+        setNewAllowedUserIds([]);
         setNewRouting([]);
         setNewEscLevels([]);
         setAddStep(2);
@@ -489,6 +673,7 @@ export default function RolesBuilderAssignment() {
                     description: newRoleDesc.trim(),
                     department_id: deptIdMap.get(newRoleDept) || undefined,
                     priority: newRoleMandatory ? 'critical' : 'standard',
+                    sign_in_allowed_user_ids: newRestricted ? newAllowedUserIds : undefined,
                 }),
             });
             if (!res.ok) { showToast('Failed to add role'); return; }
@@ -537,6 +722,8 @@ export default function RolesBuilderAssignment() {
 
             setRoles(prev => [...prev, {
                 ...normalizeRoleForUi(role),
+                sign_in_restricted: Boolean(role.sign_in_restricted),
+                sign_in_allowed_user_ids: Array.isArray(role.sign_in_allowed_user_ids) ? role.sign_in_allowed_user_ids : [],
                 escalation_routing: role.escalation_routing || newRouting,
                 escalation_levels: policyLevels,
             }]);
@@ -591,8 +778,10 @@ export default function RolesBuilderAssignment() {
         setEditDesc(role.description || '');
         setEditDept(role.department);
         setEditMandatory(Boolean(role.mandatory));
+        const baseAllowed = Array.isArray(role.sign_in_allowed_user_ids) ? role.sign_in_allowed_user_ids : [];
+        setEditRestricted(Boolean(role.sign_in_restricted) || baseAllowed.length > 0);
+        setEditAllowedUserIds(baseAllowed);
         setEditEnabled(role.enabled ?? true);
-        setEditVisible(role.visible_in_directory ?? true);
         setEditRouting((role.escalation_routing || []).map(r => ({ ...r })));
         // Pre-fill level 1 with the role being edited if no levels exist
         const existing = (role.escalation_levels || []).map(l => ({ ...l }));
@@ -601,6 +790,22 @@ export default function RolesBuilderAssignment() {
         } else {
             setEditEscLevels([{ level: 1, target: role.name, delay: '5 min' }]);
         }
+        // Pull full role details (includes full allowlist when restricted).
+        fetch(`/api/proxy/roles/${role.id}`)
+            .then(async (res) => {
+                if (!res.ok) return null;
+                const detail = await res.json();
+                return detail && typeof detail === 'object' ? detail as { sign_in_restricted?: boolean; sign_in_allowed_user_ids?: string[] } : null;
+            })
+            .then((detail) => {
+                if (!detail) return;
+                const ids = Array.isArray(detail.sign_in_allowed_user_ids) ? detail.sign_in_allowed_user_ids : [];
+                setEditRestricted(Boolean(detail.sign_in_restricted) || ids.length > 0);
+                setEditAllowedUserIds(ids);
+            })
+            .catch(() => {
+                // best effort
+            });
     };
 
     const handleSaveEdit = async () => {
@@ -615,7 +820,9 @@ export default function RolesBuilderAssignment() {
                     name: editName.trim(),
                     description: editDesc.trim(),
                     department_id: deptIdMap.get(editDept) || undefined,
+                    department: editDept || undefined,
                     priority: editMandatory ? 'critical' : 'standard',
+                    sign_in_allowed_user_ids: editRestricted ? editAllowedUserIds : [],
                 }),
             });
             if (!res.ok) { showToast('Failed to save changes'); setEditSaving(false); return; }
@@ -697,6 +904,9 @@ export default function RolesBuilderAssignment() {
 
             setRoles(prev => prev.map(r => r.id === editingRole.id ? {
                 ...normalizeRoleForUi({ ...r, ...updated }),
+                department: editDept || r.department,
+                sign_in_restricted: Boolean(updated.sign_in_restricted),
+                sign_in_allowed_user_ids: Array.isArray(updated.sign_in_allowed_user_ids) ? updated.sign_in_allowed_user_ids : [],
                 escalation_routing: updated.escalation_routing || editRouting,
                 escalation_levels: finalLevels,
             } : r));
@@ -711,6 +921,82 @@ export default function RolesBuilderAssignment() {
         const names = roles.map(r => r.name).filter(Boolean);
         return names.length > 0 ? Array.from(new Set(names)) : escalationTargetOptions;
     }, [roles]);
+
+    const renderSignInRestriction = (
+        restricted: boolean,
+        setRestricted: (value: boolean) => void,
+        allowedUserIds: string[],
+        setAllowedUserIds: (ids: string[]) => void
+    ) => {
+        return (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 14 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', borderRadius: 'var(--radius-md)', background: 'var(--surface-2)', border: '1px solid var(--border-subtle)' }}>
+                    <div>
+                        <div style={{ fontSize: 13, fontWeight: 600 }}>Restricted Sign-in</div>
+                        <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 1 }}>
+                            If enabled, only selected staff can sign into this facility role.
+                        </div>
+                    </div>
+                    <label className="toggle">
+                        <input
+                            type="checkbox"
+                            checked={restricted}
+                            onChange={() => {
+                                const next = !restricted;
+                                setRestricted(next);
+                                if (!next) setAllowedUserIds([]);
+                            }}
+                        />
+                        <span className="toggle-slider" />
+                    </label>
+                </div>
+
+                {restricted && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: '10px 12px', borderRadius: 'var(--radius-md)', background: 'rgba(59,130,246,0.04)', border: '1px solid rgba(59,130,246,0.15)' }}>
+                        <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                            Select one staff member allowed to hold this role.
+                        </div>
+                        <CustomSelect
+                            value=""
+                            onChange={(v) => {
+                                if (!v) return;
+                                setAllowedUserIds([v]);
+                            }}
+                            options={staffOptions
+                                .filter(s => !allowedUserIds.includes(s.id))
+                                .map(s => ({ label: s.label, value: s.id }))}
+                            placeholder={staffOptions.length > 0 ? '-- Add staff to allowlist --' : '-- No staff available --'}
+                        />
+                        {allowedUserIds.length > 0 ? (
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                                {(() => {
+                                    const uid = allowedUserIds[0];
+                                    const staff = staffOptions.find(s => s.id === uid);
+                                    return (
+                                        <span key={uid} className="badge badge-info" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, paddingRight: 4 }}>
+                                            {staff?.label || uid}
+                                            <button
+                                                type="button"
+                                                onClick={() => setAllowedUserIds([])}
+                                                style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: 'inherit', display: 'inline-flex', alignItems: 'center', padding: 0 }}
+                                                title="Remove"
+                                            >
+                                                <span className="material-icons-round" style={{ fontSize: 12 }}>close</span>
+                                            </button>
+                                        </span>
+                                    );
+                                })()}
+                            </div>
+                        ) : (
+                            <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                                No staff selected yet.
+                            </div>
+                        )}
+                    </div>
+                )}
+            </div>
+        );
+    };
 
     const renderEscalationLadder = (
         levels: EscalationLevel[],
@@ -932,6 +1218,8 @@ export default function RolesBuilderAssignment() {
                                     />
                                 </div>
 
+                                {renderSignInRestriction(editRestricted, setEditRestricted, editAllowedUserIds, setEditAllowedUserIds)}
+
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 20 }}>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderRadius: 'var(--radius-md)', background: editMandatory ? 'rgba(239,68,68,0.06)' : 'var(--surface-2)', border: `1px solid ${editMandatory ? 'rgba(239,68,68,0.25)' : 'var(--border-subtle)'}`, transition: 'all 0.2s' }}>
                                         <input type="checkbox" className="checkbox" checked={editMandatory} onChange={() => setEditMandatory(!editMandatory)} />
@@ -950,16 +1238,6 @@ export default function RolesBuilderAssignment() {
                                         </div>
                                         <label className="toggle">
                                             <input type="checkbox" checked={editEnabled} onChange={() => setEditEnabled(!editEnabled)} />
-                                            <span className="toggle-slider" />
-                                        </label>
-                                    </div>
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', borderRadius: 'var(--radius-md)', background: 'var(--surface-2)', border: '1px solid var(--border-subtle)' }}>
-                                        <div>
-                                            <div style={{ fontSize: 13, fontWeight: 600 }}>Show in Staff Directory</div>
-                                            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 1 }}>Make this role visible and searchable.</div>
-                                        </div>
-                                        <label className="toggle">
-                                            <input type="checkbox" checked={editVisible} onChange={() => setEditVisible(!editVisible)} />
                                             <span className="toggle-slider" />
                                         </label>
                                     </div>
@@ -1176,6 +1454,8 @@ export default function RolesBuilderAssignment() {
                                         <label className="label">Description</label>
                                         <textarea className="input" value={newRoleDesc} onChange={e => setNewRoleDesc(e.target.value)} style={{ fontSize: 13, minHeight: 60, resize: 'vertical' }} placeholder="Describe this role..." />
                                     </div>
+
+                                    {renderSignInRestriction(newRestricted, setNewRestricted, newAllowedUserIds, setNewAllowedUserIds)}
 
                                     <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderRadius: 'var(--radius-md)', background: newRoleMandatory ? 'rgba(239,68,68,0.06)' : 'var(--surface-2)', border: `1px solid ${newRoleMandatory ? 'rgba(239,68,68,0.25)' : 'var(--border-subtle)'}`, marginBottom: 18, transition: 'all 0.2s' }}>
                                         <input type="checkbox" className="checkbox" checked={newRoleMandatory} onChange={() => setNewRoleMandatory(!newRoleMandatory)} />
@@ -1404,7 +1684,7 @@ export default function RolesBuilderAssignment() {
                                         <span className={`badge ${selectedRole.priority === 'Critical' ? 'badge-critical' : selectedRole.priority === 'High' ? 'badge-warning' : 'badge-neutral'}`}>{selectedRole.priority || 'Standard'}</span>
                                         <span className={`badge ${selectedRole.enabled ? 'badge-success' : 'badge-neutral'}`}>{selectedRole.enabled ? 'Active' : 'Disabled'}</span>
                                         {selectedRole.mandatory && <span className="badge badge-info">Mandatory</span>}
-                                        {selectedRole.visible_in_directory && <span className="badge badge-neutral">In Directory</span>}
+                                        {(selectedRole.sign_in_restricted || (selectedRole.sign_in_allowed_user_ids || []).length > 0) && <span className="badge badge-warning">Restricted Sign-in</span>}
                                     </div>
                                 </div>
 
@@ -1414,9 +1694,9 @@ export default function RolesBuilderAssignment() {
                                     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                                         {[
                                             { label: 'Priority', value: selectedRole.priority || 'Standard', icon: 'flag' },
-                                            { label: 'Directory', value: selectedRole.visible_in_directory ? 'Visible' : 'Hidden', icon: selectedRole.visible_in_directory ? 'visibility' : 'visibility_off' },
                                             { label: 'Status', value: selectedRole.enabled ? 'Active' : 'Disabled', icon: selectedRole.enabled ? 'check_circle' : 'cancel' },
                                             { label: 'Mandatory', value: selectedRole.mandatory ? 'Required' : 'Optional', icon: selectedRole.mandatory ? 'verified' : 'remove_circle_outline' },
+                                            { label: 'Sign-in', value: (selectedRole.sign_in_restricted || (selectedRole.sign_in_allowed_user_ids || []).length > 0) ? 'Restricted' : 'Open', icon: 'security' },
                                         ].map(row => (
                                             <div key={row.label} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                                                 <span className="material-icons-round" style={{ fontSize: 16, color: 'var(--text-muted)', width: 20 }}>{row.icon}</span>
@@ -1424,6 +1704,57 @@ export default function RolesBuilderAssignment() {
                                                 <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>{row.value}</span>
                                             </div>
                                         ))}
+                                    </div>
+                                </div>
+
+                                {/* Sign-in Assignment Summary */}
+                                <div className="card" style={{ padding: '16px 20px' }}>
+                                    <h4 style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 12 }}>Sign-in Assignment</h4>
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                                        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+                                            <span className="material-icons-round" style={{ fontSize: 16, color: 'var(--text-muted)', width: 20 }}>person_pin</span>
+                                            <div style={{ minWidth: 0 }}>
+                                                <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Currently signed in</div>
+                                                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginTop: 1 }}>
+                                                    {(() => {
+                                                        const su = selectedRole.signed_in_user;
+                                                        if (su) {
+                                                            const full = (su.name || `${su.first_name || ''} ${su.last_name || ''}`.trim() || '').trim();
+                                                            return full || su.email || su.id || '—';
+                                                        }
+                                                        if (selectedRole.signed_in_by) {
+                                                            const matched = staffOptions.find(s => s.id === selectedRole.signed_in_by);
+                                                            return matched ? staffNameOnly(matched.label) : selectedRole.signed_in_by;
+                                                        }
+                                                        return 'No one signed in';
+                                                    })()}
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+                                            <span className="material-icons-round" style={{ fontSize: 16, color: 'var(--text-muted)', width: 20 }}>verified_user</span>
+                                            <div style={{ minWidth: 0 }}>
+                                                <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Allowed staff</div>
+                                                {(selectedRole.sign_in_allowed_user_ids || []).length > 0 ? (
+                                                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 4 }}>
+                                                        {(selectedRole.sign_in_allowed_user_ids || []).map(uid => {
+                                                            const matched = staffOptions.find(s => s.id === uid);
+                                                            return (
+                                                                <span key={uid} className="badge badge-info">
+                                                                    {matched ? staffNameOnly(matched.label) : uid}
+                                                                </span>
+                                                            );
+                                                        })}
+                                                    </div>
+                                                ) : (
+                                                    <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginTop: 1 }}>
+                                                        {(selectedRole.sign_in_restricted || false) ? 'No staff assigned' : 'Open to eligible staff'
+                                                        }
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
                                     </div>
                                 </div>
 
