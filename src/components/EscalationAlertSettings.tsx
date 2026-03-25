@@ -36,6 +36,14 @@ type Policy = {
     updated_at?: string;
 };
 
+function extractPolicies(raw: unknown): Policy[] {
+    if (Array.isArray(raw)) return raw as Policy[];
+    if (!raw || typeof raw !== 'object') return [];
+    const obj = raw as Record<string, unknown>;
+    const list = obj.data ?? obj.items ?? obj.policies ?? obj.results;
+    return Array.isArray(list) ? (list as Policy[]) : [];
+}
+
 type Role = {
     id: string;
     name: string;
@@ -46,6 +54,35 @@ type Role = {
     priority: string;
     escalation_levels: EscalationLevel[];
 };
+
+function resolveRoleDepartmentName(
+    role: Record<string, unknown>,
+    deptMap: Map<string, string>
+): string {
+    const deptRaw = role.department;
+    const deptName = String(role.department_name || '').trim();
+    const deptId = String(role.department_id || '').trim();
+
+    if (deptName) return deptName;
+
+    if (deptRaw && typeof deptRaw === 'object' && !Array.isArray(deptRaw)) {
+        const nested = deptRaw as Record<string, unknown>;
+        const nestedNameRaw = nested.name ?? nested.department_name;
+        const nestedName = typeof nestedNameRaw === 'string' ? nestedNameRaw.trim() : '';
+        if (nestedName) return nestedName;
+        const nestedId = String(nested.id || nested.department_id || '').trim();
+        if (nestedId && deptMap.has(nestedId)) return deptMap.get(nestedId) || '';
+    }
+
+    if (typeof deptRaw === 'string' && deptRaw.trim()) {
+        const raw = deptRaw.trim();
+        if (deptMap.has(raw)) return deptMap.get(raw) || '';
+        return raw;
+    }
+
+    if (deptId && deptMap.has(deptId)) return deptMap.get(deptId) || '';
+    return '';
+}
 
 function normalizeRoleForUi<T extends Role>(role: T): T {
     const isCritical = role.priority?.toString().trim().toLowerCase() === 'critical';
@@ -138,8 +175,9 @@ function extractDepartmentNames(raw: unknown): string[] {
     const names = list
         .map((d: unknown) => {
             if (!d || typeof d !== 'object') return '';
-            const rec = d as { name?: string; department_name?: string };
-            return (rec.name || rec.department_name || '').trim();
+            const rec = d as Record<string, unknown>;
+            const nameRaw = rec.name ?? rec.department_name;
+            return typeof nameRaw === 'string' ? nameRaw.trim() : '';
         })
         .filter(Boolean);
 
@@ -199,12 +237,18 @@ export default function EscalationAlertSettings() {
                 const nameToId = new Map<string, string>();
                 if (Array.isArray(list)) {
                     for (const d of list) {
-                        if (d && typeof d === 'object' && d.id) {
-                            const name = d.name || d.department_name || '';
-                            if (name) {
-                                deptMap.set(d.id, name);
-                                nameToId.set(name, d.id);
-                            }
+                        if (!d || typeof d !== 'object') continue;
+                        const rec = d as Record<string, unknown>;
+                        const depId = typeof rec.id === 'string'
+                            ? rec.id
+                            : typeof rec.department_id === 'string'
+                                ? rec.department_id
+                                : '';
+                        const nameRaw = rec.name ?? rec.department_name;
+                        const name = typeof nameRaw === 'string' ? nameRaw.trim() : '';
+                        if (depId && name) {
+                            deptMap.set(depId, name);
+                            nameToId.set(name, depId);
                         }
                     }
                 }
@@ -213,15 +257,15 @@ export default function EscalationAlertSettings() {
             if (rolesRes.ok) {
                 const data = await rolesRes.json();
                 const rolesArr = Array.isArray(data) ? data : [];
-                setRoles(rolesArr.map((r: Role & { department_id?: string }) => normalizeRoleForUi({
+                setRoles(rolesArr.map((r: Role & { department_id?: string; department_name?: string; department?: unknown }) => normalizeRoleForUi({
                     ...r,
-                    department: r.department || (r.department_id ? deptMap.get(r.department_id) || '' : ''),
+                    department: resolveRoleDepartmentName(r as unknown as Record<string, unknown>, deptMap),
                     escalation_levels: r.escalation_levels?.length ? r.escalation_levels : [],
                 })));
             }
             if (policiesRes.ok) {
                 const pData = await policiesRes.json();
-                let policiesArr: Policy[] = Array.isArray(pData) ? pData : [];
+                let policiesArr: Policy[] = extractPolicies(pData);
                 // Hydrate policies that are missing steps by fetching individually
                 const needsHydration = policiesArr.some(p => !p.steps || p.steps.length === 0);
                 if (needsHydration && policiesArr.length > 0) {

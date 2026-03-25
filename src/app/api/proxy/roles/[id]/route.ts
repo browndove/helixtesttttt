@@ -110,19 +110,29 @@ export async function PUT(
         const payload: Record<string, unknown> = {};
         if (body.name !== undefined) payload.name = body.name;
         if (body.description !== undefined) payload.description = body.description;
-        if (body.department !== undefined) payload.department = body.department;
+        const departmentName = typeof body.department === 'string' ? body.department.trim() : '';
         let resolvedDepartmentId = body.department_id || body.departmentId;
-        if (!resolvedDepartmentId && body.department?.trim()) {
+        console.log('[updateRole] Incoming department fields:', {
+            id,
+            department: body.department,
+            department_id: body.department_id,
+            departmentId: body.departmentId,
+            departmentName,
+        });
+        if (!resolvedDepartmentId && departmentName) {
             try {
                 const facilityId = await resolveFacilityId(req, API_BASE_URL);
                 if (facilityId) {
-                    resolvedDepartmentId = await resolveDepartmentIdByName(req, facilityId, body.department);
+                    resolvedDepartmentId = await resolveDepartmentIdByName(req, facilityId, departmentName);
                 }
             } catch {
                 // best effort resolution
             }
         }
+        // Mirror create-role payload shape for department updates.
+        if (body.department !== undefined) payload.department = departmentName || undefined;
         if (resolvedDepartmentId !== undefined) payload.department_id = resolvedDepartmentId;
+        console.log('[updateRole] Final outbound payload:', payload);
         if (Object.prototype.hasOwnProperty.call(body, 'sign_in_allowed_user_ids')) {
             payload.sign_in_allowed_user_ids = Array.isArray(body.sign_in_allowed_user_ids)
                 ? body.sign_in_allowed_user_ids
@@ -154,6 +164,12 @@ export async function PUT(
                 { status: 502 }
             );
         }
+        console.log('[updateRole] Backend response department fields:', {
+            status: res.status,
+            department: (data as { department?: unknown }).department,
+            department_id: (data as { department_id?: unknown }).department_id,
+            department_name: (data as { department_name?: unknown }).department_name,
+        });
 
         return NextResponse.json(data, { status: res.status });
     } catch (err) {

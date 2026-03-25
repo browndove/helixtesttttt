@@ -19,6 +19,8 @@ type IncomingStaffBody = {
     job_title?: string;
     highest_qualification?: string;
     is_doctor?: boolean;
+    patient_access?: boolean;
+    can_access_patients?: boolean;
     role?: string;
 };
 
@@ -150,6 +152,9 @@ export async function POST(req: NextRequest) {
             job_title: (body.job_title || '').trim(),
             highest_qualification: (body.highest_qualification || '').trim(),
             is_doctor: Boolean(body.is_doctor),
+            // Backend field naming has varied; send both for compatibility.
+            patient_access: Boolean(body.patient_access ?? body.can_access_patients),
+            can_access_patients: Boolean(body.patient_access ?? body.can_access_patients),
             role: (body.role || 'staff').toLowerCase(),
         };
         const url = `${API_BASE_URL}/api/v1/staff`;

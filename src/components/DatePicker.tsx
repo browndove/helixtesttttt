@@ -41,6 +41,8 @@ export default function DatePicker({
     const selectedDate = useMemo(() => parseIsoDate(value), [value]);
     const [open, setOpen] = useState(false);
     const [viewDate, setViewDate] = useState<Date>(() => selectedDate || new Date());
+    const [yearPickerOpen, setYearPickerOpen] = useState(false);
+    const [yearQuery, setYearQuery] = useState('');
     const wrapRef = useRef<HTMLDivElement>(null);
     const popRef = useRef<HTMLDivElement>(null);
     const [pos, setPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
@@ -78,6 +80,18 @@ export default function DatePicker({
 
     const year = viewDate.getFullYear();
     const month = viewDate.getMonth();
+    const yearRange = useMemo(() => {
+        const currentYear = new Date().getFullYear();
+        const startYear = 1950;
+        const years: number[] = [];
+        for (let y = currentYear; y >= startYear; y -= 1) years.push(y);
+        return years;
+    }, []);
+    const filteredYears = useMemo(() => {
+        const q = yearQuery.trim();
+        if (!q) return yearRange;
+        return yearRange.filter(y => String(y).includes(q));
+    }, [yearQuery, yearRange]);
     const firstOfMonth = new Date(year, month, 1);
     const startWeekday = firstOfMonth.getDay(); // 0-6
     const daysInMonth = new Date(year, month + 1, 0).getDate();
@@ -143,13 +157,95 @@ export default function DatePicker({
                         <button type="button" className="btn btn-ghost btn-xs" onClick={() => setViewDate(new Date(year, month - 1, 1))}>
                             <span className="material-icons-round" style={{ fontSize: 15 }}>chevron_left</span>
                         </button>
-                        <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-primary)' }}>
+                        <button
+                            type="button"
+                            onClick={() => {
+                                setYearPickerOpen(v => !v);
+                                setYearQuery('');
+                            }}
+                            style={{
+                                border: 'none',
+                                background: 'transparent',
+                                cursor: 'pointer',
+                                fontSize: 12,
+                                fontWeight: 700,
+                                color: 'var(--text-primary)',
+                                padding: '6px 8px',
+                                borderRadius: 8,
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: 6,
+                            }}
+                            onMouseEnter={e => { e.currentTarget.style.background = 'var(--surface-2)'; }}
+                            onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
+                        >
                             {viewDate.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })}
-                        </div>
+                            <span className="material-icons-round" style={{ fontSize: 16, color: 'var(--text-muted)' }}>
+                                {yearPickerOpen ? 'expand_less' : 'expand_more'}
+                            </span>
+                        </button>
                         <button type="button" className="btn btn-ghost btn-xs" onClick={() => setViewDate(new Date(year, month + 1, 1))}>
                             <span className="material-icons-round" style={{ fontSize: 15 }}>chevron_right</span>
                         </button>
                     </div>
+
+                    {yearPickerOpen && (
+                        <div style={{ padding: '6px 4px 10px' }}>
+                            <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>
+                                Select year
+                            </div>
+                            <input
+                                type="text"
+                                value={yearQuery}
+                                onChange={(e) => setYearQuery(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                                placeholder="Search year..."
+                                style={{
+                                    width: '100%',
+                                    height: 30,
+                                    marginBottom: 8,
+                                    padding: '0 8px',
+                                    border: '1px solid var(--border-subtle)',
+                                    borderRadius: 8,
+                                    fontSize: 12,
+                                    color: 'var(--text-primary)',
+                                    background: 'var(--surface-card)',
+                                    outline: 'none',
+                                }}
+                            />
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 6, maxHeight: 160, overflowY: 'auto', paddingRight: 2 }}>
+                                {filteredYears.map((y) => {
+                                    const active = y === year;
+                                    return (
+                                        <button
+                                            key={y}
+                                            type="button"
+                                            onClick={() => {
+                                                setViewDate(new Date(y, month, 1));
+                                                setYearPickerOpen(false);
+                                            }}
+                                            style={{
+                                                height: 30,
+                                                borderRadius: 8,
+                                                border: active ? '1px solid var(--helix-primary)' : '1px solid var(--border-subtle)',
+                                                background: active ? 'rgba(99,102,241,0.10)' : 'var(--surface-2)',
+                                                color: active ? 'var(--helix-primary)' : 'var(--text-primary)',
+                                                fontSize: 12,
+                                                fontWeight: active ? 800 : 600,
+                                                cursor: 'pointer',
+                                            }}
+                                        >
+                                            {y}
+                                        </button>
+                                    );
+                                })}
+                                {filteredYears.length === 0 && (
+                                    <div style={{ gridColumn: '1 / -1', textAlign: 'center', fontSize: 12, color: 'var(--text-muted)', padding: '8px 0' }}>
+                                        No years found
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    )}
 
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4, marginBottom: 6 }}>
                         {['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'].map(d => (

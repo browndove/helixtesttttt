@@ -236,7 +236,7 @@ export default function StaffDirectoryManagement() {
     const [newGender, setNewGender] = useState('');
     const [newRole, setNewRole] = useState('');
     const [newHighestQualification, setNewHighestQualification] = useState('');
-    const [newIsDoctor, setNewIsDoctor] = useState<'dr' | 'other'>('other');
+    const [newIsDoctor, setNewIsDoctor] = useState<'dr' | 'other' | ''>('');
     const [newDept, setNewDept] = useState('');
     const [newPatientAccess, setNewPatientAccess] = useState(true);
     const [sortKey, setSortKey] = useState<SortKey>('last_name');
@@ -255,6 +255,64 @@ export default function StaffDirectoryManagement() {
     const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(null), 2500); };
 
     const departments = useMemo(() => ['all', ...departmentOptions], [departmentOptions]);
+    const isAddFormComplete = useMemo(() => (
+        Boolean(newFirstName.trim())
+        && Boolean(newLastName.trim())
+        && Boolean(newEmail.trim())
+        && Boolean(newPhone.trim())
+        && Boolean(newDob.trim())
+        && Boolean(newGender.trim())
+        && Boolean(newRole.trim())
+        && Boolean(newHighestQualification.trim())
+        && Boolean(newIsDoctor)
+        && Boolean(newDept.trim())
+        && isValidGhanaPhone(newPhone)
+    ), [
+        newFirstName,
+        newLastName,
+        newEmail,
+        newPhone,
+        newDob,
+        newGender,
+        newRole,
+        newHighestQualification,
+        newIsDoctor,
+        newDept,
+    ]);
+
+    const addFormMissingFields = useMemo(() => {
+        const missing: string[] = [];
+        if (!newFirstName.trim()) missing.push('First name');
+        if (!newLastName.trim()) missing.push('Last name');
+        if (!newEmail.trim()) missing.push('Email');
+        if (!newPhone.trim()) missing.push('Phone');
+        if (newPhone.trim() && !isValidGhanaPhone(newPhone)) missing.push('Phone format (+233 + 9 digits)');
+        if (!newDob.trim()) missing.push('DOB');
+        if (!newGender.trim()) missing.push('Gender');
+        if (!newRole.trim()) missing.push('Title');
+        if (!newHighestQualification.trim()) missing.push('Highest qualification');
+        if (!newIsDoctor) missing.push('Is doctor');
+        if (!newDept.trim()) missing.push('Department');
+        return missing;
+    }, [
+        newFirstName,
+        newLastName,
+        newEmail,
+        newPhone,
+        newDob,
+        newGender,
+        newRole,
+        newHighestQualification,
+        newIsDoctor,
+        newDept,
+    ]);
+
+    const formatMissingFieldsToast = useCallback((missing: string[]) => {
+        if (missing.length === 0) return 'Please fill all required fields before adding staff';
+        const head = missing.slice(0, 4).join(', ');
+        const rest = missing.length - 4;
+        return rest > 0 ? `Missing: ${head} (+${rest} more)` : `Missing: ${head}`;
+    }, []);
 
     const fetchStaff = useCallback(async () => {
         setFetchError(false);
@@ -434,9 +492,8 @@ export default function StaffDirectoryManagement() {
     }, [staffPage, staffTotalPages]);
 
     const handleAdd = async () => {
-        if (!newFirstName.trim() || !newLastName.trim() || !newEmail.trim()) return;
-        if (newPhone.trim() && !isValidGhanaPhone(newPhone)) {
-            showToast('Phone must be +233 followed by 9 digits');
+        if (!isAddFormComplete) {
+            showToast(formatMissingFieldsToast(addFormMissingFields));
             return;
         }
         setAdding(true);
@@ -495,7 +552,7 @@ export default function StaffDirectoryManagement() {
             setNewGender('');
             setNewRole('');
             setNewHighestQualification('');
-            setNewIsDoctor('other');
+            setNewIsDoctor('');
             setNewPatientAccess(true);
             showToast(`${newFirstName} ${newLastName} added to staff`);
         } catch {
@@ -688,7 +745,7 @@ export default function StaffDirectoryManagement() {
                                 <div><label className="label">Last Name *</label><input className="input" value={newLastName} onChange={e => setNewLastName(e.target.value)} placeholder="Last name" style={{ fontSize: 12 }} /></div>
                                 <div><label className="label">Email *</label><input className="input" value={newEmail} onChange={e => setNewEmail(e.target.value)} placeholder="Email address" style={{ fontSize: 12 }} /></div>
                                 <div>
-                                    <label className="label">Phone</label>
+                                    <label className="label">Phone *</label>
                                     <input
                                         className="input"
                                         value={newPhone}
@@ -698,11 +755,11 @@ export default function StaffDirectoryManagement() {
                                     />
                                 </div>
                                 <div>
-                                    <label className="label">DOB</label>
+                                    <label className="label">DOB *</label>
                                     <DatePicker value={newDob} onChange={setNewDob} placeholder="Select DOB" />
                                 </div>
                                 <div>
-                                    <label className="label">Gender</label>
+                                    <label className="label">Gender *</label>
                                     <CustomSelect
                                         value={newGender}
                                         onChange={v => setNewGender(v)}
@@ -715,7 +772,7 @@ export default function StaffDirectoryManagement() {
                                     />
                                 </div>
                                 <div>
-                                    <label className="label">Title</label>
+                                    <label className="label">Title *</label>
                                     <CustomSelect
                                         value={newRole}
                                         onChange={v => setNewRole(v)}
@@ -726,7 +783,7 @@ export default function StaffDirectoryManagement() {
                                     />
                                 </div>
                                 <div>
-                                    <label className="label">Highest Qualification</label>
+                                    <label className="label">Highest Qualification *</label>
                                     <CustomSelect
                                         value={newHighestQualification}
                                         onChange={v => setNewHighestQualification(v)}
@@ -737,10 +794,10 @@ export default function StaffDirectoryManagement() {
                                     />
                                 </div>
                                 <div>
-                                    <label className="label">Is Doctor</label>
+                                    <label className="label">Is Doctor *</label>
                                     <CustomSelect
                                         value={newIsDoctor}
-                                        onChange={v => setNewIsDoctor((v === 'dr' ? 'dr' : 'other'))}
+                                        onChange={v => setNewIsDoctor(v === 'dr' || v === 'other' ? v : '')}
                                         options={[
                                             { label: 'Dr.', value: 'dr' },
                                             { label: 'Other', value: 'other' },
@@ -749,7 +806,7 @@ export default function StaffDirectoryManagement() {
                                     />
                                 </div>
                                 <div>
-                                    <label className="label">Department</label>
+                                    <label className="label">Department *</label>
                                     <CustomSelect
                                         value={newDept}
                                         onChange={v => setNewDept(v)}
@@ -759,7 +816,7 @@ export default function StaffDirectoryManagement() {
                                 </div>
                                 <div><label className="label">Patient Access</label><CustomSelect value={newPatientAccess ? 'yes' : 'no'} onChange={v => setNewPatientAccess(v === 'yes')} options={[{ label: 'Yes', value: 'yes' }, { label: 'No', value: 'no' }]} placeholder="-- Select --" /></div>
                             </div>
-                            <button className="btn btn-primary btn-sm" onClick={handleAdd} disabled={adding || !newFirstName.trim() || !newLastName.trim() || !newEmail.trim()}>
+                            <button className="btn btn-primary btn-sm" onClick={handleAdd} disabled={adding}>
                                 <span className="material-icons-round" style={{ fontSize: 14 }}>{adding ? 'hourglass_empty' : 'person_add'}</span>{adding ? 'Adding...' : 'Add Staff'}
                             </button>
                         </div>

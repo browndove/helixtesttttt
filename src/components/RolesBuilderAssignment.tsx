@@ -34,6 +34,14 @@ type Policy = {
     updated_at?: string;
 };
 
+function extractPolicies(raw: unknown): Policy[] {
+    if (Array.isArray(raw)) return raw as Policy[];
+    if (!raw || typeof raw !== 'object') return [];
+    const obj = raw as Record<string, unknown>;
+    const list = obj.data ?? obj.items ?? obj.policies ?? obj.results;
+    return Array.isArray(list) ? (list as Policy[]) : [];
+}
+
 function delayToSeconds(d: string): number {
     const raw = d.trim().toLowerCase();
     const match = raw.match(/(\d+(?:\.\d+)?)\s*(s|sec|secs|second|seconds|m|min|mins|minute|minutes|h|hr|hrs|hour|hours)?/);
@@ -253,8 +261,9 @@ function extractDepartmentNames(raw: unknown): string[] {
     const names = list
         .map((d: unknown) => {
             if (!d || typeof d !== 'object') return '';
-            const rec = d as { name?: string; department_name?: string };
-            return (rec.name || rec.department_name || '').trim();
+            const rec = d as Record<string, unknown>;
+            const nameRaw = rec.name ?? rec.department_name;
+            return typeof nameRaw === 'string' ? nameRaw.trim() : '';
         })
         .filter(Boolean);
 
@@ -362,9 +371,7 @@ function resolveRoleDepartment(
 ): string {
     const deptRaw = role.department;
     const deptName = String(role.department_name || '').trim();
-    const deptId = String(role.department_id || '').trim();
-
-    if (deptName) return deptName;
+    const deptId = String(role.department_id || role.departmentId || '').trim();
 
     if (deptRaw && typeof deptRaw === 'object' && !Array.isArray(deptRaw)) {
         const nested = deptRaw as Record<string, unknown>;
@@ -379,6 +386,10 @@ function resolveRoleDepartment(
         if (deptMap.has(raw)) return deptMap.get(raw) || '';
         return raw;
     }
+
+    // Some backend responses include both department_name and department object/string.
+    // Prefer the concrete department field first, then fall back to department_name.
+    if (deptName) return deptName;
 
     if (deptId && deptMap.has(deptId)) return deptMap.get(deptId) || '';
     return '';
@@ -472,14 +483,18 @@ export default function RolesBuilderAssignment() {
                 const nameToId = new Map<string, string>();
                 if (Array.isArray(list)) {
                     for (const d of list) {
-                        if (d && typeof d === 'object') {
-                            const rec = d as { id?: string; department_id?: string; name?: string; department_name?: string };
-                            const depId = rec.id || rec.department_id;
-                            const name = rec.name || rec.department_name || '';
-                            if (name) {
-                                if (depId) deptMap.set(depId, name);
-                                if (depId) nameToId.set(name, depId);
-                            }
+                        if (!d || typeof d !== 'object') continue;
+                        const rec = d as Record<string, unknown>;
+                        const depId = typeof rec.id === 'string'
+                            ? rec.id
+                            : typeof rec.department_id === 'string'
+                                ? rec.department_id
+                                : '';
+                        const nameRaw = rec.name ?? rec.department_name;
+                        const name = typeof nameRaw === 'string' ? nameRaw.trim() : '';
+                        if (depId && name) {
+                            deptMap.set(depId, name);
+                            nameToId.set(name, depId);
                         }
                     }
                 }
@@ -489,7 +504,7 @@ export default function RolesBuilderAssignment() {
             let policiesArr: Policy[] = [];
             if (policiesRes.ok) {
                 const pData = await policiesRes.json();
-                policiesArr = Array.isArray(pData) ? pData : [];
+                policiesArr = extractPolicies(pData);
                 setPolicies(policiesArr);
             }
             if (staffRes.ok) {
@@ -543,12 +558,17 @@ export default function RolesBuilderAssignment() {
             .then((detail) => {
                 if (!detail?.id) return;
                 setRoles(prev => prev.map(r => (r.id === detail.id
-                    ? normalizeRoleForUi({
-                        ...r,
-                        ...detail,
-                        sign_in_allowed_user_ids: Array.isArray(detail.sign_in_allowed_user_ids) ? detail.sign_in_allowed_user_ids : (r.sign_in_allowed_user_ids || []),
-                        sign_in_restricted: Boolean(detail.sign_in_restricted) || (Array.isArray(detail.sign_in_allowed_user_ids) && detail.sign_in_allowed_user_ids.length > 0),
-                    } as Role)
+                    ? (() => {
+                        const detailRec = detail as Record<string, unknown>;
+                        const resolvedDept = resolveRoleDepartment(detailRec, new Map());
+                        return normalizeRoleForUi({
+                            ...r,
+                            ...detail,
+                            department: resolvedDept || r.department || '',
+                            sign_in_allowed_user_ids: Array.isArray(detail.sign_in_allowed_user_ids) ? detail.sign_in_allowed_user_ids : (r.sign_in_allowed_user_ids || []),
+                            sign_in_restricted: Boolean(detail.sign_in_restricted) || (Array.isArray(detail.sign_in_allowed_user_ids) && detail.sign_in_allowed_user_ids.length > 0),
+                        } as Role);
+                    })()
                     : r)));
             })
             .catch(() => {
@@ -662,7 +682,7 @@ export default function RolesBuilderAssignment() {
         setTemplateCreating(false);
     };
 
-    const handleAddRole = async () => {
+    const handleAddRole = async (withEscalations = true) => {
         if (!newRoleName.trim()) return;
         try {
             const res = await fetch('/api/proxy/roles', {
@@ -681,7 +701,7 @@ export default function RolesBuilderAssignment() {
 
             // Create escalation policy + steps for critical/mandatory roles
             let policyLevels = newEscLevels;
-            if (newRoleMandatory && newEscLevels.length > 0) {
+            if (withEscalations && newRoleMandatory && newEscLevels.length > 0) {
                 const policyRes = await fetch('/api/proxy/escalation-policies', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -808,10 +828,24 @@ export default function RolesBuilderAssignment() {
             });
     };
 
-    const handleSaveEdit = async () => {
+    const handleSaveEdit = async (withEscalations = true) => {
         if (!editingRole || !editName.trim()) return;
         setEditSaving(true);
         try {
+            const normalizedEditDept = editDept.trim();
+            const resolvedEditDeptId = normalizedEditDept
+                ? (
+                    deptIdMap.get(normalizedEditDept)
+                    || Array.from(deptIdMap.entries()).find(([name]) => name.trim().toLowerCase() === normalizedEditDept.toLowerCase())?.[1]
+                )
+                : undefined;
+            console.log('[roles-ui][saveEdit] Department debug:', {
+                roleId: editingRole.id,
+                roleName: editingRole.name,
+                selectedDepartment: normalizedEditDept,
+                resolvedDepartmentId: resolvedEditDeptId,
+                knownDepartments: departments,
+            });
             // 1. Update the role itself
             const res = await fetch(`/api/proxy/roles/${editingRole.id}`, {
                 method: 'PUT',
@@ -819,18 +853,24 @@ export default function RolesBuilderAssignment() {
                 body: JSON.stringify({
                     name: editName.trim(),
                     description: editDesc.trim(),
-                    department_id: deptIdMap.get(editDept) || undefined,
-                    department: editDept || undefined,
+                    department_id: resolvedEditDeptId,
+                    // Match create-role behavior: prefer ID-based department updates.
+                    department: !resolvedEditDeptId && normalizedEditDept ? normalizedEditDept : undefined,
                     priority: editMandatory ? 'critical' : 'standard',
                     sign_in_allowed_user_ids: editRestricted ? editAllowedUserIds : [],
                 }),
             });
             if (!res.ok) { showToast('Failed to save changes'); setEditSaving(false); return; }
             const updated = await res.json();
+            console.log('[roles-ui][saveEdit] Update response department:', {
+                department: updated?.department,
+                department_id: updated?.department_id,
+                department_name: updated?.department_name,
+            });
 
             // 2. Create or update escalation policy for critical/mandatory roles
             let finalLevels = editEscLevels;
-            if (editMandatory && editEscLevels.length > 0) {
+            if (withEscalations && editMandatory && editEscLevels.length > 0) {
                 // Check if a policy already exists for this role
                 const existingPolicyRes = await fetch(`/api/proxy/escalation-policies/by-role/${editingRole.id}`);
                 let policyId: string | null = null;
@@ -902,14 +942,19 @@ export default function RolesBuilderAssignment() {
                 }
             }
 
-            setRoles(prev => prev.map(r => r.id === editingRole.id ? {
-                ...normalizeRoleForUi({ ...r, ...updated }),
-                department: editDept || r.department,
-                sign_in_restricted: Boolean(updated.sign_in_restricted),
-                sign_in_allowed_user_ids: Array.isArray(updated.sign_in_allowed_user_ids) ? updated.sign_in_allowed_user_ids : [],
-                escalation_routing: updated.escalation_routing || editRouting,
-                escalation_levels: finalLevels,
-            } : r));
+            setRoles(prev => prev.map(r => {
+                if (r.id !== editingRole.id) return r;
+                const updatedRec = (updated && typeof updated === 'object') ? updated as Record<string, unknown> : {};
+                const responseDeptName = resolveRoleDepartment(updatedRec, new Map()) || editDept || r.department;
+                return {
+                    ...normalizeRoleForUi({ ...r, ...updated }),
+                    department: responseDeptName,
+                    sign_in_restricted: Boolean(updated.sign_in_restricted),
+                    sign_in_allowed_user_ids: Array.isArray(updated.sign_in_allowed_user_ids) ? updated.sign_in_allowed_user_ids : [],
+                    escalation_routing: updated.escalation_routing || editRouting,
+                    escalation_levels: finalLevels,
+                };
+            }));
             showToast(`"${editName}" updated`);
             setEditingRole(null);
             fetchData();
@@ -1246,12 +1291,21 @@ export default function RolesBuilderAssignment() {
                                 <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
                                     <button className="btn btn-secondary btn-sm" onClick={() => setEditingRole(null)}>Cancel</button>
                                     {editMandatory ? (
-                                        <button className="btn btn-primary btn-sm" onClick={() => setEditStep(2)} disabled={!editName.trim()}>
-                                            Next: Escalation Settings
-                                            <span className="material-icons-round" style={{ fontSize: 14 }}>arrow_forward</span>
-                                        </button>
+                                        <>
+                                            <button
+                                                className="btn btn-secondary btn-sm"
+                                                onClick={() => handleSaveEdit(false)}
+                                                disabled={editSaving || !editName.trim()}
+                                            >
+                                                {editSaving ? 'Saving...' : 'Save Without Escalation'}
+                                            </button>
+                                            <button className="btn btn-primary btn-sm" onClick={() => setEditStep(2)} disabled={!editName.trim()}>
+                                                Next: Escalation Settings
+                                                <span className="material-icons-round" style={{ fontSize: 14 }}>arrow_forward</span>
+                                            </button>
+                                        </>
                                     ) : (
-                                        <button className="btn btn-primary btn-sm" onClick={handleSaveEdit} disabled={editSaving || !editName.trim()} style={{ opacity: editSaving ? 0.7 : 1 }}>
+                                        <button className="btn btn-primary btn-sm" onClick={() => handleSaveEdit()} disabled={editSaving || !editName.trim()} style={{ opacity: editSaving ? 0.7 : 1 }}>
                                             {editSaving ? 'Saving...' : 'Save Changes'}
                                         </button>
                                     )}
@@ -1268,7 +1322,7 @@ export default function RolesBuilderAssignment() {
                                         <span className="material-icons-round" style={{ fontSize: 14 }}>arrow_back</span>
                                         Back
                                     </button>
-                                    <button className="btn btn-primary btn-sm" onClick={handleSaveEdit} disabled={editSaving || !editName.trim()} style={{ opacity: editSaving ? 0.7 : 1 }}>
+                                    <button className="btn btn-primary btn-sm" onClick={() => handleSaveEdit()} disabled={editSaving || !editName.trim()} style={{ opacity: editSaving ? 0.7 : 1 }}>
                                         {editSaving ? 'Saving...' : 'Save Changes'}
                                     </button>
                                 </div>
@@ -1474,12 +1528,18 @@ export default function RolesBuilderAssignment() {
                                             Cancel
                                         </button>
                                         {newRoleMandatory ? (
-                                            <button className="btn btn-primary btn-sm" onClick={() => setAddStep(3)} disabled={!newRoleName.trim()}>
-                                                Next: Escalation Settings
-                                                <span className="material-icons-round" style={{ fontSize: 14 }}>arrow_forward</span>
-                                            </button>
+                                            <div style={{ display: 'flex', gap: 8 }}>
+                                                <button className="btn btn-secondary btn-sm" onClick={() => handleAddRole(false)} disabled={!newRoleName.trim()}>
+                                                    <span className="material-icons-round" style={{ fontSize: 14 }}>skip_next</span>
+                                                    Skip Escalation
+                                                </button>
+                                                <button className="btn btn-primary btn-sm" onClick={() => setAddStep(3)} disabled={!newRoleName.trim()}>
+                                                    Next: Escalation Settings
+                                                    <span className="material-icons-round" style={{ fontSize: 14 }}>arrow_forward</span>
+                                                </button>
+                                            </div>
                                         ) : (
-                                            <button className="btn btn-primary btn-sm" onClick={handleAddRole} disabled={!newRoleName.trim()}>
+                                            <button className="btn btn-primary btn-sm" onClick={() => handleAddRole()} disabled={!newRoleName.trim()}>
                                                 <span className="material-icons-round" style={{ fontSize: 14 }}>check</span>
                                                 Create Role
                                             </button>
@@ -1498,7 +1558,7 @@ export default function RolesBuilderAssignment() {
                                             <span className="material-icons-round" style={{ fontSize: 14 }}>arrow_back</span>
                                             Back
                                         </button>
-                                        <button className="btn btn-primary btn-sm" onClick={handleAddRole} disabled={!newRoleName.trim()}>
+                                        <button className="btn btn-primary btn-sm" onClick={() => handleAddRole()} disabled={!newRoleName.trim()}>
                                             <span className="material-icons-round" style={{ fontSize: 14 }}>check</span>
                                             Create Role
                                         </button>
