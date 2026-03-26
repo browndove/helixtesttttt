@@ -1308,7 +1308,7 @@ export default function RolesBuilderAssignment() {
                                                 onClick={() => handleSaveEdit(false)}
                                                 disabled={editSaving || !editName.trim()}
                                             >
-                                                {editSaving ? 'Saving...' : 'Save Without Escalation'}
+                                                {editSaving ? 'Saving...' : 'Save Changes'}
                                             </button>
                                             <button className="btn btn-primary btn-sm" onClick={() => setEditStep(2)} disabled={!editName.trim()}>
                                                 Next: Escalation Settings

@@ -231,7 +231,7 @@ export default function StaffDirectoryManagement() {
     const [newFirstName, setNewFirstName] = useState('');
     const [newLastName, setNewLastName] = useState('');
     const [newEmail, setNewEmail] = useState('');
-    const [newPhone, setNewPhone] = useState('');
+    const [newPhone, setNewPhone] = useState('+233');
     const [newDob, setNewDob] = useState('');
     const [newGender, setNewGender] = useState('');
     const [newRole, setNewRole] = useState('');
@@ -547,7 +547,7 @@ export default function StaffDirectoryManagement() {
             setNewFirstName('');
             setNewLastName('');
             setNewEmail('');
-            setNewPhone('');
+            setNewPhone('+233');
             setNewDob('');
             setNewGender('');
             setNewRole('');
@@ -751,8 +751,12 @@ export default function StaffDirectoryManagement() {
                                         value={newPhone}
                                         onChange={e => setNewPhone(formatGhanaPhoneInput(e.target.value))}
                                         placeholder="+233241234567"
+                                        maxLength={13}
                                         style={{ fontSize: 12 }}
                                     />
+                                    <div style={{ marginTop: 4, fontSize: 10.5, color: 'var(--text-muted)' }}>
+                                        Use +233 followed by 9 digits
+                                    </div>
                                 </div>
                                 <div>
                                     <label className="label">DOB *</label>
