@@ -213,6 +213,7 @@ export default function EscalationAlertSettings() {
     const [editName, setEditName] = useState('');
     const [editDesc, setEditDesc] = useState('');
     const [editLevels, setEditLevels] = useState<EscalationLevel[]>([]);
+    const [levelRoleSearch, setLevelRoleSearch] = useState<Record<number, string>>({});
     const [editSaving, setEditSaving] = useState(false);
 
     const closeEditModal = () => { setEditPolicyId(null); setEditRole(null); };
@@ -338,6 +339,7 @@ export default function EscalationAlertSettings() {
         setShowCreate(false); setCreateStep(0);
         setNewName(''); setNewDesc(''); setNewDept('');
         setNewLevels([{ level: 1, target: '', delay: '0 min' }, { level: 2, target: '', delay: '3 min' }]);
+        setLevelRoleSearch({});
     };
 
     const handleCreate = async () => {
@@ -402,6 +404,7 @@ export default function EscalationAlertSettings() {
         setEditRole(primary); setEditStep(0);
         setEditName(chain.chainName); setEditDesc(chain.description);
         setEditLevels(chain.levels.map(l => ({ ...l })));
+        setLevelRoleSearch({});
     };
 
     const handleSaveEdit = async () => {
@@ -515,6 +518,12 @@ export default function EscalationAlertSettings() {
                 </div>
                 {sorted.map((lvl, i) => {
                     const available = getAvailable(lvl.target);
+                    const roleQuery = (levelRoleSearch[lvl.level] || '').trim().toLowerCase();
+                    const filteredAvailable = roleQuery
+                        ? available.filter(r =>
+                            r.name.toLowerCase().includes(roleQuery)
+                            || r.description.toLowerCase().includes(roleQuery))
+                        : available;
                     return (
                         <div key={lvl.level} style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
                             {/* Level indicator */}
@@ -528,11 +537,20 @@ export default function EscalationAlertSettings() {
                                 <div style={{ padding: '10px 12px', borderBottom: '1px solid var(--border-subtle)' }}>
                                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
                                         <span style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)' }}>Level {lvl.level} — Target Role</span>
-                                        {sorted.length > 1 && (
-                                            <button type="button" onClick={() => removeLevel(lvl.level)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2, display: 'inline-flex', color: 'var(--text-muted)', borderRadius: 'var(--radius-sm)' }} title="Remove level" onMouseEnter={e => (e.currentTarget.style.color = 'var(--danger)')} onMouseLeave={e => (e.currentTarget.style.color = 'var(--text-muted)')}>
-                                                <span className="material-icons-round" style={{ fontSize: 14 }}>close</span>
-                                            </button>
-                                        )}
+                                        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                                            <input
+                                                className="input"
+                                                value={levelRoleSearch[lvl.level] || ''}
+                                                onChange={e => setLevelRoleSearch(prev => ({ ...prev, [lvl.level]: e.target.value }))}
+                                                placeholder="Search roles..."
+                                                style={{ width: 140, height: 26, fontSize: 11, padding: '0 8px' }}
+                                            />
+                                            {sorted.length > 1 && (
+                                                <button type="button" onClick={() => removeLevel(lvl.level)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2, display: 'inline-flex', color: 'var(--text-muted)', borderRadius: 'var(--radius-sm)' }} title="Remove level" onMouseEnter={e => (e.currentTarget.style.color = 'var(--danger)')} onMouseLeave={e => (e.currentTarget.style.color = 'var(--text-muted)')}>
+                                                    <span className="material-icons-round" style={{ fontSize: 14 }}>close</span>
+                                                </button>
+                                            )}
+                                        </div>
                                     </div>
                                     {lvl.target ? (
                                         <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', borderRadius: 'var(--radius-sm)', background: 'var(--surface-2)', border: '1px solid var(--border-subtle)' }}>
@@ -547,9 +565,9 @@ export default function EscalationAlertSettings() {
                                         </div>
                                     ) : (
                                         <div style={{ maxHeight: 160, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 2 }}>
-                                            {available.length === 0 ? (
+                                            {filteredAvailable.length === 0 ? (
                                                 <div style={{ padding: '12px', textAlign: 'center', fontSize: 12, color: 'var(--text-muted)' }}>No more roles available</div>
-                                            ) : available.map(r => (
+                                            ) : filteredAvailable.map(r => (
                                                 <button key={r.name} type="button" onClick={() => { const u = levels.map(l => l.level === lvl.level ? { ...l, target: r.name, target_role_id: r.id } : l); setLevels(u); }}
                                                     style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 10px', borderRadius: 'var(--radius-sm)', background: 'transparent', border: '1px solid transparent', cursor: 'pointer', textAlign: 'left', transition: 'all 0.12s', width: '100%' }}
                                                     onMouseEnter={e => { e.currentTarget.style.background = 'var(--surface-2)'; e.currentTarget.style.borderColor = 'var(--border-subtle)'; }}
