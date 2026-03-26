@@ -522,7 +522,7 @@ export default function EscalationAlertSettings() {
                     const filteredAvailable = roleQuery
                         ? available.filter(r =>
                             r.name.toLowerCase().includes(roleQuery)
-                            || r.description.toLowerCase().includes(roleQuery))
+                            || String(r.description || '').toLowerCase().includes(roleQuery))
                         : available;
                     const autoCompleteMatches = roleQuery ? filteredAvailable.slice(0, 6) : [];
                     return (
