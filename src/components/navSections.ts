@@ -9,6 +9,7 @@ const navSections = [
         title: 'Setup',
         items: [
             { icon: 'badge', label: 'Roles', href: '/roles' },
+            { icon: 'domain', label: 'Departments', href: '/departments' },
             { icon: 'groups', label: 'Staff Management', href: '/staff' },
             { icon: 'personal_injury', label: 'Patients', href: '/patients' },
             { icon: 'folder_shared', label: 'Patient List', href: '/patient-list' },

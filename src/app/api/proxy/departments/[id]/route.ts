@@ -1,4 +1,5 @@
 import { getProxyHeaders } from '@/lib/proxy-auth';
+import { DEPARTMENT_DESCRIPTION_MAX_LENGTH, DEPARTMENT_NAME_MAX_LENGTH } from '@/lib/departmentName';
 import { NextRequest, NextResponse } from 'next/server';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3000';
@@ -48,7 +49,19 @@ export async function PUT(
 ) {
     try {
         const { id } = await params;
-        const body = await req.json();
+        const body = await req.json() as Record<string, unknown>;
+        if (typeof body.name === 'string' && body.name.trim().length > DEPARTMENT_NAME_MAX_LENGTH) {
+            return NextResponse.json(
+                { error: `Department name must be ${DEPARTMENT_NAME_MAX_LENGTH} characters or fewer` },
+                { status: 400 }
+            );
+        }
+        if (typeof body.description === 'string' && body.description.length > DEPARTMENT_DESCRIPTION_MAX_LENGTH) {
+            return NextResponse.json(
+                { error: `Description must be ${DEPARTMENT_DESCRIPTION_MAX_LENGTH} characters or fewer` },
+                { status: 400 }
+            );
+        }
         const url = `${API_BASE_URL}/api/v1/departments/${id}`;
 
         console.log('Proxy update department request to:', url);
@@ -56,7 +69,7 @@ export async function PUT(
         const res = await fetch(url, {
             method: 'PUT',
             headers: getProxyHeaders(req),
-            body: JSON.stringify(body),
+            body: JSON.stringify(body as object),
         });
 
         const text = await res.text();

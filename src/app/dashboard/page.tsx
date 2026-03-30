@@ -5,30 +5,7 @@ import Sidebar from '@/components/Sidebar';
 import TopBar from '@/components/TopBar';
 import navSections from '@/components/navSections';
 
-type FloorItem = { id: string; name: string };
-type WardItem = { id: string; name: string };
-type Department = { id: string; name: string; floors: FloorItem[]; wards: WardItem[] };
 type Hospital = { id: string; name: string; address: string; phone: string; email: string; license_type: string; license_expires_at: string; max_users: number };
-
-const DUMMY_FLOORS: FloorItem[] = [
-    { id: 'dummy-floor-ground', name: 'Ground Floor' },
-    { id: 'dummy-floor-first', name: 'First Floor' },
-];
-
-const DUMMY_WARDS: WardItem[] = [
-    { id: 'dummy-ward-a', name: 'Ward A' },
-    { id: 'dummy-ward-b', name: 'Ward B' },
-];
-
-function normalizeDepartment(raw: Partial<Department>): Department {
-    return {
-        id: raw.id || '',
-        name: raw.name || 'Unnamed Department',
-        // Temporary fallback until backend guarantees nested collections.
-        floors: Array.isArray(raw.floors) ? raw.floors : DUMMY_FLOORS,
-        wards: Array.isArray(raw.wards) ? raw.wards : DUMMY_WARDS,
-    };
-}
 
 export default function DashboardPage() {
     const [hospital, setHospital] = useState<Hospital | null>(null);
@@ -36,13 +13,7 @@ export default function DashboardPage() {
     const [hospitalAddress, setHospitalAddress] = useState('');
     const [hospitalPhone, setHospitalPhone] = useState('');
     const [hospitalEmail, setHospitalEmail] = useState('');
-    const [departments, setDepartments] = useState<Department[]>([]);
     const [toast, setToast] = useState<string | null>(null);
-    const [editingDept, setEditingDept] = useState<string | null>(null);
-    const [newDeptName, setNewDeptName] = useState('');
-    const [showAddDept, setShowAddDept] = useState(false);
-    const [newWard, setNewWard] = useState('');
-    const [newFloor, setNewFloor] = useState('');
     const [loading, setLoading] = useState(true);
 
     // Hospital-wide settings
@@ -55,27 +26,12 @@ export default function DashboardPage() {
     const [allowedExternalDomains, setAllowedExternalDomains] = useState<string[]>([]);
     const [newDomain, setNewDomain] = useState('');
     const [settingsChanged, setSettingsChanged] = useState(false);
-    const [deptSearch, setDeptSearch] = useState('');
 
     const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(null), 2500); };
 
-    const filteredDepartments = departments.filter(d => {
-        const query = deptSearch.toLowerCase();
-        if (!query) return true;
-        // Search in department name
-        if (d.name.toLowerCase().includes(query)) return true;
-        // Search in floors
-        if (d.floors?.some(f => f.name.toLowerCase().includes(query))) return true;
-        // Search in wards
-        if (d.wards?.some(w => w.name.toLowerCase().includes(query))) return true;
-        return false;
-    });
-
     const fetchData = useCallback(async () => {
         try {
-            // Fetch hospital/facility first
             const hRes = await fetch('/api/proxy/hospital');
-            let facilityId = '';
             if (hRes.ok) {
                 const h = await hRes.json();
                 setHospital(h);
@@ -83,16 +39,6 @@ export default function DashboardPage() {
                 setHospitalAddress(h.address || '');
                 setHospitalPhone(h.phone || '');
                 setHospitalEmail(h.email || '');
-                facilityId = h.id || '';
-            }
-            // Fetch departments scoped to this facility
-            const deptUrl = facilityId
-                ? `/api/proxy/departments?facility_id=${facilityId}`
-                : '/api/proxy/departments';
-            const dRes = await fetch(deptUrl);
-            if (dRes.ok) {
-                const d = await dRes.json();
-                setDepartments(Array.isArray(d) ? d.map(normalizeDepartment) : []);
             }
         } catch { showToast('Failed to load data'); }
         setLoading(false);
@@ -105,92 +51,6 @@ export default function DashboardPage() {
     const daysLeft = Math.ceil((licenseExpiry.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
     const licenseActive = daysLeft > 0;
     const licenseWarning = daysLeft > 0 && daysLeft <= 90;
-
-    const addDepartment = async () => {
-        if (!newDeptName.trim()) return;
-        try {
-            const res = await fetch('/api/proxy/departments', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    name: newDeptName.trim(),
-                    description: '',
-                    facility_id: hospital?.id || '',
-                }),
-            });
-            if (res.ok) {
-                const dept = await res.json();
-                setDepartments(prev => [...prev, normalizeDepartment(dept)]);
-                showToast(`${newDeptName} added`);
-                setNewDeptName('');
-                setShowAddDept(false);
-            }
-        } catch { showToast('Failed to add department'); }
-    };
-
-    const removeDepartment = async (id: string) => {
-        const dept = departments.find(d => d.id === id);
-        try {
-            const res = await fetch(`/api/proxy/departments/${id}`, { method: 'DELETE' });
-            if (res.ok) {
-                setDepartments(prev => prev.filter(d => d.id !== id));
-                showToast(`${dept?.name} removed`);
-                if (editingDept === id) setEditingDept(null);
-            }
-        } catch { showToast('Failed to remove department'); }
-    };
-
-    const addWard = async (deptId: string) => {
-        if (!newWard.trim()) return;
-        try {
-            const res = await fetch(`/api/proxy/departments/${deptId}/wards`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ name: newWard.trim() }),
-            });
-            if (res.ok) {
-                const ward = await res.json();
-                setDepartments(prev => prev.map(d => d.id === deptId ? { ...d, wards: [...(d.wards || []), ward] } : d));
-                showToast(`Ward "${newWard}" added`);
-                setNewWard('');
-            }
-        } catch { showToast('Failed to add ward'); }
-    };
-
-    const removeWard = async (deptId: string, wardId: string) => {
-        try {
-            const res = await fetch(`/api/proxy/departments/${deptId}/wards/${wardId}`, { method: 'DELETE' });
-            if (res.ok) {
-                setDepartments(prev => prev.map(d => d.id === deptId ? { ...d, wards: (d.wards || []).filter(w => w.id !== wardId) } : d));
-            }
-        } catch { showToast('Failed to remove ward'); }
-    };
-
-    const addFloor = async (deptId: string) => {
-        if (!newFloor.trim()) return;
-        try {
-            const res = await fetch(`/api/proxy/departments/${deptId}/floors`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ name: newFloor.trim() }),
-            });
-            if (res.ok) {
-                const floor = await res.json();
-                setDepartments(prev => prev.map(d => d.id === deptId ? { ...d, floors: [...(d.floors || []), floor] } : d));
-                showToast(`Floor "${newFloor}" added`);
-                setNewFloor('');
-            }
-        } catch { showToast('Failed to add floor'); }
-    };
-
-    const removeFloor = async (deptId: string, floorId: string) => {
-        try {
-            const res = await fetch(`/api/proxy/departments/${deptId}/floors/${floorId}`, { method: 'DELETE' });
-            if (res.ok) {
-                setDepartments(prev => prev.map(d => d.id === deptId ? { ...d, floors: (d.floors || []).filter(f => f.id !== floorId) } : d));
-            }
-        } catch { showToast('Failed to remove floor'); }
-    };
 
     // Settings helpers
     const addIp = () => {
@@ -211,8 +71,6 @@ export default function DashboardPage() {
     const removeDomainEntry = (d: string) => { setAllowedExternalDomains(prev => prev.filter(x => x !== d)); setSettingsChanged(true); };
     const saveSettings = () => { setSettingsChanged(false); showToast('Settings saved successfully'); };
 
-    const editDept = departments.find(d => d.id === editingDept);
-
     if (loading) {
         const shimmer = {
             background: 'linear-gradient(90deg, var(--surface-2) 25%, var(--border-subtle) 50%, var(--surface-2) 75%)',
@@ -227,7 +85,7 @@ export default function DashboardPage() {
                 <div className="app-main">
                     <TopBar title="Home" subtitle="Hospital Setup" />
                     <main style={{ flex: 1, overflow: 'auto', padding: '24px 28px', background: 'var(--bg-900)' }}>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 18, maxWidth: 640 }}>
                             <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
                                 {/* Hospital Profile skeleton */}
                                 <div className="fade-in delay-1 card">
@@ -254,21 +112,6 @@ export default function DashboardPage() {
                                     </div>
                                 </div>
                             </div>
-                            {/* Departments skeleton */}
-                            <div className="fade-in delay-1 card">
-                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 14 }}>
-                                    {line('220px', 16)}
-                                    <div style={{ ...shimmer, width: 120, height: 28 }} />
-                                </div>
-                                <div style={{ display: 'flex', gap: 12 }}>
-                                    <div style={{ width: 200, display: 'flex', flexDirection: 'column', gap: 6 }}>
-                                        {[1, 2, 3, 4, 5].map(i => <div key={i} style={{ ...shimmer, height: 44 }} />)}
-                                    </div>
-                                    <div style={{ flex: 1, borderLeft: '1px solid var(--border-subtle)', paddingLeft: 14 }}>
-                                        <div style={{ ...shimmer, height: '100%', minHeight: 200 }} />
-                                    </div>
-                                </div>
-                            </div>
                         </div>
                     </main>
                 </div>
@@ -291,8 +134,7 @@ export default function DashboardPage() {
                 <TopBar title="Home" subtitle="Hospital Setup" />
 
                 <main style={{ flex: 1, overflow: 'auto', padding: '24px 28px', background: 'var(--bg-900)' }}>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
-                        {/* Left Column */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 18, maxWidth: 640 }}>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
 
                             {/* Hospital Profile */}
@@ -367,154 +209,6 @@ export default function DashboardPage() {
                                     <div style={{ padding: '10px 12px', borderRadius: 'var(--radius-md)', background: 'var(--surface-2)', border: '1px solid var(--border-subtle)' }}>
                                         <div style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 500 }}>Max Users</div>
                                         <div style={{ fontSize: 13, fontWeight: 600, marginTop: 2 }}>{hospital?.max_users || 500}</div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-
-                        {/* Right Column — Departments, Floors, Wards */}
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
-                            <div className="fade-in delay-1 card" style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-                                    <h3 style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                        <span className="material-icons-round" style={{ fontSize: 20, color: 'var(--info)' }}>domain</span>
-                                        Departments, Floors &amp; Wards
-                                    </h3>
-                                    <button className="btn btn-primary btn-sm" onClick={() => setShowAddDept(!showAddDept)}>
-                                        <span className="material-icons-round" style={{ fontSize: 14 }}>{showAddDept ? 'close' : 'add'}</span>
-                                        {showAddDept ? 'Cancel' : 'Add Department'}
-                                    </button>
-                                </div>
-
-                                {showAddDept && (
-                                    <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
-                                        <input className="input" placeholder="Department name" value={newDeptName} onChange={e => setNewDeptName(e.target.value)} onKeyDown={e => e.key === 'Enter' && addDepartment()} style={{ fontSize: 12, flex: 1 }} />
-                                        <button className="btn btn-primary btn-sm" onClick={addDepartment} disabled={!newDeptName.trim()}>Add</button>
-                                    </div>
-                                )}
-
-                                {/* Search Input */}
-                                <div style={{ position: 'relative', marginBottom: 12 }}>
-                                    <span className="material-icons-round" style={{
-                                        position: 'absolute',
-                                        left: 10,
-                                        top: '50%',
-                                        transform: 'translateY(-50%)',
-                                        fontSize: 16,
-                                        color: 'var(--text-muted)',
-                                        pointerEvents: 'none',
-                                    }}>search</span>
-                                    <input
-                                        className="input"
-                                        type="text"
-                                        placeholder="Search departments, floors, wards..."
-                                        value={deptSearch}
-                                        onChange={e => setDeptSearch(e.target.value)}
-                                        style={{
-                                            fontSize: 12,
-                                            paddingLeft: 34,
-                                            height: 36,
-                                        }}
-                                    />
-                                    {deptSearch && (
-                                        <button
-                                            onClick={() => setDeptSearch('')}
-                                            style={{
-                                                position: 'absolute',
-                                                right: 8,
-                                                top: '50%',
-                                                transform: 'translateY(-50%)',
-                                                background: 'none',
-                                                border: 'none',
-                                                cursor: 'pointer',
-                                                padding: 4,
-                                                display: 'flex',
-                                                alignItems: 'center',
-                                                color: 'var(--text-muted)',
-                                            }}
-                                        >
-                                            <span className="material-icons-round" style={{ fontSize: 16 }}>close</span>
-                                        </button>
-                                    )}
-                                </div>
-
-                                <div style={{ display: 'flex', gap: 12, flex: 1, minHeight: 0 }}>
-                                    {/* Department List */}
-                                    <div style={{ width: 200, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 4 }}>
-                                        {filteredDepartments.map(d => (
-                                            <div key={d.id} onClick={() => { setEditingDept(d.id); setNewWard(''); setNewFloor(''); }}
-                                                style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 10px', borderRadius: 'var(--radius-md)', cursor: 'pointer', background: editingDept === d.id ? '#edf1f7' : 'transparent', border: `1px solid ${editingDept === d.id ? 'var(--helix-primary)' : 'transparent'}`, transition: 'all 0.15s' }}>
-                                                <span className="material-icons-round" style={{ fontSize: 16, color: editingDept === d.id ? 'var(--helix-primary)' : 'var(--text-muted)' }}>domain</span>
-                                                <div style={{ flex: 1, minWidth: 0 }}>
-                                                    <div style={{ fontSize: 12, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{d.name}</div>
-                                                    <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>{(d.floors || []).length} floors · {(d.wards || []).length} wards</div>
-                                                </div>
-                                            </div>
-                                        ))}
-                                        {departments.length === 0 && (
-                                            <div style={{ padding: 16, textAlign: 'center', fontSize: 12, color: 'var(--text-muted)' }}>No departments yet</div>
-                                        )}
-                                        {departments.length > 0 && filteredDepartments.length === 0 && (
-                                            <div style={{ padding: 16, textAlign: 'center', fontSize: 12, color: 'var(--text-muted)' }}>
-                                                <span className="material-icons-round" style={{ fontSize: 24, display: 'block', marginBottom: 4, color: 'var(--text-disabled)' }}>search_off</span>
-                                                No matches found
-                                            </div>
-                                        )}
-                                    </div>
-
-                                    {/* Department Detail */}
-                                    <div style={{ flex: 1, borderLeft: '1px solid var(--border-subtle)', paddingLeft: 14, overflowY: 'auto' }}>
-                                        {editDept ? (
-                                            <div className="fade-in" key={editDept.id}>
-                                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-                                                    <h4 style={{ fontSize: 14, fontWeight: 700 }}>{editDept.name}</h4>
-                                                    <button className="btn btn-danger btn-xs" onClick={() => removeDepartment(editDept.id)}>
-                                                        <span className="material-icons-round" style={{ fontSize: 12 }}>delete</span>Remove
-                                                    </button>
-                                                </div>
-
-                                                {/* Floors */}
-                                                <div style={{ marginBottom: 16 }}>
-                                                    <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>Floors</div>
-                                                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
-                                                        {editDept.floors.map(f => (
-                                                            <span key={f.id} className="badge badge-info" style={{ cursor: 'pointer' }} onClick={() => removeFloor(editDept.id, f.id)}>
-                                                                {f.name} <span className="material-icons-round" style={{ fontSize: 11 }}>close</span>
-                                                            </span>
-                                                        ))}
-                                                        {editDept.floors.length === 0 && <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>No floors added</span>}
-                                                    </div>
-                                                    <div style={{ display: 'flex', gap: 6 }}>
-                                                        <input className="input" placeholder="Add floor..." value={newFloor} onChange={e => setNewFloor(e.target.value)} onKeyDown={e => e.key === 'Enter' && addFloor(editDept.id)} style={{ fontSize: 11, flex: 1, height: 28, padding: '4px 8px' }} />
-                                                        <button className="btn btn-secondary btn-xs" onClick={() => addFloor(editDept.id)} disabled={!newFloor.trim()}>Add</button>
-                                                    </div>
-                                                </div>
-
-                                                {/* Wards */}
-                                                <div>
-                                                    <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>Wards</div>
-                                                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
-                                                        {editDept.wards.map(w => (
-                                                            <span key={w.id} className="badge badge-neutral" style={{ cursor: 'pointer' }} onClick={() => removeWard(editDept.id, w.id)}>
-                                                                {w.name} <span className="material-icons-round" style={{ fontSize: 11 }}>close</span>
-                                                            </span>
-                                                        ))}
-                                                        {editDept.wards.length === 0 && <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>No wards added</span>}
-                                                    </div>
-                                                    <div style={{ display: 'flex', gap: 6 }}>
-                                                        <input className="input" placeholder="Add ward..." value={newWard} onChange={e => setNewWard(e.target.value)} onKeyDown={e => e.key === 'Enter' && addWard(editDept.id)} style={{ fontSize: 11, flex: 1, height: 28, padding: '4px 8px' }} />
-                                                        <button className="btn btn-secondary btn-xs" onClick={() => addWard(editDept.id)} disabled={!newWard.trim()}>Add</button>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        ) : (
-                                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', minHeight: 120 }}>
-                                                <div style={{ textAlign: 'center', color: 'var(--text-muted)' }}>
-                                                    <span className="material-icons-round" style={{ fontSize: 32, color: 'var(--text-disabled)', marginBottom: 6, display: 'block' }}>touch_app</span>
-                                                    <div style={{ fontSize: 12 }}>Select a department to manage floors and wards</div>
-                                                </div>
-                                            </div>
-                                        )}
                                     </div>
                                 </div>
                             </div>

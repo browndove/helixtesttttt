@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import sql from '@/lib/db';
 import { getSession } from '@/lib/auth';
+import { DEPARTMENT_NAME_MAX_LENGTH } from '@/lib/departmentName';
 
 // GET all departments with floors and wards
 export async function GET() {
@@ -31,10 +32,17 @@ export async function POST(req: Request) {
     if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
     const { name } = await req.json();
-    if (!name?.trim()) return NextResponse.json({ error: 'Name required' }, { status: 400 });
+    const trimmed = typeof name === 'string' ? name.trim() : '';
+    if (!trimmed) return NextResponse.json({ error: 'Name required' }, { status: 400 });
+    if (trimmed.length > DEPARTMENT_NAME_MAX_LENGTH) {
+        return NextResponse.json(
+            { error: `Name must be ${DEPARTMENT_NAME_MAX_LENGTH} characters or fewer` },
+            { status: 400 }
+        );
+    }
 
     const rows = await sql`
-        INSERT INTO departments (hospital_id, name) VALUES (${session.hospitalId}, ${name.trim()}) RETURNING *
+        INSERT INTO departments (hospital_id, name) VALUES (${session.hospitalId}, ${trimmed}) RETURNING *
     `;
 
     return NextResponse.json({ ...rows[0], floors: [], wards: [] }, { status: 201 });

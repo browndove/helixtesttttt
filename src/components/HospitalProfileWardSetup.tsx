@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import Sidebar from '@/components/Sidebar';
 import TopBar from '@/components/TopBar';
 import navSections from '@/components/navSections';
+import { DEPARTMENT_NAME_MAX_LENGTH } from '@/lib/departmentName';
 
 type DeptNode = {
     id: string;
@@ -286,12 +287,14 @@ export default function HospitalProfileWardSetup() {
     };
 
     const handleAddDept = () => {
-        if (!newDeptName.trim()) return;
-        const newNode: DeptNode = { id: `new-${Date.now()}`, name: newDeptName, type: 'dept', children: [] };
+        const trimmed = newDeptName.trim();
+        if (!trimmed) return;
+        if (trimmed.length > DEPARTMENT_NAME_MAX_LENGTH) return;
+        const newNode: DeptNode = { id: `new-${Date.now()}`, name: trimmed, type: 'dept', children: [] };
         setTree(prev => [...prev, newNode]);
         setNewDeptName('');
         setShowAddDept(false);
-        showToast(`${newDeptName} added`);
+        showToast(`${trimmed} added`);
     };
 
     const deptCount = countNodes(tree, 'dept');
@@ -429,7 +432,7 @@ export default function HospitalProfileWardSetup() {
 
                         {showAddDept && (
                             <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-                                <input className="input" placeholder="New department name..." value={newDeptName} onChange={e => setNewDeptName(e.target.value)} style={{ fontSize: 13, flex: 1 }} onKeyDown={e => e.key === 'Enter' && handleAddDept()} />
+                                <input className="input" placeholder="New department name..." value={newDeptName} maxLength={DEPARTMENT_NAME_MAX_LENGTH} onChange={e => setNewDeptName(e.target.value.slice(0, DEPARTMENT_NAME_MAX_LENGTH))} style={{ fontSize: 13, flex: 1 }} onKeyDown={e => e.key === 'Enter' && handleAddDept()} />
                                 <button className="btn btn-primary btn-sm" onClick={handleAddDept} disabled={!newDeptName.trim()}>
                                     <span className="material-icons-round" style={{ fontSize: 14 }}>add</span>Add
                                 </button>
