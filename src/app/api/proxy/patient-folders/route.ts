@@ -9,6 +9,7 @@ type CreateFolderBody = {
     facilityId?: string;
     name?: string;
     description?: string;
+    visibility?: 'public' | 'private';
 };
 
 export async function GET(req: NextRequest) {
@@ -64,6 +65,7 @@ export async function POST(req: NextRequest) {
             facility_id: sessionFacilityId,
             name: (body.name || '').trim(),
             description: (body.description || '').trim() || undefined,
+            visibility: 'public' as const,
         };
 
         const res = await fetch(`${API_BASE_URL}/api/v1/patient-folders`, {

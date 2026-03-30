@@ -13,6 +13,9 @@ export async function DELETE(
             method: 'DELETE',
             headers: getProxyHeaders(req),
         });
+        if (res.status === 204 || res.status === 205) {
+            return new NextResponse(null, { status: res.status });
+        }
 
         const text = await res.text();
         let data: unknown = {};

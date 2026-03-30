@@ -72,6 +72,10 @@ export async function DELETE(
             method: 'DELETE',
             headers: getProxyHeaders(req),
         });
+        // 204 must not include a body; NextResponse.json would error and surface as 500.
+        if (res.status === 204 || res.status === 205) {
+            return new NextResponse(null, { status: res.status });
+        }
         const text = await res.text();
         let data: unknown = {};
         if (text.trim()) {
