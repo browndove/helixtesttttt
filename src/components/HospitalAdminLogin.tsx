@@ -4,6 +4,12 @@ import { useState, useRef, useCallback, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { API_ENDPOINTS } from '@/lib/config';
 
+interface Facility {
+    id: string;
+    name: string;
+    user_count?: number;
+}
+
 export default function HospitalAdminLogin() {
     const router = useRouter();
     const [email, setEmail] = useState('');
@@ -11,13 +17,37 @@ export default function HospitalAdminLogin() {
     const [otpDigits, setOtpDigits] = useState<string[]>(['', '', '', '', '', '']);
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
-    const [step, setStep] = useState<'credentials' | 'otp'>('credentials');
+    const [step, setStep] = useState<'facility' | 'credentials' | 'otp'>('facility');
+    const [facilities, setFacilities] = useState<Facility[]>([]);
+    const [facilitiesLoading, setFacilitiesLoading] = useState(true);
+    const [selectedFacility, setSelectedFacility] = useState<Facility | null>(null);
+    const [facilitySearch, setFacilitySearch] = useState('');
     const [sessionEmail, setSessionEmail] = useState('');
     const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
     const [resendTimer, setResendTimer] = useState(0);
     const otpRefs = useRef<(HTMLInputElement | null)[]>([]);
 
     const otp = otpDigits.join('');
+
+    useEffect(() => {
+        const fetchFacilities = async () => {
+            try {
+                const res = await fetch(API_ENDPOINTS.FACILITIES);
+                const data = await res.json();
+                const list = Array.isArray(data) ? data : (data.facilities || data.data || []);
+                setFacilities(list);
+            } catch {
+                setFacilities([]);
+            } finally {
+                setFacilitiesLoading(false);
+            }
+        };
+        fetchFacilities();
+    }, []);
+
+    const filteredFacilities = facilities.filter(f =>
+        f.name.toLowerCase().includes(facilitySearch.toLowerCase())
+    );
 
     const extractFacilityIdFromPayload = (raw: unknown): string => {
         if (!raw || typeof raw !== 'object') return '';
@@ -94,7 +124,7 @@ export default function HospitalAdminLogin() {
             const res = await fetch(API_ENDPOINTS.ADMIN_LOGIN, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ email, password }),
+                body: JSON.stringify({ email, password, facility_id: selectedFacility?.id }),
             });
             const data = await res.json();
             if (!res.ok) {
@@ -126,7 +156,7 @@ export default function HospitalAdminLogin() {
             const res = await fetch(API_ENDPOINTS.ADMIN_LOGIN, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ email: sessionEmail, password }),
+                body: JSON.stringify({ email: sessionEmail, password, facility_id: selectedFacility?.id }),
             });
             if (res.ok) {
                 setOtpDigits(['', '', '', '', '', '']);
@@ -156,7 +186,7 @@ export default function HospitalAdminLogin() {
             const res = await fetch(API_ENDPOINTS.ADMIN_VERIFY_OTP, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ email: sessionEmail, otp }),
+                body: JSON.stringify({ email: sessionEmail, otp, facility_id: selectedFacility?.id }),
             });
             const data = await res.json();
             if (!res.ok) {
@@ -186,6 +216,19 @@ export default function HospitalAdminLogin() {
     const handleBackToCredentials = () => {
         setStep('credentials');
         setOtpDigits(['', '', '', '', '', '']);
+        setError('');
+    };
+
+    const handleBackToFacility = () => {
+        setStep('facility');
+        setEmail('');
+        setPassword('');
+        setError('');
+    };
+
+    const handleSelectFacility = (facility: Facility) => {
+        setSelectedFacility(facility);
+        setStep('credentials');
         setError('');
     };
 
@@ -227,9 +270,26 @@ export default function HospitalAdminLogin() {
                     padding: '32px 28px',
                     boxShadow: '0 1px 4px rgba(0,0,0,0.06), 0 0 0 1px rgba(0,0,0,0.02)',
                 }}>
+                    {selectedFacility && step !== 'facility' && (
+                        <div style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 6,
+                            padding: '4px 10px 4px 6px',
+                            borderRadius: 'var(--radius-md)',
+                            background: 'rgba(30,58,95,0.06)',
+                            fontSize: 12,
+                            color: 'var(--helix-primary)',
+                            fontWeight: 600,
+                            marginBottom: 12,
+                        }}>
+                            <span className="material-icons-round" style={{ fontSize: 14 }}>local_hospital</span>
+                            {selectedFacility.name}
+                        </div>
+                    )}
                     <h2 style={{ fontSize: '1.3rem', marginBottom: 4 }}>Admin Portal</h2>
                     <p style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 28 }}>
-                        {step === 'credentials' ? 'Sign in to manage hospital configurations.' : 'Enter the 6-digit code sent to your email.'}
+                        {step === 'facility' ? 'Select your facility to continue.' : step === 'credentials' ? 'Sign in to manage hospital configurations.' : 'Enter the 6-digit code sent to your email.'}
                     </p>
 
                     {error && (
@@ -238,7 +298,91 @@ export default function HospitalAdminLogin() {
                         </div>
                     )}
 
-                    {step === 'credentials' ? (
+                    {step === 'facility' ? (
+                        // Facility Selection Step
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                            <div style={{ position: 'relative' }}>
+                                <span className="material-icons-round" style={{
+                                    position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)',
+                                    fontSize: 16, color: 'var(--text-muted)',
+                                }}>search</span>
+                                <input
+                                    className="input"
+                                    type="text"
+                                    placeholder="Search facilities..."
+                                    value={facilitySearch}
+                                    onChange={e => setFacilitySearch(e.target.value)}
+                                    style={{ paddingLeft: 36 }}
+                                />
+                            </div>
+
+                            <div style={{
+                                maxHeight: 280,
+                                overflowY: 'auto',
+                                display: 'flex',
+                                flexDirection: 'column',
+                                gap: 6,
+                            }}>
+                                {facilitiesLoading ? (
+                                    <div style={{ textAlign: 'center', padding: '24px 0', color: 'var(--text-muted)', fontSize: 13 }}>
+                                        Loading facilities...
+                                    </div>
+                                ) : filteredFacilities.length === 0 ? (
+                                    <div style={{ textAlign: 'center', padding: '24px 0', color: 'var(--text-muted)', fontSize: 13 }}>
+                                        {facilitySearch ? 'No facilities match your search.' : 'No facilities available.'}
+                                    </div>
+                                ) : (
+                                    filteredFacilities.map(f => (
+                                        <button
+                                            key={f.id}
+                                            onClick={() => handleSelectFacility(f)}
+                                            style={{
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                gap: 12,
+                                                padding: '12px 14px',
+                                                borderRadius: 'var(--radius-md)',
+                                                border: `1.5px solid ${selectedFacility?.id === f.id ? 'var(--helix-primary)' : 'var(--border-default)'}`,
+                                                background: selectedFacility?.id === f.id ? 'rgba(30,58,95,0.04)' : 'var(--surface-card)',
+                                                cursor: 'pointer',
+                                                textAlign: 'left',
+                                                width: '100%',
+                                                transition: 'border-color 0.15s, background 0.15s',
+                                            }}
+                                        >
+                                            <div style={{
+                                                width: 36, height: 36,
+                                                borderRadius: 10,
+                                                background: selectedFacility?.id === f.id ? 'var(--helix-primary)' : 'rgba(30,58,95,0.08)',
+                                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                                flexShrink: 0,
+                                                transition: 'background 0.15s',
+                                            }}>
+                                                <span className="material-icons-round" style={{
+                                                    fontSize: 18,
+                                                    color: selectedFacility?.id === f.id ? '#fff' : 'var(--text-muted)',
+                                                }}>local_hospital</span>
+                                            </div>
+                                            <div style={{ flex: 1, minWidth: 0 }}>
+                                                <div style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                                    {f.name}
+                                                </div>
+                                                {f.user_count !== undefined && (
+                                                    <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 1 }}>
+                                                        {f.user_count} {f.user_count === 1 ? 'user' : 'users'}
+                                                    </div>
+                                                )}
+                                            </div>
+                                            <span className="material-icons-round" style={{
+                                                fontSize: 18,
+                                                color: selectedFacility?.id === f.id ? 'var(--helix-primary)' : 'var(--border-default)',
+                                            }}>chevron_right</span>
+                                        </button>
+                                    ))
+                                )}
+                            </div>
+                        </div>
+                    ) : step === 'credentials' ? (
                         // Credentials Step
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
                             <div>
@@ -280,7 +424,15 @@ export default function HospitalAdminLogin() {
                                 </div>
                             </div>
 
-                            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <button
+                                    className="btn btn-ghost btn-sm"
+                                    style={{ padding: '2px 0', fontSize: 12, color: 'var(--text-muted)' }}
+                                    onClick={handleBackToFacility}
+                                >
+                                    <span className="material-icons-round" style={{ fontSize: 14 }}>arrow_back</span>
+                                    Change Facility
+                                </button>
                                 <button className="btn btn-ghost btn-sm" style={{ padding: '2px 0', fontSize: 12 }}>
                                     Recovery?
                                 </button>
