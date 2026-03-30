@@ -14,6 +14,7 @@ export default function HospitalAdminLogin() {
     const router = useRouter();
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
+    const [showPassword, setShowPassword] = useState(false);
     const [otpDigits, setOtpDigits] = useState<string[]>(['', '', '', '', '', '']);
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
@@ -409,13 +410,36 @@ export default function HospitalAdminLogin() {
                                     <input
                                         id="password"
                                         className="input"
-                                        type="password"
+                                        type={showPassword ? 'text' : 'password'}
                                         placeholder="••••••••••"
                                         value={password}
                                         onChange={e => setPassword(e.target.value)}
                                         onKeyDown={e => e.key === 'Enter' && handleLogin()}
-                                        style={{ paddingLeft: 36 }}
+                                        style={{ paddingLeft: 36, paddingRight: 42 }}
+                                        autoComplete="current-password"
                                     />
+                                    <button
+                                        type="button"
+                                        aria-label={showPassword ? 'Hide password' : 'Show password'}
+                                        onClick={() => setShowPassword(prev => !prev)}
+                                        style={{
+                                            position: 'absolute',
+                                            right: 10,
+                                            top: '50%',
+                                            transform: 'translateY(-50%)',
+                                            border: 'none',
+                                            background: 'transparent',
+                                            color: 'var(--text-muted)',
+                                            cursor: 'pointer',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            padding: 0,
+                                        }}
+                                    >
+                                        <span className="material-icons-round" style={{ fontSize: 18 }}>
+                                            {showPassword ? 'visibility_off' : 'visibility'}
+                                        </span>
+                                    </button>
                                 </div>
                             </div>
 
