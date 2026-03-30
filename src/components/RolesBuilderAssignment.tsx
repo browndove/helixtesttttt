@@ -111,12 +111,15 @@ function staffNameOnly(label: string): string {
     return label.replace(/\s*\([^)]*\)\s*$/, '').trim();
 }
 
-function normalizeRoleForUi<T extends Role>(role: T): T {
+function normalizeRoleForUi<T extends Role>(role: T, deptIdToName: Map<string, string> = new Map()): T {
     const isCritical = role.priority?.toString().trim().toLowerCase() === 'critical';
     const priority = isCritical ? 'Critical' : 'Standard';
     const mandatory = isCritical;
+    const rec = role as unknown as Record<string, unknown>;
+    const department = resolveRoleDepartment(rec, deptIdToName);
     return {
         ...role,
+        department,
         mandatory,
         enabled: role.enabled ?? true,
         visible_in_directory: role.visible_in_directory ?? true,
@@ -401,6 +404,14 @@ export default function RolesBuilderAssignment() {
     const [policies, setPolicies] = useState<Policy[]>([]);
     const [departments, setDepartments] = useState<string[]>([]);
     const [deptIdMap, setDeptIdMap] = useState<Map<string, string>>(new Map());
+    /** Department UUID → display name (resolveRoleDepartment expects id → name). */
+    const departmentIdToName = useMemo(() => {
+        const m = new Map<string, string>();
+        deptIdMap.forEach((id, name) => {
+            if (id && name) m.set(id, name);
+        });
+        return m;
+    }, [deptIdMap]);
     const [toast, setToast] = useState<string | null>(null);
     const [search, setSearch] = useState('');
     const [loading, setLoading] = useState(true);
@@ -531,10 +542,10 @@ export default function RolesBuilderAssignment() {
                     const deptResolved = resolveRoleDepartment(r as unknown as Record<string, unknown>, deptMap);
                     return normalizeRoleForUi({
                         ...r,
-                        department: typeof deptResolved === 'string' ? deptResolved : '',
+                        department: deptResolved,
                         escalation_routing: r.escalation_routing || [],
                         escalation_levels: policyLevels,
-                    });
+                    }, deptMap);
                 }));
             }
         } catch { showToast('Failed to load data'); }
@@ -566,21 +577,21 @@ export default function RolesBuilderAssignment() {
                 setRoles(prev => prev.map(r => (r.id === detail.id
                     ? (() => {
                         const detailRec = detail as Record<string, unknown>;
-                        const resolvedDept = resolveRoleDepartment(detailRec, new Map());
+                        const resolvedDept = resolveRoleDepartment(detailRec, departmentIdToName) || (typeof r.department === 'string' ? r.department : '');
                         return normalizeRoleForUi({
                             ...r,
                             ...detail,
-                            department: resolvedDept || r.department || '',
+                            department: resolvedDept,
                             sign_in_allowed_user_ids: Array.isArray(detail.sign_in_allowed_user_ids) ? detail.sign_in_allowed_user_ids : (r.sign_in_allowed_user_ids || []),
                             sign_in_restricted: Boolean(detail.sign_in_restricted) || (Array.isArray(detail.sign_in_allowed_user_ids) && detail.sign_in_allowed_user_ids.length > 0),
-                        } as Role);
+                        } as Role, departmentIdToName);
                     })()
                     : r)));
             })
             .catch(() => {
                 // best effort
             });
-    }, [selectedId]);
+    }, [selectedId, departmentIdToName]);
 
     const resetAddForm = () => {
         setNewRoleName('');
@@ -637,7 +648,7 @@ export default function RolesBuilderAssignment() {
                 if (res.ok) {
                     const role = await res.json();
                     createdRoles.push({
-                        ...normalizeRoleForUi(role),
+                        ...normalizeRoleForUi(role as Role, departmentIdToName),
                         escalation_routing: [],
                         escalation_levels: [],
                     });
@@ -747,7 +758,7 @@ export default function RolesBuilderAssignment() {
             }
 
             setRoles(prev => [...prev, {
-                ...normalizeRoleForUi(role),
+                ...normalizeRoleForUi(role as Role, departmentIdToName),
                 sign_in_restricted: Boolean(role.sign_in_restricted),
                 sign_in_allowed_user_ids: Array.isArray(role.sign_in_allowed_user_ids) ? role.sign_in_allowed_user_ids : [],
                 escalation_routing: role.escalation_routing || newRouting,
@@ -773,7 +784,7 @@ export default function RolesBuilderAssignment() {
     const handleToggleMandatory = async (role: Role) => {
         const newMandatory = !role.mandatory;
         // Optimistic update
-        setRoles(prev => prev.map(r => r.id === role.id ? normalizeRoleForUi({ ...r, mandatory: newMandatory }) : r));
+        setRoles(prev => prev.map(r => r.id === role.id ? normalizeRoleForUi({ ...r, mandatory: newMandatory }, departmentIdToName) : r));
         try {
             const res = await fetch(`/api/proxy/roles/${role.id}`, {
                 method: 'PUT',
@@ -784,15 +795,15 @@ export default function RolesBuilderAssignment() {
             });
             if (res.ok) {
                 const updated = await res.json();
-                setRoles(prev => prev.map(r => r.id === role.id ? normalizeRoleForUi({ ...r, ...updated }) : r));
+                setRoles(prev => prev.map(r => r.id === role.id ? normalizeRoleForUi({ ...r, ...updated } as Role, departmentIdToName) : r));
             } else {
                 // Rollback on failure
-                setRoles(prev => prev.map(r => r.id === role.id ? normalizeRoleForUi({ ...r, mandatory: role.mandatory }) : r));
+                setRoles(prev => prev.map(r => r.id === role.id ? normalizeRoleForUi({ ...r, mandatory: role.mandatory }, departmentIdToName) : r));
                 showToast('Failed to update role');
             }
         } catch {
             // Rollback on error
-            setRoles(prev => prev.map(r => r.id === role.id ? normalizeRoleForUi({ ...r, mandatory: role.mandatory }) : r));
+            setRoles(prev => prev.map(r => r.id === role.id ? normalizeRoleForUi({ ...r, mandatory: role.mandatory }, departmentIdToName) : r));
             showToast('Failed to update role');
         }
     };
@@ -951,9 +962,15 @@ export default function RolesBuilderAssignment() {
             setRoles(prev => prev.map(r => {
                 if (r.id !== editingRole.id) return r;
                 const updatedRec = (updated && typeof updated === 'object') ? updated as Record<string, unknown> : {};
-                const responseDeptName = resolveRoleDepartment(updatedRec, new Map()) || editDept || r.department;
+                const prevDeptStr = typeof r.department === 'string'
+                    ? r.department
+                    : resolveRoleDepartment({ department: r.department as unknown } as Record<string, unknown>, departmentIdToName);
+                const responseDeptName =
+                    resolveRoleDepartment(updatedRec, departmentIdToName)
+                    || editDept.trim()
+                    || prevDeptStr;
                 return {
-                    ...normalizeRoleForUi({ ...r, ...updated }),
+                    ...normalizeRoleForUi({ ...r, ...updated } as Role, departmentIdToName),
                     department: responseDeptName,
                     sign_in_restricted: updated.sign_in_restricted !== undefined ? Boolean(updated.sign_in_restricted) : editRestricted,
                     sign_in_allowed_user_ids: Array.isArray(updated.sign_in_allowed_user_ids) ? updated.sign_in_allowed_user_ids : (editRestricted ? editAllowedUserIds : []),

@@ -198,7 +198,8 @@ export default function EscalationAlertSettings() {
     // Create form
     const [showCreate, setShowCreate] = useState(false);
     const [createStep, setCreateStep] = useState(0); // 0=basic, 1=levels, 2=summary
-    const [newName, setNewName] = useState('');
+    /** Existing Critical role that owns this escalation (policy.role_id + ladder level 1). */
+    const [createPrimaryRoleId, setCreatePrimaryRoleId] = useState('');
     const [newDesc, setNewDesc] = useState('');
     const [newDept, setNewDept] = useState('');
     const [newLevels, setNewLevels] = useState<EscalationLevel[]>([
@@ -328,6 +329,16 @@ export default function EscalationAlertSettings() {
 
     const selectedChain = chainGroups.find(c => c.key === selectedChainKey) || null;
 
+    const criticalRolesForEscalation = useMemo(
+        () => roles.filter(r => r.priority === 'Critical' || r.mandatory).sort((a, b) => a.name.localeCompare(b.name)),
+        [roles],
+    );
+
+    const existingPolicyForCreateRole = useMemo(() => {
+        if (!createPrimaryRoleId) return null;
+        return policies.find(p => p.role_id === createPrimaryRoleId) || null;
+    }, [createPrimaryRoleId, policies]);
+
     const filtered = chainGroups.filter(c => {
         if (!search.trim()) return true;
         const q = search.toLowerCase();
@@ -337,43 +348,58 @@ export default function EscalationAlertSettings() {
     // --- Create ---
     const resetCreate = () => {
         setShowCreate(false); setCreateStep(0);
-        setNewName(''); setNewDesc(''); setNewDept('');
+        setCreatePrimaryRoleId(''); setNewDesc(''); setNewDept('');
         setNewLevels([{ level: 1, target: '', delay: '0 min' }, { level: 2, target: '', delay: '3 min' }]);
         setLevelRoleSearch({});
     };
 
-    const handleCreate = async () => {
-        if (!newName.trim()) return;
-        try {
-            // 1. Create the role with Critical priority
-            const roleRes = await fetch('/api/proxy/roles', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    name: newName.trim(),
-                    description: newDesc.trim(),
-                    department_id: deptIdMap.get(newDept) || undefined,
-                    priority: 'critical',
-                }),
-            });
-            if (!roleRes.ok) { showToast('Failed to create role'); return; }
-            const role = await roleRes.json();
+    const applyCreatePrimaryRole = useCallback((roleId: string) => {
+        setCreatePrimaryRoleId(roleId);
+        if (!roleId.trim()) return;
+        const role = roles.find(r => r.id === roleId);
+        if (!role) return;
+        setNewDept(role.department || '');
+        setNewLevels(prev => {
+            const rest = prev.slice(1);
+            return [{ level: 1, target: role.name, target_role_id: role.id, delay: prev[0]?.delay || '0 min' }, ...rest.map((l, i) => ({ ...l, level: i + 2 }))];
+        });
+    }, [roles]);
 
-            // 2. Create escalation policy for the role
+    const handleCreate = async () => {
+        if (!createPrimaryRoleId.trim()) return;
+        if (policies.some(p => p.role_id === createPrimaryRoleId)) {
+            showToast('An escalation already exists for this role. Edit it instead.');
+            return;
+        }
+        const primaryRole = roles.find(r => r.id === createPrimaryRoleId);
+        if (!primaryRole) { showToast('Role not found'); return; }
+        try {
+            const resolvedDeptId = newDept.trim() ? (deptIdMap.get(newDept.trim()) || undefined) : undefined;
+            if (newDesc.trim() || newDept.trim()) {
+                await fetch(`/api/proxy/roles/${createPrimaryRoleId}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        name: primaryRole.name,
+                        description: newDesc.trim(),
+                        ...(resolvedDeptId ? { department_id: resolvedDeptId } : {}),
+                    }),
+                });
+            }
+
             const policyRes = await fetch('/api/proxy/escalation-policies', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    role_id: role.id,
+                    role_id: createPrimaryRoleId,
                     initial_timeout_seconds: Math.max(30, delayToSeconds(newLevels[0]?.delay || '3 min')),
                 }),
             });
             if (!policyRes.ok) { showToast('Failed to create escalation policy'); return; }
             const policy = await policyRes.json();
 
-            // 3. Bulk add escalation steps
             const steps = newLevels
-                .filter(l => l.target)
+                .filter(l => l.target && l.target_role_id)
                 .map(l => ({
                     target_role_id: l.target_role_id || allRolesForSelect.find(r => r.name === l.target)?.id || '',
                     timeout_seconds: Math.max(30, delayToSeconds(l.delay)),
@@ -391,7 +417,7 @@ export default function EscalationAlertSettings() {
                 }
             }
 
-            showToast(`"${newName}" created`);
+            showToast(`Escalation created for "${primaryRole.name}"`);
             resetCreate();
             fetchData();
         } catch { showToast('Failed to create escalation'); }
@@ -403,8 +429,22 @@ export default function EscalationAlertSettings() {
         setEditPolicyId(chain.policyId);
         setEditRole(primary); setEditStep(0);
         setEditName(chain.chainName); setEditDesc(chain.description);
-        setEditLevels(chain.levels.map(l => ({ ...l })));
+        const lvls = chain.levels.map(l => ({ ...l })).sort((a, b) => a.level - b.level);
+        if (primary && lvls.length > 0) {
+            lvls[0] = { ...lvls[0], target: primary.name, target_role_id: primary.id };
+        }
+        setEditLevels(lvls);
         setLevelRoleSearch({});
+    };
+
+    const openEditChainForPrimaryRole = (roleId: string) => {
+        const chain = chainGroups.find(c => c.primaryRoleId === roleId);
+        if (!chain) {
+            showToast('Could not find that escalation configuration');
+            return;
+        }
+        resetCreate();
+        openEditChain(chain);
     };
 
     const handleSaveEdit = async () => {
@@ -416,13 +456,24 @@ export default function EscalationAlertSettings() {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    initial_timeout_seconds: Math.max(30, delayToSeconds(editLevels[0]?.delay || '3 min')),
+                    initial_timeout_seconds: Math.max(30, delayToSeconds(
+                        [...editLevels].sort((a, b) => a.level - b.level)[0]?.delay || '3 min',
+                    )),
                 }),
             });
             if (!putRes.ok) { showToast('Failed to update policy timeout'); setEditSaving(false); return; }
 
-            // 2. Build new steps (validate before deleting old ones)
-            const steps = editLevels
+            // 2. Build new steps (validate before deleting old ones). Level 1 is always the policy primary role.
+            const sortedForSave = [...editLevels].sort((a, b) => a.level - b.level);
+            const levelsNormalized = sortedForSave.map(l => ({ ...l }));
+            if (editRole && levelsNormalized.length > 0) {
+                levelsNormalized[0] = {
+                    ...levelsNormalized[0],
+                    target: editRole.name,
+                    target_role_id: editRole.id,
+                };
+            }
+            const steps = levelsNormalized
                 .filter(l => l.target)
                 .map(l => {
                     const roleId = l.target_role_id || allRolesForSelect.find(r => r.name === l.target)?.id || '';
@@ -490,7 +541,11 @@ export default function EscalationAlertSettings() {
     };
 
     // --- Ladder editor ---
-    const renderLadder = (levels: EscalationLevel[], setLevels: (l: EscalationLevel[]) => void) => {
+    const renderLadder = (
+        levels: EscalationLevel[],
+        setLevels: (l: EscalationLevel[]) => void,
+        opts?: { lockFirstLevelRole?: boolean },
+    ) => {
         const sorted = [...levels].sort((a, b) => a.level - b.level);
         const selectedTargets = new Set(levels.map(l => l.target).filter(Boolean));
 
@@ -501,6 +556,8 @@ export default function EscalationAlertSettings() {
             setLevels([...levels, { level: next, target: '', delay: '5 min' }]);
         };
         const removeLevel = (num: number) => {
+            const first = sorted[0];
+            if (opts?.lockFirstLevelRole && first && num === first.level) return;
             const f = levels.filter(l => l.level !== num);
             setLevels(f.sort((a, b) => a.level - b.level).map((l, i) => ({ ...l, level: i + 1 })));
         };
@@ -514,9 +571,14 @@ export default function EscalationAlertSettings() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                 <div style={{ marginBottom: 4 }}>
                     <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 2 }}>Escalation Ladder</div>
-                    <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>Select a role for each escalation level. Each role can only appear once in the chain.</div>
+                    <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                        {opts?.lockFirstLevelRole
+                            ? 'Level 1 is the policy role (fixed). Change only its delay; add further escalation levels below.'
+                            : 'Select a role for each escalation level. Each role can only appear once in the chain.'}
+                    </div>
                 </div>
                 {sorted.map((lvl, i) => {
+                    const lockPrimary = Boolean(opts?.lockFirstLevelRole && i === 0);
                     const available = getAvailable(lvl.target);
                     const roleQuery = (levelRoleSearch[lvl.level] || '').trim().toLowerCase();
                     const filteredAvailable = roleQuery
@@ -537,8 +599,11 @@ export default function EscalationAlertSettings() {
                                 {/* Role selector */}
                                 <div style={{ padding: '10px 12px', borderBottom: '1px solid var(--border-subtle)' }}>
                                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-                                        <span style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)' }}>Level {lvl.level} — Target Role</span>
+                                        <span style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)' }}>
+                                            {lockPrimary ? `Level ${lvl.level} — Role (primary)` : `Level ${lvl.level} — Target Role`}
+                                        </span>
                                         <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, position: 'relative' }}>
+                                            {!lockPrimary && (
                                             <div style={{ position: 'relative' }}>
                                                 <input
                                                     className="input"
@@ -596,14 +661,27 @@ export default function EscalationAlertSettings() {
                                                     </div>
                                                 )}
                                             </div>
-                                            {sorted.length > 1 && (
+                                            )}
+                                            {sorted.length > 1 && !lockPrimary && (
                                                 <button type="button" onClick={() => removeLevel(lvl.level)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2, display: 'inline-flex', color: 'var(--text-muted)', borderRadius: 'var(--radius-sm)' }} title="Remove level" onMouseEnter={e => (e.currentTarget.style.color = 'var(--danger)')} onMouseLeave={e => (e.currentTarget.style.color = 'var(--text-muted)')}>
                                                     <span className="material-icons-round" style={{ fontSize: 14 }}>close</span>
                                                 </button>
                                             )}
+                                            {sorted.length > 1 && lockPrimary && (
+                                                <span style={{ fontSize: 10, color: 'var(--text-disabled)' }} title="Primary level cannot be removed">—</span>
+                                            )}
                                         </div>
                                     </div>
-                                    {lvl.target ? (
+                                    {lockPrimary && (
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', borderRadius: 'var(--radius-sm)', background: 'var(--surface-2)', border: '1px solid var(--border-subtle)' }}>
+                                            <span className="material-icons-round" style={{ fontSize: 18, color: levelColor(i) }}>lock</span>
+                                            <div style={{ flex: 1, minWidth: 0 }}>
+                                                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>{lvl.target || '(select Role in previous step)'}</div>
+                                                <div style={{ fontSize: 10.5, color: 'var(--text-muted)' }}>Only the delay below can be changed for this level.</div>
+                                            </div>
+                                        </div>
+                                    )}
+                                    {!lockPrimary && lvl.target ? (
                                         <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', borderRadius: 'var(--radius-sm)', background: 'var(--surface-2)', border: '1px solid var(--border-subtle)' }}>
                                             <span className="material-icons-round" style={{ fontSize: 18, color: levelColor(i) }}>person</span>
                                             <div style={{ flex: 1, minWidth: 0 }}>
@@ -614,7 +692,7 @@ export default function EscalationAlertSettings() {
                                                 <span className="material-icons-round" style={{ fontSize: 14 }}>swap_horiz</span>
                                             </button>
                                         </div>
-                                    ) : (
+                                    ) : !lockPrimary ? (
                                         <div style={{ maxHeight: 160, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 2 }}>
                                             {filteredAvailable.length === 0 ? (
                                                 <div style={{ padding: '12px', textAlign: 'center', fontSize: 12, color: 'var(--text-muted)' }}>No more roles available</div>
@@ -633,7 +711,7 @@ export default function EscalationAlertSettings() {
                                                 </button>
                                             ))}
                                         </div>
-                                    )}
+                                    ) : null}
                                 </div>
                                 {/* Delay */}
                                 <div style={{ padding: '8px 12px', display: 'flex', alignItems: 'center', gap: 8, background: 'var(--surface-2)' }}>
@@ -801,7 +879,7 @@ export default function EscalationAlertSettings() {
                             <>
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                                     <div>
-                                        <label className="label">Escalation Name (read-only)</label>
+                                        <label className="label">Role (read-only)</label>
                                         <input className="input" value={editName} readOnly disabled style={{ fontSize: 13 }} />
                                     </div>
                                     <div>
@@ -837,7 +915,7 @@ export default function EscalationAlertSettings() {
 
                         {editStep === 1 && (
                             <>
-                                {renderLadder(editLevels, setEditLevels)}
+                                {renderLadder(editLevels, setEditLevels, { lockFirstLevelRole: true })}
                                 <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginTop: 18 }}>
                                     <button className="btn btn-secondary btn-sm" onClick={() => setEditStep(0)}>
                                         <span className="material-icons-round" style={{ fontSize: 14 }}>arrow_back</span> Back
@@ -908,7 +986,7 @@ export default function EscalationAlertSettings() {
                     {showCreate && (
                         <div className="fade-in card" style={{ marginBottom: 18, padding: '22px 24px', maxWidth: 580 }}>
                             <h4 style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>Create Escalation</h4>
-                            <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 16 }}>Define a new Critical role with an escalation chain.</p>
+                            <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 16 }}>Choose an existing Critical role as the primary level, then set escalation targets and delays.</p>
 
                             {renderSteps(createStep, ['Basic Info', 'Escalation Levels', 'Summary'])}
 
@@ -916,8 +994,28 @@ export default function EscalationAlertSettings() {
                                 <>
                                     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                                         <div>
-                                            <label className="label">Escalation Name</label>
-                                            <input className="input" value={newName} onChange={e => setNewName(e.target.value)} placeholder="e.g. ICU Critical Response" style={{ fontSize: 13 }} />
+                                            <label className="label">Role</label>
+                                            <CustomSelect
+                                                value={createPrimaryRoleId}
+                                                onChange={v => { applyCreatePrimaryRole(v); }}
+                                                options={criticalRolesForEscalation.map(r => ({ label: r.name, value: r.id }))}
+                                                placeholder="-- Select Critical role --"
+                                            />
+                                            {createPrimaryRoleId && existingPolicyForCreateRole && (
+                                                <div style={{ marginTop: 10, padding: '10px 12px', borderRadius: 'var(--radius-md)', background: 'rgba(234,179,8,0.08)', border: '1px solid rgba(234,179,8,0.28)' }}>
+                                                    <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.45 }}>
+                                                        An escalation configuration already exists for this role (primary level). You cannot create another here.
+                                                    </div>
+                                                    <button
+                                                        type="button"
+                                                        className="btn btn-secondary btn-sm"
+                                                        style={{ marginTop: 8 }}
+                                                        onClick={() => openEditChainForPrimaryRole(createPrimaryRoleId)}
+                                                    >
+                                                        Click here to edit that configuration
+                                                    </button>
+                                                </div>
+                                            )}
                                         </div>
                                         <div>
                                             <label className="label">Description</label>
@@ -953,7 +1051,7 @@ export default function EscalationAlertSettings() {
                                     </div>
                                     <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 18 }}>
                                         <button className="btn btn-secondary btn-sm" onClick={resetCreate}>Cancel</button>
-                                        <button className="btn btn-primary btn-sm" onClick={() => setCreateStep(1)} disabled={!newName.trim()}>
+                                        <button className="btn btn-primary btn-sm" onClick={() => setCreateStep(1)} disabled={!createPrimaryRoleId.trim() || Boolean(existingPolicyForCreateRole)}>
                                             Next: Levels <span className="material-icons-round" style={{ fontSize: 14 }}>arrow_forward</span>
                                         </button>
                                     </div>
@@ -962,7 +1060,7 @@ export default function EscalationAlertSettings() {
 
                             {createStep === 1 && (
                                 <>
-                                    {renderLadder(newLevels, setNewLevels)}
+                                    {renderLadder(newLevels, setNewLevels, { lockFirstLevelRole: Boolean(createPrimaryRoleId) })}
                                     <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginTop: 18 }}>
                                         <button className="btn btn-secondary btn-sm" onClick={() => setCreateStep(0)}>
                                             <span className="material-icons-round" style={{ fontSize: 14 }}>arrow_back</span> Back
@@ -976,12 +1074,12 @@ export default function EscalationAlertSettings() {
 
                             {createStep === 2 && (
                                 <>
-                                    {renderSummary(newLevels, newName)}
+                                    {renderSummary(newLevels, roles.find(r => r.id === createPrimaryRoleId)?.name || 'Role')}
                                     <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginTop: 18 }}>
                                         <button className="btn btn-secondary btn-sm" onClick={() => setCreateStep(1)}>
                                             <span className="material-icons-round" style={{ fontSize: 14 }}>arrow_back</span> Back
                                         </button>
-                                        <button className="btn btn-primary btn-sm" onClick={handleCreate} disabled={!newName.trim() || newLevels.some(l => !l.target)}>
+                                        <button className="btn btn-primary btn-sm" onClick={handleCreate} disabled={!createPrimaryRoleId.trim() || Boolean(existingPolicyForCreateRole) || newLevels.some(l => !l.target)}>
                                             <span className="material-icons-round" style={{ fontSize: 14 }}>check</span> Create Escalation
                                         </button>
                                     </div>
@@ -1003,7 +1101,7 @@ export default function EscalationAlertSettings() {
                                 <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                                     <thead>
                                         <tr style={{ borderBottom: '1px solid var(--border-default)' }}>
-                                            <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Escalation Name</th>
+                                            <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Role</th>
                                             <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Department</th>
                                             <th style={{ padding: '12px 16px', textAlign: 'center', fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Priority</th>
                                             <th style={{ padding: '12px 16px', textAlign: 'center', fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Levels</th>
