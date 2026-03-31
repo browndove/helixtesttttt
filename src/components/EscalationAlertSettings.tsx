@@ -505,19 +505,6 @@ export default function EscalationAlertSettings() {
                 }
             }
 
-            // 5. Update associated role description only.
-            // Escalation name in this modal is display-only and should not rename the role.
-            if (editRole) {
-                await fetch(`/api/proxy/roles/${editRole.id}`, {
-                    method: 'PUT',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        name: editRole.name,
-                        description: editDesc.trim(),
-                    }),
-                });
-            }
-
             showToast(`"${editName}" updated`);
             closeEditModal();
             fetchData();
@@ -754,6 +741,7 @@ export default function EscalationAlertSettings() {
     // --- Summary renderer (colored circles) ---
     const renderSummary = (levels: EscalationLevel[], name: string) => {
         const sorted = [...levels].sort((a, b) => a.level - b.level);
+        const effective = sorted.map((lvl, i) => (i === 0 && !lvl.target ? { ...lvl, target: name } : lvl));
         return (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                 <div style={{ marginBottom: 4 }}>
@@ -763,7 +751,7 @@ export default function EscalationAlertSettings() {
 
                 {/* Visual chain */}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 0, padding: '12px 0' }}>
-                    {sorted.map((lvl, i) => (
+                    {effective.map((lvl, i) => (
                         <div key={lvl.level} style={{ display: 'flex', alignItems: 'stretch', gap: 14 }}>
                             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: 36, flexShrink: 0 }}>
                                 <span style={{
@@ -796,7 +784,7 @@ export default function EscalationAlertSettings() {
                 </div>
 
                 {/* Empty target warning */}
-                {sorted.some(l => !l.target) && (
+                {effective.some(l => !l.target) && (
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderRadius: 'var(--radius-md)', background: 'rgba(234,179,8,0.08)', border: '1px solid rgba(234,179,8,0.25)' }}>
                         <span className="material-icons-round" style={{ fontSize: 14, color: '#eab308' }}>warning</span>
                         <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>Some levels have no role assigned. Go back to fix this before saving.</span>
@@ -854,6 +842,16 @@ export default function EscalationAlertSettings() {
         return new Set(targets).size !== targets.length;
     };
 
+    // Check if any level is effectively missing a role. When editing an existing
+    // chain, level 1 is implicitly the primary role even if its target is blank.
+    const hasMissingTargets = (levels: EscalationLevel[], primaryRoleName?: string | null) => {
+        const sorted = [...levels].sort((a, b) => a.level - b.level);
+        return sorted.some((lvl, i) => {
+            if (i === 0 && primaryRoleName && primaryRoleName.trim()) return false;
+            return !lvl.target;
+        });
+    };
+
     return (
         <>
             {toast && (
@@ -875,7 +873,7 @@ export default function EscalationAlertSettings() {
                             <>
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                                     <div>
-                                        <label className="label">Role (read-only)</label>
+                                        <label className="label">Role Name</label>
                                         <input className="input" value={editName} readOnly disabled style={{ fontSize: 13 }} />
                                     </div>
                                     <div>
@@ -883,8 +881,8 @@ export default function EscalationAlertSettings() {
                                         <textarea
                                             className="input"
                                             value={editDesc}
-                                            maxLength={DESC_LIMIT}
-                                            onChange={e => setEditDesc(e.target.value.slice(0, DESC_LIMIT))}
+                                            readOnly
+                                            disabled
                                             style={{ fontSize: 13, minHeight: 60, resize: 'vertical' }}
                                         />
                                         <div style={{ marginTop: 6, fontSize: 10.5, color: 'var(--text-muted)', textAlign: 'right' }}>
@@ -930,7 +928,7 @@ export default function EscalationAlertSettings() {
                                     <button className="btn btn-secondary btn-sm" onClick={() => setEditStep(1)}>
                                         <span className="material-icons-round" style={{ fontSize: 14 }}>arrow_back</span> Back
                                     </button>
-                                    <button className="btn btn-primary btn-sm" onClick={handleSaveEdit} disabled={editSaving || editLevels.some(l => !l.target)}>
+                                    <button className="btn btn-primary btn-sm" onClick={handleSaveEdit} disabled={editSaving || hasMissingTargets(editLevels, editName)}>
                                         <span className="material-icons-round" style={{ fontSize: 14 }}>check</span> {editSaving ? 'Saving...' : 'Save Changes'}
                                     </button>
                                 </div>
@@ -990,7 +988,7 @@ export default function EscalationAlertSettings() {
                                 <>
                                     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                                         <div>
-                                            <label className="label">Role</label>
+                                            <label className="label">Role Name</label>
                                             <CustomSelect
                                                 value={createPrimaryRoleId}
                                                 onChange={v => { applyCreatePrimaryRole(v); }}

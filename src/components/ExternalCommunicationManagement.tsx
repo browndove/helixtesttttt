@@ -45,6 +45,7 @@ export default function ExternalCommunicationManagement() {
     const [draftFacilityEnabled, setDraftFacilityEnabled] = useState(true);
     const [roles, setRoles] = useState<RoleRow[]>([]);
     const [roleExternal, setRoleExternal] = useState<Record<string, boolean>>({});
+    const [roleSearch, setRoleSearch] = useState('');
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [toast, setToast] = useState<string | null>(null);
@@ -57,6 +58,19 @@ export default function ExternalCommunicationManagement() {
     const externalRoleCount = useMemo(
         () => Object.values(roleExternal).filter(Boolean).length,
         [roleExternal],
+    );
+
+    const filteredRoles = useMemo(
+        () => {
+            const q = roleSearch.trim().toLowerCase();
+            if (!q) return roles;
+            return roles.filter(r => {
+                const name = r.name.toLowerCase();
+                const dept = (r.department || '').toLowerCase();
+                return name.includes(q) || (!!dept && dept.includes(q));
+            });
+        },
+        [roles, roleSearch],
     );
 
     const fetchData = useCallback(async () => {
@@ -319,19 +333,36 @@ export default function ExternalCommunicationManagement() {
 
                         <div className="card" style={{ padding: '20px 22px', flex: '3 1 480px', maxWidth: '100%', minWidth: 0, boxSizing: 'border-box' }}>
                             <h2 style={{ fontSize: 16, fontWeight: 700, margin: '0 0 6px', color: 'var(--text-primary)' }}>External messaging roles</h2>
-                            <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: '0 0 16px', lineHeight: 1.5 }}>
+                            <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: '0 0 10px', lineHeight: 1.5 }}>
                                 Choose which duty roles may send or receive cross-facility messages when this facility allows it. If external communication is on, at least one role must be selected.
                             </p>
 
+                            {roles.length > 0 && (
+                                <div style={{ marginBottom: 10, display: 'flex', justifyContent: 'flex-end' }}>
+                                    <div style={{ position: 'relative', maxWidth: 260, width: '100%' }}>
+                                        <span className="material-icons-round" style={{ position: 'absolute', left: 9, top: '50%', transform: 'translateY(-50%)', fontSize: 15, color: 'var(--text-disabled)', pointerEvents: 'none' }}>search</span>
+                                        <input
+                                            className="input"
+                                            placeholder="Search roles or departments..."
+                                            value={roleSearch}
+                                            onChange={e => setRoleSearch(e.target.value)}
+                                            style={{ paddingLeft: 30, fontSize: 12.5, height: 32 }}
+                                        />
+                                    </div>
+                                </div>
+                            )}
+
                             {roles.length === 0 ? (
                                 <div style={{ fontSize: 13, color: 'var(--text-muted)', padding: '16px 0' }}>No roles found. Create roles under Setup → Roles first.</div>
+                            ) : filteredRoles.length === 0 ? (
+                                <div style={{ fontSize: 13, color: 'var(--text-muted)', padding: '16px 0' }}>No roles match this search.</div>
                             ) : (
                                 <div style={{ border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)', overflow: 'hidden' }}>
                                     <div style={{ display: 'grid', gridTemplateColumns: '1fr minmax(120px, auto)', gap: 0, background: 'var(--surface-2)', fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', padding: '10px 14px' }}>
                                         <span>Role</span>
                                         <span style={{ textAlign: 'right' }}>External</span>
                                     </div>
-                                    {roles.map(r => (
+                                    {filteredRoles.map(r => (
                                         <label
                                             key={r.id}
                                             style={{

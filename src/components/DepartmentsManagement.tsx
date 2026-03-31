@@ -384,7 +384,35 @@ export default function DepartmentsManagement() {
                 showToast(msg);
                 return false;
             }
-            const merged = { ...d, ...payload, number_of_floors: n, wards: Array.isArray(payload.wards) ? payload.wards as WardItem[] : d.wards };
+
+            // Keep the local floor chips in sync with the updated count so
+            // repeated "Add floor" clicks actually show additional floors.
+            const currentFloors = Array.isArray(d.floors) ? d.floors as FloorItem[] : [];
+            let nextFloors: FloorItem[] = currentFloors;
+            if (currentFloors.length !== n) {
+                if (currentFloors.length > n) {
+                    nextFloors = currentFloors.slice(0, n);
+                } else {
+                    const baseId = String(d.id || 'dept');
+                    const extra: FloorItem[] = [];
+                    for (let i = currentFloors.length; i < n; i += 1) {
+                        const labelIndex = i + 1;
+                        extra.push({
+                            id: `${baseId}-floor-${labelIndex}`,
+                            name: `Floor ${labelIndex}`,
+                        });
+                    }
+                    nextFloors = [...currentFloors, ...extra];
+                }
+            }
+
+            const merged = {
+                ...d,
+                ...payload,
+                number_of_floors: n,
+                floors: nextFloors,
+                wards: Array.isArray(payload.wards) ? (payload.wards as WardItem[]) : d.wards,
+            };
             const updated = normalizeDepartment(merged as Partial<Department> & Record<string, unknown>);
             setDepartments(prev => prev.map(x => (x.id === deptId ? updated : x)));
             return true;

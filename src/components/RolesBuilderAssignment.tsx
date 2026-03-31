@@ -109,6 +109,39 @@ function staffNameOnly(label: string): string {
     return label.replace(/\s*\([^)]*\)\s*$/, '').trim();
 }
 
+function titleCaseWords(raw: string): string {
+    const value = raw.trim();
+    if (!value) return '';
+    return value
+        .split(/\s+/)
+        .filter(Boolean)
+        .map(part => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+        .join(' ');
+}
+
+function splitRoleName(name: string): { prefix: string; suffix: string } {
+    const trimmed = String(name || '').trim();
+    if (!trimmed) return { prefix: '', suffix: '' };
+    const [first, ...rest] = trimmed.split(' - ');
+    if (rest.length === 0) {
+        return { prefix: '', suffix: trimmed };
+    }
+    return {
+        prefix: first.trim(),
+        suffix: rest.join(' - ').trim(),
+    };
+}
+
+function buildRoleName(prefix: string, suffix: string): string {
+    const cleanPrefix = String(prefix || '').trim();
+    const cleanSuffix = String(suffix || '').trim();
+    const normalizedSuffix = titleCaseWords(cleanSuffix);
+    if (cleanPrefix) {
+        return normalizedSuffix ? `${cleanPrefix} - ${normalizedSuffix}` : cleanPrefix;
+    }
+    return normalizedSuffix;
+}
+
 function normalizeRoleForUi<T extends Role>(role: T, deptIdToName: Map<string, string> = new Map()): T {
     const isCritical = role.priority?.toString().trim().toLowerCase() === 'critical';
     const priority = isCritical ? 'Critical' : 'Standard';
@@ -433,7 +466,8 @@ export default function RolesBuilderAssignment() {
     // Edit modal state
     const [editingRole, setEditingRole] = useState<Role | null>(null);
     const [editStep, setEditStep] = useState(1);
-    const [editName, setEditName] = useState('');
+    const [editName, setEditName] = useState(''); // suffix / full name depending on prefix
+    const [editPrefix, setEditPrefix] = useState('');
     const [editDesc, setEditDesc] = useState('');
     const [editDept, setEditDept] = useState('');
     const [editMandatory, setEditMandatory] = useState(false);
@@ -699,12 +733,13 @@ export default function RolesBuilderAssignment() {
 
     const handleAddRole = async (withEscalations = true) => {
         if (!newRoleName.trim()) return;
+        const fullRoleName = buildRoleName('', newRoleName);
         try {
             const res = await fetch('/api/proxy/roles', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    name: newRoleName.trim(),
+                    name: fullRoleName,
                     description: newRoleDesc.trim(),
                     department_id: deptIdMap.get(newRoleDept) || undefined,
                     priority: newRoleMandatory ? 'critical' : 'standard',
@@ -762,7 +797,7 @@ export default function RolesBuilderAssignment() {
                 escalation_routing: role.escalation_routing || newRouting,
                 escalation_levels: policyLevels,
             }]);
-            showToast(`"${newRoleName}" created`);
+            showToast(`"${fullRoleName}" created`);
             resetAddForm();
             fetchData();
         } catch { showToast('Failed to add role'); }
@@ -809,7 +844,9 @@ export default function RolesBuilderAssignment() {
     const openEditModal = (role: Role) => {
         setEditingRole(role);
         setEditStep(1);
-        setEditName(role.name);
+        const { prefix, suffix } = splitRoleName(role.name);
+        setEditPrefix(prefix);
+        setEditName(prefix ? suffix : role.name);
         setEditDesc(role.description || '');
         setEditDept(role.department);
         setEditMandatory(Boolean(role.mandatory));
@@ -845,6 +882,7 @@ export default function RolesBuilderAssignment() {
 
     const handleSaveEdit = async (withEscalations = true) => {
         if (!editingRole || !editName.trim()) return;
+        const nextName = buildRoleName(editPrefix, editName);
         setEditSaving(true);
         try {
             const normalizedEditDept = editDept.trim();
@@ -866,7 +904,7 @@ export default function RolesBuilderAssignment() {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    name: editName.trim(),
+                    name: nextName,
                     description: editDesc.trim(),
                     department_id: resolvedEditDeptId,
                     // Match create-role behavior: prefer ID-based department updates.
@@ -1262,7 +1300,31 @@ export default function RolesBuilderAssignment() {
                             <>
                                 <div style={{ marginBottom: 14 }}>
                                     <label className="label">Role Name</label>
-                                    <input className="input" value={editName} onChange={e => setEditName(e.target.value)} style={{ fontSize: 13 }} />
+                                    {editPrefix ? (
+                                        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 0.45fr) minmax(0, 1fr)', gap: 8 }}>
+                                            <input
+                                                className="input"
+                                                value={editPrefix}
+                                                disabled
+                                                style={{ fontSize: 13, backgroundColor: 'var(--surface-2)', cursor: 'not-allowed' }}
+                                            />
+                                            <input
+                                                className="input"
+                                                value={editName}
+                                                onChange={e => setEditName(e.target.value)}
+                                                placeholder="e.g. CEO"
+                                                style={{ fontSize: 13 }}
+                                            />
+                                        </div>
+                                    ) : (
+                                        <input
+                                            className="input"
+                                            value={editName}
+                                            onChange={e => setEditName(e.target.value)}
+                                            placeholder="e.g. Charge Nurse"
+                                            style={{ fontSize: 13 }}
+                                        />
+                                    )}
                                 </div>
 
                                 <div style={{ marginBottom: 14 }}>
@@ -1518,7 +1580,13 @@ export default function RolesBuilderAssignment() {
                                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 14 }}>
                                         <div>
                                             <label className="label">Role Name</label>
-                                            <input className="input" placeholder="e.g. Charge Nurse" value={newRoleName} onChange={e => setNewRoleName(e.target.value)} style={{ fontSize: 13 }} />
+                                            <input
+                                                className="input"
+                                                placeholder="e.g. AMC - CEO"
+                                                value={newRoleName}
+                                                onChange={e => setNewRoleName(e.target.value)}
+                                                style={{ fontSize: 13 }}
+                                            />
                                         </div>
                                         <div>
                                             <label className="label">Department</label>
