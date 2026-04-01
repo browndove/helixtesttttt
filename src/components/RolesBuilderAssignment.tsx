@@ -86,6 +86,8 @@ type Role = {
     enabled: boolean;
     priority: string;
     visible_in_directory: boolean;
+    /** Whether this role is enabled for facility external communication (cross-facility messaging). */
+    external_messaging?: boolean;
     sign_in_restricted?: boolean;
     sign_in_allowed_user_ids?: string[];
     signed_in_by?: string;
@@ -1862,6 +1864,11 @@ export default function RolesBuilderAssignment() {
                                             { label: 'Status', value: selectedRole.enabled ? 'Active' : 'Disabled', icon: selectedRole.enabled ? 'check_circle' : 'cancel' },
                                             { label: 'Mandatory', value: selectedRole.mandatory ? 'Required' : 'Optional', icon: selectedRole.mandatory ? 'verified' : 'remove_circle_outline' },
                                             { label: 'Sign-in', value: (selectedRole.sign_in_restricted || (selectedRole.sign_in_allowed_user_ids || []).length > 0) ? 'Restricted' : 'Open', icon: 'security' },
+                                            {
+                                                label: 'External comm',
+                                                value: selectedRole.external_messaging ? 'Enabled' : 'Disabled',
+                                                icon: 'forum',
+                                            },
                                         ].map(row => (
                                             <div key={row.label} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                                                 <span className="material-icons-round" style={{ fontSize: 16, color: 'var(--text-muted)', width: 20 }}>{row.icon}</span>
