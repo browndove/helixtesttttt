@@ -2,8 +2,9 @@
 
 import { useEffect, useLayoutEffect, useState } from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { API_ENDPOINTS } from '@/lib/config';
+import { useAuth } from '@/lib/useAuth';
 import {
     isLikelyFacilityDisplayName,
     readCachedSidebarUser,
@@ -84,9 +85,13 @@ export default function Sidebar({
     adminRole,
 }: SidebarProps) {
     const pathname = usePathname();
+    const router = useRouter();
     const isSettingsActive = pathname === '/settings';
     const [sessionUser, setSessionUser] = useState<{ name: string; email: string; role: string } | null>(null);
     const [facilityName, setFacilityName] = useState<string | null>(null);
+    const [profileMenuOpen, setProfileMenuOpen] = useState(false);
+    const [loggingOut, setLoggingOut] = useState(false);
+    const { logout } = useAuth();
 
     // After SSR/hydration, apply session cache before paint (avoids "Facility" / "User" flashes).
     useLayoutEffect(() => {
@@ -176,6 +181,24 @@ export default function Sidebar({
         .slice(0, 2)
         .join('')
         .toUpperCase();
+
+    const handleSettingsClick = () => {
+        setProfileMenuOpen(false);
+        if (pathname !== '/settings') {
+            router.push('/settings');
+        }
+    };
+
+    const handleLogoutClick = async () => {
+        if (loggingOut) return;
+        setLoggingOut(true);
+        try {
+            await logout();
+        } finally {
+            setLoggingOut(false);
+            setProfileMenuOpen(false);
+        }
+    };
 
     return (
         <aside className="app-sidebar" style={{
@@ -283,21 +306,25 @@ export default function Sidebar({
                 </div>
             )}
 
-            {/* Profile Bar */}
-            <Link href="/settings" style={{ textDecoration: 'none' }}>
-                <div
+            {/* Profile Bar + menu */}
+            <div style={{ position: 'relative', borderTop: '1px solid var(--border-default)' }}>
+                <button
+                    type="button"
+                    onClick={() => setProfileMenuOpen(o => !o)}
                     style={{
+                        width: '100%',
                         padding: '12px 14px',
-                        borderTop: '1px solid var(--border-default)',
                         display: 'flex',
                         alignItems: 'center',
                         gap: 10,
                         cursor: 'pointer',
                         background: isSettingsActive ? '#f0f4f8' : 'transparent',
+                        border: 'none',
+                        outline: 'none',
                         transition: 'background 0.15s',
                     }}
                     onMouseEnter={e => { if (!isSettingsActive) e.currentTarget.style.background = '#f5f7fa'; }}
-                    onMouseLeave={e => { if (!isSettingsActive) e.currentTarget.style.background = 'transparent'; }}
+                    onMouseLeave={e => { if (!isSettingsActive && !profileMenuOpen) e.currentTarget.style.background = 'transparent'; }}
                 >
                     <div style={{
                         width: 32, height: 32,
@@ -311,7 +338,7 @@ export default function Sidebar({
                     }}>
                         {initials}
                     </div>
-                    <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ flex: 1, minWidth: 0, textAlign: 'left' }}>
                         <div style={{
                             fontSize: 12.5, fontWeight: 600,
                             color: isSettingsActive ? 'var(--helix-primary)' : 'var(--text-primary)',
@@ -329,11 +356,88 @@ export default function Sidebar({
                         fontSize: 16,
                         color: isSettingsActive ? 'var(--helix-primary)' : 'var(--text-disabled)',
                         flexShrink: 0,
+                        transform: profileMenuOpen ? 'rotate(90deg)' : 'none',
+                        transition: 'transform 0.15s',
                     }}>
                         settings
                     </span>
-                </div>
-            </Link>
+                </button>
+
+                {profileMenuOpen && (
+                    <>
+                        <div
+                            style={{
+                                position: 'absolute',
+                                bottom: '100%',
+                                left: 8,
+                                right: 8,
+                                marginBottom: 6,
+                                background: 'var(--surface-card)',
+                                border: '1px solid var(--border-default)',
+                                borderRadius: 'var(--radius-md)',
+                                boxShadow: '0 6px 18px rgba(15,23,42,0.18)',
+                                overflow: 'hidden',
+                                zIndex: 40,
+                            }}
+                        >
+                            <button
+                                type="button"
+                                onClick={handleSettingsClick}
+                                style={{
+                                    width: '100%',
+                                    padding: '10px 14px',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: 8,
+                                    border: 'none',
+                                    background: 'transparent',
+                                    cursor: 'pointer',
+                                    fontSize: 13,
+                                    color: 'var(--text-primary)',
+                                    borderBottom: '1px solid var(--border-subtle)',
+                                    textAlign: 'left',
+                                }}
+                                onMouseEnter={e => { e.currentTarget.style.background = 'var(--surface-2)'; }}
+                                onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
+                            >
+                                <span className="material-icons-round" style={{ fontSize: 16 }}>settings</span>
+                                Settings
+                            </button>
+                            <button
+                                type="button"
+                                onClick={handleLogoutClick}
+                                disabled={loggingOut}
+                                style={{
+                                    width: '100%',
+                                    padding: '10px 14px',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: 8,
+                                    border: 'none',
+                                    background: 'transparent',
+                                    cursor: loggingOut ? 'not-allowed' : 'pointer',
+                                    fontSize: 13,
+                                    color: 'var(--critical)',
+                                    textAlign: 'left',
+                                }}
+                                onMouseEnter={e => { if (!loggingOut) e.currentTarget.style.background = 'var(--surface-2)'; }}
+                                onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
+                            >
+                                <span className="material-icons-round" style={{ fontSize: 16 }}>logout</span>
+                                {loggingOut ? 'Logging out…' : 'Logout'}
+                            </button>
+                        </div>
+                        <div
+                            style={{
+                                position: 'fixed',
+                                inset: 0,
+                                zIndex: 30,
+                            }}
+                            onClick={() => setProfileMenuOpen(false)}
+                        />
+                    </>
+                )}
+            </div>
         </aside>
     );
 }
