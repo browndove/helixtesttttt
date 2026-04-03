@@ -273,12 +273,19 @@ const defaultRoutingRules: RoutingRule[] = [
     { id: 'by-role', label: 'By Role Hierarchy', desc: 'Escalate up the role hierarchy (e.g. Nurse → Charge Nurse → Attending).', enabled: true },
 ];
 
+/** Level 1 = primary role; at most two further escalation targets (3 steps total). */
+const ESCALATION_LADDER_MAX_LEVELS = 3;
+
 const defaultEscalationLevels: EscalationLevel[] = [
     { level: 1, target: 'Same Role', delay: '0 min' },
     { level: 2, target: 'Supervisor', delay: '3 min' },
     { level: 3, target: 'Department Head', delay: '7 min' },
-    { level: 4, target: 'Admin On-Call', delay: '12 min' },
 ];
+
+function clampEscalationLevels(levels: EscalationLevel[]): EscalationLevel[] {
+    const sorted = [...levels].sort((a, b) => a.level - b.level);
+    return sorted.slice(0, ESCALATION_LADDER_MAX_LEVELS).map((l, i) => ({ ...l, level: i + 1 }));
+}
 
 const escalationTargetOptions = ['Same Role', 'Supervisor', 'Department Head', 'Admin On-Call', 'Charge Nurse', 'Attending Physician', 'ED Doctor On-Call', 'ED Supervisor', 'CEO', 'Doctor in Charge of Patient', 'Department Lead', 'ICU Doctor On-Call', 'ICU Department Lead', 'OBGYN On-Call', 'OBGYN Department Supervisor', 'Peds Doctor On-Call', 'Peds Unit Lead', 'Anaesthesia On-Call', 'Theatre Supervisor', 'ED Triage On-Call', 'Safety Officer', 'Hospital Administrator On-Call', 'Ward Nurse In-Charge', 'Administrator On-Call'];
 const delayOptions = ['30 sec', '45 sec', '0 min', '1 min', '2 min', '3 min', '5 min', '7 min', '10 min', '12 min', '15 min', '20 min', '30 min', '1 hr', '2 hr'];
@@ -754,20 +761,21 @@ export default function RolesBuilderAssignment() {
             if (!res.ok) { showToast('Failed to add role'); return; }
             const role = await res.json();
 
-            // Create escalation policy + steps for critical/mandatory roles
-            let policyLevels = newEscLevels;
-            if (withEscalations && newRoleMandatory && newEscLevels.length > 0) {
+            // Create escalation policy + steps for critical/mandatory roles (max 3 levels)
+            const ladderLevels = clampEscalationLevels(newEscLevels);
+            let policyLevels = ladderLevels;
+            if (withEscalations && newRoleMandatory && ladderLevels.length > 0) {
                 const policyRes = await fetch('/api/proxy/escalation-policies', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         role_id: role.id,
-                        initial_timeout_seconds: Math.max(30, delayToSeconds(newEscLevels[0]?.delay || '3 min')),
+                        initial_timeout_seconds: Math.max(30, delayToSeconds(ladderLevels[0]?.delay || '3 min')),
                     }),
                 });
                 if (policyRes.ok) {
                     const policy = await policyRes.json();
-                    const steps = newEscLevels
+                    const steps = ladderLevels
                         .filter(l => l.target)
                         .map(l => {
                             const match = roles.find(r => r.name === l.target);
@@ -864,7 +872,7 @@ export default function RolesBuilderAssignment() {
         // Pre-fill level 1 with the role being edited if no levels exist
         const existing = (role.escalation_levels || []).map(l => ({ ...l }));
         if (existing.length > 0) {
-            setEditEscLevels(existing);
+            setEditEscLevels(clampEscalationLevels(existing));
         } else {
             setEditEscLevels([{ level: 1, target: role.name, delay: '5 min' }]);
         }
@@ -927,9 +935,10 @@ export default function RolesBuilderAssignment() {
                 department_name: updated?.department_name,
             });
 
-            // 2. Create or update escalation policy for critical/mandatory roles
-            let finalLevels = editEscLevels;
-            if (withEscalations && editMandatory && editEscLevels.length > 0) {
+            // 2. Create or update escalation policy for critical/mandatory roles (max 3 levels)
+            const ladderLevels = clampEscalationLevels(editEscLevels);
+            let finalLevels = ladderLevels;
+            if (withEscalations && editMandatory && ladderLevels.length > 0) {
                 // Check if a policy already exists for this role
                 const existingPolicyRes = await fetch(`/api/proxy/escalation-policies/by-role/${editingRole.id}`);
                 let policyId: string | null = null;
@@ -943,7 +952,7 @@ export default function RolesBuilderAssignment() {
                             method: 'PUT',
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({
-                                initial_timeout_seconds: Math.max(30, delayToSeconds(editEscLevels[0]?.delay || '3 min')),
+                                initial_timeout_seconds: Math.max(30, delayToSeconds(ladderLevels[0]?.delay || '3 min')),
                             }),
                         });
                         // Delete old steps
@@ -962,7 +971,7 @@ export default function RolesBuilderAssignment() {
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
                             role_id: editingRole.id,
-                            initial_timeout_seconds: Math.max(30, delayToSeconds(editEscLevels[0]?.delay || '3 min')),
+                            initial_timeout_seconds: Math.max(30, delayToSeconds(ladderLevels[0]?.delay || '3 min')),
                         }),
                     });
                     if (policyRes.ok) {
@@ -973,7 +982,7 @@ export default function RolesBuilderAssignment() {
 
                 // Bulk add new steps
                 if (policyId) {
-                    const steps = editEscLevels
+                    const steps = ladderLevels
                         .filter(l => l.target)
                         .map(l => {
                             const match = roles.find(r => r.name === l.target);
@@ -1116,9 +1125,8 @@ export default function RolesBuilderAssignment() {
     ) => {
         const sorted = [...levels].sort((a, b) => a.level - b.level);
 
-        const MAX_STEPS = 3;
         const handleAddLevel = () => {
-            if (levels.length >= MAX_STEPS) return;
+            if (levels.length >= ESCALATION_LADDER_MAX_LEVELS) return;
             const nextLevel = sorted.length > 0 ? sorted[sorted.length - 1].level + 1 : 1;
             setLevels([...levels, { level: nextLevel, target: '', delay: '5 min' }]);
         };
@@ -1134,7 +1142,7 @@ export default function RolesBuilderAssignment() {
                 <div style={{ marginBottom: 2 }}>
                     <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 2 }}>Escalation Ladder</div>
                     <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-                        Level 1 is always this role (primary receiver). If it goes unacknowledged, the message escalates to the next listed role.
+                        Level 1 is always this role (primary receiver). Up to three levels total — add at most two escalation targets after the primary.
                     </div>
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
@@ -1214,7 +1222,7 @@ export default function RolesBuilderAssignment() {
                         </div>
                     ))}
                 </div>
-                {sorted.length < MAX_STEPS && (
+                {sorted.length < ESCALATION_LADDER_MAX_LEVELS && (
                     <button
                         type="button"
                         className="btn btn-secondary btn-xs"
