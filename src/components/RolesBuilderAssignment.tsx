@@ -461,6 +461,7 @@ export default function RolesBuilderAssignment() {
     const [newRoleDept, setNewRoleDept] = useState('');
     const [newRoleMandatory, setNewRoleMandatory] = useState(false);
     const [newRestricted, setNewRestricted] = useState(false);
+    const [newRoleExternalMessaging, setNewRoleExternalMessaging] = useState(false);
     const [newAllowedUserIds, setNewAllowedUserIds] = useState<string[]>([]);
     const [newRouting, setNewRouting] = useState<RoutingRule[]>([]);
     const [newEscLevels, setNewEscLevels] = useState<EscalationLevel[]>([]);
@@ -633,6 +634,7 @@ export default function RolesBuilderAssignment() {
         setNewRoleDept('');
         setNewRoleMandatory(false);
         setNewRestricted(false);
+        setNewRoleExternalMessaging(false);
         setNewAllowedUserIds([]);
         setNewRouting([]);
         setNewEscLevels([]);
@@ -746,6 +748,7 @@ export default function RolesBuilderAssignment() {
                     department_id: deptIdMap.get(newRoleDept) || undefined,
                     priority: newRoleMandatory ? 'critical' : 'standard',
                     sign_in_allowed_user_ids: newRestricted ? newAllowedUserIds : undefined,
+                    external_messaging: newRoleExternalMessaging,
                 }),
             });
             if (!res.ok) { showToast('Failed to add role'); return; }
@@ -796,6 +799,7 @@ export default function RolesBuilderAssignment() {
                 ...normalizeRoleForUi(role as Role, departmentIdToName),
                 sign_in_restricted: Boolean(role.sign_in_restricted),
                 sign_in_allowed_user_ids: Array.isArray(role.sign_in_allowed_user_ids) ? role.sign_in_allowed_user_ids : [],
+                external_messaging: Boolean((role as Role).external_messaging ?? newRoleExternalMessaging),
                 escalation_routing: role.escalation_routing || newRouting,
                 escalation_levels: policyLevels,
             }]);
@@ -1617,6 +1621,18 @@ export default function RolesBuilderAssignment() {
                                     </div>
 
                                     {renderSignInRestriction(newRestricted, setNewRestricted, newAllowedUserIds, setNewAllowedUserIds)}
+
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderRadius: 'var(--radius-md)', background: newRoleExternalMessaging ? 'rgba(14,165,233,0.06)' : 'var(--surface-2)', border: `1px solid ${newRoleExternalMessaging ? 'rgba(14,165,233,0.22)' : 'var(--border-subtle)'}`, marginBottom: 14, transition: 'all 0.2s' }}>
+                                        <input type="checkbox" className="checkbox" checked={newRoleExternalMessaging} onChange={() => setNewRoleExternalMessaging(!newRoleExternalMessaging)} />
+                                        <span className="material-icons-round" style={{ fontSize: 18, color: newRoleExternalMessaging ? '#0ea5e9' : 'var(--text-muted)', flexShrink: 0 }}>forum</span>
+                                        <div style={{ flex: 1 }}>
+                                            <div style={{ fontSize: 13, fontWeight: 600 }}>External communication</div>
+                                            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 1 }}>Allow cross-facility messaging for this role when your facility has external communication enabled.</div>
+                                        </div>
+                                        <span className={`badge ${newRoleExternalMessaging ? 'badge-info' : 'badge-neutral'}`} style={{ fontSize: 10, flexShrink: 0 }}>
+                                            {newRoleExternalMessaging ? 'On' : 'Off'}
+                                        </span>
+                                    </div>
 
                                     <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderRadius: 'var(--radius-md)', background: newRoleMandatory ? 'rgba(239,68,68,0.06)' : 'var(--surface-2)', border: `1px solid ${newRoleMandatory ? 'rgba(239,68,68,0.25)' : 'var(--border-subtle)'}`, marginBottom: 18, transition: 'all 0.2s' }}>
                                         <input type="checkbox" className="checkbox" checked={newRoleMandatory} onChange={() => setNewRoleMandatory(!newRoleMandatory)} />
