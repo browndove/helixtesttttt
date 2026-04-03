@@ -36,6 +36,9 @@ type StaffLite = {
     status: string;
 };
 
+/** Max length for job title on profile (aligned with staff update API). */
+const JOB_TITLE_MAX_LENGTH = 80;
+
 const roleColors: Record<string, string> = {
     'Super Admin': 'var(--helix-primary)',
     'Admin': 'var(--info)',
@@ -185,6 +188,7 @@ export default function SettingsPage() {
     const [jobTitle, setJobTitle] = useState('');
     const [userRole, setUserRole] = useState('Admin');
     const [currentUserId, setCurrentUserId] = useState('');
+    const [savingProfile, setSavingProfile] = useState(false);
 
     // Security
     const [twoFactor, setTwoFactor] = useState(false);
@@ -206,6 +210,55 @@ export default function SettingsPage() {
 
     const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(null), 2500); };
 
+    const savePersonalProfile = async () => {
+        if (!currentUserId.trim()) {
+            showToast('Could not resolve your account. Try signing in again.');
+            return;
+        }
+        const trimmedTitle = jobTitle.trim().slice(0, JOB_TITLE_MAX_LENGTH);
+        const nameParts = fullName.trim().split(/\s+/).filter(Boolean);
+        const firstName = nameParts[0] || '';
+        const lastName = nameParts.slice(1).join(' ') || '';
+
+        setSavingProfile(true);
+        try {
+            let existing: Record<string, unknown> = {};
+            const getRes = await fetch(`/api/proxy/staff/${currentUserId}`);
+            if (getRes.ok) {
+                const raw = await getRes.json();
+                existing = raw && typeof raw === 'object' && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
+            }
+
+            const body: Record<string, unknown> = {
+                first_name: firstName || String(existing.first_name || '').trim(),
+                last_name: lastName || String(existing.last_name || '').trim(),
+                email: email.trim() || String(existing.email || '').trim(),
+                phone: formatGhanaPhoneInput(phone) || String(existing.phone || '').trim(),
+                job_title: trimmedTitle,
+                role: String(existing.role || existing.system_role || 'admin').toLowerCase() || 'admin',
+                status: String(existing.status || 'active'),
+            };
+
+            const putRes = await fetch(`/api/proxy/staff/${currentUserId}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body),
+            });
+            const errData = await putRes.json().catch(() => ({} as { message?: string; detail?: string; error?: string }));
+            if (!putRes.ok) {
+                showToast(String(errData.message || errData.detail || errData.error || 'Failed to save profile'));
+                return;
+            }
+            setJobTitle(trimmedTitle);
+            showToast('Profile updated');
+            await loadSecurityData();
+        } catch {
+            showToast('Failed to save profile');
+        } finally {
+            setSavingProfile(false);
+        }
+    };
+
     const loadSecurityData = useCallback(async () => {
         setLoadingSecurity(true);
         setLoadingAdmins(true);
@@ -222,7 +275,10 @@ export default function SettingsPage() {
                 const me = await meRes.json();
                 const user = me?.user && typeof me.user === 'object' ? me.user : me;
                 currentUser = user && typeof user === 'object' ? user as Record<string, unknown> : null;
-                if (user?.id) setCurrentUserId(String(user.id));
+                const staffRec = me?.staff && typeof me.staff === 'object' ? me.staff as Record<string, unknown> : null;
+                const staffId = String(staffRec?.id || staffRec?.staff_id || '').trim();
+                const userId = String(user?.id || '').trim();
+                setCurrentUserId(staffId || userId);
                 const first = String(user?.first_name || '').trim();
                 const last = String(user?.last_name || '').trim();
                 const derivedName = String(user?.name || `${first} ${last}`.trim());
@@ -558,8 +614,22 @@ export default function SettingsPage() {
                                         <input className="input" value={fullName} onChange={e => setFullName(e.target.value)} style={{ fontSize: 13 }} />
                                     </div>
                                     <div>
-                                        <label className="label">Job Title</label>
-                                        <input className="input" value={jobTitle} onChange={e => setJobTitle(e.target.value)} style={{ fontSize: 13 }} />
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, marginBottom: 6 }}>
+                                            <label className="label" htmlFor="settings-job-title" style={{ marginBottom: 0 }}>Job Title</label>
+                                            <span style={{ fontSize: 11, color: 'var(--text-muted)', fontVariantNumeric: 'tabular-nums' }} id="settings-job-title-hint">
+                                                {jobTitle.length}/{JOB_TITLE_MAX_LENGTH}
+                                            </span>
+                                        </div>
+                                        <input
+                                            id="settings-job-title"
+                                            className="input"
+                                            value={jobTitle}
+                                            maxLength={JOB_TITLE_MAX_LENGTH}
+                                            onChange={e => setJobTitle(e.target.value.slice(0, JOB_TITLE_MAX_LENGTH))}
+                                            placeholder="e.g. Medical Officer"
+                                            aria-describedby="settings-job-title-hint"
+                                            style={{ fontSize: 13 }}
+                                        />
                                     </div>
                                     <div>
                                         <label className="label">Email</label>
@@ -570,9 +640,15 @@ export default function SettingsPage() {
                                         <input className="input" value={phone} onChange={e => setPhone(formatGhanaPhoneInput(e.target.value))} style={{ fontSize: 13 }} />
                                     </div>
                                 </div>
-                                <button className="btn btn-primary btn-sm" style={{ marginTop: 16, width: '100%', justifyContent: 'center' }} onClick={() => showToast('Profile updated')}>
+                                <button
+                                    type="button"
+                                    className="btn btn-primary btn-sm"
+                                    style={{ marginTop: 16, width: '100%', justifyContent: 'center' }}
+                                    onClick={savePersonalProfile}
+                                    disabled={savingProfile}
+                                >
                                     <span className="material-icons-round" style={{ fontSize: 14 }}>save</span>
-                                    Save Changes
+                                    {savingProfile ? 'Saving…' : 'Save Changes'}
                                 </button>
                             </div>
 
