@@ -967,7 +967,7 @@ export default function EscalationAlertSettings() {
                     }
                 />
 
-                <main style={{ flex: 1, overflow: 'auto', padding: '24px 28px', background: 'var(--bg-900)' }}>
+                <main style={{ flex: 1, minWidth: 0, overflow: 'auto', padding: '24px 28px', background: 'var(--bg-900)' }}>
                     {/* Info banner */}
                     <div className="fade-in" style={{ marginBottom: 18 }}>
                         <p style={{ fontSize: 13, color: 'var(--text-muted)', maxWidth: 600 }}>
@@ -1089,10 +1089,40 @@ export default function EscalationAlertSettings() {
 
                     {/* Main Content: Table + Detail */}
                     {!loading && (
-                        <div style={{ display: 'grid', gridTemplateColumns: selectedChain ? '1fr 380px' : '1fr', gap: 20 }}>
-                            {/* Escalations Table */}
-                            <div className="fade-in delay-1 card" style={{ padding: 0, overflow: 'hidden' }}>
-                                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                        <div
+                            style={{
+                                display: 'grid',
+                                gridTemplateColumns: selectedChain ? 'minmax(0, 1fr) minmax(300px, 380px)' : '1fr',
+                                gap: 20,
+                                alignItems: 'start',
+                                width: '100%',
+                                minWidth: 0,
+                            }}
+                        >
+                            {/* Escalations Table — scroll horizontally when detail panel narrows the list */}
+                            <div
+                                className="fade-in delay-1 card"
+                                style={{
+                                    padding: 0,
+                                    minWidth: 0,
+                                    maxWidth: '100%',
+                                    overflow: 'hidden',
+                                    display: 'flex',
+                                    flexDirection: 'column',
+                                }}
+                            >
+                                <div
+                                    style={{
+                                        flex: '1 1 auto',
+                                        overflowX: 'auto',
+                                        overflowY: 'hidden',
+                                        WebkitOverflowScrolling: 'touch',
+                                        width: '100%',
+                                        maxWidth: '100%',
+                                        minWidth: 0,
+                                    }}
+                                >
+                                    <table style={{ width: 'max-content', minWidth: 760, borderCollapse: 'collapse', tableLayout: 'auto' }}>
                                     <thead>
                                         <tr style={{ borderBottom: '1px solid var(--border-default)' }}>
                                             <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Role</th>
@@ -1145,8 +1175,9 @@ export default function EscalationAlertSettings() {
                                         )}
                                     </tbody>
                                 </table>
+                                </div>
                                 {filtered.length > 0 && (
-                                    <div style={{ padding: '10px 16px', borderTop: '1px solid var(--border-subtle)', fontSize: 12, color: 'var(--text-muted)' }}>
+                                    <div style={{ padding: '10px 16px', borderTop: '1px solid var(--border-subtle)', fontSize: 12, color: 'var(--text-muted)', flexShrink: 0 }}>
                                         Showing {filtered.length} of {chainGroups.length} escalation chains
                                     </div>
                                 )}
@@ -1154,7 +1185,7 @@ export default function EscalationAlertSettings() {
 
                             {/* Detail Panel */}
                             {selectedChain && (
-                                <div className="fade-in" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                                <div className="fade-in" style={{ display: 'flex', flexDirection: 'column', gap: 16, minWidth: 0, alignSelf: 'start' }}>
                                     {/* Header */}
                                     <div className="card" style={{ padding: '18px 20px' }}>
                                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10, marginBottom: 14 }}>

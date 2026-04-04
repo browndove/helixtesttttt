@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { CSSProperties } from 'react';
 import TopBar from '@/components/TopBar';
 import CustomSelect from '@/components/CustomSelect';
 import DatePicker from '@/components/DatePicker';
@@ -13,6 +14,8 @@ type StaffMember = {
     email: string;
     job_title: string;
     dept: string;
+    /** Present when API sends department as id only; used to resolve display name. */
+    department_id?: string;
     status: string;
     access: string;
     employee_id: string;
@@ -49,8 +52,137 @@ type BulkUploadSummary = {
 function looksLikeStaffRecord(value: unknown): boolean {
     if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
     const rec = value as Record<string, unknown>;
-    const keys = ['id', 'staff_id', 'first_name', 'last_name', 'name', 'email', 'job_title', 'role', 'department', 'department_name'];
+    const keys = ['id', 'staff_id', 'first_name', 'last_name', 'name', 'email', 'job_title', 'role', 'department', 'department_name', 'departments'];
     return keys.some(k => rec[k] !== undefined && rec[k] !== null && String(rec[k]).trim() !== '');
+}
+
+function asRecord(v: unknown): Record<string, unknown> | null {
+    if (!v || typeof v !== 'object' || Array.isArray(v)) return null;
+    return v as Record<string, unknown>;
+}
+
+const STAFF_DEPT_NEST_KEYS = ['user', 'profile', 'staff', 'staff_member', 'account', 'person'] as const;
+
+/** Match UUID-shaped strings some APIs put in `department` instead of a nested object. */
+const DEPT_ID_STRING_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function gatherStaffDeptSources(r: Record<string, unknown>): Record<string, unknown>[] {
+    const out: Record<string, unknown>[] = [r];
+    for (const k of STAFF_DEPT_NEST_KEYS) {
+        const n = asRecord(r[k]);
+        if (n) out.push(n);
+    }
+    return out;
+}
+
+const DEPARTMENTS_ARRAY_KEYS = [
+    'departments',
+    'department_list',
+    'departmentList',
+    'assigned_departments',
+    'assignedDepartments',
+] as const;
+
+/**
+ * Staff API often returns `departments: [{ id, name }, ...]` instead of department_id / department_name.
+ */
+function pickFromDepartmentsArrays(n: Record<string, unknown>): { id?: string; name: string } | null {
+    for (const key of DEPARTMENTS_ARRAY_KEYS) {
+        const arr = n[key];
+        if (!Array.isArray(arr) || arr.length === 0) continue;
+        const names: string[] = [];
+        let firstId: string | undefined;
+        for (const item of arr) {
+            const o = asRecord(item);
+            if (!o) continue;
+            const nm = String(o.name || o.department_name || o.departmentName || '').trim();
+            if (nm) names.push(nm);
+            const idi = String(o.id || o.department_id || o.departmentId || '').trim();
+            if (idi && !firstId) firstId = idi;
+        }
+        if (names.length > 0) {
+            return { id: firstId, name: names.join(', ') };
+        }
+        if (firstId) {
+            return { id: firstId, name: 'Unassigned' };
+        }
+    }
+    return null;
+}
+
+/** Resolve department id + display name from root and common nested payloads (user/profile/etc.). */
+function findDepartmentIdAndName(sources: Record<string, unknown>[]): { id?: string; name: string } {
+    for (const n of sources) {
+        const fromList = pickFromDepartmentsArrays(n);
+        if (fromList) return fromList;
+    }
+
+    let id: string | undefined;
+    outerId: for (const n of sources) {
+        const dObj = asRecord(n.department);
+        const depStr = typeof n.department === 'string' ? n.department.trim() : '';
+        const idCandidates = [
+            n.department_id,
+            n.departmentId,
+            n.dept_id,
+            n.deptId,
+            n.primary_department_id,
+            n.primaryDepartmentId,
+            dObj?.id,
+            dObj?.department_id,
+            dObj?.departmentId,
+            depStr && DEPT_ID_STRING_RE.test(depStr) ? depStr : '',
+        ];
+        for (const c of idCandidates) {
+            const s = String(c ?? '').trim();
+            if (s) {
+                id = s;
+                break outerId;
+            }
+        }
+    }
+
+    let name = '';
+    for (const n of sources) {
+        const topName = String(n.department_name || n.departmentName || '').trim();
+        if (topName) {
+            name = topName;
+            break;
+        }
+        const dObj = asRecord(n.department);
+        if (dObj) {
+            const nn = String(dObj.name || dObj.department_name || dObj.departmentName || dObj.title || '').trim();
+            if (nn) {
+                name = nn;
+                break;
+            }
+        }
+        if (typeof n.department === 'string' && n.department.trim()) {
+            const ds = n.department.trim();
+            if (!DEPT_ID_STRING_RE.test(ds)) {
+                name = ds;
+                break;
+            }
+        }
+        const dept = String(n.dept || '').trim();
+        if (dept) {
+            name = dept;
+            break;
+        }
+    }
+
+    return { id, name: name || 'Unassigned' };
+}
+
+function extractDepartmentArray(raw: unknown): unknown[] {
+    if (Array.isArray(raw)) return raw;
+    if (!raw || typeof raw !== 'object') return [];
+    const o = raw as Record<string, unknown>;
+    for (const k of ['items', 'data', 'departments', 'results', 'rows', 'records']) {
+        const v = o[k];
+        if (Array.isArray(v)) return v;
+    }
+    return [];
 }
 
 function extractStaffArray(raw: unknown): unknown[] {
@@ -77,6 +209,9 @@ function extractStaffArray(raw: unknown): unknown[] {
         if (value.some(looksLikeStaffRecord)) return value;
     }
 
+    // Single staff object (GET/PUT /staff/{id} response body).
+    if (looksLikeStaffRecord(obj)) return [obj];
+
     return [];
 }
 
@@ -100,25 +235,16 @@ function parseStaffList(raw: unknown): StaffMember[] {
             const normalizedStatus = statusRaw.includes('disable') || statusRaw.includes('inactive') || statusRaw.includes('suspend')
                 ? 'disabled'
                 : 'active';
+            const deptSources = gatherStaffDeptSources(r);
+            const { id: department_id, name: deptFromApi } = findDepartmentIdAndName(deptSources);
             return {
                 id,
                 first_name: firstName,
                 last_name: lastName,
                 email: String(r.email || ''),
                 job_title: String(r.job_title || r.role || 'Staff'),
-                dept: (() => {
-                    const dName = String(r.department_name || '').trim();
-                    if (dName) return dName;
-                    const dRaw = r.department;
-                    if (dRaw && typeof dRaw === 'object' && !Array.isArray(dRaw)) {
-                        const nested = dRaw as Record<string, unknown>;
-                        const nestedName = String(nested.name || nested.department_name || '').trim();
-                        if (nestedName) return nestedName;
-                    }
-                    if (typeof dRaw === 'string' && dRaw.trim()) return dRaw.trim();
-                    const deptFallback = String(r.dept || '').trim();
-                    return deptFallback || 'Unassigned';
-                })(),
+                department_id,
+                dept: deptFromApi,
                 status: normalizedStatus,
                 access: String(r.system_role || r.access || 'Staff'),
                 employee_id: String(r.employee_id || r.username || id),
@@ -216,6 +342,31 @@ function getUserNameFromAuthMe(raw: unknown): string {
     return String((user as Record<string, unknown>).name || full || 'Admin').trim();
 }
 
+/** Fixed widths for sticky cols 1–3 so horizontal `left` offsets match (Employee ID, First, Last). */
+const STAFF_STICKY_W1 = 112;
+const STAFF_STICKY_W2 = 128;
+const STAFF_STICKY_W3 = 144;
+
+const staffHeadCell: CSSProperties = {
+    padding: '11px 16px',
+    fontSize: 10.5,
+    fontWeight: 600,
+    textTransform: 'uppercase',
+    letterSpacing: '0.08em',
+    color: 'var(--text-muted)',
+    verticalAlign: 'middle',
+    boxSizing: 'border-box',
+    textAlign: 'left',
+};
+
+const staffBodyCell: CSSProperties = {
+    padding: '13px 16px',
+    boxSizing: 'border-box',
+    verticalAlign: 'middle',
+    fontSize: 13,
+    color: 'var(--text-secondary)',
+};
+
 export default function StaffDirectoryManagement() {
     const [staff, setStaff] = useState<StaffMember[]>([]);
     const [loading, setLoading] = useState(true);
@@ -260,11 +411,106 @@ export default function StaffDirectoryManagement() {
     const [processing, setProcessing] = useState(false);
     const [adding, setAdding] = useState(false);
     const [departmentOptions, setDepartmentOptions] = useState<string[]>([]);
+    const [deptIdToName, setDeptIdToName] = useState<Map<string, string>>(() => new Map());
     const fileInputRef = useRef<HTMLInputElement | null>(null);
 
     const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(null), 2500); };
 
     const departments = useMemo(() => ['all', ...departmentOptions], [departmentOptions]);
+    const deptNameToId = useMemo(() => {
+        const m = new Map<string, string>();
+        deptIdToName.forEach((name, id) => {
+            m.set(name.trim().toLowerCase(), id);
+        });
+        return m;
+    }, [deptIdToName]);
+
+    // #region agent log
+    useEffect(() => {
+        if (typeof window === 'undefined') return;
+        const runId = 'post-fix-4-unified-scroll';
+        const post = (hypothesisId: string, message: string, data: Record<string, unknown>) => {
+            fetch('http://127.0.0.1:7426/ingest/00cfa10c-d013-4384-9106-545095334c7e', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': 'f12e6f' },
+                body: JSON.stringify({
+                    sessionId: 'f12e6f',
+                    runId,
+                    hypothesisId,
+                    location: 'StaffDirectoryManagement.tsx:staff-table-debug',
+                    message,
+                    data,
+                    timestamp: Date.now(),
+                }),
+            }).catch(() => {});
+        };
+        const raf = requestAnimationFrame(() => {
+            if (!selected) {
+                post('H3', 'selection-cleared', { selectedNull: true });
+                return;
+            }
+            const row = document.querySelector('.staff-split-row[data-selected="true"]');
+            const c1 = row?.children[0] as HTMLElement | undefined;
+            const c3 = row?.children[2] as HTMLElement | undefined;
+            const c4 = row?.children[3] as HTMLElement | undefined;
+            post('H3', 'dom-after-select', {
+                selectedId: selected.id,
+                hasRow: Boolean(row),
+                dataSelectedAttr: row?.getAttribute('data-selected') ?? null,
+                layout: 'unified-scroll',
+            });
+            if (!row || !c1 || !c3 || !c4) {
+                post('H1', 'missing-row-or-cells', { hasRow: Boolean(row), hasC1: Boolean(c1), hasC3: Boolean(c3), hasC4: Boolean(c4) });
+                return;
+            }
+            const s1 = window.getComputedStyle(c1);
+            const s3 = window.getComputedStyle(c3);
+            const s4 = window.getComputedStyle(c4);
+            const str = row ? window.getComputedStyle(row) : null;
+            post('H1', 'computed-style-frozen-vs-email', {
+                bg1: s1.backgroundColor,
+                bg3: s3.backgroundColor,
+                bg4: s4.backgroundColor,
+                z1: s1.zIndex,
+                z3: s3.zIndex,
+                z4: s4.zIndex,
+                pos1: s1.position,
+                pos3: s3.position,
+                pos4: s4.position,
+                overflow4: s4.overflow,
+                whiteSpace4: s4.whiteSpace,
+                textOverflow4: s4.textOverflow,
+                rowBg: str?.backgroundColor ?? null,
+            });
+            const r1 = c1.getBoundingClientRect();
+            const r3 = c3.getBoundingClientRect();
+            const r4 = c4.getBoundingClientRect();
+            post('H5', 'cell-geometry', {
+                w1: r1.width,
+                w3: r3.width,
+                w4: r4.width,
+                right3: r3.right,
+                left4: r4.left,
+                gapPx: r4.left - r3.right,
+            });
+            const root = document.querySelector('.staff-table-scroll');
+            const transforms: { depth: number; tag: string; cls: string; t: string }[] = [];
+            let el: HTMLElement | null = root?.parentElement ?? null;
+            let depth = 0;
+            while (el && depth < 14) {
+                const st = window.getComputedStyle(el);
+                if (st.transform && st.transform !== 'none') {
+                    transforms.push({ depth, tag: el.tagName, cls: String(el.className).slice(0, 100), t: st.transform.slice(0, 80) });
+                }
+                el = el.parentElement;
+                depth += 1;
+            }
+            post('H4', 'ancestors-with-transform', { count: transforms.length, transforms });
+        });
+        return () => cancelAnimationFrame(raf);
+    }, [selected]);
+    // #endregion
+
     const isAddFormComplete = useMemo(() => (
         Boolean(newFirstName.trim())
         && Boolean(newLastName.trim())
@@ -346,14 +592,18 @@ export default function StaffDirectoryManagement() {
             const res = await fetch('/api/proxy/departments');
             if (!res.ok) return;
             const data = await res.json();
-            const list = Array.isArray(data) ? data : (Array.isArray(data?.items) ? data.items : []);
-            const names = list
-                .map((d: unknown) => {
-                    if (!d || typeof d !== 'object') return '';
-                    const r = d as Record<string, unknown>;
-                    return String(r.name || r.department_name || '').trim();
-                })
-                .filter(Boolean);
+            const list = extractDepartmentArray(data);
+            const idToName = new Map<string, string>();
+            const names: string[] = [];
+            for (const d of list) {
+                if (!d || typeof d !== 'object') continue;
+                const r = d as Record<string, unknown>;
+                const id = String(r.id || r.department_id || r.uuid || '').trim();
+                const name = String(r.name || r.department_name || r.departmentName || r.title || '').trim();
+                if (name) names.push(name);
+                if (id && name) idToName.set(id.toLowerCase(), name);
+            }
+            setDeptIdToName(idToName);
             setDepartmentOptions(Array.from(new Set(names)));
         } catch {
             // best effort
@@ -475,7 +725,19 @@ export default function StaffDirectoryManagement() {
         }
     };
 
-    const filtered = staff.filter(s => {
+    const staffForList = useMemo(() => {
+        if (deptIdToName.size === 0) return staff;
+        return staff.map(s => {
+            const rawId = s.department_id?.trim();
+            if (!rawId) return s;
+            const name = deptIdToName.get(rawId.toLowerCase());
+            if (!name) return s;
+            if (s.dept && s.dept !== 'Unassigned') return s;
+            return { ...s, dept: name };
+        });
+    }, [staff, deptIdToName]);
+
+    const filtered = staffForList.filter(s => {
         const q = search.toLowerCase();
         const matchSearch = search === '' || s.first_name.toLowerCase().includes(q) || s.last_name.toLowerCase().includes(q) || s.dept.toLowerCase().includes(q) || s.email.toLowerCase().includes(q) || s.employee_id.toLowerCase().includes(q) || s.job_title.toLowerCase().includes(q);
         const matchDept = deptFilter === 'all' || s.dept === deptFilter;
@@ -686,6 +948,31 @@ export default function StaffDirectoryManagement() {
                 role: selected.role,
                 patient_access: selected.patient_access,
             };
+            // #region agent log
+            {
+                const dk = editDept.trim().toLowerCase();
+                fetch('http://127.0.0.1:7426/ingest/00cfa10c-d013-4384-9106-545095334c7e', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': 'f12e6f' },
+                    body: JSON.stringify({
+                        sessionId: 'f12e6f',
+                        runId: 'staff-dept-update',
+                        hypothesisId: 'H-A',
+                        location: 'StaffDirectoryManagement.tsx:handleSaveSelected',
+                        message: 'client-put-payload',
+                        data: {
+                            staffIdSuffix: selected.id.slice(-10),
+                            departmentFieldLen: editDept.trim().length,
+                            deptNameInLocalMap: deptNameToId.has(dk),
+                            mapSize: deptNameToId.size,
+                            payloadHasDepartmentKey: 'department' in payload && Boolean(String(payload.department || '').trim()),
+                            selectedHadDepartmentId: Boolean(selected.department_id?.trim()),
+                        },
+                        timestamp: Date.now(),
+                    }),
+                }).catch(() => {});
+            }
+            // #endregion
             const res = await fetch(`/api/proxy/staff/${selected.id}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
@@ -693,11 +980,55 @@ export default function StaffDirectoryManagement() {
             });
             if (!res.ok) {
                 const err = await res.json().catch(() => ({} as { message?: string; detail?: string; error?: string }));
+                // #region agent log
+                fetch('http://127.0.0.1:7426/ingest/00cfa10c-d013-4384-9106-545095334c7e', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': 'f12e6f' },
+                    body: JSON.stringify({
+                        sessionId: 'f12e6f',
+                        runId: 'staff-dept-update',
+                        hypothesisId: 'H-E',
+                        location: 'StaffDirectoryManagement.tsx:handleSaveSelected',
+                        message: 'client-put-not-ok',
+                        data: {
+                            status: res.status,
+                            errKeys: err && typeof err === 'object' ? Object.keys(err as object) : [],
+                        },
+                        timestamp: Date.now(),
+                    }),
+                }).catch(() => {});
+                // #endregion
                 showToast(String(err.message || err.detail || err.error || 'Failed to update staff'));
                 return;
             }
 
-            const updatedLocal: StaffMember = {
+            const data = await res.json();
+            const parsedRows = parseStaffList(data);
+            const fromApi = parsedRows.find(s => s.id === selected.id);
+            // #region agent log
+            fetch('http://127.0.0.1:7426/ingest/00cfa10c-d013-4384-9106-545095334c7e', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': 'f12e6f' },
+                body: JSON.stringify({
+                    sessionId: 'f12e6f',
+                    runId: 'staff-dept-update',
+                    hypothesisId: 'H-D',
+                    location: 'StaffDirectoryManagement.tsx:handleSaveSelected',
+                    message: 'client-after-put-parse',
+                    data: {
+                        parsedRowsLen: parsedRows.length,
+                        fromApiFound: Boolean(fromApi),
+                        fromApiDeptLen: fromApi?.dept?.length ?? 0,
+                        fromApiHasDeptId: Boolean(fromApi?.department_id?.trim()),
+                        dataTopKeys: data && typeof data === 'object' ? Object.keys(data as object).slice(0, 20) : [],
+                    },
+                    timestamp: Date.now(),
+                }),
+            }).catch(() => {});
+            // #endregion
+            const resolvedDeptId =
+                deptNameToId.get(editDept.trim().toLowerCase()) || selected.department_id;
+            const fallbackLocal: StaffMember = {
                 ...selected,
                 first_name: payload.first_name,
                 last_name: payload.last_name,
@@ -709,10 +1040,40 @@ export default function StaffDirectoryManagement() {
                 job_title: payload.job_title || selected.job_title,
                 highest_qualification: payload.highest_qualification || selected.highest_qualification || '',
                 is_doctor: payload.is_doctor,
-                dept: payload.department || selected.dept,
+                dept: editDept.trim() || selected.dept,
+                department_id: resolvedDeptId,
             };
-            setStaff(prev => prev.map(s => (s.id === selected.id ? { ...s, ...updatedLocal } : s)));
-            setSelected(updatedLocal);
+            const updatedLocal: StaffMember = fromApi
+                ? { ...selected, ...fromApi }
+                : fallbackLocal;
+            // Backend PUT 200 body often omits department fields; parseStaffList defaults dept to "Unassigned".
+            const trimmedEditDept = editDept.trim();
+            const apiReturnedDepartmentId = Boolean(fromApi?.department_id?.trim());
+            const mergedLocal: StaffMember =
+                fromApi && trimmedEditDept && !apiReturnedDepartmentId
+                    ? { ...updatedLocal, dept: trimmedEditDept, department_id: resolvedDeptId }
+                    : updatedLocal;
+            // #region agent log
+            fetch('http://127.0.0.1:7426/ingest/00cfa10c-d013-4384-9106-545095334c7e', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': 'f12e6f' },
+                body: JSON.stringify({
+                    sessionId: 'f12e6f',
+                    runId: 'staff-dept-update',
+                    hypothesisId: 'H-D',
+                    location: 'StaffDirectoryManagement.tsx:handleSaveSelected',
+                    message: 'client-merge-dept-overlay',
+                    data: {
+                        overlayApplied: Boolean(fromApi && trimmedEditDept && !apiReturnedDepartmentId),
+                        apiReturnedDepartmentId,
+                        trimmedEditDeptLen: trimmedEditDept.length,
+                    },
+                    timestamp: Date.now(),
+                }),
+            }).catch(() => {});
+            // #endregion
+            setStaff(prev => prev.map(s => (s.id === selected.id ? { ...s, ...mergedLocal } : s)));
+            setSelected(mergedLocal);
             setEditingSelected(false);
             showToast('Staff updated');
         } catch {
@@ -759,7 +1120,7 @@ export default function StaffDirectoryManagement() {
                 </div>
 
                 {activeTab === 'directory' ? (
-                <main style={{ flex: 1, overflow: 'auto', padding: '20px 24px', background: 'var(--bg-900)' }}>
+                <main style={{ flex: 1, minWidth: 0, overflow: 'auto', padding: '20px 24px', background: 'var(--bg-900)' }}>
 
                     {/* Add Staff Form */}
                     {showAddForm && (
@@ -893,64 +1254,204 @@ export default function StaffDirectoryManagement() {
                     </div>
 
                     {/* Table + Detail */}
-                    <div style={{ display: 'grid', gridTemplateColumns: selected ? '1fr 340px' : '1fr', gap: 20 }}>
-                        <div className="fade-in delay-2 card" style={{ padding: 0, overflow: 'hidden' }}>
-                            <div className="table-wrapper">
-                                <table>
+                    <div
+                        style={{
+                            display: 'grid',
+                            gridTemplateColumns: selected ? 'minmax(0, 1fr) minmax(300px, 340px)' : '1fr',
+                            gap: 20,
+                            alignItems: 'start',
+                            width: '100%',
+                            minWidth: 0,
+                        }}
+                    >
+                        {/* No fade-in/transform on this card — CSS animation breaks position:sticky masking during horizontal scroll */}
+                        <div className="card" style={{ padding: 0, overflow: 'hidden', minWidth: 0, maxWidth: '100%' }}>
+                            <div
+                                className="table-wrapper staff-table-scroll"
+                                style={{ minWidth: 0, overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}
+                            >
+                                <table style={{ width: 'max-content', minWidth: '100%', borderCollapse: 'separate', borderSpacing: 0, tableLayout: 'auto' }}>
                                     <thead>
                                         <tr>
-                                            <th style={{ cursor: 'pointer' }} onClick={() => toggleSort('employee_id')}>Employee ID {sortKey === 'employee_id' && (sortDir === 'asc' ? '↑' : '↓')}</th>
-                                            <th style={{ cursor: 'pointer' }} onClick={() => toggleSort('first_name')}>First Name {sortKey === 'first_name' && (sortDir === 'asc' ? '↑' : '↓')}</th>
-                                            <th style={{ cursor: 'pointer' }} onClick={() => toggleSort('last_name')}>Last Name {sortKey === 'last_name' && (sortDir === 'asc' ? '↑' : '↓')}</th>
-                                            <th>Email</th>
-                                            <th style={{ cursor: 'pointer' }} onClick={() => toggleSort('job_title')}>Job Title {sortKey === 'job_title' && (sortDir === 'asc' ? '↑' : '↓')}</th>
-                                            <th style={{ cursor: 'pointer' }} onClick={() => toggleSort('dept')}>Department {sortKey === 'dept' && (sortDir === 'asc' ? '↑' : '↓')}</th>
-                                            <th>Patient Access</th>
-                                            <th style={{ cursor: 'pointer' }} onClick={() => toggleSort('status')}>Status {sortKey === 'status' && (sortDir === 'asc' ? '↑' : '↓')}</th>
-                                            <th style={{ width: 40 }}></th>
+                                            <th
+                                                style={{
+                                                    ...staffHeadCell,
+                                                    width: STAFF_STICKY_W1,
+                                                    minWidth: STAFF_STICKY_W1,
+                                                    cursor: 'pointer',
+                                                    whiteSpace: 'nowrap',
+                                                    position: 'sticky',
+                                                    left: 0,
+                                                    zIndex: 5,
+                                                    background: '#fafbfc',
+                                                    borderBottom: '1px solid var(--border-default)',
+                                                }}
+                                                onClick={() => toggleSort('employee_id')}
+                                            >
+                                                Employee ID {sortKey === 'employee_id' && (sortDir === 'asc' ? '↑' : '↓')}
+                                            </th>
+                                            <th
+                                                style={{
+                                                    ...staffHeadCell,
+                                                    width: STAFF_STICKY_W2,
+                                                    minWidth: STAFF_STICKY_W2,
+                                                    cursor: 'pointer',
+                                                    whiteSpace: 'nowrap',
+                                                    position: 'sticky',
+                                                    left: STAFF_STICKY_W1,
+                                                    zIndex: 5,
+                                                    background: '#fafbfc',
+                                                    borderBottom: '1px solid var(--border-default)',
+                                                }}
+                                                onClick={() => toggleSort('first_name')}
+                                            >
+                                                First Name {sortKey === 'first_name' && (sortDir === 'asc' ? '↑' : '↓')}
+                                            </th>
+                                            <th
+                                                style={{
+                                                    ...staffHeadCell,
+                                                    width: STAFF_STICKY_W3,
+                                                    minWidth: STAFF_STICKY_W3,
+                                                    cursor: 'pointer',
+                                                    whiteSpace: 'nowrap',
+                                                    position: 'sticky',
+                                                    left: STAFF_STICKY_W1 + STAFF_STICKY_W2,
+                                                    zIndex: 5,
+                                                    background: '#fafbfc',
+                                                    boxShadow: '4px 0 10px -4px rgba(15, 23, 42, 0.12)',
+                                                    borderBottom: '1px solid var(--border-default)',
+                                                }}
+                                                onClick={() => toggleSort('last_name')}
+                                            >
+                                                Last Name {sortKey === 'last_name' && (sortDir === 'asc' ? '↑' : '↓')}
+                                            </th>
+                                            <th style={{ ...staffHeadCell, minWidth: 220, whiteSpace: 'nowrap', background: '#fafbfc', borderBottom: '1px solid var(--border-default)' }}>Email</th>
+                                            <th style={{ ...staffHeadCell, minWidth: 130, whiteSpace: 'nowrap', cursor: 'pointer', background: '#fafbfc', borderBottom: '1px solid var(--border-default)' }} onClick={() => toggleSort('job_title')}>Job Title {sortKey === 'job_title' && (sortDir === 'asc' ? '↑' : '↓')}</th>
+                                            <th style={{ ...staffHeadCell, minWidth: 160, whiteSpace: 'nowrap', cursor: 'pointer', background: '#fafbfc', borderBottom: '1px solid var(--border-default)' }} onClick={() => toggleSort('dept')}>Department {sortKey === 'dept' && (sortDir === 'asc' ? '↑' : '↓')}</th>
+                                            <th style={{ ...staffHeadCell, minWidth: 140, whiteSpace: 'nowrap', background: '#fafbfc', borderBottom: '1px solid var(--border-default)' }}>Patient Access</th>
+                                            <th style={{ ...staffHeadCell, minWidth: 88, whiteSpace: 'nowrap', cursor: 'pointer', background: '#fafbfc', borderBottom: '1px solid var(--border-default)' }} onClick={() => toggleSort('status')}>Status {sortKey === 'status' && (sortDir === 'asc' ? '↑' : '↓')}</th>
+                                            <th style={{ ...staffHeadCell, width: 44, minWidth: 44, background: '#fafbfc', borderBottom: '1px solid var(--border-default)' }} />
                                         </tr>
                                     </thead>
                                     <tbody>
                                         {loading && filtered.length === 0 && (
-                                            <tr><td colSpan={9} style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--text-muted)', fontSize: 13 }}>
-                                                <span className="material-icons-round" style={{ fontSize: 24, display: 'block', marginBottom: 8, opacity: 0.4 }}>hourglass_empty</span>
-                                                Loading staff from server...
-                                            </td></tr>
+                                            <tr>
+                                                <td colSpan={9} style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--text-muted)', fontSize: 13 }}>
+                                                    <span className="material-icons-round" style={{ fontSize: 24, display: 'block', marginBottom: 8, opacity: 0.4 }}>hourglass_empty</span>
+                                                    Loading staff from server...
+                                                </td>
+                                            </tr>
                                         )}
                                         {!loading && fetchError && filtered.length === 0 && (
-                                            <tr><td colSpan={9} style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--text-muted)', fontSize: 13 }}>
-                                                <span className="material-icons-round" style={{ fontSize: 24, display: 'block', marginBottom: 8, color: 'var(--critical)' }}>cloud_off</span>
-                                                <div style={{ fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>Could not load staff</div>
-                                                <div style={{ marginBottom: 12 }}>The server is unreachable. Check your connection and try again.</div>
-                                                <button className="btn btn-primary btn-sm" onClick={() => { setLoading(true); fetchStaff(); }}>
-                                                    <span className="material-icons-round" style={{ fontSize: 14 }}>refresh</span> Retry
-                                                </button>
-                                            </td></tr>
+                                            <tr>
+                                                <td colSpan={9} style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--text-muted)', fontSize: 13 }}>
+                                                    <span className="material-icons-round" style={{ fontSize: 24, display: 'block', marginBottom: 8, color: 'var(--critical)' }}>cloud_off</span>
+                                                    <div style={{ fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>Could not load staff</div>
+                                                    <div style={{ marginBottom: 12 }}>The server is unreachable. Check your connection and try again.</div>
+                                                    <button className="btn btn-primary btn-sm" onClick={() => { setLoading(true); fetchStaff(); }}>
+                                                        <span className="material-icons-round" style={{ fontSize: 14 }}>refresh</span> Retry
+                                                    </button>
+                                                </td>
+                                            </tr>
                                         )}
                                         {!loading && !fetchError && filtered.length === 0 && (
-                                            <tr><td colSpan={9} style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--text-muted)', fontSize: 13 }}>
-                                                <span className="material-icons-round" style={{ fontSize: 24, display: 'block', marginBottom: 8, opacity: 0.4 }}>person_off</span>
-                                                {search || deptFilter !== 'all' || statusFilter !== 'all' ? 'No staff match your filters.' : 'No staff members yet. Add staff above to get started.'}
-                                            </td></tr>
+                                            <tr>
+                                                <td colSpan={9} style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--text-muted)', fontSize: 13 }}>
+                                                    <span className="material-icons-round" style={{ fontSize: 24, display: 'block', marginBottom: 8, opacity: 0.4 }}>person_off</span>
+                                                    {search || deptFilter !== 'all' || statusFilter !== 'all' ? 'No staff match your filters.' : 'No staff members yet. Add staff above to get started.'}
+                                                </td>
+                                            </tr>
                                         )}
                                         {paginatedFiltered.map(s => {
                                             const st = statusColors[s.status] || statusColors.active;
+                                            const isSelected = selected?.id === s.id;
+                                            const rowBg = isSelected ? '#edf1f7' : '#ffffff';
                                             return (
-                                                <tr key={s.id} onClick={() => setSelected(selected?.id === s.id ? null : s)} style={{ cursor: 'pointer', background: selected?.id === s.id ? 'rgba(30,58,95,0.05)' : undefined }}>
-                                                    <td style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', fontFamily: "'Montserrat', sans-serif" }}>{s.employee_id}</td>
-                                                    <td style={{ fontWeight: 500 }}>{s.first_name}</td>
-                                                    <td style={{ fontWeight: 600 }}>{s.last_name}</td>
-                                                    <td style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{s.email}</td>
-                                                    <td style={{ color: 'var(--text-secondary)' }}>{s.job_title}</td>
-                                                    <td style={{ color: 'var(--text-secondary)' }}>{s.dept}</td>
-                                                    <td>
+                                                <tr
+                                                    key={s.id}
+                                                    className="staff-split-row"
+                                                    data-selected={isSelected ? 'true' : undefined}
+                                                    onClick={() => setSelected(isSelected ? null : s)}
+                                                    style={{ cursor: 'pointer' }}
+                                                >
+                                                    <td
+                                                        style={{
+                                                            ...staffBodyCell,
+                                                            width: STAFF_STICKY_W1,
+                                                            minWidth: STAFF_STICKY_W1,
+                                                            fontSize: 12,
+                                                            fontWeight: 600,
+                                                            fontFamily: "'Montserrat', sans-serif",
+                                                            overflow: 'hidden',
+                                                            textOverflow: 'ellipsis',
+                                                            whiteSpace: 'nowrap',
+                                                            position: 'sticky',
+                                                            left: 0,
+                                                            zIndex: 2,
+                                                            background: rowBg,
+                                                            borderBottom: '1px solid var(--border-subtle)',
+                                                        }}
+                                                    >
+                                                        {s.employee_id}
+                                                    </td>
+                                                    <td
+                                                        style={{
+                                                            ...staffBodyCell,
+                                                            width: STAFF_STICKY_W2,
+                                                            minWidth: STAFF_STICKY_W2,
+                                                            fontWeight: 500,
+                                                            color: 'var(--text-primary)',
+                                                            overflow: 'hidden',
+                                                            textOverflow: 'ellipsis',
+                                                            whiteSpace: 'nowrap',
+                                                            position: 'sticky',
+                                                            left: STAFF_STICKY_W1,
+                                                            zIndex: 2,
+                                                            background: rowBg,
+                                                            borderBottom: '1px solid var(--border-subtle)',
+                                                        }}
+                                                    >
+                                                        {s.first_name}
+                                                    </td>
+                                                    <td
+                                                        style={{
+                                                            ...staffBodyCell,
+                                                            width: STAFF_STICKY_W3,
+                                                            minWidth: STAFF_STICKY_W3,
+                                                            fontWeight: 600,
+                                                            color: 'var(--text-primary)',
+                                                            overflow: 'hidden',
+                                                            textOverflow: 'ellipsis',
+                                                            whiteSpace: 'nowrap',
+                                                            position: 'sticky',
+                                                            left: STAFF_STICKY_W1 + STAFF_STICKY_W2,
+                                                            zIndex: 2,
+                                                            background: rowBg,
+                                                            boxShadow: '4px 0 10px -4px rgba(15, 23, 42, 0.1)',
+                                                            borderBottom: '1px solid var(--border-subtle)',
+                                                        }}
+                                                    >
+                                                        {s.last_name}
+                                                    </td>
+                                                    <td style={{ ...staffBodyCell, minWidth: 220, maxWidth: 280, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 12, background: rowBg, borderBottom: '1px solid var(--border-subtle)' }}>
+                                                        {s.email}
+                                                    </td>
+                                                    <td style={{ ...staffBodyCell, minWidth: 130, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', background: rowBg, borderBottom: '1px solid var(--border-subtle)' }}>
+                                                        {s.job_title}
+                                                    </td>
+                                                    <td style={{ ...staffBodyCell, minWidth: 160, maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', background: rowBg, borderBottom: '1px solid var(--border-subtle)' }}>
+                                                        {s.dept}
+                                                    </td>
+                                                    <td style={{ ...staffBodyCell, minWidth: 140, background: rowBg, borderBottom: '1px solid var(--border-subtle)' }}>
                                                         <div style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '3px 10px 3px 6px', borderRadius: 20, fontSize: 11, fontWeight: 600, background: s.patient_access ? 'rgba(34,139,34,0.08)' : 'rgba(120,120,120,0.08)', color: s.patient_access ? '#2d8a4e' : '#888', border: `1px solid ${s.patient_access ? 'rgba(34,139,34,0.18)' : 'rgba(120,120,120,0.15)'}` }}>
                                                             <span className="material-icons-round" style={{ fontSize: 13 }}>{s.patient_access ? 'verified_user' : 'shield'}</span>
                                                             {s.patient_access ? 'Granted' : 'None'}
                                                         </div>
                                                     </td>
-                                                    <td><span className="badge" style={{ background: st.bg, color: st.color }}>{st.label}</span></td>
-                                                    <td>
+                                                    <td style={{ ...staffBodyCell, minWidth: 88, background: rowBg, borderBottom: '1px solid var(--border-subtle)' }}>
+                                                        <span className="badge" style={{ background: st.bg, color: st.color }}>{st.label}</span>
+                                                    </td>
+                                                    <td style={{ ...staffBodyCell, width: 44, minWidth: 44, textAlign: 'center', background: rowBg, borderBottom: '1px solid var(--border-subtle)' }}>
                                                         <button className="btn btn-ghost btn-xs" onClick={e => { e.stopPropagation(); handleRemove(s.id); }}>
                                                             <span className="material-icons-round" style={{ fontSize: 14, color: 'var(--text-muted)' }}>delete</span>
                                                         </button>
@@ -985,7 +1486,7 @@ export default function StaffDirectoryManagement() {
 
                         {/* Detail Panel */}
                         {selected && (
-                            <div className="slide-in-right" style={{ display: 'flex', flexDirection: 'column', gap: 14, minWidth: 0 }}>
+                            <div className="slide-in-right" style={{ display: 'flex', flexDirection: 'column', gap: 14, minWidth: 0, alignSelf: 'start' }}>
                                 <div className="card" style={{ padding: '20px 22px', overflow: 'hidden' }}>
                                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14, gap: 8 }}>
                                         <div style={{ minWidth: 0, flex: 1 }}>
@@ -1211,7 +1712,7 @@ export default function StaffDirectoryManagement() {
                 </main>
                 ) : (
                 /* Bulk Import Tab */
-                <main style={{ flex: 1, overflow: 'auto', padding: '20px 24px', background: 'var(--bg-900)' }}>
+                <main style={{ flex: 1, minWidth: 0, overflow: 'auto', padding: '20px 24px', background: 'var(--bg-900)' }}>
                     <div className="fade-in" style={{ marginBottom: 20 }}>
                         <p style={{ fontSize: 13, color: 'var(--text-muted)', maxWidth: 540 }}>Upload a CSV or Excel file to bulk-add staff members. Download a template first to ensure proper formatting.</p>
                     </div>

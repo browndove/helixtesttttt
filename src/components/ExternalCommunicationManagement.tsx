@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import TopBar from '@/components/TopBar';
+import CustomSelect from '@/components/CustomSelect';
 
 type RoleRow = {
     id: string;
@@ -45,7 +46,8 @@ export default function ExternalCommunicationManagement() {
     const [draftFacilityEnabled, setDraftFacilityEnabled] = useState(true);
     const [roles, setRoles] = useState<RoleRow[]>([]);
     const [roleExternal, setRoleExternal] = useState<Record<string, boolean>>({});
-    const [roleSearch, setRoleSearch] = useState('');
+    const [addedListSearch, setAddedListSearch] = useState('');
+    const [addRolePickerId, setAddRolePickerId] = useState('');
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [toast, setToast] = useState<string | null>(null);
@@ -60,18 +62,33 @@ export default function ExternalCommunicationManagement() {
         [roleExternal],
     );
 
-    const filteredRoles = useMemo(
-        () => {
-            const q = roleSearch.trim().toLowerCase();
-            if (!q) return roles;
-            return roles.filter(r => {
-                const name = r.name.toLowerCase();
-                const dept = (r.department || '').toLowerCase();
-                return name.includes(q) || (!!dept && dept.includes(q));
-            });
-        },
-        [roles, roleSearch],
+    /** Roles currently enabled for external messaging (the only rows we show in the list). */
+    const addedRoles = useMemo(
+        () => roles.filter(r => roleExternal[r.id]).sort((a, b) => a.name.localeCompare(b.name)),
+        [roles, roleExternal],
     );
+
+    const filteredAddedRoles = useMemo(() => {
+        const q = addedListSearch.trim().toLowerCase();
+        if (!q) return addedRoles;
+        return addedRoles.filter(r => {
+            const name = r.name.toLowerCase();
+            const dept = (r.department || '').toLowerCase();
+            return name.includes(q) || (!!dept && dept.includes(q));
+        });
+    }, [addedRoles, addedListSearch]);
+
+    const rolesAvailableToAdd = useMemo(
+        () => roles.filter(r => !roleExternal[r.id]).sort((a, b) => a.name.localeCompare(b.name)),
+        [roles, roleExternal],
+    );
+
+    const addRoleFromPicker = () => {
+        const id = addRolePickerId.trim();
+        if (!id) return;
+        setRoleExternal(prev => ({ ...prev, [id]: true }));
+        setAddRolePickerId('');
+    };
 
     const fetchData = useCallback(async () => {
         setLoading(true);
@@ -124,10 +141,6 @@ export default function ExternalCommunicationManagement() {
     useEffect(() => { fetchData(); }, [fetchData]);
 
     const setDraftFacilityEnabledGuarded = (next: boolean) => {
-        if (next && externalRoleCount === 0) {
-            showToast('Select at least one external messaging role before turning this on');
-            return;
-        }
         setDraftFacilityEnabled(next);
     };
 
@@ -135,7 +148,7 @@ export default function ExternalCommunicationManagement() {
         if (!next && draftFacilityEnabled) {
             const others = externalRoleCount - (roleExternal[roleId] ? 1 : 0);
             if (others < 1) {
-                showToast('At least one external messaging role is required while external communication is on');
+                showToast('At least one role must stay on the list while external communication is on');
                 return;
             }
         }
@@ -145,7 +158,7 @@ export default function ExternalCommunicationManagement() {
     const save = async () => {
         if (!facilityId) return;
         if (draftFacilityEnabled && externalRoleCount === 0) {
-            showToast('Turn on at least one role for external messaging, or turn off facility external communication');
+            showToast('Add at least one role for external messaging, or turn off facility external communication');
             return;
         }
         setSaving(true);
@@ -251,9 +264,8 @@ export default function ExternalCommunicationManagement() {
                 >
                     <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 20 }}>
 
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 20, width: '100%', alignItems: 'stretch' }}>
-
-                        <div className="card" style={{ padding: '20px 22px', flex: '1 1 320px', maxWidth: '100%', minWidth: 0, boxSizing: 'border-box' }}>
+                        <div className="card" style={{ padding: '20px 22px', width: '100%', maxWidth: '100%', minWidth: 0, boxSizing: 'border-box' }}>
+                            {/* Facility — full width at top */}
                             <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, marginBottom: 14 }}>
                                 <div style={{
                                     width: 40,
@@ -268,7 +280,7 @@ export default function ExternalCommunicationManagement() {
                                 >
                                     <span className="material-icons-round" style={{ fontSize: 22, color: '#0ea5e9' }}>forum</span>
                                 </div>
-                                <div>
+                                <div style={{ flex: 1, minWidth: 0 }}>
                                     <h2 style={{ fontSize: 16, fontWeight: 700, margin: 0, color: 'var(--text-primary)' }}>Facility</h2>
                                     <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: '6px 0 0', lineHeight: 1.5 }}>
                                         On by default. Off disables external messaging here and in the app.
@@ -326,26 +338,61 @@ export default function ExternalCommunicationManagement() {
 
                             {draftFacilityEnabled && externalRoleCount === 0 && (
                                 <div style={{ marginTop: 12, padding: '10px 12px', borderRadius: 'var(--radius-sm)', background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.25)', fontSize: 12, color: 'var(--text-secondary)' }}>
-                                    You must enable at least one role below before you can save with external communication on.
+                                    Add at least one role in the list below before you can save with external communication on.
                                 </div>
                             )}
-                        </div>
 
-                        <div className="card" style={{ padding: '20px 22px', flex: '3 1 480px', maxWidth: '100%', minWidth: 0, boxSizing: 'border-box' }}>
+                            <div style={{
+                                borderTop: '1px solid var(--border-subtle)',
+                                marginTop: 24,
+                                paddingTop: 24,
+                                opacity: draftFacilityEnabled ? 1 : 0.4,
+                                pointerEvents: draftFacilityEnabled ? 'auto' : 'none',
+                                transition: 'opacity 0.25s ease',
+                            }}>
+
+                            {/* External messaging roles — only roles you have added */}
                             <h2 style={{ fontSize: 16, fontWeight: 700, margin: '0 0 6px', color: 'var(--text-primary)' }}>External messaging roles</h2>
-                            <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: '0 0 10px', lineHeight: 1.5 }}>
-                                Choose which duty roles may send or receive cross-facility messages when this facility allows it. If external communication is on, at least one role must be selected.
+                            <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: '0 0 16px', lineHeight: 1.5 }}>
+                                Add duty roles that may send or receive cross-facility messages when this facility allows it. If external communication is on, keep at least one role on the list.
                             </p>
 
                             {roles.length > 0 && (
-                                <div style={{ marginBottom: 10, display: 'flex', justifyContent: 'flex-end' }}>
-                                    <div style={{ position: 'relative', maxWidth: 260, width: '100%' }}>
+                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'flex-end', marginBottom: 16 }}>
+                                    <div style={{ flex: '1 1 220px', minWidth: 0 }}>
+                                        <label className="label" style={{ marginBottom: 6 }}>Add role</label>
+                                        <CustomSelect
+                                            value={addRolePickerId}
+                                            onChange={v => setAddRolePickerId(v)}
+                                            options={rolesAvailableToAdd.map(r => ({
+                                                label: r.department ? `${r.name} — ${r.department}` : r.name,
+                                                value: r.id,
+                                            }))}
+                                            placeholder={rolesAvailableToAdd.length === 0 ? 'All roles are already added' : '-- Select a role --'}
+                                        />
+                                    </div>
+                                    <button
+                                        type="button"
+                                        className="btn btn-secondary btn-sm"
+                                        onClick={addRoleFromPicker}
+                                        disabled={!addRolePickerId.trim() || rolesAvailableToAdd.length === 0}
+                                        style={{ flexShrink: 0 }}
+                                    >
+                                        <span className="material-icons-round" style={{ fontSize: 14 }}>add</span>
+                                        Add
+                                    </button>
+                                </div>
+                            )}
+
+                            {addedRoles.length > 0 && (
+                                <div style={{ marginBottom: 12, display: 'flex', justifyContent: 'flex-end' }}>
+                                    <div style={{ position: 'relative', maxWidth: 280, width: '100%' }}>
                                         <span className="material-icons-round" style={{ position: 'absolute', left: 9, top: '50%', transform: 'translateY(-50%)', fontSize: 15, color: 'var(--text-disabled)', pointerEvents: 'none' }}>search</span>
                                         <input
                                             className="input"
-                                            placeholder="Search roles or departments..."
-                                            value={roleSearch}
-                                            onChange={e => setRoleSearch(e.target.value)}
+                                            placeholder="Search added roles…"
+                                            value={addedListSearch}
+                                            onChange={e => setAddedListSearch(e.target.value)}
                                             style={{ paddingLeft: 30, fontSize: 12.5, height: 32 }}
                                         />
                                     </div>
@@ -354,24 +401,27 @@ export default function ExternalCommunicationManagement() {
 
                             {roles.length === 0 ? (
                                 <div style={{ fontSize: 13, color: 'var(--text-muted)', padding: '16px 0' }}>No roles found. Create roles under Setup → Roles first.</div>
-                            ) : filteredRoles.length === 0 ? (
-                                <div style={{ fontSize: 13, color: 'var(--text-muted)', padding: '16px 0' }}>No roles match this search.</div>
+                            ) : addedRoles.length === 0 ? (
+                                <div style={{ fontSize: 13, color: 'var(--text-muted)', padding: '20px 16px', textAlign: 'center', borderRadius: 'var(--radius-md)', border: '1px dashed var(--border-default)', background: 'var(--surface-2)' }}>
+                                    No roles added yet. Choose a role above and click Add.
+                                </div>
+                            ) : filteredAddedRoles.length === 0 ? (
+                                <div style={{ fontSize: 13, color: 'var(--text-muted)', padding: '16px 0' }}>No added roles match this search.</div>
                             ) : (
                                 <div style={{ border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)', overflow: 'hidden' }}>
-                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr minmax(120px, auto)', gap: 0, background: 'var(--surface-2)', fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', padding: '10px 14px' }}>
+                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr minmax(100px, auto)', gap: 0, background: 'var(--surface-2)', fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', padding: '10px 14px' }}>
                                         <span>Role</span>
-                                        <span style={{ textAlign: 'right' }}>External</span>
+                                        <span style={{ textAlign: 'right' }}>Remove</span>
                                     </div>
-                                    {filteredRoles.map(r => (
-                                        <label
+                                    {filteredAddedRoles.map(r => (
+                                        <div
                                             key={r.id}
                                             style={{
                                                 display: 'grid',
-                                                gridTemplateColumns: '1fr minmax(120px, auto)',
+                                                gridTemplateColumns: '1fr minmax(100px, auto)',
                                                 alignItems: 'center',
                                                 padding: '12px 14px',
                                                 borderTop: '1px solid var(--border-subtle)',
-                                                cursor: 'pointer',
                                                 gap: 12,
                                             }}
                                         >
@@ -382,19 +432,21 @@ export default function ExternalCommunicationManagement() {
                                                 ) : null}
                                             </div>
                                             <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-                                                <input
-                                                    type="checkbox"
-                                                    className="checkbox"
-                                                    checked={Boolean(roleExternal[r.id])}
-                                                    onChange={e => toggleRoleExternal(r.id, e.target.checked)}
-                                                />
+                                                <button
+                                                    type="button"
+                                                    className="btn btn-ghost btn-xs"
+                                                    onClick={() => toggleRoleExternal(r.id, false)}
+                                                    title="Remove from external messaging"
+                                                >
+                                                    <span className="material-icons-round" style={{ fontSize: 16 }}>close</span>
+                                                    Remove
+                                                </button>
                                             </div>
-                                        </label>
+                                        </div>
                                     ))}
                                 </div>
                             )}
-                        </div>
-
+                            </div>
                         </div>
 
                         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, flexWrap: 'wrap' }}>

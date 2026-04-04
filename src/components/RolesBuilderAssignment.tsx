@@ -491,6 +491,7 @@ export default function RolesBuilderAssignment() {
     // Confirm delete state
     const [confirmDelete, setConfirmDelete] = useState<Role | null>(null);
     const [staffOptions, setStaffOptions] = useState<StaffOption[]>([]);
+    const [facilityExternalEnabled, setFacilityExternalEnabled] = useState(true);
 
     // Expanded chain indicator in table
     const [expandedChainRoleId, setExpandedChainRoleId] = useState<string | null>(null);
@@ -526,12 +527,29 @@ export default function RolesBuilderAssignment() {
 
     const fetchData = useCallback(async () => {
         try {
-            const [rolesRes, deptsRes, policiesRes, staffRes] = await Promise.all([
+            const [rolesRes, deptsRes, policiesRes, staffRes, hospitalRes] = await Promise.all([
                 fetch('/api/proxy/roles'),
                 fetch('/api/proxy/departments'),
                 fetch('/api/proxy/escalation-policies'),
                 fetch('/api/proxy/staff?page_size=100&page_id=1'),
+                fetch('/api/proxy/hospital'),
             ]);
+            // Fetch facility-level external messaging flag
+            if (hospitalRes.ok) {
+                try {
+                    const hospital = await hospitalRes.json();
+                    const fid = typeof hospital?.id === 'string' ? hospital.id : '';
+                    if (fid) {
+                        const facRes = await fetch(`/api/proxy/facilities/${fid}`);
+                        if (facRes.ok) {
+                            const fac = await facRes.json();
+                            const rec = fac && typeof fac === 'object' ? (fac as Record<string, unknown>) : {};
+                            const v = rec.external_messaging_enabled;
+                            setFacilityExternalEnabled(v !== false && v !== 'false' && v !== 0);
+                        }
+                    }
+                } catch { /* best effort */ }
+            }
             // Build department ID → name map
             let deptMap = new Map<string, string>();
             if (deptsRes.ok) {
@@ -1279,7 +1297,7 @@ export default function RolesBuilderAssignment() {
         return (
                 <div className="app-main">
                     <TopBar title="Roles" subtitle="Role Management" />
-                    <main style={{ flex: 1, overflow: 'auto', padding: '24px 28px', background: 'var(--bg-900)' }}>
+                    <main style={{ flex: 1, minWidth: 0, overflow: 'auto', padding: '24px 28px', background: 'var(--bg-900)' }}>
                         <div className="fade-in card">
                             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 20 }}>
                                 <div style={{ ...shimmer, width: 200, height: 16 }} />
@@ -1464,7 +1482,7 @@ export default function RolesBuilderAssignment() {
                     }
                 />
 
-                <main style={{ flex: 1, overflow: 'auto', padding: '24px 28px', background: 'var(--bg-900)' }}>
+                <main style={{ flex: 1, minWidth: 0, overflow: 'auto', padding: '24px 28px', background: 'var(--bg-900)' }}>
 
                     {/* Add Role Multi-Step Form */}
                     {showAddForm && (
@@ -1699,17 +1717,66 @@ export default function RolesBuilderAssignment() {
                         </div>
                     )}
 
-                    <div style={{ display: 'grid', gridTemplateColumns: selectedRole ? '1fr 340px' : '1fr', gap: 20 }}>
-                        {/* Roles Table */}
-                        <div className="fade-in delay-1 card" style={{ padding: 0, overflow: 'hidden' }}>
-                            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                    <div
+                        style={{
+                            display: 'grid',
+                            gridTemplateColumns: selectedRole ? 'minmax(0, 1fr) minmax(300px, 340px)' : '1fr',
+                            gap: 20,
+                            alignItems: 'start',
+                            width: '100%',
+                            minWidth: 0,
+                        }}
+                    >
+                        {/* Roles Table — horizontal scroll when narrow; cells stay single-line */}
+                        <div
+                            className="fade-in delay-1 card"
+                            style={{
+                                padding: 0,
+                                minWidth: 0,
+                                maxWidth: '100%',
+                                overflow: 'hidden',
+                                display: 'flex',
+                                flexDirection: 'column',
+                            }}
+                        >
+                            <div
+                                style={{
+                                    flex: '1 1 auto',
+                                    overflowX: 'auto',
+                                    overflowY: 'hidden',
+                                    WebkitOverflowScrolling: 'touch',
+                                    width: '100%',
+                                    maxWidth: '100%',
+                                    minWidth: 0,
+                                }}
+                            >
+                            <table style={{ width: 'max-content', minWidth: '100%', borderCollapse: 'separate', borderSpacing: 0, tableLayout: 'auto' }}>
                                 <thead>
-                                    <tr style={{ borderBottom: '1px solid var(--border-default)' }}>
-                                        <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Role Name</th>
-                                        <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Department</th>
-                                        <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Priority</th>
-                                        <th style={{ padding: '12px 16px', textAlign: 'center', fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Escalation</th>
-                                        <th style={{ padding: '12px 16px', textAlign: 'right', fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Actions</th>
+                                    <tr>
+                                        <th
+                                            style={{
+                                                padding: '12px 16px',
+                                                textAlign: 'left',
+                                                fontSize: 11,
+                                                fontWeight: 600,
+                                                color: 'var(--text-muted)',
+                                                textTransform: 'uppercase',
+                                                letterSpacing: '0.05em',
+                                                whiteSpace: 'nowrap',
+                                                position: 'sticky',
+                                                left: 0,
+                                                zIndex: 5,
+                                                background: '#ffffff',
+                                                boxShadow: '4px 0 10px -4px rgba(15, 23, 42, 0.12)',
+                                                borderBottom: '1px solid var(--border-default)',
+                                            }}
+                                        >
+                                            Role Name
+                                        </th>
+                                        <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', whiteSpace: 'nowrap', background: '#ffffff', borderBottom: '1px solid var(--border-default)' }}>Department</th>
+                                        <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', whiteSpace: 'nowrap', background: '#ffffff', borderBottom: '1px solid var(--border-default)' }}>Priority</th>
+                                        <th style={{ padding: '12px 16px', textAlign: 'center', fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', whiteSpace: 'nowrap', background: '#ffffff', borderBottom: '1px solid var(--border-default)' }}>Escalation</th>
+                                        <th style={{ padding: '12px 16px', textAlign: 'right', fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', whiteSpace: 'nowrap', background: '#ffffff', borderBottom: '1px solid var(--border-default)' }}>Actions</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -1727,10 +1794,26 @@ export default function RolesBuilderAssignment() {
                                             const chainCount = associatedChains.length;
                                             const isChainExpanded = expandedChainRoleId === role.id;
                                             return (
-                                                <tr key={role.id} onClick={() => { setSelectedId(role.id); setShowOtherChains(false); setShowSignIn(false); setSignInUserId(null); }} style={{ cursor: 'pointer', background: selectedId === role.id ? '#edf1f7' : undefined }}>
-                                                    <td style={{ padding: '12px 16px', position: 'relative' }}>
-                                                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                                            <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--text-primary)' }}>{role.name}</div>
+                                                <tr
+                                                    key={role.id}
+                                                    onClick={() => { setSelectedId(role.id); setShowOtherChains(false); setShowSignIn(false); setSignInUserId(null); }}
+                                                    style={{ cursor: 'pointer' }}
+                                                >
+                                                    <td
+                                                        style={{
+                                                            padding: '12px 16px',
+                                                            position: 'sticky',
+                                                            left: 0,
+                                                            zIndex: 2,
+                                                            whiteSpace: 'nowrap',
+                                                            verticalAlign: 'middle',
+                                                            background: selectedId === role.id ? '#edf1f7' : '#ffffff',
+                                                            boxShadow: '4px 0 10px -4px rgba(15, 23, 42, 0.1)',
+                                                            borderBottom: '1px solid var(--border-subtle)',
+                                                        }}
+                                                    >
+                                                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'nowrap' }}>
+                                                            <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--text-primary)', whiteSpace: 'nowrap' }}>{role.name}</div>
                                                             {!role.enabled && <span className="badge badge-neutral" style={{ fontSize: 9 }}>Disabled</span>}
                                                             {chainCount > 1 && (
                                                                 <button
@@ -1753,7 +1836,7 @@ export default function RolesBuilderAssignment() {
                                                             <div
                                                                 onClick={e => e.stopPropagation()}
                                                                 style={{
-                                                                    position: 'absolute', top: '100%', left: 16, zIndex: 20,
+                                                                    position: 'absolute', top: '100%', left: 16, zIndex: 30,
                                                                     background: 'var(--surface-card)', border: '1px solid var(--border-default)',
                                                                     borderRadius: 'var(--radius-md)', boxShadow: '0 4px 16px rgba(0,0,0,0.10)',
                                                                     padding: '8px 0', minWidth: 220, marginTop: 2,
@@ -1795,17 +1878,17 @@ export default function RolesBuilderAssignment() {
                                                             </div>
                                                         )}
                                                     </td>
-                                                    <td style={{ padding: '12px 16px' }}>
-                                                        <span style={{ fontSize: 13, color: role.department ? 'var(--text-secondary)' : 'var(--text-disabled)' }}>
+                                                    <td style={{ padding: '12px 16px', whiteSpace: 'nowrap', verticalAlign: 'middle', background: selectedId === role.id ? '#edf1f7' : '#ffffff', borderBottom: '1px solid var(--border-subtle)' }}>
+                                                        <span style={{ fontSize: 13, color: role.department ? 'var(--text-secondary)' : 'var(--text-disabled)', whiteSpace: 'nowrap' }}>
                                                             {role.department || 'Unassigned'}
                                                         </span>
                                                     </td>
-                                                    <td style={{ padding: '12px 16px' }}>
+                                                    <td style={{ padding: '12px 16px', whiteSpace: 'nowrap', verticalAlign: 'middle', background: selectedId === role.id ? '#edf1f7' : '#ffffff', borderBottom: '1px solid var(--border-subtle)' }}>
                                                         <span className={`badge ${role.priority === 'Critical' ? 'badge-critical' : role.priority === 'High' ? 'badge-warning' : 'badge-neutral'}`} style={{ fontSize: 10 }}>
                                                             {role.priority || 'Standard'}
                                                         </span>
                                                     </td>
-                                                    <td style={{ padding: '12px 16px', textAlign: 'center' }}>
+                                                    <td style={{ padding: '12px 16px', textAlign: 'center', whiteSpace: 'nowrap', verticalAlign: 'middle', background: selectedId === role.id ? '#edf1f7' : '#ffffff', borderBottom: '1px solid var(--border-subtle)' }}>
                                                         {role.priority === 'Critical' ? (
                                                             role.escalation_levels?.length > 0 ? (
                                                                 <span className="badge badge-info" style={{ fontSize: 10 }}>
@@ -1818,8 +1901,8 @@ export default function RolesBuilderAssignment() {
                                                             <span style={{ fontSize: 11, color: 'var(--text-disabled)' }}>N/A</span>
                                                         )}
                                                     </td>
-                                                    <td style={{ padding: '12px 16px', textAlign: 'right' }}>
-                                                        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6 }}>
+                                                    <td style={{ padding: '12px 16px', textAlign: 'right', whiteSpace: 'nowrap', verticalAlign: 'middle', background: selectedId === role.id ? '#edf1f7' : '#ffffff', borderBottom: '1px solid var(--border-subtle)' }}>
+                                                        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6, flexWrap: 'nowrap' }}>
                                                             <button className="btn btn-secondary btn-xs" onClick={e => { e.stopPropagation(); openEditModal(role); }}>
                                                                 <span className="material-icons-round" style={{ fontSize: 13 }}>edit</span>
                                                             </button>
@@ -1834,8 +1917,9 @@ export default function RolesBuilderAssignment() {
                                     )}
                                 </tbody>
                             </table>
+                            </div>
                             {filteredRoles.length > 0 && (
-                                <div style={{ padding: '10px 16px', borderTop: '1px solid var(--border-subtle)', fontSize: 12, color: 'var(--text-muted)' }}>
+                                <div style={{ padding: '10px 16px', borderTop: '1px solid var(--border-subtle)', fontSize: 12, color: 'var(--text-muted)', flexShrink: 0 }}>
                                     Showing {filteredRoles.length} of {roles.length} roles
                                 </div>
                             )}
@@ -1843,7 +1927,7 @@ export default function RolesBuilderAssignment() {
 
                         {/* Detail Panel */}
                         {selectedRole && (
-                            <div className="fade-in" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                            <div className="fade-in" style={{ display: 'flex', flexDirection: 'column', gap: 16, minWidth: 0, alignSelf: 'start' }}>
                                 {/* Role Header */}
                                 <div className="card" style={{ padding: '18px 20px' }}>
                                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10, marginBottom: 14 }}>
@@ -1890,7 +1974,9 @@ export default function RolesBuilderAssignment() {
                                             { label: 'Sign-in', value: (selectedRole.sign_in_restricted || (selectedRole.sign_in_allowed_user_ids || []).length > 0) ? 'Restricted' : 'Open', icon: 'security' },
                                             {
                                                 label: 'External comm',
-                                                value: selectedRole.external_messaging ? 'Enabled' : 'Disabled',
+                                                value: !facilityExternalEnabled
+                                                    ? 'Disabled'
+                                                    : selectedRole.external_messaging ? 'Enabled' : 'Disabled',
                                                 icon: 'forum',
                                             },
                                         ].map(row => (

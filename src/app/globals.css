@@ -682,6 +682,29 @@ tbody td:first-child {
   font-weight: 500;
 }
 
+/* Staff directory split rows (flex — avoids table/sticky compositing bugs) */
+.staff-split-row {
+  background: #ffffff;
+  transition: background-color 0.12s ease;
+}
+
+.staff-split-row:hover {
+  background: #f5f7fa;
+}
+
+.staff-split-row[data-selected='true'] {
+  background: rgba(30, 58, 95, 0.05);
+}
+
+.staff-split-row[data-selected='true']:hover {
+  background: rgba(30, 58, 95, 0.09);
+}
+
+.staff-table-scroll {
+  isolation: isolate;
+  position: relative;
+}
+
 /* Avatar */
 .avatar {
   width: 34px;
