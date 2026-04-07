@@ -6,25 +6,19 @@ import Text from "@/components/text";
 import { HiMiniInformationCircle } from "react-icons/hi2";
 import { IoChevronDown } from "react-icons/io5";
 
-const TopDiagnosisTable = () => {
-	const [selectedDomain, setSelectedDomain] = useState('All Domains');
+const RoleEscalationsTable = ({ data }: { data: any }) => {
+	const [selectedDomain, setSelectedDomain] = useState('Top Escalated');
 	const [isDropdownOpen, setIsDropdownOpen] = useState(false);
 
-	const domainOptions = ['All Domains', 'Cardiology', 'Pulmonology', 'Endocrine', 'Infectious'];
-	const diagnosisData = [
-		{ rank: 1, diagnosis: 'Congestive heart failure', domain: 'Cardiology', icd10: 'I50', volume: 120, percentage: 12.6 },
-		{ rank: 2, diagnosis: 'COPD exacerbation', domain: 'Pulmonology', icd10: 'J44', volume: 110, percentage: 11.9 },
-		{ rank: 3, diagnosis: 'Diabetic complications', domain: 'Endocrine', icd10: 'E11', volume: 104, percentage: 11.0 },
-		{ rank: 4, diagnosis: 'Chest pain, unspecified', domain: 'Cardiology', icd10: 'R07', volume: 96, percentage: 10.8 },
-		{ rank: 5, diagnosis: 'Sepsis, unspecified', domain: 'Infectious', icd10: 'A41', volume: 94, percentage: 9.4 },
-	];
+	const domainOptions = ['Top Escalated', 'Least Escalated'];
+	const itemsList = selectedDomain === 'Top Escalated' ? (data?.top_escalated_roles || []) : (data?.least_escalated_roles || []);
 
 	return (
 		<DashboardCard padding="none" className="w-full flex flex-col" style={{ padding: 18, height: 440 }}>
 			<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
 				<div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-					<Text variant="body-md-semibold" color="text-primary">Top Diagnosis</Text>
-					<Text variant="body-sm" color="text-secondary">All Departments · Last 6 Months</Text>
+					<Text variant="body-md-semibold" color="text-primary">Role Escalations</Text>
+					<Text variant="body-sm" color="text-secondary">Tracking policy non-responders</Text>
 				</div>
 				<div className="relative">
 					<button onClick={() => setIsDropdownOpen(!isDropdownOpen)} className="rounded-[8px] bg-tertiary flex items-center border-none cursor-pointer" style={{ padding: '8px 12px', gap: 8 }}>
@@ -53,26 +47,20 @@ const TopDiagnosisTable = () => {
 					<thead>
 						<tr className="bg-tertiary border border-tertiary">
 							<th className="text-left font-semibold text-[12px] leading-[100%] text-text-primary" style={{ padding: '12px 20px' }}>Rank</th>
-							<th className="text-left font-semibold text-[12px] leading-[100%] text-text-primary" style={{ padding: '12px 20px' }}>Diagnosis</th>
-							<th className="text-left font-semibold text-[12px] leading-[100%] text-text-primary" style={{ padding: '12px 20px' }}>Domain</th>
-							<th className="text-left font-semibold text-[12px] leading-[100%] text-text-primary" style={{ padding: '12px 20px' }}>ICD-10</th>
-							<th className="text-left font-semibold text-[12px] leading-[100%] text-text-primary" style={{ padding: '12px 20px' }}>Volume</th>
-							<th className="text-left font-semibold text-[12px] leading-[100%] text-text-primary" style={{ padding: '12px 20px' }}>% of Visits</th>
+							<th className="text-left font-semibold text-[12px] leading-[100%] text-text-primary" style={{ padding: '12px 20px' }}>Role</th>
+							<th className="text-left font-semibold text-[12px] leading-[100%] text-text-primary" style={{ padding: '12px 20px' }}>Role ID</th>
+							<th className="text-left font-semibold text-[12px] leading-[100%] text-text-primary" style={{ padding: '12px 20px' }}>Escalations</th>
 						</tr>
 					</thead>
 					<tbody>
-						{diagnosisData.map((item, index) => (
-							<tr key={index} className={`${index % 2 === 0 ? 'bg-primary' : 'bg-tertiary'} ${index < diagnosisData.length - 1 ? 'border-b border-tertiary' : ''}`}>
+						{itemsList.map((item: any, index: number) => (
+							<tr key={index} className={`${index % 2 === 0 ? 'bg-primary' : 'bg-tertiary'} ${index < itemsList.length - 1 ? 'border-b border-tertiary' : ''}`}>
 								<td className="align-middle" style={{ padding: '10px 20px' }}>
-									<div className="w-8 h-8 rounded-[8px] bg-tertiary flex items-center justify-center font-semibold text-[12px] text-text-secondary">{item.rank}</div>
+									<div className="w-8 h-8 rounded-[8px] bg-tertiary flex items-center justify-center font-semibold text-[12px] text-text-secondary">{index + 1}</div>
 								</td>
-								<td className="align-middle font-medium text-[12px] leading-[100%] text-text-primary" style={{ padding: '10px 20px' }}>{item.diagnosis}</td>
-								<td className="align-middle" style={{ padding: '10px 20px' }}>
-									<div className="inline-flex items-center rounded-[7px] bg-tertiary font-medium text-[12px] leading-[100%] text-text-primary" style={{ padding: '5px 10px' }}>{item.domain}</div>
-								</td>
-								<td className="align-middle font-medium text-[12px] leading-[100%] text-text-secondary" style={{ padding: '10px 20px' }}>{item.icd10}</td>
-								<td className="align-middle font-medium text-[12px] leading-[100%] text-text-primary" style={{ padding: '10px 20px' }}>{item.volume}</td>
-								<td className="align-middle font-semibold text-[12px] leading-[100%] text-text-primary" style={{ padding: '10px 20px' }}>{item.percentage}%</td>
+								<td className="align-middle font-medium text-[12px] leading-[100%] text-text-primary" style={{ padding: '10px 20px' }}>{item.role_name}</td>
+								<td className="align-middle font-medium text-[12px] leading-[100%] text-text-secondary" style={{ padding: '10px 20px' }}>{item.role_id}</td>
+								<td className="align-middle font-semibold text-[12px] leading-[100%] text-text-primary" style={{ padding: '10px 20px' }}>{item.escalation_count}</td>
 							</tr>
 						))}
 					</tbody>
@@ -82,10 +70,10 @@ const TopDiagnosisTable = () => {
 	);
 };
 
-const DiagnosisGrid = () => {
+const DiagnosisGrid = ({ data }: { data: any }) => {
 	return (
 		<div className="w-full">
-			<TopDiagnosisTable />
+			<RoleEscalationsTable data={data} />
 		</div>
 	);
 };

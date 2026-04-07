@@ -26,58 +26,68 @@ const MiniDonut = ({ percentage, color }: { percentage: number; color: string })
 	);
 };
 
-const AppointmentCancellationBreakdown = () => {
-	const breakdownData = [
-		{ label: 'No-show / missed check-in', percentage: 40 },
-		{ label: 'Patient rescheduled', percentage: 24 },
-		{ label: 'Insurance / authorization', percentage: 12 },
-		{ label: 'Transportation / weather', percentage: 15 },
-	];
+const AppointmentCancellationBreakdown = ({ data }: { data: any }) => {
+	const depts = (data?.department_metrics || []).slice().sort((a: any, b: any) => b.escalation_rate_vs_dept_critical_messages_percent - a.escalation_rate_vs_dept_critical_messages_percent).slice(0, 4);
 
 	return (
 		<DashboardCard padding="none" className="flex flex-col" style={{ padding: 18, height: 380, gridColumn: 'span 4' }}>
 			<div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 16 }}>
 				<div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-					<Text variant="body-md-semibold" color="text-primary">Appointment Cancellation Breakdown</Text>
-					<Text variant="body-sm" color="text-secondary">All Departments · Last 6 Months</Text>
-				</div>
-				<div className="w-[37px] h-[37px] rounded-[10px] bg-accent-red/10 flex items-center justify-center" style={{ padding: 8 }}>
-					<FaCalendar size={18} className="text-accent-red" />
+					<Text variant="body-md-semibold" color="text-primary">Department Escalation Rates</Text>
+					<Text variant="body-sm" color="text-secondary">Top Escalated Departments</Text>
 				</div>
 			</div>
-			<span className="font-bold text-[24px] leading-[100%] text-accent-red" style={{ marginBottom: 16 }}>6.4%</span>
 			<div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-				{breakdownData.map((item, index) => (
+				{depts.map((dept: any, index: number) => (
 					<div key={index}>
 						<div className="flex items-center justify-between min-h-[48px]">
-							<Text variant="body-sm-semibold" color="text-primary">{item.label}</Text>
-							<MiniDonut percentage={item.percentage} color="#FF5F57" />
+							<Text variant="body-sm-semibold" color="text-primary" className="truncate pr-4">{dept.department_name}</Text>
+							<MiniDonut percentage={Math.round(dept.escalation_rate_vs_dept_critical_messages_percent || 0)} color="#FF5F57" />
 						</div>
-						{index < breakdownData.length - 1 && <div className="w-full h-px border-b border-tertiary" style={{ marginTop: 12 }} />}
+						{index < depts.length - 1 && <div className="w-full h-px border-b border-tertiary" style={{ marginTop: 12 }} />}
 					</div>
 				))}
+				{depts.length === 0 && <div className="flex-1 flex items-center justify-center text-sm text-text-secondary">No data available</div>}
 			</div>
 		</DashboardCard>
 	);
 };
 
-const AppointmentCancellationChart = ({ isFullscreen = false, onToggleFullscreen }: { isFullscreen?: boolean; onToggleFullscreen?: () => void }) => {
-	const chartData = [60, 62, 35, 48, 20, 35];
-	const categories = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN'];
+const shortenDept = (name: string) => {
+	if (!name) return '';
+	const lower = name.toLowerCase();
+	if (lower.includes("administration") || lower.includes("hospital management")) return "Admin / Hosp Mgmt";
+	if (lower.includes("intensive care")) return "ICU";
+	if (lower.includes("emergency")) return "ER";
+	return name;
+};
+
+const AppointmentCancellationChart = ({ isFullscreen = false, onToggleFullscreen, data }: { isFullscreen?: boolean; onToggleFullscreen?: () => void; data?: any }) => {
+	const depts = (data?.department_metrics || []).slice().sort((a: any, b: any) => b.avg_critical_ack_minutes - a.avg_critical_ack_minutes).slice(0, 6);
+	const chartData = depts.map((d: any) => {
+		const val = d.avg_critical_ack_minutes || 0;
+		return val === 0 ? 0.05 : val;
+	});
+	const categories = depts.map((d: any) => shortenDept(d.department_name));
+
 	const { resolvedTheme } = useTheme();
 
 	const chartOptions: ApexCharts.ApexOptions = {
 		chart: { type: 'bar', height: isFullscreen ? 450 : 280, toolbar: { show: false }, zoom: { enabled: false } },
-		colors: ['#FF5F57'],
-		plotOptions: { bar: { borderRadius: 4, columnWidth: '60%' } },
+		colors: ['#ef4444'],
+		fill: { opacity: 0.7 },
+		stroke: { show: false, width: 0 },
+		plotOptions: { bar: { borderRadius: 4, columnWidth: '50%', barHeight: '100%', colors: { backgroundBarColors: [] } } },
 		dataLabels: { enabled: false },
-		grid: { borderColor: 'var(--bg-tertiary)', strokeDashArray: 4, xaxis: { lines: { show: true } }, yaxis: { lines: { show: true } } },
-		xaxis: { categories, axisBorder: { show: false }, axisTicks: { show: false }, labels: { style: { fontFamily: 'Montserrat', fontWeight: 500, fontSize: '10px', colors: 'var(--text-secondary)' } } },
-		yaxis: { min: 0, max: 80, tickAmount: 4, labels: { style: { fontFamily: 'Montserrat', fontWeight: 500, fontSize: '10px', colors: 'var(--text-secondary)' } } },
-		tooltip: { enabled: true, theme: resolvedTheme === "dark" || resolvedTheme === "blue" ? "dark" : "light", style: { fontSize: '12px', fontFamily: "Montserrat" } },
+		grid: { borderColor: '#e5e7eb', strokeDashArray: 0, xaxis: { lines: { show: false } }, yaxis: { lines: { show: true } } },
+		xaxis: { categories, axisBorder: { show: false }, axisTicks: { show: false }, labels: { rotate: 0, rotateAlways: false, style: { fontFamily: 'Montserrat', fontWeight: 500, fontSize: '12px', colors: '#9ca3af' } } },
+		yaxis: { min: 0, tickAmount: 5, labels: { style: { fontFamily: 'Montserrat', fontWeight: 500, fontSize: '12px', colors: '#9ca3af' }, formatter: (val) => val <= 0.05 ? "0" : `${val.toFixed(1)}m` } },
+		tooltip: { enabled: true, theme: resolvedTheme === "dark" || resolvedTheme === "blue" ? "dark" : "light", style: { fontSize: '12px', fontFamily: "Montserrat" },
+            y: { formatter: (val) => val <= 0.05 ? "0 mins" : `${val.toFixed(1)} mins` }
+        },
 	};
 
-	const chartSeries = [{ name: 'Cancellations', data: chartData }];
+	const chartSeries = [{ name: 'Avg Ack Time', data: chartData }];
 
 	useEffect(() => {
 		if (isFullscreen) document.body.style.overflow = 'hidden';
@@ -89,8 +99,8 @@ const AppointmentCancellationChart = ({ isFullscreen = false, onToggleFullscreen
 		<>
 			<div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 16 }}>
 				<div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-					<Text variant="body-md-semibold" color="text-primary">Appointment Cancellation</Text>
-					<Text variant="body-sm" color="text-secondary">All Departments · Last 6 Months</Text>
+					<Text variant="body-md-semibold" color="text-primary">Avg Response Time per Department</Text>
+					<Text variant="body-sm" color="text-secondary">Departments with longest acknowledgment times for critical messages</Text>
 				</div>
 				{onToggleFullscreen && (
 					<button onClick={onToggleFullscreen} className="bg-tertiary rounded-[8px] cursor-pointer hover:bg-tertiary/80 transition-colors" style={{ padding: 8 }}>
@@ -117,16 +127,16 @@ const AppointmentCancellationChart = ({ isFullscreen = false, onToggleFullscreen
 	);
 };
 
-const AppointmentGrid = () => {
+const AppointmentGrid = ({ data }: { data: any }) => {
 	const [isFullscreen, setIsFullscreen] = useState(false);
 
 	return (
 		<>
 			<div style={{ display: 'grid', gridTemplateColumns: 'repeat(12, 1fr)', gap: 16 }}>
-				<AppointmentCancellationBreakdown />
-				<AppointmentCancellationChart isFullscreen={isFullscreen} onToggleFullscreen={() => setIsFullscreen(!isFullscreen)} />
+				<AppointmentCancellationBreakdown data={data} />
+				<AppointmentCancellationChart isFullscreen={isFullscreen} onToggleFullscreen={() => setIsFullscreen(!isFullscreen)} data={data} />
 			</div>
-			{isFullscreen && <AppointmentCancellationChart isFullscreen={isFullscreen} onToggleFullscreen={() => setIsFullscreen(!isFullscreen)} />}
+			{isFullscreen && <AppointmentCancellationChart isFullscreen={isFullscreen} onToggleFullscreen={() => setIsFullscreen(!isFullscreen)} data={data} />}
 		</>
 	);
 };

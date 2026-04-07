@@ -3,8 +3,17 @@
 import * as React from "react";
 import Text from "@/components/text";
 import { TrendingUp, TrendingDown } from "lucide-react";
-import { FaUserDoctor } from "react-icons/fa6";
+import { FaUserDoctor, FaClock, FaFire, FaBolt, FaArrowTrendUp } from "react-icons/fa6";
 import clsx from "clsx";
+
+function fmtMin(minutes?: number): string {
+	if (!minutes || minutes <= 0) return '0m';
+	if (minutes < 1) return `${Math.round(minutes * 60)}s`;
+	if (minutes < 60) return `${minutes.toFixed(1)}m`;
+	const h = Math.floor(minutes / 60);
+	const m = Math.round(minutes % 60);
+	return m > 0 ? `${h}h ${m}m` : `${h}h`;
+}
 
 type KPICardProps = {
 	title: string;
@@ -110,14 +119,14 @@ const KPICard = ({ title, value, change, changeType, icon, iconBgColor, infoText
 	);
 };
 
-const KPIGrid = () => {
+const KPIGrid = ({ data }: { data: any }) => {
 	return (
 		<div className="w-full">
 			<div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16 }}>
-				<KPICard title="Total Patients" value="1,296" change="-13%" changeType="negative" icon={<FaUserDoctor size={16} className="text-accent-primary" />} iconBgColor="#2484C71A" infoText="Total active patients across facilities." animationDelay={0} />
-				<KPICard title="Inpatient" value="462" change="+7%" changeType="positive" icon={<FaUserDoctor size={16} className="text-accent-green" />} iconBgColor="#00C8B31A" infoText="Current inpatients under care." animationDelay={100} />
-				<KPICard title="Outpatient" value="565" change="+12" changeType="positive" icon={<FaUserDoctor size={16} className="text-accent-red" />} iconBgColor="#FF5F571A" infoText="Outpatient visits in progress." animationDelay={200} />
-				<KPICard title="Emergency" value="257" change="+7%" changeType="positive" icon={<FaUserDoctor size={16} className="text-accent-violet" />} iconBgColor="#6974F71A" infoText="Emergency department patient count." animationDelay={300} />
+				<KPICard title="Avg Response Time" value={data ? fmtMin(data.avg_first_read_minutes_all) : "—"} change="Overall" changeType="positive" icon={<FaClock size={16} className="text-accent-primary" />} iconBgColor="#2484C71A" infoText="Average first read time for all messages." animationDelay={0} />
+				<KPICard title="Critical Response" value={data ? fmtMin(data.avg_first_read_minutes_critical) : "—"} change="Critical msg" changeType="positive" icon={<FaFire size={16} className="text-accent-red" />} iconBgColor="#FF5F571A" infoText="Average first read time for critical messages." animationDelay={100} />
+				<KPICard title="Critical Ack Time" value={data ? fmtMin(data.avg_critical_ack_minutes) : "—"} change="Acknowledged" changeType="positive" icon={<FaBolt size={16} className="text-accent-violet" />} iconBgColor="#6974F71A" infoText="Average confirmation time for critical messages." animationDelay={200} />
+				<KPICard title="Escalation Rate" value={data ? `${data.escalation_rate_percent?.toFixed(1) ?? 0}%` : "—"} change={`${data?.escalated_critical_messages ?? 0} escalated`} changeType="negative" icon={<FaArrowTrendUp size={16} className="text-accent-green" />} iconBgColor="#00C8B31A" infoText="Percentage of critical messages that escalated." animationDelay={300} />
 			</div>
 		</div>
 	);

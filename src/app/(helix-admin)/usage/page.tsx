@@ -25,7 +25,7 @@ const TABS: { id: DashboardTab; label: string; color: string; bgColor: string }[
     { id: 'billing', label: 'Staffing & Coverage', color: '#00c8b3', bgColor: 'rgba(0,200,179,0.1)' },
 ];
 
-interface AnalyticsData {
+export interface AnalyticsData {
     active_users_count: number;
     active_users_rate_percent: number;
     registered_staff_count: number;
@@ -201,7 +201,7 @@ export default function UsagePage() {
                             <div className="w-8 h-8 border-2 border-accent-primary border-t-transparent rounded-full animate-spin" />
                         </div>
                     }>
-                        {activeTab === 'patient' && <PatientInsightPage />}
+                        {activeTab === 'patient' && <PatientInsightPage data={data} />}
                         {activeTab === 'billing' && <BillingFinancePage />}
                     </Suspense>
                 )}
