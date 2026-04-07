@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 
 type CalendarRangePickerProps = {
     from: string;
@@ -39,14 +40,36 @@ export default function CalendarRangePicker({ from, to, onChange }: CalendarRang
     const [viewMonth, setViewMonth] = useState(today.getMonth());
     const [hoverDate, setHoverDate] = useState<Date | null>(null);
     const [picking, setPicking] = useState<'from' | 'to'>('from');
+    const [popPos, setPopPos] = useState<{ top: number; right: number }>({ top: 0, right: 0 });
     const ref = useRef<HTMLDivElement>(null);
+    const popRef = useRef<HTMLDivElement>(null);
 
     const fromDate = parseDate(from);
     const toDate = parseDate(to);
 
+    // Position the portal popover relative to the trigger button
+    useEffect(() => {
+        if (!open || !ref.current) return;
+        const updatePos = () => {
+            const rect = ref.current?.getBoundingClientRect();
+            if (!rect) return;
+            setPopPos({ top: rect.bottom + 6, right: window.innerWidth - rect.right });
+        };
+        updatePos();
+        window.addEventListener('scroll', updatePos, true);
+        window.addEventListener('resize', updatePos);
+        return () => {
+            window.removeEventListener('scroll', updatePos, true);
+            window.removeEventListener('resize', updatePos);
+        };
+    }, [open]);
+
+    // Outside-click closes popover
     useEffect(() => {
         const handler = (e: MouseEvent) => {
-            if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+            if (ref.current?.contains(e.target as Node)) return;
+            if (popRef.current?.contains(e.target as Node)) return;
+            setOpen(false);
         };
         document.addEventListener('mousedown', handler);
         return () => document.removeEventListener('mousedown', handler);
@@ -148,9 +171,9 @@ export default function CalendarRangePicker({ from, to, onChange }: CalendarRang
                 </button>
             )}
 
-            {open && (
-                <div style={{
-                    position: 'absolute', top: 'calc(100% + 6px)', left: 0, zIndex: 100,
+            {open && typeof document !== 'undefined' && createPortal(
+                <div ref={popRef} style={{
+                    position: 'fixed', top: popPos.top, right: popPos.right, zIndex: 1000,
                     background: 'var(--surface-card)', border: '1px solid var(--border-default)',
                     borderRadius: 'var(--radius-lg)', boxShadow: '0 8px 24px rgba(0,0,0,0.12)',
                     padding: 14, width: 280, userSelect: 'none',
@@ -265,7 +288,8 @@ export default function CalendarRangePicker({ from, to, onChange }: CalendarRang
                             </button>
                         ))}
                     </div>
-                </div>
+                </div>,
+                document.body
             )}
         </div>
     );
