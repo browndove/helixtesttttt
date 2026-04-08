@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, lazy, Suspense } from "react";
+import { useSearchParams, useRouter, usePathname } from "next/navigation";
 import {
     KpiCard,
     RevenueChart,
@@ -9,6 +10,7 @@ import {
     DailyPatientFlow,
     RedZoneAlerts,
     LiveUpdates,
+    RoleMetricsModal,
 } from "@/components/ugmc-dashboard/executive-overview/components";
 import { FaUsers, FaEnvelope, FaArrowTrendUp, FaShieldHalved } from "react-icons/fa6";
 import CalendarRangePicker from "@/components/CalendarRangePicker";
@@ -54,6 +56,7 @@ export interface AnalyticsData {
     department_metrics: { department_name: string; role_fill_rate_percent: number; escalation_rate_vs_dept_critical_messages_percent: number; filled_roles: number; total_roles: number; critical_messages_sent: number; avg_critical_ack_minutes: number; escalation_notifications: number; critical_filled_roles: number; critical_total_roles: number; critical_role_fill_rate_percent: number }[];
     top_escalated_roles: { role_name: string; role_id: string; escalation_count: number }[];
     least_escalated_roles: { role_name: string; role_id: string; escalation_count: number }[];
+    role_metrics?: { role_id: string; role_name: string; department_id: string; department_name: string; priority: string; filled: boolean; role_fill_rate_percent: number; critical_total_roles: number; critical_filled_roles: number; critical_role_fill_rate_percent: number; total_messages: number; total_calls_made: number; critical_messages: number; standard_messages: number; critical_messages_rate_percent: number; escalated_critical_messages: number; escalation_rate_percent: number; escalation_rate_of_total_messages_percent: number; avg_critical_ack_minutes: number; avg_reply_response_minutes_all: number; avg_reply_response_minutes_critical: number }[];
 }
 
 function fmt(n: number): string {
@@ -63,13 +66,35 @@ function fmt(n: number): string {
 }
 
 export default function UsagePage() {
+    const searchParams = useSearchParams();
+    const router = useRouter();
+    const pathname = usePathname();
+
     const [activeTab, setActiveTab] = useState<DashboardTab>('executive');
     const [revenueFullscreen, setRevenueFullscreen] = useState(false);
     const [patientFlowFullscreen, setPatientFlowFullscreen] = useState(false);
     const [data, setData] = useState<AnalyticsData | null>(null);
     const [loading, setLoading] = useState(true);
-    const [dateFrom, setDateFrom] = useState('');
-    const [dateTo, setDateTo] = useState('');
+    const [roleMetricsModalOpen, setRoleMetricsModalOpen] = useState(false);
+
+    const initialDays = searchParams.get('days');
+    // Compute initial date states if days param exists in the URL
+    const getInitialDates = () => {
+        if (!initialDays) return { from: '', to: '' };
+        const days = parseInt(initialDays, 10);
+        if (isNaN(days)) return { from: '', to: '' };
+        const endDate = new Date();
+        const startDate = new Date();
+        startDate.setDate(endDate.getDate() - days);
+        return {
+            from: startDate.toISOString().split('T')[0],
+            to: endDate.toISOString().split('T')[0]
+        };
+    };
+
+    const initialDateState = getInitialDates();
+    const [dateFrom, setDateFrom] = useState(initialDateState.from);
+    const [dateTo, setDateTo] = useState(initialDateState.to);
 
     const fetchAnalytics = useCallback(async () => {
         setLoading(true);
@@ -80,7 +105,16 @@ export default function UsagePage() {
                 const fromMs = new Date(dateFrom + 'T00:00:00').getTime();
                 const toMs = new Date(dateTo + 'T00:00:00').getTime();
                 const diffDays = Math.max(0, Math.round((toMs - fromMs) / (1000 * 60 * 60 * 24)));
-                params.set('window_days', String(diffDays));
+                params.set('days', String(diffDays));
+                
+                // Keep browser URL strictly in sync
+                const urlParams = new URLSearchParams(searchParams.toString());
+                urlParams.set('days', String(diffDays));
+                router.replace(`${pathname}?${urlParams.toString()}`, { scroll: false });
+            } else if (searchParams.has('days')) {
+                const urlParams = new URLSearchParams(searchParams.toString());
+                urlParams.delete('days');
+                router.replace(`${pathname}?${urlParams.toString()}`, { scroll: false });
             }
             const qs = params.toString();
             const url = `/api/proxy/analytics${qs ? `?${qs}` : ''}`;
@@ -208,7 +242,7 @@ export default function UsagePage() {
                             <div className="w-8 h-8 border-2 border-accent-primary border-t-transparent rounded-full animate-spin" />
                         </div>
                     }>
-                        {activeTab === 'patient' && <PatientInsightPage data={data} />}
+                        {activeTab === 'patient' && <PatientInsightPage data={data} onViewMoreRoles={() => setRoleMetricsModalOpen(true)} />}
                         {activeTab === 'billing' && <BillingFinancePage data={data} />}
                     </Suspense>
                 )}
@@ -306,6 +340,13 @@ export default function UsagePage() {
                 </div>
                 </>)}
             </div>
+
+            {/* Role Metrics Modal */}
+            <RoleMetricsModal
+                isOpen={roleMetricsModalOpen}
+                onClose={() => setRoleMetricsModalOpen(false)}
+                roles={data?.role_metrics || []}
+            />
         </div>
     );
 }

@@ -6,6 +6,7 @@ import Text from "@/components/text";
 import { FaCalendar, FaExpandAlt, FaCompressAlt } from "react-icons/fa";
 import dynamic from "next/dynamic";
 import { useTheme } from "next-themes";
+import clsx from "clsx";
 
 const Chart = dynamic(() => import("react-apexcharts"), { ssr: false });
 
@@ -59,10 +60,10 @@ const shortenRole = (name: string) => {
 	return name;
 };
 
-const AppointmentCancellationChart = ({ isFullscreen = false, onToggleFullscreen, data }: { isFullscreen?: boolean; onToggleFullscreen?: () => void; data?: any }) => {
-	const rolesList = (data?.top_escalated_roles || []).slice(0, 6);
+const AppointmentCancellationChart = ({ isFullscreen = false, onToggleFullscreen, data, onViewMore }: { isFullscreen?: boolean; onToggleFullscreen?: () => void; data?: any; onViewMore?: () => void }) => {
+	const rolesList = (data?.role_metrics || data?.top_escalated_roles || []).slice(0, 6);
 	const chartData = rolesList.map((d: any) => {
-		const val = d.avg_critical_ack_minutes || 0; // Field not in API spec, defaults to 0
+		const val = d.avg_critical_ack_minutes || 0;
 		return val === 0 ? 0.05 : val;
 	});
 	const categories = rolesList.map((d: any) => shortenRole(d.role_name));
@@ -96,7 +97,22 @@ const AppointmentCancellationChart = ({ isFullscreen = false, onToggleFullscreen
 		<>
 			<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
 				<div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-					<Text variant="body-md-semibold" color="text-primary">Average Response Time per Role</Text>
+					<div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+						<Text variant="body-md-semibold" color="text-primary">Average Response Time per Role</Text>
+						{onViewMore && (
+							<button
+								onClick={onViewMore}
+								className={clsx(
+									"px-3 py-1.5 rounded-md text-xs font-semibold transition-all duration-200",
+									"bg-accent-primary/10 hover:bg-accent-primary/20 text-accent-primary",
+									"cursor-pointer whitespace-nowrap"
+								)}
+								title="View detailed role metrics"
+							>
+								View More
+							</button>
+						)}
+					</div>
 					<Text variant="body-sm" color="text-secondary">Roles with longest acknowledgment times for critical messages</Text>
 				</div>
 				{onToggleFullscreen && (
@@ -124,16 +140,16 @@ const AppointmentCancellationChart = ({ isFullscreen = false, onToggleFullscreen
 	);
 };
 
-const AppointmentGrid = ({ data }: { data: any }) => {
+const AppointmentGrid = ({ data, onViewMoreRoles }: { data: any; onViewMoreRoles?: () => void }) => {
 	const [isFullscreen, setIsFullscreen] = useState(false);
 
 	return (
 		<>
 			<div style={{ display: 'grid', gridTemplateColumns: 'repeat(12, 1fr)', gap: 16 }}>
 				<AppointmentCancellationBreakdown data={data} />
-				<AppointmentCancellationChart isFullscreen={isFullscreen} onToggleFullscreen={() => setIsFullscreen(!isFullscreen)} data={data} />
+				<AppointmentCancellationChart isFullscreen={isFullscreen} onToggleFullscreen={() => setIsFullscreen(!isFullscreen)} data={data} onViewMore={onViewMoreRoles} />
 			</div>
-			{isFullscreen && <AppointmentCancellationChart isFullscreen={isFullscreen} onToggleFullscreen={() => setIsFullscreen(!isFullscreen)} data={data} />}
+			{isFullscreen && <AppointmentCancellationChart isFullscreen={isFullscreen} onToggleFullscreen={() => setIsFullscreen(!isFullscreen)} data={data} onViewMore={onViewMoreRoles} />}
 		</>
 	);
 };

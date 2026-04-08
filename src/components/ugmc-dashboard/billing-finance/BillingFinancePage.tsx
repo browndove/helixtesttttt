@@ -74,7 +74,7 @@ const BillingFinancePage = ({ data }: { data?: any }) => {
                     <RoleCoverageChart />
                 </div>
                 <div className="animate-slide-in-up" style={{ animationDelay: '300ms', opacity: 0, animationFillMode: 'forwards' }}>
-                    <TopRejectionReasons />
+                    <TopRejectionReasons data={data} />
                 </div>
             </div>
 

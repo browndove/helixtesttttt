@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo } from "react";
 import Text from "@/components/text";
 import InfoTooltip from "@/components/info-tooltip";
+import RoleCoverageModal from "./RoleCoverageModal";
 import { tailwindTextColors } from "@/lib/theme-colors";
 import clsx from "clsx";
 
@@ -31,6 +32,7 @@ const ServiceDistribution = ({ departments = [] }: ServiceDistributionProps) => 
     const [isHovered, setIsHovered] = useState(false);
     const [bubblesVisible, setBubblesVisible] = useState(false);
     const [legendVisible, setLegendVisible] = useState<number[]>([]);
+    const [modalOpen, setModalOpen] = useState(false);
 
     // Take top 3 departments by total_roles
     const depsKey = JSON.stringify(departments);
@@ -73,7 +75,20 @@ const ServiceDistribution = ({ departments = [] }: ServiceDistributionProps) => 
                         Critical & standard role fill rates
                     </Text>
                 </div>
-                <InfoTooltip text={infoText} show={isHovered} />
+                <div className="flex items-center gap-2">
+                    <InfoTooltip text={infoText} show={isHovered} />
+                    <button
+                        onClick={() => setModalOpen(true)}
+                        className={clsx(
+                            "px-3 py-1.5 rounded-md text-xs font-semibold transition-all duration-200",
+                            "bg-accent-primary/10 hover:bg-accent-primary/20 text-accent-primary",
+                            "cursor-pointer whitespace-nowrap"
+                        )}
+                        title="View detailed role coverage by department"
+                    >
+                        View More
+                    </button>
+                </div>
             </div>
 
             <div className="flex-1 flex gap-[150px] items-center justify-between">
@@ -187,6 +202,13 @@ const ServiceDistribution = ({ departments = [] }: ServiceDistributionProps) => 
                     })}
                 </div>
             </div>
+
+            {/* Role Coverage Modal */}
+            <RoleCoverageModal
+                isOpen={modalOpen}
+                onClose={() => setModalOpen(false)}
+                departments={departments}
+            />
         </div>
     );
 };
