@@ -96,7 +96,7 @@ const AppointmentCancellationChart = ({ isFullscreen = false, onToggleFullscreen
 		<>
 			<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
 				<div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-					<Text variant="body-md-semibold" color="text-primary">Avg Response Time per Role</Text>
+					<Text variant="body-md-semibold" color="text-primary">Average Response Time per Role</Text>
 					<Text variant="body-sm" color="text-secondary">Roles with longest acknowledgment times for critical messages</Text>
 				</div>
 				{onToggleFullscreen && (

@@ -45,7 +45,7 @@ const BillingFinancePage = ({ data }: { data?: any }) => {
             infoText: "Percentage of strictly critical medical response roles currently filled.",
         },
         {
-            title: "Avg Sign-In Time",
+            title: "Average Sign-In Time",
             value: formatTime(data?.avg_sign_in_minutes_since_midnight_utc || 0),
             subtitle: "Average start time of shift.",
             trend: { type: "neutral" as const, value: `Out: ${formatTime(data?.avg_sign_out_minutes_since_midnight_utc || 0)}`, isPositive: true },

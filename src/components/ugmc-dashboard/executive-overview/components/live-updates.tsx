@@ -95,7 +95,7 @@ const LiveUpdates = ({ responseTimes }: LiveUpdatesProps) => {
                         Response Times
                     </Text>
                     <Text variant="body-sm" color="text-secondary">
-                        Avg acknowledgment & read times
+                        Average acknowledgment & read times
                     </Text>
                 </div>
                 <div className="flex items-center gap-2">

@@ -35,8 +35,8 @@ const TotalRevenueGenerated: React.FC = () => {
         <>
             <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                    <Text variant={isModal ? "body-lg-semibold" : "body-md-semibold"} color="text-primary" className="font-bold">Total Revenue Generated</Text>
-                    <Text variant="body-sm" color="text-secondary">All Departments · Last 6 Months</Text>
+                    <Text variant={isModal ? "body-lg-semibold" : "body-md-semibold"} color="text-primary" className="font-bold">Message Volume Trends</Text>
+                    <Text variant="body-sm" color="text-secondary">All Roles · Selected Timeline</Text>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
                     {!isModal && (
@@ -49,7 +49,7 @@ const TotalRevenueGenerated: React.FC = () => {
                             <GrContract className="size-4 text-text-primary" />
                         </button>
                     )}
-                    <InfoTooltip text="Total revenue generated represents the sum of all income from patient services, insurance reimbursements, and other medical billing sources across all departments." show={isHovered} />
+                    <InfoTooltip text="Total messages tracked over the selected timeline across all tracked roles." show={isHovered} />
                 </div>
             </div>
             <div className={`revenue-chart w-full ${isModal ? "h-[500px]" : "h-[280px]"}`}>

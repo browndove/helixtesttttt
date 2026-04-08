@@ -14,10 +14,10 @@ const ClockIcon = () => (
 type ResponseMetric = { name: string; description: string; value: string };
 
 const responseMetrics: ResponseMetric[] = [
-    { name: "Avg Critical Ack Time", description: "Time to acknowledge critical messages", value: "4.2 min" },
-    { name: "Avg Reply Time (All)", description: "Average first reply across all messages", value: "8.7 min" },
-    { name: "Avg Reply Time (Critical)", description: "Average first reply to critical messages", value: "3.1 min" },
-    { name: "Avg Reply Time (Standard)", description: "Average first reply to non-critical messages", value: "12.4 min" },
+    { name: "Average Critical Acknowledgment Time", description: "Time to acknowledge critical messages", value: "4.2 min" },
+    { name: "Average Reply Time (All)", description: "Average first reply across all messages", value: "8.7 min" },
+    { name: "Average Reply Time (Critical)", description: "Average first reply to critical messages", value: "3.1 min" },
+    { name: "Average Reply Time (Standard)", description: "Average first reply to non-critical messages", value: "12.4 min" },
     { name: "Total Calls Made", description: "Voice calls initiated in the period", value: "284" },
 ];
 
@@ -31,7 +31,7 @@ const SubscriptionSpend: React.FC = () => {
                 </div>
             </div>
             <div className="bg-secondary rounded-[10px] flex flex-col items-center" style={{ padding: 12, gap: 8 }}>
-                <Text variant="body-md-semibold" color="text-secondary">Avg Critical Ack</Text>
+                <Text variant="body-md-semibold" color="text-secondary">Average Critical Acknowledgment</Text>
                 <span className="text-[32px] font-bold text-[#2980D3]">4.2 min</span>
             </div>
             <div className="flex-1" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
