@@ -1521,7 +1521,7 @@ export default function StaffDirectoryManagement() {
                                         </div>
                                         <div style={{ gridColumn: '1 / -1', minWidth: 0 }}>
                                             <label className="label">Email</label>
-                                            <input className="input" value={editEmail} onChange={e => setEditEmail(e.target.value)} disabled={!editingSelected || savingEdit} style={{ fontSize: 12, width: '100%', boxSizing: 'border-box', textOverflow: 'ellipsis' }} />
+                                            <input className="input" value={editEmail} onChange={e => setEditEmail(e.target.value)} disabled={true} style={{ fontSize: 12, width: '100%', boxSizing: 'border-box', textOverflow: 'ellipsis' }} />
                                         </div>
                                         <div style={{ minWidth: 0 }}>
                                             <label className="label">Phone</label>

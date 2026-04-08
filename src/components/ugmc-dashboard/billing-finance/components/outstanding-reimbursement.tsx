@@ -4,20 +4,20 @@ import * as React from "react";
 import Text from "@/components/text";
 import DashboardCard from "@/components/ugmc-dashboard/shared/dashboard-card";
 
-type InsurerData = {
+type DeptCoverageData = {
     name: string;
     outstanding: number;
     paid: number;
     total: number;
 };
 
-const insurerData: InsurerData[] = [
-    { name: "Premier Health", outstanding: 125000, paid: 85000, total: 210000 },
-    { name: "Nationwide Mutual", outstanding: 98000, paid: 142000, total: 240000 },
-    { name: "Cosmopolitan Health", outstanding: 76000, paid: 124000, total: 200000 },
-    { name: "Equity Health", outstanding: 54000, paid: 96000, total: 150000 },
-    { name: "Acacia Health", outstanding: 42000, paid: 88000, total: 130000 },
-    { name: "Providence Health", outstanding: 31000, paid: 69000, total: 100000 },
+const deptCoverageData: DeptCoverageData[] = [
+    { name: "Emergency", outstanding: 3, paid: 12, total: 15 },
+    { name: "Surgery", outstanding: 2, paid: 16, total: 18 },
+    { name: "Diagnostics", outstanding: 4, paid: 10, total: 14 },
+    { name: "Outpatient", outstanding: 1, paid: 9, total: 10 },
+    { name: "Medicine", outstanding: 3, paid: 8, total: 11 },
+    { name: "Pharmacy", outstanding: 1, paid: 7, total: 8 },
 ];
 
 const MaximizeIcon = () => (
@@ -35,12 +35,12 @@ const CloseIcon = () => (
 
 const OutstandingReimbursement: React.FC = () => {
     const [isMaximized, setIsMaximized] = React.useState(false);
-    const [animatedBars, setAnimatedBars] = React.useState(insurerData.map(() => ({ outstanding: 0, paid: 0 })));
+    const [animatedBars, setAnimatedBars] = React.useState(deptCoverageData.map(() => ({ outstanding: 0, paid: 0 })));
     const [animatedTotal, setAnimatedTotal] = React.useState(0);
     const [isVisible, setIsVisible] = React.useState(false);
 
-    const maxValue = Math.max(...insurerData.map(i => i.total));
-    const totalOutstanding = insurerData.reduce((sum, i) => sum + i.outstanding, 0);
+    const maxValue = Math.max(...deptCoverageData.map(i => i.total));
+    const totalUnfilled = deptCoverageData.reduce((sum, i) => sum + i.outstanding, 0);
 
     React.useEffect(() => { setIsVisible(true); }, []);
 
@@ -52,24 +52,24 @@ const OutstandingReimbursement: React.FC = () => {
             const elapsed = Date.now() - startTime;
             const progress = Math.min(elapsed / duration, 1);
             const eased = 1 - Math.pow(1 - progress, 3);
-            setAnimatedBars(insurerData.map(item => ({ outstanding: (item.outstanding / maxValue) * 100 * eased, paid: (item.paid / maxValue) * 100 * eased })));
-            setAnimatedTotal(Math.round((totalOutstanding / 1000) * eased));
+            setAnimatedBars(deptCoverageData.map(item => ({ outstanding: (item.outstanding / maxValue) * 100 * eased, paid: (item.paid / maxValue) * 100 * eased })));
+            setAnimatedTotal(Math.round(totalUnfilled * eased));
             if (progress < 1) requestAnimationFrame(animate);
-            else { setAnimatedBars(insurerData.map(item => ({ outstanding: (item.outstanding / maxValue) * 100, paid: (item.paid / maxValue) * 100 }))); setAnimatedTotal(Math.round(totalOutstanding / 1000)); }
+            else { setAnimatedBars(deptCoverageData.map(item => ({ outstanding: (item.outstanding / maxValue) * 100, paid: (item.paid / maxValue) * 100 }))); setAnimatedTotal(totalUnfilled); }
         };
         requestAnimationFrame(animate);
-    }, [isVisible, maxValue, totalOutstanding]);
+    }, [isVisible, maxValue, totalUnfilled]);
 
     const chartContent = (isModal: boolean = false) => (
         <>
             <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                    <Text variant={isModal ? "body-lg-semibold" : "body-md-semibold"} color="text-primary" className="font-bold">Outstanding Reimbursement</Text>
-                    <Text variant="body-sm" color="text-secondary">All Departments · Last 6 Months</Text>
+                    <Text variant={isModal ? "body-lg-semibold" : "body-md-semibold"} color="text-primary" className="font-bold">Dept. Coverage & Escalations</Text>
+                    <Text variant="body-sm" color="text-secondary">Filled vs Unfilled Roles by Department</Text>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                     <div className="bg-accent-primary/10 rounded-[5px] whitespace-nowrap" style={{ padding: '4px 7px' }}>
-                        <Text variant="body-md-semibold" color="accent-primary"><span className="tabular-nums">{animatedTotal}K</span> Total Outstanding</Text>
+                        <Text variant="body-md-semibold" color="accent-primary"><span className="tabular-nums">{animatedTotal}</span> Unfilled</Text>
                     </div>
                     {!isModal && (
                         <button onClick={() => setIsMaximized(true)} className="flex items-center justify-center size-[30px] bg-secondary rounded-[10px] cursor-pointer hover:bg-tertiary transition-colors" title="Maximize"><MaximizeIcon /></button>
@@ -80,9 +80,9 @@ const OutstandingReimbursement: React.FC = () => {
                 </div>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 15 }}>
-                {insurerData.map((insurer, index) => (
-                    <div key={insurer.name} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                        <Text variant="body-sm" color="text-secondary" className="w-[120px] shrink-0">{insurer.name}</Text>
+                {deptCoverageData.map((dept, index) => (
+                    <div key={dept.name} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                        <Text variant="body-sm" color="text-secondary" className="w-[120px] shrink-0">{dept.name}</Text>
                         <div className="flex-1 h-[30px] rounded-[5px] overflow-hidden flex">
                             <div className="h-full bg-accent-red shrink-0 rounded-l-[5px] transition-all duration-100" style={{ width: `${animatedBars[index]?.outstanding || 0}%` }} />
                             <div className="h-full bg-accent-green shrink-0 rounded-r-[5px] transition-all duration-100" style={{ width: `${animatedBars[index]?.paid || 0}%` }} />
@@ -91,18 +91,18 @@ const OutstandingReimbursement: React.FC = () => {
                 ))}
             </div>
             <div className="flex justify-between ml-[130px]">
-                {[0, 50, 100, 150, 200, 250].map((val) => (
-                    <Text key={val} variant="body-xs" color="text-tertiary">{val}K</Text>
+                {[0, 4, 8, 12, 16, 20].map((val) => (
+                    <Text key={val} variant="body-xs" color="text-tertiary">{val}</Text>
                 ))}
             </div>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 20, paddingTop: 8 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
                     <div className="w-[10px] h-[10px] rounded-[2px] bg-accent-red" />
-                    <Text variant="body-sm" color="text-primary">Outstanding</Text>
+                    <Text variant="body-sm" color="text-primary">Unfilled</Text>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
                     <div className="w-[10px] h-[10px] rounded-[2px] bg-accent-green" />
-                    <Text variant="body-sm" color="text-primary">Paid</Text>
+                    <Text variant="body-sm" color="text-primary">Filled</Text>
                 </div>
             </div>
         </>

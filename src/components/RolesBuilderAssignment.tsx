@@ -782,7 +782,7 @@ export default function RolesBuilderAssignment() {
             // Create escalation policy + steps for critical/mandatory roles (max 3 levels)
             const ladderLevels = clampEscalationLevels(newEscLevels);
             let policyLevels = ladderLevels;
-            if (withEscalations && newRoleMandatory && ladderLevels.length > 0) {
+            if (withEscalations && ladderLevels.length > 0) {
                 const policyRes = await fetch('/api/proxy/escalation-policies', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -956,7 +956,7 @@ export default function RolesBuilderAssignment() {
             // 2. Create or update escalation policy for critical/mandatory roles (max 3 levels)
             const ladderLevels = clampEscalationLevels(editEscLevels);
             let finalLevels = ladderLevels;
-            if (withEscalations && editMandatory && ladderLevels.length > 0) {
+            if (withEscalations && ladderLevels.length > 0) {
                 // Check if a policy already exists for this role
                 const existingPolicyRes = await fetch(`/api/proxy/escalation-policies/by-role/${editingRole.id}`);
                 let policyId: string | null = null;
@@ -1198,7 +1198,7 @@ export default function RolesBuilderAssignment() {
                                     <CustomSelect
                                         value={lvl.target}
                                         onChange={v => { const updated = levels.map(l => l.level === lvl.level ? { ...l, target: v } : l); setLevels(updated); }}
-                                        options={roleTargetOptions.map(t => ({ label: t, value: t }))}
+                                        options={roleTargetOptions.filter(t => t === lvl.target || !levels.some(l => l.target === t)).map(t => ({ label: t, value: t }))}
                                         placeholder="-- Select Role --"
                                         style={{ flex: 1 }}
                                     />
@@ -1257,7 +1257,6 @@ export default function RolesBuilderAssignment() {
 
     // --- Step indicators ---
     const renderStepIndicator = (currentStep: number, isCritical: boolean) => {
-        if (!isCritical) return null;
 
         return (
             <div style={{ display: 'flex', alignItems: 'center', gap: 0, marginBottom: 20 }}>
@@ -1411,25 +1410,19 @@ export default function RolesBuilderAssignment() {
 
                                 <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
                                     <button className="btn btn-secondary btn-sm" onClick={() => setEditingRole(null)}>Cancel</button>
-                                    {editMandatory ? (
-                                        <>
-                                            <button
-                                                className="btn btn-secondary btn-sm"
-                                                onClick={() => handleSaveEdit(false)}
-                                                disabled={editSaving || !editName.trim()}
-                                            >
-                                                {editSaving ? 'Saving...' : 'Save Changes'}
-                                            </button>
-                                            <button className="btn btn-primary btn-sm" onClick={() => setEditStep(2)} disabled={!editName.trim()}>
-                                                Next: Escalation Settings
-                                                <span className="material-icons-round" style={{ fontSize: 14 }}>arrow_forward</span>
-                                            </button>
-                                        </>
-                                    ) : (
-                                        <button className="btn btn-primary btn-sm" onClick={() => handleSaveEdit()} disabled={editSaving || !editName.trim()} style={{ opacity: editSaving ? 0.7 : 1 }}>
+                                    <>
+                                        <button
+                                            className="btn btn-secondary btn-sm"
+                                            onClick={() => handleSaveEdit(false)}
+                                            disabled={editSaving || !editName.trim()}
+                                        >
                                             {editSaving ? 'Saving...' : 'Save Changes'}
                                         </button>
-                                    )}
+                                        <button className="btn btn-primary btn-sm" onClick={() => setEditStep(2)} disabled={!editName.trim()}>
+                                            Next: Escalation Settings
+                                            <span className="material-icons-round" style={{ fontSize: 14 }}>arrow_forward</span>
+                                        </button>
+                                    </>
                                 </div>
                             </>
                         )}
@@ -1676,23 +1669,16 @@ export default function RolesBuilderAssignment() {
                                             <span className="material-icons-round" style={{ fontSize: 14 }}>arrow_back</span>
                                             Cancel
                                         </button>
-                                        {newRoleMandatory ? (
-                                            <div style={{ display: 'flex', gap: 8 }}>
-                                                <button className="btn btn-secondary btn-sm" onClick={() => handleAddRole(false)} disabled={!newRoleName.trim()}>
-                                                    <span className="material-icons-round" style={{ fontSize: 14 }}>skip_next</span>
-                                                    Skip Escalation
-                                                </button>
-                                                <button className="btn btn-primary btn-sm" onClick={() => setAddStep(3)} disabled={!newRoleName.trim()}>
-                                                    Next: Escalation Settings
-                                                    <span className="material-icons-round" style={{ fontSize: 14 }}>arrow_forward</span>
-                                                </button>
-                                            </div>
-                                        ) : (
-                                            <button className="btn btn-primary btn-sm" onClick={() => handleAddRole()} disabled={!newRoleName.trim()}>
-                                                <span className="material-icons-round" style={{ fontSize: 14 }}>check</span>
-                                                Create Role
+                                        <div style={{ display: 'flex', gap: 8 }}>
+                                            <button className="btn btn-secondary btn-sm" onClick={() => handleAddRole(false)} disabled={!newRoleName.trim()}>
+                                                <span className="material-icons-round" style={{ fontSize: 14 }}>skip_next</span>
+                                                Skip Escalation
                                             </button>
-                                        )}
+                                            <button className="btn btn-primary btn-sm" onClick={() => setAddStep(3)} disabled={!newRoleName.trim()}>
+                                                Next: Escalation Settings
+                                                <span className="material-icons-round" style={{ fontSize: 14 }}>arrow_forward</span>
+                                            </button>
+                                        </div>
                                     </div>
                                 </>
                             )}

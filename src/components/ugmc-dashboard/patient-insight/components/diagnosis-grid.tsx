@@ -50,10 +50,19 @@ const RoleEscalationsTable = ({ data }: { data: any }) => {
 							<th className="text-left font-semibold text-[12px] leading-[100%] text-text-primary" style={{ padding: '12px 20px' }}>Role</th>
 							<th className="text-left font-semibold text-[12px] leading-[100%] text-text-primary" style={{ padding: '12px 20px' }}>Role ID</th>
 							<th className="text-left font-semibold text-[12px] leading-[100%] text-text-primary" style={{ padding: '12px 20px' }}>Escalations</th>
+							<th className="text-left font-semibold text-[12px] leading-[100%] text-text-primary" style={{ padding: '12px 20px' }}>Total Msgs</th>
+							<th className="text-left font-semibold text-[12px] leading-[100%] text-text-primary" style={{ padding: '12px 20px' }}>Escalation Rate</th>
 						</tr>
 					</thead>
 					<tbody>
-						{itemsList.map((item: any, index: number) => (
+						{itemsList.map((item: any, index: number) => {
+							const rate = item.total_messages_for_role > 0 ? (item.escalation_count / item.total_messages_for_role) * 100 : 0;
+							let rateClass = 'text-text-secondary bg-tertiary';
+							if (rate > 15) rateClass = 'text-accent-red bg-accent-red/10';
+							else if (rate > 5) rateClass = 'text-accent-primary bg-accent-primary/10';
+							else if (selectedDomain === 'Least Escalated' && rate === 0) rateClass = 'text-accent-green bg-accent-green/10';
+
+							return (
 							<tr key={index} className={`${index % 2 === 0 ? 'bg-primary' : 'bg-tertiary'} ${index < itemsList.length - 1 ? 'border-b border-tertiary' : ''}`}>
 								<td className="align-middle" style={{ padding: '10px 20px' }}>
 									<div className="w-8 h-8 rounded-[8px] bg-tertiary flex items-center justify-center font-semibold text-[12px] text-text-secondary">{index + 1}</div>
@@ -61,8 +70,15 @@ const RoleEscalationsTable = ({ data }: { data: any }) => {
 								<td className="align-middle font-medium text-[12px] leading-[100%] text-text-primary" style={{ padding: '10px 20px' }}>{item.role_name}</td>
 								<td className="align-middle font-medium text-[12px] leading-[100%] text-text-secondary" style={{ padding: '10px 20px' }}>{item.role_id}</td>
 								<td className="align-middle font-semibold text-[12px] leading-[100%] text-text-primary" style={{ padding: '10px 20px' }}>{item.escalation_count}</td>
+								<td className="align-middle font-medium text-[12px] leading-[100%] text-text-primary" style={{ padding: '10px 20px' }}>{item.total_messages_for_role}</td>
+								<td className="align-middle" style={{ padding: '10px 20px' }}>
+									<div className={`inline-flex items-center rounded-[7px] font-bold text-[12px] ${rateClass}`} style={{ padding: '4px 8px' }}>
+										{rate.toFixed(1)}%
+									</div>
+								</td>
 							</tr>
-						))}
+							);
+						})}
 					</tbody>
 				</table>
 			</div>

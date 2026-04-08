@@ -3,7 +3,7 @@
 import * as React from "react";
 import {
     KPICard,
-    TotalRevenueGenerated,
+    RoleCoverageChart,
     TopRejectionReasons,
     OutstandingReimbursement,
     ClaimsOwedByDepartment,
@@ -12,38 +12,47 @@ import {
     SpendingByCategory,
 } from "./components";
 
-const kpiData = [
-    {
-        title: "Claim Rejection Rate",
-        value: "12.4%",
-        subtitle: "Claims denied on first submission.",
-        trend: { type: "down" as const, value: "-2.1%", isPositive: true },
-        infoText: "The percentage of insurance claims that are rejected or denied by insurers on the first submission. Lower rates indicate better documentation and billing accuracy.",
-    },
-    {
-        title: "Reimbursement Rate",
-        value: "78.3%",
-        subtitle: "Average Reimbursement Rate.",
-        trend: { type: "up" as const, value: "+7%", isPositive: true },
-        infoText: "The average percentage of reimbursements that are approved by insurance companies. Higher claim approval rates mean more successful reimbursements.",
-    },
-    {
-        title: "Outstanding Reimbursement",
-        value: "GH₵ 847K",
-        subtitle: "Total Outstanding Reimbursement.",
-        trend: { type: "down" as const, value: "-7%", isPositive: false },
-        infoText: "The total amount of money owed by insurance companies for submitted claims that are still pending payment. Lower amounts indicate faster payment cycles.",
-    },
-    {
-        title: "Collection Efficiency",
-        value: "90.1%",
-        subtitle: "Expected vs Current reimbursement.",
-        trend: { type: "up" as const, value: "+2.1%", isPositive: true },
-        infoText: "The percentage of billed amounts that have been successfully collected. This measures how effectively the hospital converts billed services into actual revenue.",
-    },
-];
+function formatTime(minutes: number): string {
+    if (!minutes || minutes <= 0) return '—';
+    const h = Math.floor(minutes / 60);
+    const m = Math.floor(minutes % 60);
+    const ampm = h >= 12 ? 'PM' : 'AM';
+    const hour12 = h % 12 || 12;
+    return `${hour12}:${m.toString().padStart(2, '0')} ${ampm}`;
+}
 
-const BillingFinancePage = () => {
+const BillingFinancePage = ({ data }: { data?: any }) => {
+    const kpiData = [
+        {
+            title: "Total Active Users",
+            value: data?.active_users_count !== undefined ? data.active_users_count.toString() : "—",
+            subtitle: `${data?.active_users_rate_percent?.toFixed(1) || 0}% of registered staff`,
+            trend: { type: "up" as const, value: `${data?.total_messages || 0} Msgs Sent`, isPositive: true },
+            infoText: "Number of unique staff active in the current timeframe out of total staff.",
+        },
+        {
+            title: "Role Fill Rate",
+            value: data?.role_fill_rate_percent !== undefined ? `${data.role_fill_rate_percent.toFixed(1)}%` : "—",
+            subtitle: `${data?.filled_roles || 0} of ${data?.total_roles || 0} filled`,
+            trend: { type: "up" as const, value: `${data?.total_roles || 0} Roles Total`, isPositive: true },
+            infoText: "Percentage of defined roles currently assigned to staff.",
+        },
+        {
+            title: "Critical Role Fill",
+            value: data?.critical_role_fill_rate_percent !== undefined ? `${data.critical_role_fill_rate_percent.toFixed(1)}%` : "—",
+            subtitle: `${data?.critical_filled_roles || 0} of ${data?.critical_total_roles || 0} filled`,
+            trend: { type: "up" as const, value: `${data?.critical_total_roles || 0} Critical Total`, isPositive: true },
+            infoText: "Percentage of strictly critical medical response roles currently filled.",
+        },
+        {
+            title: "Avg Sign-In Time",
+            value: formatTime(data?.avg_sign_in_minutes_since_midnight_utc || 0),
+            subtitle: "Average start time of shift.",
+            trend: { type: "neutral" as const, value: `Out: ${formatTime(data?.avg_sign_out_minutes_since_midnight_utc || 0)}`, isPositive: true },
+            infoText: "Mean UTC clock time at which staff members sign into their roles.",
+        },
+    ];
+
     return (
         <div className="w-full flex flex-col" style={{ gap: 15 }}>
             {/* KPI Cards */}
@@ -59,10 +68,10 @@ const BillingFinancePage = () => {
                 ))}
             </div>
 
-            {/* Total Revenue Generated + Top Rejection Reasons */}
+            {/* Role Coverage Chart + Top Rejection Reasons */}
             <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 16 }}>
                 <div className="animate-slide-in-up" style={{ animationDelay: '200ms', opacity: 0, animationFillMode: 'forwards' }}>
-                    <TotalRevenueGenerated />
+                    <RoleCoverageChart />
                 </div>
                 <div className="animate-slide-in-up" style={{ animationDelay: '300ms', opacity: 0, animationFillMode: 'forwards' }}>
                     <TopRejectionReasons />
@@ -88,7 +97,7 @@ const BillingFinancePage = () => {
                     <TopVendors />
                 </div>
                 <div className="animate-slide-in-up" style={{ animationDelay: '800ms', opacity: 0, animationFillMode: 'forwards' }}>
-                    <SpendingByCategory />
+                    <SpendingByCategory data={data} />
                 </div>
             </div>
         </div>

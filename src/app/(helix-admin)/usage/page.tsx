@@ -75,8 +75,13 @@ export default function UsagePage() {
         setLoading(true);
         try {
             const params = new URLSearchParams();
-            if (dateFrom) params.set('from', dateFrom);
-            if (dateTo) params.set('to', dateTo);
+            if (dateFrom && dateTo) {
+                // Backend only supports window_days — convert date range to days
+                const fromMs = new Date(dateFrom + 'T00:00:00').getTime();
+                const toMs = new Date(dateTo + 'T00:00:00').getTime();
+                const diffDays = Math.max(0, Math.round((toMs - fromMs) / (1000 * 60 * 60 * 24)));
+                params.set('window_days', String(diffDays));
+            }
             const qs = params.toString();
             const url = `/api/proxy/analytics${qs ? `?${qs}` : ''}`;
             console.log('[usage] Fetching:', url);
@@ -134,9 +139,11 @@ export default function UsagePage() {
                                 {TABS.find(t => t.id === activeTab)?.label ?? 'Usage Summary'}
                             </span>
                             <span style={{ fontSize: 12, color: '#9ca3af', margin: 0, lineHeight: 1.3 }}>
-                                {dateFrom && dateTo
-                                    ? `${new Date(dateFrom + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} \u2014 ${new Date(dateTo + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
-                                    : `Last ${data?.window_days ?? 30} days`}
+                                {dateFrom && dateTo && dateFrom === dateTo
+                                    ? `Today \u2014 ${new Date(dateFrom + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
+                                    : dateFrom && dateTo
+                                        ? `${new Date(dateFrom + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} \u2014 ${new Date(dateTo + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
+                                        : (data?.window_days === 0 ? 'Today' : `Last ${data?.window_days ?? 30} days`)}
                             </span>
                         </div>
 
@@ -202,7 +209,7 @@ export default function UsagePage() {
                         </div>
                     }>
                         {activeTab === 'patient' && <PatientInsightPage data={data} />}
-                        {activeTab === 'billing' && <BillingFinancePage />}
+                        {activeTab === 'billing' && <BillingFinancePage data={data} />}
                     </Suspense>
                 )}
 

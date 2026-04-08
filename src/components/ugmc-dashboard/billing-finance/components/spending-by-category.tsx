@@ -17,19 +17,24 @@ type Category = {
     textColor: string;
 };
 
-const categories: Category[] = [
-    { name: "ER/Clinical", amount: "GH₵ 58.5K", percentage: "41%", color: "#FF5F57", bgColor: "#FF5F571A", textColor: "#FF5F57" },
-    { name: "Diagnostics", amount: "GH₵ 32.4K", percentage: "23%", color: "#00C8B3", bgColor: "#00C8B31A", textColor: "#089A8A" },
-    { name: "Billing & Subscriptions", amount: "GH₵ 21.6K", percentage: "15%", color: "#2980D3", bgColor: "#2980D31A", textColor: "#2980D3" },
-    { name: "Security", amount: "GH₵ 14.1K", percentage: "10%", color: "#FFCA57", bgColor: "#FFCA5733", textColor: "#C68904" },
-    { name: "Telecom/Internet", amount: "GH₵ 14.4K", percentage: "11%", color: "#8F97F9", bgColor: "#8F97F91A", textColor: "#8F97F9" },
-];
-
-const SpendingByCategory: React.FC = () => {
+const MessageVolumeBreakdown: React.FC<{ data?: any }> = ({ data }) => {
     const { resolvedTheme } = useTheme();
     const [animatedTotal, setAnimatedTotal] = React.useState(0);
     const [isVisible, setIsVisible] = React.useState(false);
-    const totalAmount = 141000;
+    
+    // Derived metrics
+    const standard = data?.standard_messages || 12450;
+    const criticalNonEscalated = (data?.critical_messages || 4500) - (data?.escalated_critical_messages || 0);
+    const escalated = data?.escalated_critical_messages || 1800;
+    const totalAmount = data?.total_messages || (standard + criticalNonEscalated + escalated);
+
+    const getPercent = (val: number) => totalAmount > 0 ? Math.round((val / totalAmount) * 100) + "%" : "0%";
+
+    const categories: Category[] = [
+        { name: "Standard Messages", amount: standard.toLocaleString(), percentage: getPercent(standard), color: "#00C8B3", bgColor: "#00C8B31A", textColor: "#089A8A" },
+        { name: "Critical Messages", amount: criticalNonEscalated.toLocaleString(), percentage: getPercent(criticalNonEscalated), color: "#FFCA57", bgColor: "#FFCA5733", textColor: "#C68904" },
+        { name: "Escalated Messages", amount: escalated.toLocaleString(), percentage: getPercent(escalated), color: "#FF5F57", bgColor: "#FF5F571A", textColor: "#FF5F57" },
+    ];
 
     React.useEffect(() => { setIsVisible(true); }, []);
 
@@ -46,7 +51,7 @@ const SpendingByCategory: React.FC = () => {
             else setAnimatedTotal(totalAmount);
         };
         requestAnimationFrame(animate);
-    }, [isVisible]);
+    }, [isVisible, totalAmount]);
 
     const chartOptions: ApexCharts.ApexOptions = {
         chart: {
@@ -54,7 +59,7 @@ const SpendingByCategory: React.FC = () => {
             sparkline: { enabled: false },
             animations: { enabled: true, speed: 1200, animateGradually: { enabled: true, delay: 150 }, dynamicAnimation: { enabled: true, speed: 350 } },
         },
-        colors: ["#FF5F57", "#00C8B3", "#2980D3", "#FFCA57", "#8F97F9"],
+        colors: ["#00C8B3", "#FFCA57", "#FF5F57"],
         plotOptions: { pie: { donut: { size: "43%", labels: { show: true, name: { show: false }, value: { show: false }, total: { show: false } } } } },
         dataLabels: { enabled: false },
         stroke: { show: false },
@@ -85,26 +90,25 @@ const SpendingByCategory: React.FC = () => {
         },
     };
 
-    const chartSeries = [58500, 32400, 21600, 14100, 14400];
+    const chartSeries = [standard, criticalNonEscalated, escalated];
 
     return (
         <DashboardCard className="flex flex-col flex-1" padding="none" style={{ padding: 16, gap: 15, height: 680 }}>
             <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                    <Text variant="body-md-semibold" color="text-primary" className="font-bold">Spending by Category</Text>
-                    <Text variant="body-sm" color="text-secondary">Operational breakdown</Text>
+                    <Text variant="body-md-semibold" color="text-primary" className="font-bold">Message Volume Breakdown</Text>
+                    <Text variant="body-sm" color="text-secondary">By priority level</Text>
                 </div>
                 <button className="text-[12px] font-semibold text-[#2980D3] rounded-[6px] bg-[#2980D31A] hover:bg-[#2980D326] transition-colors" style={{ padding: '6px 12px' }}>View All</button>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                <Text variant="body-sm" color="text-secondary">Total</Text>
-                <span className="text-[32px] font-bold text-[#2980D3] tabular-nums">GH₵ {animatedTotal.toLocaleString()}</span>
+                <Text variant="body-sm" color="text-secondary">Total Messages</Text>
+                <span className="text-[32px] font-bold text-[#2980D3] tabular-nums">{animatedTotal.toLocaleString()}</span>
             </div>
             <div className="relative w-full h-[400px] bg-tertiary rounded-[10px]" style={{ padding: 24 }}>
                 <Chart options={chartOptions} series={chartSeries} type="donut" width="100%" height="100%" />
                 <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none gap-0">
-                    <Text variant="body-xs" color="text-primary" className="font-medium leading-none">GH₵</Text>
-                    <span className="text-[18px] font-bold text-text-primary leading-none">141k</span>
+                    <span className="text-[18px] font-bold text-text-primary leading-none tabular-nums pt-1">{totalAmount > 1000 ? (totalAmount / 1000).toFixed(1) + 'k' : totalAmount}</span>
                 </div>
             </div>
             <div className="shrink-0" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -132,4 +136,4 @@ const SpendingByCategory: React.FC = () => {
     );
 };
 
-export default SpendingByCategory;
+export default MessageVolumeBreakdown;

@@ -18,13 +18,9 @@ export async function GET(req: NextRequest) {
         const { searchParams } = new URL(req.url);
         const url = new URL(`${API_BASE_URL}/api/v1/facilities/${facilityId}/usage-metrics`);
 
-        // Forward optional date range params
-        const from = searchParams.get('from');
-        const to = searchParams.get('to');
+        // Forward optional date range param — backend expects 'days'
         const windowDays = searchParams.get('window_days');
-        if (from) url.searchParams.set('from', from);
-        if (to) url.searchParams.set('to', to);
-        if (windowDays) url.searchParams.set('window_days', windowDays);
+        if (windowDays !== null) url.searchParams.set('days', windowDays);
 
         console.log('[analytics] Request to:', url.toString());
 

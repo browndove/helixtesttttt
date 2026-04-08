@@ -1,5 +1,5 @@
 export { default as KPICard } from "./kpi-card";
-export { default as TotalRevenueGenerated } from "./total-revenue-generated";
+export { default as RoleCoverageChart } from "./total-revenue-generated";
 export { default as TopRejectionReasons } from "./top-rejection-reasons";
 export { default as OutstandingReimbursement } from "./outstanding-reimbursement";
 export { default as ClaimsOwedByDepartment } from "./claims-owed-by-department";

@@ -4,11 +4,11 @@ import * as React from "react";
 import Text from "@/components/text";
 import DashboardCard from "@/components/ugmc-dashboard/shared/dashboard-card";
 
-type Vendor = {
+type EscalatedRole = {
     rank: number;
     name: string;
-    category: string;
-    amount: string;
+    department: string;
+    escalations: string;
     trend: { value: string; isPositive: boolean };
 };
 
@@ -26,12 +26,12 @@ const IncreaseIcon = () => (
     </svg>
 );
 
-const vendors: Vendor[] = [
-    { rank: 1, name: "PharmaCare Ghana Ltd", category: "Pharmaceuticals", amount: "GH₵ 385K", trend: { value: "-2.1%", isPositive: false } },
-    { rank: 2, name: "MedEquip Solutions", category: "Medical Equipment", amount: "GH₵ 268K", trend: { value: "+7%", isPositive: true } },
-    { rank: 3, name: "Ghana Energy Co.", category: "Utilities", amount: "GH₵ 195K", trend: { value: "+7%", isPositive: true } },
-    { rank: 4, name: "Cleantech Services", category: "Facilities", amount: "GH₵ 167K", trend: { value: "+7%", isPositive: true } },
-    { rank: 5, name: "Lab Diagnostics Inc", category: "Lab Supplies", amount: "GH₵ 142K", trend: { value: "-2.1%", isPositive: false } },
+const escalatedRoles: EscalatedRole[] = [
+    { rank: 1, name: "ER Physician On-Call", department: "Emergency", escalations: "18", trend: { value: "+12%", isPositive: false } },
+    { rank: 2, name: "ICU Charge Nurse", department: "Medicine", escalations: "14", trend: { value: "+5%", isPositive: false } },
+    { rank: 3, name: "Surgical Resident", department: "Surgery", escalations: "11", trend: { value: "-3%", isPositive: true } },
+    { rank: 4, name: "Radiology Tech", department: "Diagnostics", escalations: "8", trend: { value: "-7%", isPositive: true } },
+    { rank: 5, name: "Lab Supervisor", department: "Diagnostics", escalations: "6", trend: { value: "+2%", isPositive: false } },
 ];
 
 const TopVendors: React.FC = () => {
@@ -39,33 +39,33 @@ const TopVendors: React.FC = () => {
         <DashboardCard className="flex flex-col flex-1" padding="none" style={{ padding: 20, gap: 10, height: 680 }}>
             <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-                    <Text variant="body-md-semibold" color="text-primary" className="font-bold">Top 10 Vendors</Text>
-                    <Text variant="body-sm" color="text-secondary">By amount spent (Last 30 days)</Text>
+                    <Text variant="body-md-semibold" color="text-primary" className="font-bold">Top Escalated Roles</Text>
+                    <Text variant="body-sm" color="text-secondary">By escalation count · Current Window</Text>
                 </div>
                 <button className="text-[12px] font-semibold text-[#0EAF9F] rounded-[6px] bg-[#0EAF9F1A] hover:bg-[#0EAF9F26] transition-colors" style={{ padding: '6px 12px' }}>View All</button>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-                <Text variant="body-sm" color="text-secondary">Total</Text>
-                <span className="text-[32px] font-bold" style={{ color: "#0EAF9F" }}>GH₵ 67,000</span>
+                <Text variant="body-sm" color="text-secondary">Total Escalations</Text>
+                <span className="text-[32px] font-bold" style={{ color: "#0EAF9F" }}>57</span>
             </div>
             <div className="flex-1" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                {vendors.map((vendor) => (
-                    <div key={vendor.rank} className="bg-secondary rounded-[10px] flex items-center" style={{ padding: 16, height: 71 }}>
+                {escalatedRoles.map((role) => (
+                    <div key={role.rank} className="bg-secondary rounded-[10px] flex items-center" style={{ padding: 16, height: 71 }}>
                         <div className="w-full" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
                             <div className="flex-1 min-w-0" style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-                                <Text variant="heading-lg" color="text-tertiary" className="font-semibold shrink-0">{vendor.rank}</Text>
+                                <Text variant="heading-lg" color="text-tertiary" className="font-semibold shrink-0">{role.rank}</Text>
                                 <div className="flex-1 min-w-0" style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-                                    <Text variant="body-md-semibold" color="text-primary" className="truncate">{vendor.name}</Text>
-                                    <Text variant="body-sm" color="text-tertiary">{vendor.category}</Text>
+                                    <Text variant="body-md-semibold" color="text-primary" className="truncate">{role.name}</Text>
+                                    <Text variant="body-sm" color="text-tertiary">{role.department}</Text>
                                 </div>
                             </div>
                             <div className="shrink-0" style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                                 <div className="rounded-[4px] bg-quaternary" style={{ padding: '0 8px' }}>
-                                    <Text variant="body-md-semibold" color="text-primary">{vendor.amount}</Text>
+                                    <Text variant="body-md-semibold" color="text-primary">{role.escalations}</Text>
                                 </div>
-                                <div className={`flex items-center rounded-full ${vendor.trend.isPositive ? "bg-accent-green/10 text-accent-green" : "bg-accent-red/10 text-accent-red"}`} style={{ gap: 6, padding: '3px 8px' }}>
-                                    {vendor.trend.isPositive ? <IncreaseIcon /> : <DecreaseIcon />}
-                                    <span className="text-[11px] font-semibold">{vendor.trend.value}</span>
+                                <div className={`flex items-center rounded-full ${role.trend.isPositive ? "bg-accent-green/10 text-accent-green" : "bg-accent-red/10 text-accent-red"}`} style={{ gap: 6, padding: '3px 8px' }}>
+                                    {role.trend.isPositive ? <IncreaseIcon /> : <DecreaseIcon />}
+                                    <span className="text-[11px] font-semibold">{role.trend.value}</span>
                                 </div>
                             </div>
                         </div>
@@ -74,7 +74,7 @@ const TopVendors: React.FC = () => {
             </div>
             <div className="bg-[#0EAF9F1A] border border-[#0EAF9F33] rounded-[10px]" style={{ padding: 12 }}>
                 <Text variant="body-md" color="none" style={{ color: "#0EAF9F" }} className="font-medium break-words overflow-wrap-anywhere">
-                    Trend Alert: Lab Diagnostics Inc spend increased 15.7% this month. Review volume changes or pricing updates.
+                    Alert: ER Physician On-Call has the highest escalation count. Consider reviewing shift coverage and response protocols.
                 </Text>
             </div>
         </DashboardCard>

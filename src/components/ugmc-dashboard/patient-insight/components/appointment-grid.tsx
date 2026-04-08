@@ -53,22 +53,19 @@ const AppointmentCancellationBreakdown = ({ data }: { data: any }) => {
 	);
 };
 
-const shortenDept = (name: string) => {
+const shortenRole = (name: string) => {
 	if (!name) return '';
-	const lower = name.toLowerCase();
-	if (lower.includes("administration") || lower.includes("hospital management")) return "Admin / Hosp Mgmt";
-	if (lower.includes("intensive care")) return "ICU";
-	if (lower.includes("emergency")) return "ER";
+	if (name.length > 20) return name.substring(0, 18) + '...';
 	return name;
 };
 
 const AppointmentCancellationChart = ({ isFullscreen = false, onToggleFullscreen, data }: { isFullscreen?: boolean; onToggleFullscreen?: () => void; data?: any }) => {
-	const depts = (data?.department_metrics || []).slice().sort((a: any, b: any) => b.avg_critical_ack_minutes - a.avg_critical_ack_minutes).slice(0, 6);
-	const chartData = depts.map((d: any) => {
-		const val = d.avg_critical_ack_minutes || 0;
+	const rolesList = (data?.top_escalated_roles || []).slice(0, 6);
+	const chartData = rolesList.map((d: any) => {
+		const val = d.avg_critical_ack_minutes || 0; // Field not in API spec, defaults to 0
 		return val === 0 ? 0.05 : val;
 	});
-	const categories = depts.map((d: any) => shortenDept(d.department_name));
+	const categories = rolesList.map((d: any) => shortenRole(d.role_name));
 
 	const { resolvedTheme } = useTheme();
 
@@ -87,7 +84,7 @@ const AppointmentCancellationChart = ({ isFullscreen = false, onToggleFullscreen
         },
 	};
 
-	const chartSeries = [{ name: 'Avg Ack Time', data: chartData }];
+	const chartSeries = [{ name: 'Average Acknowledgment Time', data: chartData }];
 
 	useEffect(() => {
 		if (isFullscreen) document.body.style.overflow = 'hidden';
@@ -97,10 +94,10 @@ const AppointmentCancellationChart = ({ isFullscreen = false, onToggleFullscreen
 
 	const chartContent = (
 		<>
-			<div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 16 }}>
+			<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
 				<div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-					<Text variant="body-md-semibold" color="text-primary">Avg Response Time per Department</Text>
-					<Text variant="body-sm" color="text-secondary">Departments with longest acknowledgment times for critical messages</Text>
+					<Text variant="body-md-semibold" color="text-primary">Avg Response Time per Role</Text>
+					<Text variant="body-sm" color="text-secondary">Roles with longest acknowledgment times for critical messages</Text>
 				</div>
 				{onToggleFullscreen && (
 					<button onClick={onToggleFullscreen} className="bg-tertiary rounded-[8px] cursor-pointer hover:bg-tertiary/80 transition-colors" style={{ padding: 8 }}>

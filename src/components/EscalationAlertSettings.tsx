@@ -327,8 +327,8 @@ export default function EscalationAlertSettings() {
 
     const selectedChain = chainGroups.find(c => c.key === selectedChainKey) || null;
 
-    const criticalRolesForEscalation = useMemo(
-        () => roles.filter(r => r.priority === 'Critical' || r.mandatory).sort((a, b) => a.name.localeCompare(b.name)),
+    const rolesForEscalation = useMemo(
+        () => [...roles].sort((a, b) => a.name.localeCompare(b.name)),
         [roles],
     );
 
@@ -992,7 +992,7 @@ export default function EscalationAlertSettings() {
                                             <CustomSelect
                                                 value={createPrimaryRoleId}
                                                 onChange={v => { applyCreatePrimaryRole(v); }}
-                                                options={criticalRolesForEscalation.map(r => ({ label: r.name, value: r.id }))}
+                                                options={rolesForEscalation.map(r => ({ label: r.name, value: r.id }))}
                                                 placeholder="-- Select Critical role --"
                                             />
                                             {createPrimaryRoleId && existingPolicyForCreateRole && (
