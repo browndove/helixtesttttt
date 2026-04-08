@@ -16,6 +16,9 @@ export interface DepartmentMetricItem {
     total_roles: number;
     critical_messages_sent: number;
     escalation_rate_vs_dept_critical_messages_percent: number;
+    critical_role_fill_rate_percent: number;
+    critical_filled_roles: number;
+    critical_total_roles: number;
 }
 
 interface ServiceDistributionProps {

@@ -1,0 +1,135 @@
+
+> helix@0.1.0 build
+> next build
+
+▲ Next.js 16.1.6 (Turbopack)
+- Environments: .env.local
+
+  Creating an optimized production build ...
+✓ Compiled successfully in 12.4s
+  Running TypeScript ...
+  Collecting page data using 7 workers ...
+  Generating static pages using 7 workers (0/66) ...
+  Generating static pages using 7 workers (16/66) 
+  Generating static pages using 7 workers (32/66) 
+  Generating static pages using 7 workers (49/66) 
+✓ Generating static pages using 7 workers (66/66) in 560.5ms
+  Finalizing page optimization ...
+
+Route (app)
+┌ ○ /
+├ ○ /_not-found
+├ ƒ /api/auth/login
+├ ƒ /api/auth/logout
+├ ƒ /api/departments
+├ ƒ /api/departments/[id]
+├ ƒ /api/departments/[id]/floors
+├ ƒ /api/departments/[id]/floors/[floorId]
+├ ƒ /api/departments/[id]/wards
+├ ƒ /api/departments/[id]/wards/[wardId]
+├ ƒ /api/hospital
+├ ƒ /api/me
+├ ƒ /api/proxy/analytics
+├ ƒ /api/proxy/audit-logs
+├ ƒ /api/proxy/auth/admin-reset/[staff_id]
+├ ƒ /api/proxy/auth/admin/login
+├ ƒ /api/proxy/auth/admin/verify-otp
+├ ƒ /api/proxy/auth/change-password
+├ ƒ /api/proxy/auth/login
+├ ƒ /api/proxy/auth/logout
+├ ƒ /api/proxy/auth/me
+├ ƒ /api/proxy/auth/renew
+├ ƒ /api/proxy/auth/request-reset
+├ ƒ /api/proxy/auth/reset-password
+├ ƒ /api/proxy/auth/send-otp
+├ ƒ /api/proxy/auth/sessions
+├ ƒ /api/proxy/auth/sessions/[session_id]
+├ ƒ /api/proxy/auth/settings
+├ ƒ /api/proxy/auth/setup
+├ ƒ /api/proxy/auth/setup-prefill
+├ ƒ /api/proxy/auth/user
+├ ƒ /api/proxy/bookmarks/provider-teams
+├ ƒ /api/proxy/bookmarks/provider-teams/[team_id]
+├ ƒ /api/proxy/bookmarks/units
+├ ƒ /api/proxy/bookmarks/units/[unit_id]
+├ ƒ /api/proxy/departments
+├ ƒ /api/proxy/departments/[id]
+├ ƒ /api/proxy/departments/[id]/members
+├ ƒ /api/proxy/departments/[id]/members/[staff_id]
+├ ƒ /api/proxy/departments/[id]/wards
+├ ƒ /api/proxy/departments/[id]/wards/[wardId]
+├ ƒ /api/proxy/departments/bulk
+├ ƒ /api/proxy/escalation-policies
+├ ƒ /api/proxy/escalation-policies/[id]
+├ ƒ /api/proxy/escalation-policies/[id]/steps
+├ ƒ /api/proxy/escalation-policies/[id]/steps/[step_id]
+├ ƒ /api/proxy/escalation-policies/[id]/steps/bulk
+├ ƒ /api/proxy/escalation-policies/by-role/[role_id]
+├ ƒ /api/proxy/escalation-policies/by-user/[user_id]
+├ ƒ /api/proxy/facilities
+├ ƒ /api/proxy/facilities/[id]
+├ ƒ /api/proxy/facilities/[id]/external-messaging
+├ ƒ /api/proxy/facilities/[id]/usage-metrics
+├ ƒ /api/proxy/facility-select
+├ ƒ /api/proxy/hospital
+├ ƒ /api/proxy/patient-folders
+├ ƒ /api/proxy/patient-folders/[id]
+├ ƒ /api/proxy/patient-folders/[id]/patients
+├ ƒ /api/proxy/patient-folders/[id]/patients/[patient_id]
+├ ƒ /api/proxy/patients
+├ ƒ /api/proxy/patients/[id]
+├ ƒ /api/proxy/patients/[id]/admit
+├ ƒ /api/proxy/patients/[id]/assignments
+├ ƒ /api/proxy/patients/[id]/assignments/[user_id]
+├ ƒ /api/proxy/patients/[id]/discharge
+├ ƒ /api/proxy/patients/assignments
+├ ƒ /api/proxy/patients/care-summary
+├ ƒ /api/proxy/patients/directory
+├ ƒ /api/proxy/patients/search
+├ ƒ /api/proxy/patients/suggestions
+├ ƒ /api/proxy/roles
+├ ƒ /api/proxy/roles/[id]
+├ ƒ /api/proxy/roles/[id]/sign-in
+├ ƒ /api/proxy/roles/[id]/sign-in-user
+├ ƒ /api/proxy/roles/[id]/sign-out
+├ ƒ /api/proxy/roles/active
+├ ƒ /api/proxy/roles/bulk
+├ ƒ /api/proxy/roles/my-roles
+├ ƒ /api/proxy/roles/sign-out-all
+├ ƒ /api/proxy/staff
+├ ƒ /api/proxy/staff/[id]
+├ ƒ /api/proxy/staff/[id]/assign-role
+├ ƒ /api/proxy/staff/[id]/status
+├ ƒ /api/proxy/staff/bulk
+├ ƒ /api/proxy/teams
+├ ƒ /api/proxy/teams/[id]
+├ ƒ /api/proxy/teams/[id]/lead
+├ ƒ /api/proxy/teams/[id]/members
+├ ƒ /api/proxy/teams/[id]/members/[staff_id]
+├ ƒ /api/proxy/teams/[id]/members/search
+├ ƒ /api/proxy/units
+├ ƒ /api/proxy/units/[id]
+├ ƒ /api/roles
+├ ƒ /api/roles/[id]
+├ ○ /audit-log
+├ ○ /dashboard
+├ ○ /departments
+├ ○ /escalation
+├ ○ /external-communication
+├ ○ /login
+├ ○ /patient-list
+├ ○ /patients
+├ ○ /provider-teams
+├ ○ /roles
+├ ○ /settings
+├ ƒ /setup
+├ ƒ /setup-account
+├ ○ /staff
+└ ○ /usage
+
+
+ƒ Proxy (Middleware)
+
+○  (Static)   prerendered as static content
+ƒ  (Dynamic)  server-rendered on demand
+
