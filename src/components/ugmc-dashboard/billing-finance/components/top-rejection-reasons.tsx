@@ -24,17 +24,22 @@ const MessagesByRoleBreakdown: React.FC<{ data?: any }> = ({ data }) => {
 
     const totalMessages = data?.total_messages || 0;
 
-    // Map the real role names (up to 5) sorting by total_messages descending
+    // Map the real role names (top 3 standard + top 2 critical) sorting by total_messages descending
     const roleCategories: RoleCategory[] = React.useMemo(() => {
         if (!data?.role_metrics || data.role_metrics.length === 0) return [];
         
-        const sortedRoles = [...data.role_metrics].sort((a, b) => (b.total_messages || 0) - (a.total_messages || 0)).slice(0, 5);
+        // Separate by priority
+        const standardRoles = [...data.role_metrics].filter(r => r.priority === 'standard').sort((a, b) => (b.total_messages || 0) - (a.total_messages || 0)).slice(0, 3);
+        const criticalRoles = [...data.role_metrics].filter(r => r.priority === 'critical').sort((a, b) => (b.total_messages || 0) - (a.total_messages || 0)).slice(0, 2);
         
-        // Sum specifically the top 5 roles so the bar always perfectly fills 100%
-        const top5Sum = sortedRoles.reduce((acc, curr) => acc + (curr.total_messages || 0), 0);
+        // Combine: critical first, then standard
+        const selectedRoles = [...criticalRoles, ...standardRoles];
         
-        return sortedRoles.map((role, index) => {
-            const rawPercent = top5Sum > 0 ? (role.total_messages / top5Sum) * 100 : 0;
+        // Sum the selected roles so the bar perfectly fills 100%
+        const selectedSum = selectedRoles.reduce((acc, curr) => acc + (curr.total_messages || 0), 0);
+        
+        return selectedRoles.map((role, index) => {
+            const rawPercent = selectedSum > 0 ? (role.total_messages / selectedSum) * 100 : 0;
             return {
                 name: role.role_name,
                 percentage: Math.round(rawPercent),
@@ -43,6 +48,15 @@ const MessagesByRoleBreakdown: React.FC<{ data?: any }> = ({ data }) => {
                 textColor: colorPalette[index % colorPalette.length].textColor
             };
         });
+    }, [data]);
+
+    // Calculate selected total for the display
+    const selectedTotal = React.useMemo(() => {
+        if (!data?.role_metrics || data.role_metrics.length === 0) return 0;
+        const standardRoles = [...data.role_metrics].filter(r => r.priority === 'standard').sort((a, b) => (b.total_messages || 0) - (a.total_messages || 0)).slice(0, 3);
+        const criticalRoles = [...data.role_metrics].filter(r => r.priority === 'critical').sort((a, b) => (b.total_messages || 0) - (a.total_messages || 0)).slice(0, 2);
+        const selectedRoles = [...criticalRoles, ...standardRoles];
+        return selectedRoles.reduce((acc, curr) => acc + (curr.total_messages || 0), 0);
     }, [data]);
 
     const [animatedBars, setAnimatedBars] = React.useState([0, 0, 0, 0, 0]);
@@ -61,22 +75,22 @@ const MessagesByRoleBreakdown: React.FC<{ data?: any }> = ({ data }) => {
             const progress = Math.min(elapsed / duration, 1);
             const eased = 1 - Math.pow(1 - progress, 3);
             setAnimatedBars(roleCategories.map(item => item.percentage * eased).concat(Array(5 - roleCategories.length).fill(0)));
-            setAnimatedTotal(Math.round(totalMessages * eased));
+            setAnimatedTotal(Math.round(selectedTotal * eased));
             if (progress < 1) requestAnimationFrame(animate);
             else { 
                 setAnimatedBars(roleCategories.map(item => item.percentage).concat(Array(5 - roleCategories.length).fill(0))); 
-                setAnimatedTotal(totalMessages); 
+                setAnimatedTotal(selectedTotal); 
             }
         };
         requestAnimationFrame(animate);
-    }, [isVisible, roleCategories, totalMessages]);
+    }, [isVisible, roleCategories, selectedTotal]);
 
     return (
         <DashboardCard className="flex flex-col flex-1" padding="none" style={{ padding: 16, gap: 15 }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                     <Text variant="body-md-semibold" color="text-primary" className="font-bold">Messages by Role Breakdown</Text>
-                    <Text variant="body-sm" color="text-secondary">All Roles · Current Window</Text>
+                    <Text variant="body-sm" color="text-secondary">Top 3 Standard & 2 Critical · Current Window</Text>
                 </div>
                 <div className="bg-accent-primary/10 rounded-[5px] whitespace-nowrap" style={{ padding: '4px 7px' }}>
                     <Text variant="body-sm-semibold" color="accent-primary"><span className="tabular-nums">{animatedTotal > 1000 ? (animatedTotal / 1000).toFixed(1) + 'k' : animatedTotal}</span> Total</Text>

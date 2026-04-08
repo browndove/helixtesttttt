@@ -3,8 +3,10 @@
 import * as React from "react";
 import Text from "@/components/text";
 import DashboardCard from "@/components/ugmc-dashboard/shared/dashboard-card";
+import clsx from "clsx";
 
 type RoleAssignment = {
+    role_id?: string;
     department: string;
     roleName: string;
     priority: string;
@@ -12,15 +14,21 @@ type RoleAssignment = {
     filled: boolean;
 };
 
-const roleAssignments: RoleAssignment[] = [
-    { department: "Surgery", roleName: "Lead Surgeon", priority: "Critical", priorityColor: "var(--accent-red)", filled: true },
-    { department: "Diagnostics", roleName: "Lab Technician", priority: "Standard", priorityColor: "var(--accent-green)", filled: true },
-    { department: "Emergency", roleName: "ER Physician", priority: "Critical", priorityColor: "var(--accent-red)", filled: false },
-    { department: "Outpatient", roleName: "Nurse Practitioner", priority: "Standard", priorityColor: "var(--accent-green)", filled: true },
-    { department: "Medicine", roleName: "Attending Doctor", priority: "Standard", priorityColor: "var(--accent-green)", filled: true },
-];
-
-const ClaimsOwedByDepartment: React.FC = () => {
+const ClaimsOwedByDepartment: React.FC<{ data?: any; onEditRole?: (role: any) => void }> = ({ data, onEditRole }) => {
+    // Convert role_metrics to display format
+    const roleAssignments: RoleAssignment[] = React.useMemo(() => {
+        if (!data?.role_metrics || data.role_metrics.length === 0) {
+            return [];
+        }
+        return data.role_metrics.map((role: any) => ({
+            role_id: role.role_id,
+            department: role.department_name,
+            roleName: role.role_name,
+            priority: role.priority === "critical" ? "Critical" : "Standard",
+            priorityColor: role.priority === "critical" ? "var(--accent-red)" : "var(--accent-green)",
+            filled: role.filled
+        }));
+    }, [data]);
     return (
         <DashboardCard className="flex flex-col flex-1 h-full" padding="none" style={{ padding: 20, gap: 15 }}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
@@ -50,7 +58,14 @@ const ClaimsOwedByDepartment: React.FC = () => {
                                 const statusColor = role.filled ? "var(--accent-green)" : "var(--accent-red)";
                                 const statusBgColor = role.filled ? "rgba(63, 185, 80, 0.1)" : "rgba(248, 81, 73, 0.1)";
                                 return (
-                                    <tr key={role.roleName} className={`${index % 2 === 1 ? "bg-secondary" : ""} ${index < roleAssignments.length - 1 ? "border-b border-tertiary" : ""}`}>
+                                    <tr
+                                        key={role.role_id || role.roleName}
+                                        className={clsx(
+                                            `${index % 2 === 1 ? "bg-secondary" : ""} ${index < roleAssignments.length - 1 ? "border-b border-tertiary" : ""}`,
+                                            "cursor-pointer hover:bg-secondary/50 transition-colors"
+                                        )}
+                                        onClick={() => onEditRole?.(role)}
+                                    >
                                         <td style={{ padding: '16px 12px' }}><Text variant="body-sm" color="text-primary">{role.department}</Text></td>
                                         <td style={{ padding: '16px 12px' }}><Text variant="body-sm" color="accent-primary">{role.roleName}</Text></td>
                                         <td style={{ padding: '16px 12px' }}>

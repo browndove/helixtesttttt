@@ -21,7 +21,7 @@ function formatTime(minutes: number): string {
     return `${hour12}:${m.toString().padStart(2, '0')} ${ampm}`;
 }
 
-const BillingFinancePage = ({ data }: { data?: any }) => {
+const BillingFinancePage = ({ data, onEditRole }: { data?: any; onEditRole?: (role: any) => void }) => {
     const kpiData = [
         {
             title: "Total Active Users",
@@ -84,7 +84,7 @@ const BillingFinancePage = ({ data }: { data?: any }) => {
                     <OutstandingReimbursement />
                 </div>
                 <div className="animate-slide-in-up" style={{ animationDelay: '500ms', opacity: 0, animationFillMode: 'forwards' }}>
-                    <ClaimsOwedByDepartment />
+                    <ClaimsOwedByDepartment data={data} onEditRole={onEditRole} />
                 </div>
             </div>
 
