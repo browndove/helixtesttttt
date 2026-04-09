@@ -7,6 +7,7 @@ import { FaCalendar, FaExpandAlt, FaCompressAlt } from "react-icons/fa";
 import dynamic from "next/dynamic";
 import { useTheme } from "next-themes";
 import clsx from "clsx";
+import FullscreenOverlay from "@/components/fullscreen-overlay";
 
 const Chart = dynamic(() => import("react-apexcharts"), { ssr: false });
 
@@ -129,9 +130,9 @@ const AppointmentCancellationChart = ({ isFullscreen = false, onToggleFullscreen
 
 	if (isFullscreen) {
 		return (
-			<div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center" style={{ padding: 16 }} onClick={(e) => { if (e.target === e.currentTarget && onToggleFullscreen) onToggleFullscreen(); }}>
+			<FullscreenOverlay onClose={() => onToggleFullscreen?.()}>
 				<div className="bg-primary rounded-[15px] w-full max-w-6xl max-h-[90vh] overflow-auto" style={{ padding: 24 }}>{chartContent}</div>
-			</div>
+			</FullscreenOverlay>
 		);
 	}
 

@@ -10,6 +10,8 @@ import {
     SubscriptionSpend,
     TopVendors,
     SpendingByCategory,
+    LabTestsVolume,
+    ImagingRadiology,
 } from "./components";
 
 function formatTime(minutes: number): string {
@@ -68,10 +70,20 @@ const BillingFinancePage = ({ data, onEditRole }: { data?: any; onEditRole?: (ro
                 ))}
             </div>
 
+            {/* Clinical Operations charts under Staffing & Coverage KPIs */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+                <div className="animate-slide-in-up" style={{ animationDelay: '150ms', opacity: 0, animationFillMode: 'forwards' }}>
+                    <LabTestsVolume data={data} />
+                </div>
+                <div className="animate-slide-in-up" style={{ animationDelay: '180ms', opacity: 0, animationFillMode: 'forwards' }}>
+                    <ImagingRadiology data={data} />
+                </div>
+            </div>
+
             {/* Role Coverage Chart + Top Rejection Reasons */}
             <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 16 }}>
                 <div className="animate-slide-in-up" style={{ animationDelay: '200ms', opacity: 0, animationFillMode: 'forwards' }}>
-                    <RoleCoverageChart />
+                    <RoleCoverageChart data={data} />
                 </div>
                 <div className="animate-slide-in-up" style={{ animationDelay: '300ms', opacity: 0, animationFillMode: 'forwards' }}>
                     <TopRejectionReasons data={data} />
@@ -91,10 +103,10 @@ const BillingFinancePage = ({ data, onEditRole }: { data?: any; onEditRole?: (ro
             {/* Subscription Spend + Top Vendors + Spending by Category */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16 }}>
                 <div className="animate-slide-in-up" style={{ animationDelay: '600ms', opacity: 0, animationFillMode: 'forwards' }}>
-                    <SubscriptionSpend />
+                    <SubscriptionSpend data={data} />
                 </div>
                 <div className="animate-slide-in-up" style={{ animationDelay: '700ms', opacity: 0, animationFillMode: 'forwards' }}>
-                    <TopVendors />
+                    <TopVendors data={data} />
                 </div>
                 <div className="animate-slide-in-up" style={{ animationDelay: '800ms', opacity: 0, animationFillMode: 'forwards' }}>
                     <SpendingByCategory data={data} />

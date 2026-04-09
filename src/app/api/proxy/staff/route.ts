@@ -13,6 +13,7 @@ type IncomingStaffBody = {
     department?: string;
     dept?: string;
     first_name?: string;
+    middle_name?: string;
     last_name?: string;
     email?: string;
     phone?: string;
@@ -112,6 +113,7 @@ export async function POST(req: NextRequest) {
             facility_id: facilityId,
             department_id: departmentId,
             first_name: (body.first_name || '').trim(),
+            middle_name: (body.middle_name || '').trim(),
             last_name: (body.last_name || '').trim(),
             email: (body.email || '').trim(),
             phone: (body.phone || '').trim(),
@@ -124,6 +126,7 @@ export async function POST(req: NextRequest) {
             can_access_patients: Boolean(body.patient_access ?? body.can_access_patients),
             role: (body.role || 'staff').toLowerCase(),
         };
+        if (!payload.middle_name) delete payload.middle_name;
         if (body.dob) payload.dob = body.dob.trim();
         if (body.gender) payload.gender = body.gender.trim();
         const url = `${API_BASE_URL}/api/v1/staff`;

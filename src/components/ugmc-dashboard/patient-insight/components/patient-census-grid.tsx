@@ -8,6 +8,7 @@ import { FaExpandAlt, FaCompressAlt } from "react-icons/fa";
 import { FaTriangleExclamation } from "react-icons/fa6";
 import { IoChevronDown } from "react-icons/io5";
 import { useTheme } from "next-themes";
+import FullscreenOverlay from "@/components/fullscreen-overlay";
 
 const Chart = dynamic(() => import("react-apexcharts"), { ssr: false });
 
@@ -162,9 +163,9 @@ const PatientCensusChart = ({ isFullscreen = false, onToggleFullscreen, data }: 
 
 	if (isFullscreen) {
 		return (
-			<div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center" style={{ padding: 16 }} onClick={(e) => { if (e.target === e.currentTarget && onToggleFullscreen) onToggleFullscreen(); }}>
+			<FullscreenOverlay onClose={() => onToggleFullscreen?.()}>
 				<div className="bg-primary rounded-[15px] w-full max-w-6xl max-h-[90vh] overflow-auto" style={{ padding: 24 }}>{chartContent}</div>
-			</div>
+			</FullscreenOverlay>
 		);
 	}
 

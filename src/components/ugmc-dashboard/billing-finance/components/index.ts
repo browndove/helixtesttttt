@@ -6,3 +6,5 @@ export { default as ClaimsOwedByDepartment } from "./claims-owed-by-department";
 export { default as SubscriptionSpend } from "./subscription-spend";
 export { default as TopVendors } from "./top-vendors";
 export { default as SpendingByCategory } from "./spending-by-category";
+export { default as LabTestsVolume } from "./lab-tests-volume";
+export { default as ImagingRadiology } from "./imaging-radiology";

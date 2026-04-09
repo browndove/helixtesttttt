@@ -3,6 +3,7 @@
 import * as React from "react";
 import Text from "@/components/text";
 import DashboardCard from "@/components/ugmc-dashboard/shared/dashboard-card";
+import FullscreenOverlay from "@/components/fullscreen-overlay";
 
 type DeptCoverageData = {
     name: string;
@@ -112,9 +113,11 @@ const OutstandingReimbursement: React.FC = () => {
         <>
             <DashboardCard className="flex flex-col flex-1" padding="none" style={{ padding: 20, gap: 15 }}>{chartContent(false)}</DashboardCard>
             {isMaximized && (
-                <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center" style={{ padding: 24 }} onClick={() => setIsMaximized(false)}>
-                    <div className="bg-primary rounded-[20px] w-full max-w-5xl max-h-[90vh] overflow-auto flex flex-col shadow-2xl" style={{ padding: 24, gap: 15 }} onClick={(e) => e.stopPropagation()}>{chartContent(true)}</div>
-                </div>
+                <FullscreenOverlay onClose={() => setIsMaximized(false)}>
+                    <div className="bg-primary rounded-[20px] w-full max-w-5xl max-h-[90vh] overflow-auto flex flex-col shadow-2xl" style={{ padding: 24, gap: 15 }}>
+                        {chartContent(true)}
+                    </div>
+                </FullscreenOverlay>
             )}
         </>
     );

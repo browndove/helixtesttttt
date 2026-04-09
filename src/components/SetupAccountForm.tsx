@@ -1,12 +1,29 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { API_ENDPOINTS } from '@/lib/config';
 import { formatGhanaPhoneInput, isValidGhanaPhone } from '@/lib/phone';
+
+const readOnlyFieldStyle: CSSProperties = {
+    background: 'var(--surface-2)',
+    color: 'var(--text-secondary)',
+    cursor: 'default',
+    borderColor: 'var(--border-subtle)',
+};
+
+/** Display-only block (not an input) so the value cannot be edited. */
+const readOnlyDisplayStyle: CSSProperties = {
+    ...readOnlyFieldStyle,
+    outline: 'none',
+    boxShadow: 'none',
+    userSelect: 'text',
+    wordBreak: 'break-word',
+};
 
 export default function SetupAccountForm({ token }: { token: string }) {
     const [firstName, setFirstName] = useState('');
     const [lastName, setLastName] = useState('');
+    const [email, setEmail] = useState('');
     const [phone, setPhone] = useState('');
     const [password, setPassword] = useState('');
     const [confirmPassword, setConfirmPassword] = useState('');
@@ -27,6 +44,15 @@ export default function SetupAccountForm({ token }: { token: string }) {
     ];
     const passwordIsValid = passwordChecks.every(check => check.met);
 
+    const profileReady = useMemo(
+        () =>
+            Boolean(firstName.trim())
+            && Boolean(lastName.trim())
+            && Boolean(phone.trim())
+            && isValidGhanaPhone(phone),
+        [firstName, lastName, phone]
+    );
+
     useEffect(() => {
         if (!token) return;
         let canceled = false;
@@ -40,6 +66,7 @@ export default function SetupAccountForm({ token }: { token: string }) {
 
                 if (typeof data.first_name === 'string') setFirstName(data.first_name);
                 if (typeof data.last_name === 'string') setLastName(data.last_name);
+                if (typeof data.email === 'string') setEmail(data.email.trim());
                 if (typeof data.phone === 'string') setPhone(formatGhanaPhoneInput(data.phone));
             } catch {
                 // Prefill is best-effort. Form still works without it.
@@ -60,12 +87,12 @@ export default function SetupAccountForm({ token }: { token: string }) {
             setError('Missing setup token. Use the full link from your email.');
             return;
         }
-        if (!firstName.trim() || !lastName.trim() || !phone.trim() || !password.trim()) {
-            setError('Please fill all required fields.');
-            return;
-        }
-        if (!isValidGhanaPhone(phone)) {
-            setError('Phone must be in +233 format with 9 digits after it.');
+        if (!profileReady || !password.trim()) {
+            setError(
+                !profileReady
+                    ? 'Your account details could not be loaded. Please use the full setup link from your invitation email.'
+                    : 'Please enter and confirm your password.'
+            );
             return;
         }
         if (!passwordIsValid) {
@@ -155,24 +182,67 @@ export default function SetupAccountForm({ token }: { token: string }) {
 
                     {!completed ? (
                         <>
+                            {!prefillLoading && token && !profileReady && (
+                                <div style={{ padding: '10px 12px', borderRadius: 'var(--radius-md)', background: 'var(--critical-bg)', border: '1px solid rgba(140,90,94,0.2)', marginBottom: 12, fontSize: 12.5, color: 'var(--critical)' }}>
+                                    Your account details could not be loaded. Open the setup link from your invitation email, or contact your administrator.
+                                </div>
+                            )}
+
+                            <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 10, lineHeight: 1.45 }}>
+                                Your name, email (if shown), and phone come from your invitation and cannot be changed here. Set your password below to finish setup.
+                            </p>
+
+                            {email ? (
+                                <div style={{ marginBottom: 10 }}>
+                                    <label className="label">Email</label>
+                                    <div
+                                        className="input"
+                                        tabIndex={-1}
+                                        aria-label={`Email from invitation: ${email}. Not editable.`}
+                                        style={readOnlyDisplayStyle}
+                                    >
+                                        {email}
+                                    </div>
+                                </div>
+                            ) : null}
+
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
                                 <div>
-                                    <label className="label">First Name *</label>
-                                    <input className="input" value={firstName} onChange={e => setFirstName(e.target.value)} placeholder="Kwame" />
+                                    <label className="label">First name</label>
+                                    <input
+                                        className="input"
+                                        value={firstName}
+                                        readOnly
+                                        tabIndex={-1}
+                                        aria-readonly="true"
+                                        placeholder="—"
+                                        style={readOnlyFieldStyle}
+                                    />
                                 </div>
                                 <div>
-                                    <label className="label">Last Name *</label>
-                                    <input className="input" value={lastName} onChange={e => setLastName(e.target.value)} placeholder="Mensah" />
+                                    <label className="label">Last name</label>
+                                    <input
+                                        className="input"
+                                        value={lastName}
+                                        readOnly
+                                        tabIndex={-1}
+                                        aria-readonly="true"
+                                        placeholder="—"
+                                        style={readOnlyFieldStyle}
+                                    />
                                 </div>
                             </div>
 
                             <div style={{ marginTop: 10 }}>
-                                <label className="label">Phone *</label>
+                                <label className="label">Phone</label>
                                 <input
                                     className="input"
                                     value={phone}
-                                    onChange={e => setPhone(formatGhanaPhoneInput(e.target.value))}
-                                    placeholder="+233201234567"
+                                    readOnly
+                                    tabIndex={-1}
+                                    aria-readonly="true"
+                                    placeholder="—"
+                                    style={readOnlyFieldStyle}
                                 />
                             </div>
 
@@ -271,7 +341,7 @@ export default function SetupAccountForm({ token }: { token: string }) {
                                 className="btn btn-primary"
                                 style={{ width: '100%', justifyContent: 'center', marginTop: 16 }}
                                 onClick={handleSubmit}
-                                disabled={loading || !token}
+                                disabled={loading || !token || !profileReady}
                             >
                                 {loading ? 'Setting up...' : 'Set up account'}
                             </button>

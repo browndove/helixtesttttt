@@ -8,6 +8,7 @@ import dynamic from "next/dynamic";
 import { TrendingUp, TrendingDown } from 'lucide-react';
 import { FaExpandAlt, FaCompressAlt } from "react-icons/fa";
 import { useTheme } from "next-themes";
+import FullscreenOverlay from "@/components/fullscreen-overlay";
 
 const Chart = dynamic(() => import("react-apexcharts"), { ssr: false });
 
@@ -101,9 +102,9 @@ const InfectionsGrid = () => {
 	return (
 		<>
 			{isFullscreen && (
-				<div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4" onClick={(e) => { if (e.target === e.currentTarget) setIsFullscreen(false); }}>
+				<FullscreenOverlay onClose={() => setIsFullscreen(false)}>
 					<div className="bg-primary rounded-[15px] w-full max-w-6xl max-h-[90vh] overflow-auto p-6 flex flex-col gap-[15px]">{infectionsChartContent}</div>
-				</div>
+				</FullscreenOverlay>
 			)}
 			<div style={{ display: 'grid', gridTemplateColumns: 'repeat(12, 1fr)', gap: 16 }}>
 				<DashboardCard padding="none" className="rounded-[15px] flex flex-col" style={{ padding: 15, height: 360, gap: 15, gridColumn: 'span 9' }}>

@@ -10,6 +10,7 @@ import { formatGhanaPhoneInput, isValidGhanaPhone } from '@/lib/phone';
 type StaffMember = {
     id: string;
     first_name: string;
+    middle_name?: string;
     last_name: string;
     email: string;
     job_title: string;
@@ -240,6 +241,7 @@ function parseStaffList(raw: unknown): StaffMember[] {
             return {
                 id,
                 first_name: firstName,
+                middle_name: String(r.middle_name || '').trim(),
                 last_name: lastName,
                 email: String(r.email || ''),
                 job_title: String(r.job_title || r.role || 'Staff'),
@@ -377,6 +379,7 @@ export default function StaffDirectoryManagement() {
     const [selected, setSelected] = useState<StaffMember | null>(null);
     const [editingSelected, setEditingSelected] = useState(false);
     const [editFirstName, setEditFirstName] = useState('');
+    const [editMiddleName, setEditMiddleName] = useState('');
     const [editLastName, setEditLastName] = useState('');
     const [editEmail, setEditEmail] = useState('');
     const [editPhone, setEditPhone] = useState('+233');
@@ -390,6 +393,7 @@ export default function StaffDirectoryManagement() {
     const [activeTab, setActiveTab] = useState<'directory' | 'import'>('directory');
     const [showAddForm, setShowAddForm] = useState(false);
     const [newFirstName, setNewFirstName] = useState('');
+    const [newMiddleName, setNewMiddleName] = useState('');
     const [newLastName, setNewLastName] = useState('');
     const [newEmail, setNewEmail] = useState('');
     const [newPhone, setNewPhone] = useState('+233');
@@ -621,6 +625,7 @@ export default function StaffDirectoryManagement() {
             return;
         }
         setEditFirstName(selected.first_name || '');
+        setEditMiddleName(selected.middle_name || '');
         setEditLastName(selected.last_name || '');
         setEditEmail(selected.email || '');
         setEditPhone(selected.phone ? formatGhanaPhoneInput(selected.phone) : '+233');
@@ -775,6 +780,7 @@ export default function StaffDirectoryManagement() {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     first_name: newFirstName.trim(),
+                    middle_name: newMiddleName.trim() || undefined,
                     last_name: newLastName.trim(),
                     email: newEmail.trim(),
                     phone: newPhone.trim() ? formatGhanaPhoneInput(newPhone) : '',
@@ -801,6 +807,7 @@ export default function StaffDirectoryManagement() {
             const fallbackMember: StaffMember = {
                 id: String(Date.now()),
                 first_name: newFirstName.trim(),
+                middle_name: newMiddleName.trim(),
                 last_name: newLastName.trim(),
                 email: newEmail.trim(),
                 job_title: (newRole || 'Staff').trim(),
@@ -822,6 +829,7 @@ export default function StaffDirectoryManagement() {
             const member: StaffMember = created
                 ? {
                     ...created,
+                    middle_name: created.middle_name || newMiddleName.trim(),
                     dept: (!created.dept || created.dept === 'Unassigned') ? newDept : created.dept,
                     highest_qualification: created.highest_qualification || newHighestQualification.trim(),
                     dob: created.dob || newDob.trim(),
@@ -834,6 +842,7 @@ export default function StaffDirectoryManagement() {
             setStaff(prev => [member, ...prev]);
             setShowAddForm(false);
             setNewFirstName('');
+            setNewMiddleName('');
             setNewLastName('');
             setNewEmail('');
             setNewPhone('+233');
@@ -934,6 +943,7 @@ export default function StaffDirectoryManagement() {
         try {
             const payload = {
                 first_name: editFirstName.trim(),
+                middle_name: editMiddleName.trim() || undefined,
                 last_name: editLastName.trim(),
                 email: editEmail.trim(),
                 phone: editPhone.trim() ? formatGhanaPhoneInput(editPhone) : '',
@@ -1031,6 +1041,7 @@ export default function StaffDirectoryManagement() {
             const fallbackLocal: StaffMember = {
                 ...selected,
                 first_name: payload.first_name,
+                middle_name: payload.middle_name || '',
                 last_name: payload.last_name,
                 email: payload.email,
                 phone: payload.phone,
@@ -1044,7 +1055,11 @@ export default function StaffDirectoryManagement() {
                 department_id: resolvedDeptId,
             };
             const updatedLocal: StaffMember = fromApi
-                ? { ...selected, ...fromApi }
+                ? {
+                    ...selected,
+                    ...fromApi,
+                    middle_name: fromApi.middle_name || payload.middle_name || selected.middle_name || '',
+                }
                 : fallbackLocal;
             // Backend PUT 200 body often omits department fields; parseStaffList defaults dept to "Unassigned".
             const trimmedEditDept = editDept.trim();
@@ -1128,6 +1143,7 @@ export default function StaffDirectoryManagement() {
                             <h3 style={{ fontSize: 14, marginBottom: 12 }}>New Staff Member</h3>
                             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 12, marginBottom: 14 }}>
                                 <div><label className="label">First Name *</label><input className="input" value={newFirstName} onChange={e => setNewFirstName(e.target.value)} placeholder="First name" style={{ fontSize: 12 }} /></div>
+                                <div><label className="label">Middle Name (Optional)</label><input className="input" value={newMiddleName} onChange={e => setNewMiddleName(e.target.value)} placeholder="Middle name" style={{ fontSize: 12 }} /></div>
                                 <div><label className="label">Last Name *</label><input className="input" value={newLastName} onChange={e => setNewLastName(e.target.value)} placeholder="Last name" style={{ fontSize: 12 }} /></div>
                                 <div><label className="label">Email *</label><input className="input" value={newEmail} onChange={e => setNewEmail(e.target.value)} placeholder="Email address" style={{ fontSize: 12 }} /></div>
                                 <div>
@@ -1514,6 +1530,10 @@ export default function StaffDirectoryManagement() {
                                         <div style={{ minWidth: 0 }}>
                                             <label className="label">First Name</label>
                                             <input className="input" value={editFirstName} onChange={e => setEditFirstName(e.target.value)} disabled={!editingSelected || savingEdit} style={{ fontSize: 12, width: '100%', boxSizing: 'border-box' }} />
+                                        </div>
+                                        <div style={{ minWidth: 0 }}>
+                                            <label className="label">Middle Name (Optional)</label>
+                                            <input className="input" value={editMiddleName} onChange={e => setEditMiddleName(e.target.value)} disabled={!editingSelected || savingEdit} style={{ fontSize: 12, width: '100%', boxSizing: 'border-box' }} />
                                         </div>
                                         <div style={{ minWidth: 0 }}>
                                             <label className="label">Last Name</label>

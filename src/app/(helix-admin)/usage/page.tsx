@@ -5,7 +5,7 @@ import { useSearchParams, useRouter, usePathname } from "next/navigation";
 import {
     KpiCard,
     RevenueChart,
-    ResourceUtilization,
+    RoleCriticalTraffic,
     ServiceDistribution,
     DailyPatientFlow,
     RedZoneAlerts,
@@ -53,7 +53,22 @@ export interface AnalyticsData {
     avg_sign_in_minutes_since_midnight_utc: number;
     avg_sign_out_minutes_since_midnight_utc: number;
     daily_message_volume: { day: string; total_messages: number; critical_messages: number; standard_messages: number }[];
-    department_metrics: { department_name: string; role_fill_rate_percent: number; escalation_rate_vs_dept_critical_messages_percent: number; filled_roles: number; total_roles: number; critical_messages_sent: number; avg_critical_ack_minutes: number; escalation_notifications: number; critical_filled_roles: number; critical_total_roles: number; critical_role_fill_rate_percent: number }[];
+    department_metrics: {
+        department_name: string;
+        department_id?: string;
+        role_fill_rate_percent: number;
+        escalation_rate_vs_dept_critical_messages_percent: number;
+        filled_roles: number;
+        total_roles: number;
+        critical_messages_sent: number;
+        avg_critical_ack_minutes: number;
+        avg_reply_response_minutes_all?: number;
+        avg_reply_response_minutes_critical?: number;
+        escalation_notifications: number;
+        critical_filled_roles: number;
+        critical_total_roles: number;
+        critical_role_fill_rate_percent: number;
+    }[];
     top_escalated_roles: { role_name: string; role_id: string; escalation_count: number }[];
     least_escalated_roles: { role_name: string; role_id: string; escalation_count: number }[];
     role_metrics?: { role_id: string; role_name: string; department_id: string; department_name: string; priority: string; filled: boolean; role_fill_rate_percent: number; critical_total_roles: number; critical_filled_roles: number; critical_role_fill_rate_percent: number; total_messages: number; total_calls_made: number; critical_messages: number; standard_messages: number; critical_messages_rate_percent: number; escalated_critical_messages: number; escalation_rate_percent: number; escalation_rate_of_total_messages_percent: number; avg_critical_ack_minutes: number; avg_reply_response_minutes_all: number; avg_reply_response_minutes_critical: number }[];
@@ -302,10 +317,10 @@ function UsagePageContent() {
                             />
                         </div>
 
-                        {/* Department Performance & Role Coverage Row */}
+                        {/* Role critical traffic & Role Coverage Row */}
                         <div className="dashboard-two-col">
                             <div className="animate-slide-in-up stagger-3">
-                                <ResourceUtilization departments={data?.department_metrics} />
+                                <RoleCriticalTraffic roles={data?.role_metrics} />
                             </div>
                             <div className="animate-slide-in-up stagger-4">
                                 <ServiceDistribution departments={data?.department_metrics} />

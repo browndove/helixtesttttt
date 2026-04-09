@@ -20,7 +20,7 @@ const ClaimsOwedByDepartment: React.FC<{ data?: any; onEditRole?: (role: any) =>
         if (!data?.role_metrics || data.role_metrics.length === 0) {
             return [];
         }
-        return data.role_metrics.map((role: any) => ({
+        const mapped: RoleAssignment[] = data.role_metrics.map((role: any) => ({
             role_id: role.role_id,
             department: role.department_name,
             roleName: role.role_name,
@@ -28,6 +28,22 @@ const ClaimsOwedByDepartment: React.FC<{ data?: any; onEditRole?: (role: any) =>
             priorityColor: role.priority === "critical" ? "var(--accent-red)" : "var(--accent-green)",
             filled: role.filled
         }));
+
+        // Show at most 5 rows, preferring a 3 Standard + 2 Critical mix.
+        const standard = mapped.filter((r) => r.priority === "Standard");
+        const critical = mapped.filter((r) => r.priority === "Critical");
+        const selected: RoleAssignment[] = [
+            ...standard.slice(0, 3),
+            ...critical.slice(0, 2),
+        ];
+
+        if (selected.length < 5) {
+            const selectedIds = new Set(selected.map((r) => r.role_id ?? `${r.department}|${r.roleName}`));
+            const remaining = mapped.filter((r) => !selectedIds.has(r.role_id ?? `${r.department}|${r.roleName}`));
+            selected.push(...remaining.slice(0, 5 - selected.length));
+        }
+
+        return selected.slice(0, 5);
     }, [data]);
     return (
         <DashboardCard className="flex flex-col flex-1 h-full" padding="none" style={{ padding: 20, gap: 15 }}>

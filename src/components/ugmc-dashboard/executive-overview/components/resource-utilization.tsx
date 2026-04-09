@@ -6,7 +6,21 @@ import InfoTooltip from "@/components/info-tooltip";
 import { tailwindTextColors } from "@/lib/theme-colors";
 import clsx from "clsx";
 
-const infoText = "Escalation rates per department — shows how often critical messages trigger escalations. Lower is better.";
+const infoText =
+    "Bar = department escalation index (from facility usage metrics), not role-level escalation counts. " +
+    "Use Top Escalated Roles for per-role escalation volume. " +
+    "Numbers show critical messages sent, escalation notifications, and average time to first reply on critical threads.";
+
+function fmtCriticalReplyMin(minutes: unknown): string | null {
+    if (minutes === undefined || minutes === null || minutes === "") return null;
+    const n = typeof minutes === "string" ? parseFloat(minutes) : Number(minutes);
+    if (!Number.isFinite(n) || n < 0) return null;
+    if (n === 0) return "0 min reply";
+    if (n < 60) return `${Math.round(n)} min reply`;
+    const h = Math.floor(n / 60);
+    const m = Math.round(n % 60);
+    return m > 0 ? `${h}h ${m}m reply` : `${h}h reply`;
+}
 
 export interface DepartmentMetricItem {
     department_name: string;
@@ -15,6 +29,10 @@ export interface DepartmentMetricItem {
     filled_roles: number;
     total_roles: number;
     critical_messages_sent: number;
+    /** Per-department avg first reply on critical messages (facility usage metrics). */
+    avg_reply_response_minutes_critical?: number;
+    /** Escalation notifications attributed to this department in the window. */
+    escalation_notifications?: number;
 }
 
 const COLORS: { color: string; bgColor: string; textColor: keyof typeof tailwindTextColors }[] = [
@@ -43,13 +61,22 @@ const ResourceUtilization = ({ departments = [] }: ResourceUtilizationProps) => 
         [depsKey]
     );
 
+    /** Bar fill is normalized within the visible rows so rates above 100% still read visually; badge shows the real rate. */
+    const maxEscalationRate = useMemo(
+        () => Math.max(...depts.map(d => Number(d.escalation_rate_vs_dept_critical_messages_percent) || 0), 1),
+        [depts]
+    );
+
     useEffect(() => {
         setTimeout(() => setIsVisible(true), 100);
 
         setAnimatedPercentages(new Array(depts.length).fill(0));
         depts.forEach((dept, index) => {
             setTimeout(() => {
-                const target = dept.escalation_rate_vs_dept_critical_messages_percent;
+                const targetRate = Number(dept.escalation_rate_vs_dept_critical_messages_percent) || 0;
+                const targetBarPercent = maxEscalationRate > 0
+                    ? Math.min(100, (targetRate / maxEscalationRate) * 100)
+                    : 0;
                 const duration = 1000;
                 const startTime = Date.now();
                 const animate = () => {
@@ -59,7 +86,7 @@ const ResourceUtilization = ({ departments = [] }: ResourceUtilizationProps) => 
 
                     setAnimatedPercentages(prev => {
                         const newPercentages = [...prev];
-                        newPercentages[index] = Math.round(target * eased);
+                        newPercentages[index] = Math.round(targetBarPercent * eased);
                         return newPercentages;
                     });
 
@@ -70,7 +97,7 @@ const ResourceUtilization = ({ departments = [] }: ResourceUtilizationProps) => 
                 requestAnimationFrame(animate);
             }, 200 * (index + 1));
         });
-    }, [depts]);
+    }, [depts, maxEscalationRate]);
 
     return (
         <div
@@ -87,10 +114,10 @@ const ResourceUtilization = ({ departments = [] }: ResourceUtilizationProps) => 
             <div className="flex items-start justify-between">
                 <div className="flex flex-col gap-1">
                     <Text variant="body-md-semibold" color="text-primary">
-                        Department Performance
+                        Department critical traffic
                     </Text>
                     <Text variant="body-sm" color="text-secondary">
-                        Escalation rates by department
+                        Escalation index, critical volume & reply time
                     </Text>
                 </div>
                 <InfoTooltip text={infoText} show={isHovered} />
@@ -103,6 +130,19 @@ const ResourceUtilization = ({ departments = [] }: ResourceUtilizationProps) => 
                 )}
                 {depts.map((dept, index) => {
                     const style = COLORS[index % COLORS.length];
+                    const badgeRate = Math.round(Number(dept.escalation_rate_vs_dept_critical_messages_percent) || 0);
+                    const criticalSent = Math.round(Number(dept.critical_messages_sent) || 0);
+                    const alerts = Math.round(Number(dept.escalation_notifications) || 0);
+                    const replyLabel = fmtCriticalReplyMin(dept.avg_reply_response_minutes_critical);
+                    const criticalLabel =
+                        criticalSent === 1
+                            ? '1 critical message'
+                            : `${criticalSent.toLocaleString()} critical messages`;
+                    const detailParts = [
+                        replyLabel,
+                        criticalLabel,
+                        `${alerts.toLocaleString()} alert${alerts === 1 ? "" : "s"}`,
+                    ].filter(Boolean);
                     return (
                         <div
                             key={dept.department_name}
@@ -113,23 +153,27 @@ const ResourceUtilization = ({ departments = [] }: ResourceUtilizationProps) => 
                             style={{ transitionDelay: `${index * 150}ms` }}
                         >
                             {/* Label row */}
-                            <div className="flex items-center justify-between">
-                                <Text variant="body-sm" color="text-primary">
+                            <div className="flex items-start justify-between gap-2">
+                                <Text variant="body-sm" color="text-primary" className="min-w-0 shrink">
                                     {dept.department_name}
                                 </Text>
-                                <div className="flex items-center gap-2.5">
-                                    <div className={clsx(
-                                        `${style.bgColor} px-2 py-1.5 flex rounded-full`,
-                                        "transition-transform duration-300",
-                                        isHovered && "scale-105"
-                                    )}>
-                                        <Text variant="body-sm-semibold" color={style.textColor}>
-                                            {animatedPercentages[index] ?? 0}%
-                                        </Text>
+                                <div className="flex flex-col items-end gap-1 shrink-0">
+                                    <div className="flex flex-wrap items-center justify-end gap-2">
+                                        <div className={clsx(
+                                            `${style.bgColor} px-3.5 py-1.5 flex rounded-full`,
+                                            "transition-transform duration-300",
+                                            isHovered && "scale-105"
+                                        )}>
+                                            <Text variant="body-sm-semibold" color={style.textColor}>
+                                                {badgeRate}% index
+                                            </Text>
+                                        </div>
                                     </div>
-                                    <Text variant="body-sm" color="text-secondary">
-                                        {dept.critical_messages_sent} critical msgs
-                                    </Text>
+                                    {detailParts.length > 0 && (
+                                        <Text variant="body-xs" color="text-secondary" className="text-right max-w-[220px]">
+                                            {detailParts.join(" · ")}
+                                        </Text>
+                                    )}
                                 </div>
                             </div>
 

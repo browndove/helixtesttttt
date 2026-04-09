@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import DashboardCard from "@/components/ugmc-dashboard/shared/dashboard-card";
 import Text from "@/components/text";
 import { HiMiniInformationCircle } from "react-icons/hi2";
@@ -11,7 +11,26 @@ const RoleEscalationsTable = ({ data }: { data: any }) => {
 	const [isDropdownOpen, setIsDropdownOpen] = useState(false);
 
 	const domainOptions = ['Top Escalated', 'Least Escalated'];
-	const itemsList = selectedDomain === 'Top Escalated' ? (data?.top_escalated_roles || []) : (data?.least_escalated_roles || []);
+	const itemsList = useMemo(() => {
+		const top = Array.isArray(data?.top_escalated_roles) ? [...data.top_escalated_roles] : [];
+		const least = Array.isArray(data?.least_escalated_roles) ? [...data.least_escalated_roles] : [];
+
+		const sortByEscalationsDesc = (a: any, b: any) => {
+			const diff = (b?.escalation_count ?? 0) - (a?.escalation_count ?? 0);
+			if (diff !== 0) return diff;
+			return String(a?.role_name ?? "").localeCompare(String(b?.role_name ?? ""));
+		};
+		const sortByEscalationsAsc = (a: any, b: any) => {
+			const diff = (a?.escalation_count ?? 0) - (b?.escalation_count ?? 0);
+			if (diff !== 0) return diff;
+			return String(a?.role_name ?? "").localeCompare(String(b?.role_name ?? ""));
+		};
+
+		const top10 = top.sort(sortByEscalationsDesc).slice(0, 10);
+		const least10 = least.sort(sortByEscalationsAsc).slice(0, 10);
+
+		return selectedDomain === 'Top Escalated' ? top10 : least10;
+	}, [data, selectedDomain]);
 
 	return (
 		<DashboardCard padding="none" className="w-full flex flex-col" style={{ padding: 18, height: 440 }}>

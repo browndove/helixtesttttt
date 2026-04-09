@@ -7,6 +7,7 @@ import Text from "@/components/text";
 import dynamic from "next/dynamic";
 import { FaExpandAlt, FaCompressAlt } from "react-icons/fa";
 import { useTheme } from "next-themes";
+import FullscreenOverlay from "@/components/fullscreen-overlay";
 
 const Chart = dynamic(() => import("react-apexcharts"), { ssr: false });
 
@@ -69,9 +70,9 @@ const ReadmissionGrid = () => {
 	return (
 		<>
 			{isFullscreen && (
-				<div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4" onClick={(e) => { if (e.target === e.currentTarget) setIsFullscreen(false); }}>
+				<FullscreenOverlay onClose={() => setIsFullscreen(false)}>
 					<div className="bg-primary rounded-[15px] w-full max-w-6xl max-h-[90vh] overflow-auto p-6 flex flex-col gap-[2px]">{readmissionChartContent}</div>
-				</div>
+				</FullscreenOverlay>
 			)}
 			<div style={{ display: 'grid', gridTemplateColumns: 'repeat(12, 1fr)', gap: 16 }}>
 				<DashboardCard padding="none" className="flex flex-col" style={{ padding: 20, height: 320, gap: 2, gridColumn: 'span 6' }}>
