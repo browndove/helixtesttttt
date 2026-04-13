@@ -94,9 +94,9 @@ const ServiceDistribution = ({ departments = [] }: ServiceDistributionProps) => 
                 </div>
             </div>
 
-            <div className="flex-1 flex gap-[150px] items-center justify-between">
+            <div className="flex min-w-0 w-full flex-1 flex-col items-stretch gap-8 min-[900px]:flex-row min-[900px]:items-center min-[900px]:justify-between min-[900px]:gap-6">
                 {/* Left side - Chart visualization */}
-                <div className="flex flex-col gap-2.5 h-[180px] w-[220px]">
+                <div className="mx-auto flex h-[180px] w-full max-w-[220px] shrink-0 flex-col gap-2.5 overflow-x-auto min-[900px]:mx-0">
                     {/* Bubble chart visualization */}
                     <div className="relative flex-1">
                         {/* Large bubble */}

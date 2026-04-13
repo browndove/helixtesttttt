@@ -58,7 +58,7 @@ export default function PatientListFolders() {
 
     const fetchData = useCallback(async () => {
         try {
-            const folderRes = await fetch('/api/proxy/patient-folders');
+            const folderRes = await fetch('/api/proxy/patient-folders?visibility=public');
             if (folderRes.ok) {
                 const folderData = parseFolders(await folderRes.json());
                 setFolders(folderData);

@@ -56,9 +56,9 @@ const BillingFinancePage = ({ data, onEditRole }: { data?: any; onEditRole?: (ro
     ];
 
     return (
-        <div className="w-full flex flex-col" style={{ gap: 15 }}>
+        <div className="flex w-full min-w-0 flex-col gap-4">
             {/* KPI Cards */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16 }}>
+            <div className="grid min-w-0 grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
                 {kpiData.map((kpi, index) => (
                     <div
                         key={index}
@@ -71,7 +71,7 @@ const BillingFinancePage = ({ data, onEditRole }: { data?: any; onEditRole?: (ro
             </div>
 
             {/* Clinical Operations charts under Staffing & Coverage KPIs */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+            <div className="grid min-w-0 grid-cols-1 gap-4 lg:grid-cols-2">
                 <div className="animate-slide-in-up" style={{ animationDelay: '150ms', opacity: 0, animationFillMode: 'forwards' }}>
                     <LabTestsVolume data={data} />
                 </div>
@@ -81,7 +81,7 @@ const BillingFinancePage = ({ data, onEditRole }: { data?: any; onEditRole?: (ro
             </div>
 
             {/* Role Coverage Chart + Top Rejection Reasons */}
-            <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 16 }}>
+            <div className="grid min-w-0 grid-cols-1 gap-4 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
                 <div className="animate-slide-in-up" style={{ animationDelay: '200ms', opacity: 0, animationFillMode: 'forwards' }}>
                     <RoleCoverageChart data={data} />
                 </div>
@@ -91,7 +91,7 @@ const BillingFinancePage = ({ data, onEditRole }: { data?: any; onEditRole?: (ro
             </div>
 
             {/* Outstanding Reimbursement + Claims Owed */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+            <div className="grid min-w-0 grid-cols-1 gap-4 lg:grid-cols-2">
                 <div className="animate-slide-in-up" style={{ animationDelay: '400ms', opacity: 0, animationFillMode: 'forwards' }}>
                     <OutstandingReimbursement />
                 </div>
@@ -101,7 +101,7 @@ const BillingFinancePage = ({ data, onEditRole }: { data?: any; onEditRole?: (ro
             </div>
 
             {/* Subscription Spend + Top Vendors + Spending by Category */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16 }}>
+            <div className="grid min-w-0 grid-cols-1 gap-4 md:grid-cols-2 2xl:grid-cols-3">
                 <div className="animate-slide-in-up" style={{ animationDelay: '600ms', opacity: 0, animationFillMode: 'forwards' }}>
                     <SubscriptionSpend data={data} />
                 </div>

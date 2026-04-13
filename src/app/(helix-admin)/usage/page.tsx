@@ -145,7 +145,7 @@ function UsagePageContent() {
         } finally {
             setLoading(false);
         }
-    }, [dateFrom, dateTo]);
+    }, [dateFrom, dateTo, searchParams, router, pathname]);
 
     useEffect(() => { fetchAnalytics(); }, [fetchAnalytics]);
 
@@ -160,34 +160,17 @@ function UsagePageContent() {
     const totalRoles = data?.total_roles ?? 0;
 
     return (
-        <div
-            style={{
-                boxSizing: 'border-box',
-                display: 'flex',
-                minHeight: '100vh',
-                flexDirection: 'column',
-                background: 'var(--bg-secondary)',
-                overflowY: 'auto',
-                overflowX: 'hidden',
-                marginLeft: 'var(--sidebar-width)',
-                width: 'calc(100vw - var(--sidebar-width))',
-                padding: 20,
-            }}
-        >
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 16, width: '100%', maxWidth: '100%', overflow: 'hidden' }}>
+        <div className="usage-dashboard-shell">
+            <div className="usage-inner">
                 {/* Header Row: Title + Tabs (left) | Calendar (right) */}
-                <div
-                    className="animate-slide-in-up"
-                    style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: '14px 24px' }}
-                >
-                    {/* Left Side: Title + Divider + Tabs */}
-                    <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center' }}>
+                <div className="animate-slide-in-up usage-header-row">
+                    <div className="flex min-w-0 flex-1 flex-col gap-3 min-[900px]:flex-row min-[900px]:items-center min-[900px]:gap-0">
                         {/* Title Block */}
-                        <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
-                            <span style={{ fontSize: 16, fontWeight: 600, color: 'var(--text-primary)', margin: 0, whiteSpace: 'nowrap', lineHeight: 1.3 }}>
+                        <div className="flex min-w-0 shrink-0 flex-col justify-center">
+                            <span className="text-base font-semibold leading-snug text-[var(--text-primary)]">
                                 {TABS.find(t => t.id === activeTab)?.label ?? 'Usage Summary'}
                             </span>
-                            <span style={{ fontSize: 12, color: '#9ca3af', margin: 0, lineHeight: 1.3 }}>
+                            <span className="text-xs leading-snug text-gray-400">
                                 {dateFrom && dateTo && dateFrom === dateTo
                                     ? `Today \u2014 ${new Date(dateFrom + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
                                     : dateFrom && dateTo
@@ -196,11 +179,10 @@ function UsagePageContent() {
                             </span>
                         </div>
 
-                        {/* Vertical Divider */}
-                        <div style={{ width: 1, height: 28, background: '#e5e7eb', margin: '0 16px', alignSelf: 'center' }} />
+                        <div className="mx-0 hidden h-7 w-px shrink-0 bg-[#e5e7eb] min-[900px]:mx-4 min-[900px]:block" aria-hidden />
 
                         {/* Tab Buttons */}
-                        <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                        <div className="usage-header-tabs min-w-0">
                             {TABS.map((tab) => {
                                 const isActive = activeTab === tab.id;
                                 return (
@@ -240,8 +222,7 @@ function UsagePageContent() {
                         </div>
                     </div>
 
-                    {/* Right Side: Calendar */}
-                    <div style={{ flexShrink: 0, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                    <div className="flex shrink-0 items-center justify-start min-[900px]:justify-end">
                         <CalendarRangePicker
                             from={dateFrom}
                             to={dateTo}
@@ -264,8 +245,8 @@ function UsagePageContent() {
 
                 {/* Executive Overview Content */}
                 {activeTab === 'executive' && (<>
-                {/* KPI Cards Row — 4 equal columns */}
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16 }}>
+                {/* KPI Cards Row — responsive columns */}
+                <div className="usage-kpi-grid">
                     <KpiCard
                         icon={<FaUsers className="w-5 h-5 text-accent-primary" />}
                         iconBgColor="bg-[rgba(36,132,199,0.1)]"
@@ -304,10 +285,9 @@ function UsagePageContent() {
                     />
                 </div>
 
-                {/* Main Content — left column (flexible) + right column (fixed 320px) */}
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 320px', gap: 16, alignItems: 'start' }}>
-                    {/* Left Column */}
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 16, minWidth: 0 }}>
+                {/* Main Content — stacks on small screens */}
+                <div className="usage-main-grid">
+                    <div className="usage-main-grid__primary">
                         {/* Daily Message Volume */}
                         <div className="animate-slide-in-up stagger-2">
                             <RevenueChart
@@ -337,8 +317,7 @@ function UsagePageContent() {
                         </div>
                     </div>
 
-                    {/* Right Column — Top Escalated Roles & Response Times */}
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 16, position: 'sticky', top: 20 }}>
+                    <div className="usage-main-grid__sidebar">
                         <div className="animate-slide-in-right stagger-3">
                             <RedZoneAlerts roles={data?.top_escalated_roles} />
                         </div>
@@ -354,14 +333,13 @@ function UsagePageContent() {
                     </div>
                 </div>
                 </>)}
-            </div>
 
-            {/* Role Metrics Modal */}
-            <RoleMetricsModal
-                isOpen={roleMetricsModalOpen}
-                onClose={() => setRoleMetricsModalOpen(false)}
-                roles={data?.role_metrics || []}
-            />
+                <RoleMetricsModal
+                    isOpen={roleMetricsModalOpen}
+                    onClose={() => setRoleMetricsModalOpen(false)}
+                    roles={data?.role_metrics || []}
+                />
+            </div>
         </div>
     );
 }

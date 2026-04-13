@@ -27,6 +27,8 @@ export async function GET(req: NextRequest) {
         }
 
         url.searchParams.set('facility_id', sessionFacilityId);
+        // List endpoint: only public folders (backend filter).
+        url.searchParams.set('visibility', 'public');
 
         const res = await fetch(url.toString(), {
             method: 'GET',

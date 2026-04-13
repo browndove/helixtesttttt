@@ -33,6 +33,9 @@ type StaffMember = {
 type SortKey = 'first_name' | 'last_name' | 'employee_id' | 'dept' | 'job_title' | 'status';
 type ImportStatus = 'success' | 'error';
 
+type StaffToastVariant = 'success' | 'error' | 'info';
+type StaffToastState = { message: string; variant: StaffToastVariant };
+
 type ImportHistoryEntry = {
     id: string;
     file: string;
@@ -291,28 +294,167 @@ const importHistory: ImportHistoryEntry[] = [
 ];
 
 function readNumber(value: unknown): number {
-    return typeof value === 'number' && Number.isFinite(value) ? value : 0;
+    if (typeof value === 'number' && Number.isFinite(value)) return value;
+    if (typeof value === 'string' && value.trim() !== '') {
+        const n = Number(value);
+        if (Number.isFinite(n)) return n;
+    }
+    return 0;
 }
 
 function parseBulkUploadSummary(raw: unknown): BulkUploadSummary {
     const rec = raw && typeof raw === 'object' ? raw as Record<string, unknown> : {};
-    const records = [
-        rec.records_processed,
-        rec.processed,
-        rec.created,
-        rec.created_count,
-        rec.success_count,
-        rec.total_records,
-        rec.total,
-        rec.count,
-    ].map(readNumber).find(v => v > 0) || 0;
-    const warnings = [
-        rec.warnings_count,
-        rec.warning_count,
-        rec.warnings,
-    ].map(readNumber).find(v => v >= 0) || 0;
-    const message = String(rec.message || rec.detail || rec.status || '').trim();
+    const data = rec.data && typeof rec.data === 'object' && !Array.isArray(rec.data) ? (rec.data as Record<string, unknown>) : null;
+    const nested = [rec, data].filter(Boolean) as Record<string, unknown>[];
+    const firstNum = (keys: string[]) => {
+        for (const obj of nested) {
+            for (const k of keys) {
+                const v = readNumber(obj[k]);
+                if (v > 0) return v;
+            }
+        }
+        return 0;
+    };
+    let records = firstNum([
+        'records_processed',
+        'processed',
+        'created',
+        'created_count',
+        'success_count',
+        'imported',
+        'staff_created',
+        'total_records',
+        'total',
+        'count',
+    ]);
+    for (const obj of nested) {
+        if (Array.isArray(obj.created)) {
+            records = Math.max(records, obj.created.length);
+        }
+    }
+    let warnings = 0;
+    for (const obj of nested) {
+        if (Array.isArray(obj.warnings)) {
+            warnings = obj.warnings.length;
+            break;
+        }
+        if (Array.isArray(obj.errors)) {
+            warnings = obj.errors.length;
+            break;
+        }
+        const w = [obj.warnings_count, obj.warning_count, obj.failed_count, obj.error_count]
+            .map(readNumber)
+            .find(v => v > 0);
+        if (w !== undefined && w > 0) {
+            warnings = w;
+            break;
+        }
+    }
+    const message = String(rec.message || rec.detail || data?.message || rec.status || '').trim();
     return { records, warnings, message };
+}
+
+type StaffBulkImportRowError = { row: number; email: string; message: string };
+
+function parseBulkErrorRows(raw: unknown): StaffBulkImportRowError[] {
+    if (!Array.isArray(raw)) return [];
+    return raw.map((e, i) => {
+        if (!e || typeof e !== 'object') {
+            return { row: i + 2, email: '', message: String(e) };
+        }
+        const er = e as Record<string, unknown>;
+        const rowRaw = er.row;
+        const rowNum =
+            typeof rowRaw === 'number' && Number.isFinite(rowRaw)
+                ? rowRaw
+                : typeof rowRaw === 'string' && rowRaw.trim() !== '' && Number.isFinite(Number(rowRaw))
+                  ? Number(rowRaw)
+                  : i + 2;
+        return {
+            row: rowNum,
+            email: String(er.email || '').trim(),
+            message: String(er.message || er.detail || er.error || '').trim() || 'Unknown error',
+        };
+    });
+}
+
+function summarizeBulkCreatedEntry(raw: unknown): { name: string; email: string; meta: string } {
+    if (!raw || typeof raw !== 'object') {
+        return { name: 'New staff', email: '', meta: '' };
+    }
+    const r = raw as Record<string, unknown>;
+    const nest = (k: string): Record<string, unknown> | null => {
+        const v = r[k];
+        return v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : null;
+    };
+    const staff = nest('staff') || nest('staff_member') || nest('user') || r;
+    const first = String(staff.first_name || r.first_name || '').trim();
+    const last = String(staff.last_name || r.last_name || '').trim();
+    const name =
+        [first, last].filter(Boolean).join(' ') ||
+        String(staff.name || r.name || 'Staff member').trim();
+    const email = String(staff.email || r.email || '').trim();
+    const job = String(staff.job_title || r.job_title || staff.title || r.title || '').trim();
+    const id = String(r.id || staff.id || r.staff_id || '').trim();
+    const meta = [job, id ? `ID ${id.length > 10 ? `${id.slice(0, 8)}…` : id}` : ''].filter(Boolean).join(' · ');
+    return { name, email, meta };
+}
+
+type StaffBulkInterpret = {
+    toastText: string;
+    historyStatus: ImportStatus;
+    historyRecords: number;
+    historyWarnings: number;
+    shouldRefreshStaff: boolean;
+    shouldClearFile: boolean;
+};
+
+/** Backend often returns HTTP 400 with body { created: [], errors: [{ row, email, message }, ...] } — not a transport failure. */
+function interpretStaffBulkResponse(resOk: boolean, raw: unknown): StaffBulkInterpret {
+    const rec = raw && typeof raw === 'object' && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
+    const created = Array.isArray(rec.created) ? rec.created : [];
+    const errors = Array.isArray(rec.errors) ? rec.errors : [];
+    const nCreated = created.length;
+    const nErrors = errors.length;
+
+    if (nCreated > 0 || nErrors > 0) {
+        let toastText: string;
+        if (nCreated > 0 && nErrors > 0) {
+            toastText = `${nCreated} added · ${nErrors} row(s) failed (see cards below).`;
+        } else if (nCreated > 0) {
+            toastText = `Imported ${nCreated} staff member(s). See cards below.`;
+        } else {
+            toastText = `No rows imported · ${nErrors} issue(s) below.`;
+        }
+        return {
+            toastText,
+            historyStatus: nCreated > 0 ? 'success' : 'error',
+            historyRecords: nCreated,
+            historyWarnings: nErrors,
+            shouldRefreshStaff: nCreated > 0,
+            shouldClearFile: nCreated > 0,
+        };
+    }
+
+    const parsed = parseBulkUploadSummary(raw);
+    if (resOk) {
+        return {
+            toastText: parsed.message || (parsed.records > 0 ? `Import completed: ${parsed.records} records processed` : 'Import completed.'),
+            historyStatus: 'success',
+            historyRecords: parsed.records,
+            historyWarnings: parsed.warnings,
+            shouldRefreshStaff: true,
+            shouldClearFile: true,
+        };
+    }
+    return {
+        toastText: String(rec.message || rec.detail || rec.error || parsed.message || 'Bulk import failed'),
+        historyStatus: 'error',
+        historyRecords: parsed.records,
+        historyWarnings: parsed.warnings,
+        shouldRefreshStaff: false,
+        shouldClearFile: false,
+    };
 }
 
 function getFacilityIdFromAuthMe(raw: unknown): string {
@@ -369,12 +511,93 @@ const staffBodyCell: CSSProperties = {
     color: 'var(--text-secondary)',
 };
 
+function StaffManagementMacToast({ toast, onDismiss }: { toast: StaffToastState; onDismiss: () => void }) {
+    const icon =
+        toast.variant === 'success' ? 'check_circle' : toast.variant === 'error' ? 'error' : 'info';
+    const iconColor =
+        toast.variant === 'success'
+            ? 'var(--success)'
+            : toast.variant === 'error'
+              ? 'var(--critical)'
+              : 'var(--accent-primary)';
+    return (
+        <div
+            className="toast-enter"
+            style={{
+                position: 'fixed',
+                top: 20,
+                right: 20,
+                zIndex: 10000,
+                maxWidth: 'min(420px, calc(100vw - 40px))',
+            }}
+        >
+            <div
+                role="alert"
+                aria-live="polite"
+                style={{
+                    display: 'flex',
+                    alignItems: 'flex-start',
+                    gap: 12,
+                    padding: '14px 12px 14px 16px',
+                    borderRadius: 14,
+                    background: 'var(--surface-card)',
+                    WebkitBackdropFilter: 'saturate(180%) blur(20px)',
+                    backdropFilter: 'saturate(180%) blur(20px)',
+                    boxShadow: '0 12px 40px rgba(0, 0, 0, 0.14), 0 0 0 0.5px rgba(0, 0, 0, 0.06)',
+                    border: '1px solid var(--border-default)',
+                }}
+            >
+                <span className="material-icons-round" style={{ fontSize: 22, color: iconColor, flexShrink: 0, marginTop: 1 }} aria-hidden>
+                    {icon}
+                </span>
+                <div
+                    style={{
+                        flex: 1,
+                        minWidth: 0,
+                        fontSize: 13,
+                        lineHeight: 1.45,
+                        fontWeight: 500,
+                        color: 'var(--text-primary)',
+                        whiteSpace: 'pre-wrap',
+                        wordBreak: 'break-word',
+                        maxHeight: 'min(50vh, 280px)',
+                        overflowY: 'auto',
+                    }}
+                >
+                    {toast.message}
+                </div>
+                <button
+                    type="button"
+                    aria-label="Dismiss notification"
+                    onClick={onDismiss}
+                    style={{
+                        flexShrink: 0,
+                        width: 28,
+                        height: 28,
+                        margin: '-2px -4px -2px 0',
+                        border: 'none',
+                        borderRadius: 9999,
+                        background: 'transparent',
+                        color: 'var(--text-muted)',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                    }}
+                >
+                    <span className="material-icons-round" style={{ fontSize: 18 }}>close</span>
+                </button>
+            </div>
+        </div>
+    );
+}
+
 export default function StaffDirectoryManagement() {
     const [staff, setStaff] = useState<StaffMember[]>([]);
     const [loading, setLoading] = useState(true);
     const [fetchError, setFetchError] = useState(false);
     const [search, setSearch] = useState('');
-    const [toast, setToast] = useState<string | null>(null);
+    const [toast, setToast] = useState<StaffToastState | null>(null);
     const [deptFilter, setDeptFilter] = useState('all');
     const [selected, setSelected] = useState<StaffMember | null>(null);
     const [editingSelected, setEditingSelected] = useState(false);
@@ -412,13 +635,30 @@ export default function StaffDirectoryManagement() {
     const [dragOver, setDragOver] = useState(false);
     const [uploadedFile, setUploadedFile] = useState<File | null>(null);
     const [bulkHistory, setBulkHistory] = useState(importHistory);
+    const [bulkResultCreated, setBulkResultCreated] = useState<unknown[]>([]);
+    const [bulkResultErrors, setBulkResultErrors] = useState<StaffBulkImportRowError[]>([]);
     const [processing, setProcessing] = useState(false);
     const [adding, setAdding] = useState(false);
     const [departmentOptions, setDepartmentOptions] = useState<string[]>([]);
     const [deptIdToName, setDeptIdToName] = useState<Map<string, string>>(() => new Map());
     const fileInputRef = useRef<HTMLInputElement | null>(null);
 
-    const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(null), 2500); };
+    const dismissToast = useCallback(() => {
+        setToast(null);
+    }, []);
+
+    const showToast = useCallback((message: string, variant: StaffToastVariant = 'info') => {
+        setToast({ message, variant });
+    }, []);
+
+    useEffect(() => {
+        if (!toast) return;
+        const onKey = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') dismissToast();
+        };
+        window.addEventListener('keydown', onKey);
+        return () => window.removeEventListener('keydown', onKey);
+    }, [toast, dismissToast]);
 
     const departments = useMemo(() => ['all', ...departmentOptions], [departmentOptions]);
     const deptNameToId = useMemo(() => {
@@ -650,6 +890,8 @@ export default function StaffDirectoryManagement() {
     const handleBulkImport = async () => {
         if (!uploadedFile) return;
         setProcessing(true);
+        setBulkResultCreated([]);
+        setBulkResultErrors([]);
         try {
             let facilityId = '';
             let importedBy = 'Admin';
@@ -679,52 +921,54 @@ export default function StaffDirectoryManagement() {
                 }
             }
             if (!facilityId) {
-                showToast('Unable to determine facility for bulk upload');
+                showToast('Unable to determine facility for bulk upload', 'error');
                 return;
             }
 
             const formData = new FormData();
-            formData.append('file', uploadedFile);
+            // API: multipart field "file" (CSV or Excel) + "facility_id" (UUID). Role is always staff on the server.
             formData.append('facility_id', facilityId);
-            formData.append('facilityId', facilityId);
+            formData.append('file', uploadedFile, uploadedFile.name);
 
             const res = await fetch('/api/proxy/staff/bulk', {
                 method: 'POST',
                 body: formData,
+                credentials: 'include',
             });
             const data = await res.json().catch(() => ({}));
-            const parsed = parseBulkUploadSummary(data);
+            const recPayload =
+                data && typeof data === 'object' && !Array.isArray(data) ? (data as Record<string, unknown>) : {};
+            setBulkResultCreated(Array.isArray(recPayload.created) ? [...recPayload.created] : []);
+            setBulkResultErrors(parseBulkErrorRows(recPayload.errors));
 
-            if (!res.ok) {
-                const msg = String((data as { message?: string; detail?: string; error?: string }).message || (data as { message?: string; detail?: string; error?: string }).detail || (data as { message?: string; detail?: string; error?: string }).error || 'Bulk import failed');
-                setBulkHistory(prev => [{
-                    id: `IMP-${String(prev.length + 1).padStart(3, '0')}`,
-                    file: uploadedFile.name,
-                    records: parsed.records,
-                    status: 'error',
-                    warnings: parsed.warnings,
-                    date: new Date().toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' }),
-                    user: importedBy,
-                }, ...prev]);
-                showToast(msg);
-                return;
-            }
+            const outcome = interpretStaffBulkResponse(res.ok, data);
 
             setBulkHistory(prev => [{
                 id: `IMP-${String(prev.length + 1).padStart(3, '0')}`,
                 file: uploadedFile.name,
-                records: parsed.records,
-                status: 'success',
-                warnings: parsed.warnings,
+                records: outcome.historyRecords,
+                status: outcome.historyStatus,
+                warnings: outcome.historyWarnings,
                 date: new Date().toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' }),
                 user: importedBy,
             }, ...prev]);
-            showToast(parsed.message || `Import completed: ${parsed.records} records processed`);
-            clearUploadedFile();
-            setLoading(true);
-            fetchStaff();
+            showToast(
+                outcome.toastText,
+                outcome.historyStatus === 'error'
+                    ? 'error'
+                    : outcome.historyWarnings > 0
+                      ? 'info'
+                      : 'success'
+            );
+            if (outcome.shouldClearFile) clearUploadedFile();
+            if (outcome.shouldRefreshStaff) {
+                setLoading(true);
+                fetchStaff();
+            }
         } catch {
-            showToast('Bulk import failed');
+            setBulkResultCreated([]);
+            setBulkResultErrors([]);
+            showToast('Bulk import failed', 'error');
         } finally {
             setProcessing(false);
         }
@@ -770,7 +1014,7 @@ export default function StaffDirectoryManagement() {
 
     const handleAdd = async () => {
         if (!isAddFormComplete) {
-            showToast(formatMissingFieldsToast(addFormMissingFields));
+            showToast(formatMissingFieldsToast(addFormMissingFields), 'error');
             return;
         }
         setAdding(true);
@@ -798,7 +1042,7 @@ export default function StaffDirectoryManagement() {
 
             if (!res.ok) {
                 const err = await res.json().catch(() => ({} as { message?: string; detail?: string; error?: string }));
-                showToast(String(err.message || err.detail || err.error || 'Failed to add staff'));
+                showToast(String(err.message || err.detail || err.error || 'Failed to add staff'), 'error');
                 return;
             }
 
@@ -852,9 +1096,9 @@ export default function StaffDirectoryManagement() {
             setNewHighestQualification('');
             setNewIsDoctor('');
             setNewPatientAccess(true);
-            showToast(`${newFirstName} ${newLastName} added to staff`);
+            showToast(`${newFirstName} ${newLastName} added to staff`, 'success');
         } catch {
-            showToast('Failed to add staff');
+            showToast('Failed to add staff', 'error');
         } finally {
             setAdding(false);
         }
@@ -864,7 +1108,7 @@ export default function StaffDirectoryManagement() {
         const member = staff.find(s => s.id === id);
         setStaff(prev => prev.filter(s => s.id !== id));
         if (selected?.id === id) setSelected(null);
-        showToast(`${member?.first_name} ${member?.last_name} removed`);
+        showToast(`${member?.first_name} ${member?.last_name} removed`, 'success');
         try {
             await fetch(`/api/proxy/staff/${id}`, { method: 'DELETE' });
         } catch { /* optimistic — already removed locally */ }
@@ -874,7 +1118,7 @@ export default function StaffDirectoryManagement() {
         const member = staff.find(s => s.id === id);
         const newStatus = member?.status === 'active' ? 'disabled' : 'active';
         setStaff(prev => prev.map(s => s.id === id ? { ...s, status: newStatus } : s));
-        showToast(newStatus === 'disabled' ? `${member?.first_name} ${member?.last_name} disabled` : `${member?.first_name} ${member?.last_name} enabled`);
+        showToast(newStatus === 'disabled' ? `${member?.first_name} ${member?.last_name} disabled` : `${member?.first_name} ${member?.last_name} enabled`, 'success');
         try {
             await fetch(`/api/proxy/staff/${id}`, {
                 method: 'PUT',
@@ -889,7 +1133,7 @@ export default function StaffDirectoryManagement() {
         const member = staff.find(s => s.id === id);
         setStaff(prev => prev.map(s => s.id === id ? { ...s, patient_access: newVal } : s));
         setSelected(prev => prev && prev.id === id ? { ...prev, patient_access: newVal } : prev);
-        showToast(`Patient access ${newVal ? 'granted' : 'revoked'} for ${member?.first_name} ${member?.last_name}`);
+        showToast(`Patient access ${newVal ? 'granted' : 'revoked'} for ${member?.first_name} ${member?.last_name}`, 'success');
         try {
             await fetch(`/api/proxy/staff/${id}`, {
                 method: 'PUT',
@@ -900,7 +1144,7 @@ export default function StaffDirectoryManagement() {
             // Rollback on failure
             setStaff(prev => prev.map(s => s.id === id ? { ...s, patient_access: currentAccess } : s));
             setSelected(prev => prev && prev.id === id ? { ...prev, patient_access: currentAccess } : prev);
-            showToast('Failed to update patient access');
+            showToast('Failed to update patient access', 'error');
         }
     };
 
@@ -909,7 +1153,7 @@ export default function StaffDirectoryManagement() {
         const oldRole = member?.role || 'staff';
         setStaff(prev => prev.map(s => s.id === id ? { ...s, role: newRole } : s));
         setSelected(prev => prev && prev.id === id ? { ...prev, role: newRole } : prev);
-        showToast(`${member?.first_name} ${member?.last_name} is now ${newRole === 'admin' ? 'an Admin' : 'Staff'}`);
+        showToast(`${member?.first_name} ${member?.last_name} is now ${newRole === 'admin' ? 'an Admin' : 'Staff'}`, 'success');
         try {
             const res = await fetch(`/api/proxy/staff/${id}/assign-role`, {
                 method: 'POST',
@@ -919,23 +1163,23 @@ export default function StaffDirectoryManagement() {
             if (!res.ok) {
                 setStaff(prev => prev.map(s => s.id === id ? { ...s, role: oldRole } : s));
                 setSelected(prev => prev && prev.id === id ? { ...prev, role: oldRole } : prev);
-                showToast('Failed to assign role');
+                showToast('Failed to assign role', 'error');
             }
         } catch {
             setStaff(prev => prev.map(s => s.id === id ? { ...s, role: oldRole } : s));
             setSelected(prev => prev && prev.id === id ? { ...prev, role: oldRole } : prev);
-            showToast('Failed to assign role');
+            showToast('Failed to assign role', 'error');
         }
     };
 
     const handleSaveSelected = async () => {
         if (!selected) return;
         if (!editFirstName.trim() || !editLastName.trim() || !editEmail.trim()) {
-            showToast('First name, last name, and email are required');
+            showToast('First name, last name, and email are required', 'error');
             return;
         }
         if (editPhone.trim() && !isValidGhanaPhone(editPhone)) {
-            showToast('Phone must be +233 followed by 9 digits');
+            showToast('Phone must be +233 followed by 9 digits', 'error');
             return;
         }
 
@@ -1008,7 +1252,7 @@ export default function StaffDirectoryManagement() {
                     }),
                 }).catch(() => {});
                 // #endregion
-                showToast(String(err.message || err.detail || err.error || 'Failed to update staff'));
+                showToast(String(err.message || err.detail || err.error || 'Failed to update staff'), 'error');
                 return;
             }
 
@@ -1090,9 +1334,9 @@ export default function StaffDirectoryManagement() {
             setStaff(prev => prev.map(s => (s.id === selected.id ? { ...s, ...mergedLocal } : s)));
             setSelected(mergedLocal);
             setEditingSelected(false);
-            showToast('Staff updated');
+            showToast('Staff updated', 'success');
         } catch {
-            showToast('Failed to update staff');
+            showToast('Failed to update staff', 'error');
         } finally {
             setSavingEdit(false);
         }
@@ -1100,12 +1344,7 @@ export default function StaffDirectoryManagement() {
 
     return (
         <>
-            {toast && (
-                <div className="toast-enter" style={{ position: 'fixed', top: 20, right: 20, zIndex: 999, background: 'var(--surface-card)', border: '1px solid var(--border-default)', borderRadius: 'var(--radius-md)', padding: '10px 18px', fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <span className="material-icons-round" style={{ fontSize: 16, color: 'var(--success)' }}>check_circle</span>
-                    {toast}
-                </div>
-            )}
+            {toast && <StaffManagementMacToast toast={toast} onDismiss={dismissToast} />}
 
             <div className="app-main">
                 <TopBar
@@ -1733,9 +1972,9 @@ export default function StaffDirectoryManagement() {
                 ) : (
                 /* Bulk Import Tab */
                 <main style={{ flex: 1, minWidth: 0, overflow: 'auto', padding: '20px 24px', background: 'var(--bg-900)' }}>
-                    <div className="fade-in" style={{ marginBottom: 20 }}>
-                        <p style={{ fontSize: 13, color: 'var(--text-muted)', maxWidth: 540 }}>Upload a CSV or Excel file to bulk-add staff members. Download a template first to ensure proper formatting.</p>
-                    </div>
+                    <p className="fade-in" style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 20 }}>
+                        Upload a CSV or Excel file (.xlsx, .xls). Download the CSV template for column order.
+                    </p>
 
                     <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 0.6fr', gap: 20, marginBottom: 24 }}>
                         <div className="fade-in delay-1 card">
@@ -1743,7 +1982,7 @@ export default function StaffDirectoryManagement() {
                             <input
                                 ref={fileInputRef}
                                 type="file"
-                                accept=".csv,.xlsx,.xls"
+                                accept=".csv,.xlsx,.xls,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                                 style={{ display: 'none' }}
                                 onChange={e => {
                                     const file = e.target.files?.[0];
@@ -1783,7 +2022,14 @@ export default function StaffDirectoryManagement() {
                         <div className="fade-in delay-2 card">
                             <h3 style={{ marginBottom: 14 }}>Download Template</h3>
                             {[
-                                { icon: 'badge', label: 'Staff Template', desc: 'Email, names, phone, title, department, patient access', color: '#4a6fa5', href: '/templates/staff_bulk_upload.csv' },
+                                {
+                                    icon: 'badge',
+                                    label: 'latest_bulk_upload.csv',
+                                    desc: 'email, first_name, last_name, job_title, middle_name, phone, dob, gender, department_id, patient_access, employee_id, highest_qualifications, is_doctor',
+                                    color: '#4a6fa5',
+                                    href: '/templates/latest_bulk_upload.csv',
+                                    downloadName: 'latest_bulk_upload.csv',
+                                },
                             ].map(t => (
                                 <div key={t.label} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-subtle)', marginBottom: 8, cursor: 'pointer', background: 'var(--surface-2)' }}>
                                     <div style={{ width: 36, height: 36, borderRadius: 9, background: `${t.color}20`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
@@ -1793,8 +2039,8 @@ export default function StaffDirectoryManagement() {
                                     <a
                                         className="btn btn-ghost btn-xs"
                                         href={t.href}
-                                        download
-                                        onClick={() => showToast(`${t.label} downloaded`)}
+                                        download={'downloadName' in t ? t.downloadName : true}
+                                        onClick={() => showToast(`${'downloadName' in t ? t.downloadName : t.label} downloaded`)}
                                     >
                                         <span className="material-icons-round" style={{ fontSize: 16, color: 'var(--text-muted)' }}>download</span>
                                     </a>
@@ -1802,6 +2048,92 @@ export default function StaffDirectoryManagement() {
                             ))}
                         </div>
                     </div>
+
+                    {(bulkResultCreated.length > 0 || bulkResultErrors.length > 0) && (
+                        <div className="fade-in" style={{ display: 'flex', flexDirection: 'column', gap: 20, marginBottom: 24 }}>
+                            {bulkResultCreated.length > 0 && (
+                                <div>
+                                    <h3 style={{ marginBottom: 12, fontSize: 15, fontWeight: 600, color: 'var(--text-primary)' }}>
+                                        Created staff ({bulkResultCreated.length})
+                                    </h3>
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                                        {bulkResultCreated.map((raw, idx) => {
+                                            const { name, email, meta } = summarizeBulkCreatedEntry(raw);
+                                            return (
+                                                <div
+                                                    key={`created-${idx}-${email || name}`}
+                                                    style={{
+                                                        display: 'flex',
+                                                        alignItems: 'flex-start',
+                                                        gap: 12,
+                                                        padding: '14px 16px',
+                                                        borderRadius: 'var(--radius-lg)',
+                                                        background: 'var(--surface-card)',
+                                                        border: '1px solid var(--border-subtle)',
+                                                        borderLeft: '4px solid var(--success)',
+                                                        boxShadow: 'var(--shadow-soft)',
+                                                    }}
+                                                >
+                                                    <span className="material-icons-round" style={{ fontSize: 22, color: 'var(--success)', flexShrink: 0, marginTop: 1 }} aria-hidden>
+                                                        person_add
+                                                    </span>
+                                                    <div style={{ flex: 1, minWidth: 0 }}>
+                                                        <div style={{ fontWeight: 600, fontSize: 14, color: 'var(--text-primary)' }}>{name}</div>
+                                                        {email ? (
+                                                            <div style={{ fontSize: 12.5, color: 'var(--text-secondary)', marginTop: 2 }}>{email}</div>
+                                                        ) : null}
+                                                        {meta ? (
+                                                            <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>{meta}</div>
+                                                        ) : null}
+                                                    </div>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+                            )}
+                            {bulkResultErrors.length > 0 && (
+                                <div>
+                                    <h3 style={{ marginBottom: 12, fontSize: 15, fontWeight: 600, color: 'var(--text-primary)' }}>
+                                        Row errors ({bulkResultErrors.length})
+                                    </h3>
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                                        {bulkResultErrors.map((err, idx) => (
+                                            <div
+                                                key={`err-${err.row}-${err.email}-${idx}`}
+                                                style={{
+                                                    display: 'flex',
+                                                    alignItems: 'flex-start',
+                                                    gap: 12,
+                                                    padding: '14px 16px',
+                                                    borderRadius: 'var(--radius-lg)',
+                                                    background: 'var(--surface-card)',
+                                                    border: '1px solid var(--border-subtle)',
+                                                    borderLeft: '4px solid var(--critical)',
+                                                    boxShadow: 'var(--shadow-soft)',
+                                                }}
+                                            >
+                                                <span className="material-icons-round" style={{ fontSize: 22, color: 'var(--critical)', flexShrink: 0, marginTop: 1 }} aria-hidden>
+                                                    error
+                                                </span>
+                                                <div style={{ flex: 1, minWidth: 0 }}>
+                                                    <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', color: 'var(--text-muted)', textTransform: 'uppercase' }}>
+                                                        Row {err.row}
+                                                    </div>
+                                                    {err.email ? (
+                                                        <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--text-primary)', marginTop: 4, wordBreak: 'break-word' }}>
+                                                            {err.email}
+                                                        </div>
+                                                    ) : null}
+                                                    <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 6, lineHeight: 1.45 }}>{err.message}</div>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    )}
 
                     <div className="fade-in delay-3 card">
                         <h3 style={{ marginBottom: 14 }}>Import History</h3>

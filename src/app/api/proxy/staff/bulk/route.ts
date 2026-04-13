@@ -4,7 +4,7 @@ import { NextRequest, NextResponse } from 'next/server';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3000';
 
-// POST /staff/bulk - Bulk create staff via CSV upload
+// POST /api/v1/staff/bulk — multipart/form-data: facility_id (UUID) + file (CSV or Excel). Query params are not used.
 export async function POST(req: NextRequest) {
     try {
         const contentType = req.headers.get('content-type') || '';
@@ -15,10 +15,9 @@ export async function POST(req: NextRequest) {
                 { status: 400 }
             );
         }
-        const url = new URL(`${API_BASE_URL}/api/v1/staff/bulk`);
-        url.searchParams.set('facility_id', facilityId);
+        const url = `${API_BASE_URL}/api/v1/staff/bulk`;
 
-        console.log('Proxy bulk create staff request to:', url.toString(), 'facility_id:', facilityId);
+        console.log('[staff/bulk] Forwarding POST to:', url, 'facility_id:', facilityId);
 
         let res;
         if (contentType.includes('multipart/form-data')) {
@@ -30,11 +29,21 @@ export async function POST(req: NextRequest) {
                     { status: 403 }
                 );
             }
+            const file = formData.get('file');
+            if (!file || !(file instanceof Blob)) {
+                return NextResponse.json(
+                    { error: 'Missing file. Form field name must be "file" (CSV, XLSX, or XLS).' },
+                    { status: 400 }
+                );
+            }
+            if (file.size === 0) {
+                return NextResponse.json({ error: 'Uploaded file is empty.' }, { status: 400 });
+            }
             formData.set('facility_id', facilityId);
             formData.delete('facilityId');
             const headers = new Headers(getProxyHeaders(req));
             headers.delete('content-type');
-            res = await fetch(url.toString(), {
+            res = await fetch(url, {
                 method: 'POST',
                 headers,
                 body: formData,
@@ -50,7 +59,7 @@ export async function POST(req: NextRequest) {
             }
             body.facility_id = facilityId;
             delete body.facilityId;
-            res = await fetch(url.toString(), {
+            res = await fetch(url, {
                 method: 'POST',
                 headers: getProxyHeaders(req),
                 body: JSON.stringify(body),

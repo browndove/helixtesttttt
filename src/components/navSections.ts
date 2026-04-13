@@ -1,10 +1,5 @@
 const navSections = [
     {
-        items: [
-            { icon: 'analytics', label: 'Usage', href: '/usage' },
-        ],
-    },
-    {
         title: 'Setup',
         items: [
             { icon: 'badge', label: 'Roles', href: '/roles' },

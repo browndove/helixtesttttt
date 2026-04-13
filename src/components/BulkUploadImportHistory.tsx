@@ -136,7 +136,7 @@ export default function BulkUploadImportHistory() {
                     <div className="fade-in delay-2 card">
                         <h3 style={{ marginBottom: 14 }}>Data Templates</h3>
                         {[
-                            { icon: 'badge', label: 'Staff Template', desc: 'ID, Name, Role, Dept, Shift', color: '#4a6fa5' },
+                            { icon: 'badge', label: 'Staff CSV', desc: 'latest_bulk_upload.csv — 13 columns (email through is_doctor)', color: '#4a6fa5' },
                             { icon: 'person', label: 'Patient Template', desc: 'Standard demographics format', color: '#5a7d8c' },
                             { icon: 'calendar_month', label: 'Schedule Template', desc: 'Shifts, assignments, rotations', color: '#5c8a6e' },
                         ].map(t => (

@@ -204,7 +204,7 @@ export default function HospitalAdminLogin() {
                     await fetch(API_ENDPOINTS.AUTH_ME).catch(() => null);
                 }
             } catch { /* best effort — proceed to dashboard */ }
-            setTimeout(() => router.push('/usage'), 1500);
+            setTimeout(() => router.push('/roles'), 1500);
         } catch (err) {
             const errMsg = err instanceof Error ? err.message : 'Network error. Please try again.';
             setError(errMsg);
