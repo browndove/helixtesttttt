@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import TopBar from '@/components/TopBar';
 import CustomSelect from '@/components/CustomSelect';
+import { MacVibrancyToast, MacVibrancyToastPortal } from '@/components/MacVibrancyToast';
 
 type RoleRow = {
     id: string;
@@ -228,25 +229,9 @@ export default function ExternalCommunicationManagement() {
     return (
         <>
             {toast && (
-                <div
-                    className="toast-enter"
-                    style={{
-                        position: 'fixed',
-                        top: 20,
-                        right: 20,
-                        zIndex: 999,
-                        background: 'var(--surface-card)',
-                        border: '1px solid var(--border-default)',
-                        borderRadius: 'var(--radius-md)',
-                        padding: '10px 18px',
-                        fontSize: 13,
-                        fontWeight: 600,
-                        color: 'var(--text-primary)',
-                        boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
-                    }}
-                >
-                    {toast}
-                </div>
+                <MacVibrancyToastPortal>
+                    <MacVibrancyToast message={toast} variant="info" dismissible={false} />
+                </MacVibrancyToastPortal>
             )}
 
             <div className="app-main" style={{ minWidth: 0, flex: 1, display: 'flex', flexDirection: 'column' }}>

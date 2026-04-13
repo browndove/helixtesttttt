@@ -6,6 +6,9 @@ import TopBar from '@/components/TopBar';
 import CustomSelect from '@/components/CustomSelect';
 import DatePicker from '@/components/DatePicker';
 import { formatGhanaPhoneInput, isValidGhanaPhone } from '@/lib/phone';
+import { parseBulkUploadHistoryResponse, type BulkUploadHistoryEntry } from '@/lib/bulk-upload-history';
+import { MacVibrancyToast, MacVibrancyToastPortal } from '@/components/MacVibrancyToast';
+import { BulkImportErrorsSheet } from '@/components/BulkImportErrorsSheet';
 
 type StaffMember = {
     id: string;
@@ -35,16 +38,6 @@ type ImportStatus = 'success' | 'error';
 
 type StaffToastVariant = 'success' | 'error' | 'info';
 type StaffToastState = { message: string; variant: StaffToastVariant };
-
-type ImportHistoryEntry = {
-    id: string;
-    file: string;
-    records: number;
-    status: ImportStatus;
-    warnings: number;
-    date: string;
-    user: string;
-};
 
 type BulkUploadSummary = {
     records: number;
@@ -287,12 +280,6 @@ const statusColors: Record<string, { color: string; bg: string; label: string }>
 };
 
 
-const importHistory: ImportHistoryEntry[] = [
-    { id: 'IMP-001', file: 'staff_q4_import.csv', records: 142, status: 'success', warnings: 2, date: 'Nov 12, 2024', user: 'Dr. Kwame Asante' },
-    { id: 'IMP-002', file: 'nurses_batch_oct.xlsx', records: 34, status: 'success', warnings: 0, date: 'Oct 28, 2024', user: 'Admin' },
-    { id: 'IMP-003', file: 'staff_roles_v2.csv', records: 18, status: 'error', warnings: 0, date: 'Oct 14, 2024', user: 'Admin' },
-];
-
 function readNumber(value: unknown): number {
     if (typeof value === 'number' && Number.isFinite(value)) return value;
     if (typeof value === 'string' && value.trim() !== '') {
@@ -420,11 +407,11 @@ function interpretStaffBulkResponse(resOk: boolean, raw: unknown): StaffBulkInte
     if (nCreated > 0 || nErrors > 0) {
         let toastText: string;
         if (nCreated > 0 && nErrors > 0) {
-            toastText = `${nCreated} added · ${nErrors} row(s) failed (see cards below).`;
+            toastText = `${nCreated} added · ${nErrors} row(s) failed (errors in top-right panel).`;
         } else if (nCreated > 0) {
-            toastText = `Imported ${nCreated} staff member(s). See cards below.`;
+            toastText = `Imported ${nCreated} staff member(s). See created rows below.`;
         } else {
-            toastText = `No rows imported · ${nErrors} issue(s) below.`;
+            toastText = `No rows imported · ${nErrors} issue(s) in the top-right panel.`;
         }
         return {
             toastText,
@@ -477,15 +464,6 @@ function getFacilityIdFromFacilityPayload(raw: unknown): string {
     return typeof id === 'string' ? id.trim() : '';
 }
 
-function getUserNameFromAuthMe(raw: unknown): string {
-    const rec = raw && typeof raw === 'object' ? raw as Record<string, unknown> : {};
-    const user = rec.user && typeof rec.user === 'object' ? rec.user as Record<string, unknown> : rec;
-    const first = String((user as Record<string, unknown>).first_name || '').trim();
-    const last = String((user as Record<string, unknown>).last_name || '').trim();
-    const full = `${first} ${last}`.trim();
-    return String((user as Record<string, unknown>).name || full || 'Admin').trim();
-}
-
 /** Fixed widths for sticky cols 1–3 so horizontal `left` offsets match (Employee ID, First, Last). */
 const STAFF_STICKY_W1 = 112;
 const STAFF_STICKY_W2 = 128;
@@ -510,87 +488,6 @@ const staffBodyCell: CSSProperties = {
     fontSize: 13,
     color: 'var(--text-secondary)',
 };
-
-function StaffManagementMacToast({ toast, onDismiss }: { toast: StaffToastState; onDismiss: () => void }) {
-    const icon =
-        toast.variant === 'success' ? 'check_circle' : toast.variant === 'error' ? 'error' : 'info';
-    const iconColor =
-        toast.variant === 'success'
-            ? 'var(--success)'
-            : toast.variant === 'error'
-              ? 'var(--critical)'
-              : 'var(--accent-primary)';
-    return (
-        <div
-            className="toast-enter"
-            style={{
-                position: 'fixed',
-                top: 20,
-                right: 20,
-                zIndex: 10000,
-                maxWidth: 'min(420px, calc(100vw - 40px))',
-            }}
-        >
-            <div
-                role="alert"
-                aria-live="polite"
-                style={{
-                    display: 'flex',
-                    alignItems: 'flex-start',
-                    gap: 12,
-                    padding: '14px 12px 14px 16px',
-                    borderRadius: 14,
-                    background: 'var(--surface-card)',
-                    WebkitBackdropFilter: 'saturate(180%) blur(20px)',
-                    backdropFilter: 'saturate(180%) blur(20px)',
-                    boxShadow: '0 12px 40px rgba(0, 0, 0, 0.14), 0 0 0 0.5px rgba(0, 0, 0, 0.06)',
-                    border: '1px solid var(--border-default)',
-                }}
-            >
-                <span className="material-icons-round" style={{ fontSize: 22, color: iconColor, flexShrink: 0, marginTop: 1 }} aria-hidden>
-                    {icon}
-                </span>
-                <div
-                    style={{
-                        flex: 1,
-                        minWidth: 0,
-                        fontSize: 13,
-                        lineHeight: 1.45,
-                        fontWeight: 500,
-                        color: 'var(--text-primary)',
-                        whiteSpace: 'pre-wrap',
-                        wordBreak: 'break-word',
-                        maxHeight: 'min(50vh, 280px)',
-                        overflowY: 'auto',
-                    }}
-                >
-                    {toast.message}
-                </div>
-                <button
-                    type="button"
-                    aria-label="Dismiss notification"
-                    onClick={onDismiss}
-                    style={{
-                        flexShrink: 0,
-                        width: 28,
-                        height: 28,
-                        margin: '-2px -4px -2px 0',
-                        border: 'none',
-                        borderRadius: 9999,
-                        background: 'transparent',
-                        color: 'var(--text-muted)',
-                        cursor: 'pointer',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                    }}
-                >
-                    <span className="material-icons-round" style={{ fontSize: 18 }}>close</span>
-                </button>
-            </div>
-        </div>
-    );
-}
 
 export default function StaffDirectoryManagement() {
     const [staff, setStaff] = useState<StaffMember[]>([]);
@@ -634,7 +531,8 @@ export default function StaffDirectoryManagement() {
     const staffPageSize = 15;
     const [dragOver, setDragOver] = useState(false);
     const [uploadedFile, setUploadedFile] = useState<File | null>(null);
-    const [bulkHistory, setBulkHistory] = useState(importHistory);
+    const [bulkHistory, setBulkHistory] = useState<BulkUploadHistoryEntry[]>([]);
+    const [bulkHistoryLoading, setBulkHistoryLoading] = useState(false);
     const [bulkResultCreated, setBulkResultCreated] = useState<unknown[]>([]);
     const [bulkResultErrors, setBulkResultErrors] = useState<StaffBulkImportRowError[]>([]);
     const [processing, setProcessing] = useState(false);
@@ -651,14 +549,22 @@ export default function StaffDirectoryManagement() {
         setToast({ message, variant });
     }, []);
 
+    const dismissBulkErrors = useCallback(() => {
+        setBulkResultErrors([]);
+    }, []);
+
     useEffect(() => {
-        if (!toast) return;
         const onKey = (e: KeyboardEvent) => {
-            if (e.key === 'Escape') dismissToast();
+            if (e.key !== 'Escape') return;
+            if (bulkResultErrors.length > 0) {
+                dismissBulkErrors();
+            } else if (toast) {
+                dismissToast();
+            }
         };
         window.addEventListener('keydown', onKey);
         return () => window.removeEventListener('keydown', onKey);
-    }, [toast, dismissToast]);
+    }, [toast, dismissToast, bulkResultErrors.length, dismissBulkErrors]);
 
     const departments = useMemo(() => ['all', ...departmentOptions], [departmentOptions]);
     const deptNameToId = useMemo(() => {
@@ -887,6 +793,30 @@ export default function StaffDirectoryManagement() {
         if (fileInputRef.current) fileInputRef.current.value = '';
     };
 
+    const fetchBulkHistory = useCallback(async () => {
+        setBulkHistoryLoading(true);
+        try {
+            const params = new URLSearchParams();
+            params.set('kind', 'staff');
+            const res = await fetch(`/api/proxy/bulk-upload-history?${params.toString()}`, { credentials: 'include' });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                setBulkHistory([]);
+                return;
+            }
+            setBulkHistory(parseBulkUploadHistoryResponse(data));
+        } catch {
+            setBulkHistory([]);
+        } finally {
+            setBulkHistoryLoading(false);
+        }
+    }, []);
+
+    useEffect(() => {
+        if (activeTab !== 'import') return;
+        void fetchBulkHistory();
+    }, [activeTab, fetchBulkHistory]);
+
     const handleBulkImport = async () => {
         if (!uploadedFile) return;
         setProcessing(true);
@@ -894,7 +824,6 @@ export default function StaffDirectoryManagement() {
         setBulkResultErrors([]);
         try {
             let facilityId = '';
-            let importedBy = 'Admin';
 
             // Priority 0: Read from helix-facility cookie (set by facility selector)
             const cookieMatch = document.cookie.match(/helix-facility=([^;]+)/);
@@ -904,7 +833,6 @@ export default function StaffDirectoryManagement() {
             if (meRes.ok) {
                 const meData = await meRes.json().catch(() => ({}));
                 if (!facilityId) facilityId = getFacilityIdFromAuthMe(meData);
-                importedBy = getUserNameFromAuthMe(meData);
             }
             if (!facilityId) {
                 const hospitalRes = await fetch('/api/proxy/hospital');
@@ -943,15 +871,6 @@ export default function StaffDirectoryManagement() {
 
             const outcome = interpretStaffBulkResponse(res.ok, data);
 
-            setBulkHistory(prev => [{
-                id: `IMP-${String(prev.length + 1).padStart(3, '0')}`,
-                file: uploadedFile.name,
-                records: outcome.historyRecords,
-                status: outcome.historyStatus,
-                warnings: outcome.historyWarnings,
-                date: new Date().toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' }),
-                user: importedBy,
-            }, ...prev]);
             showToast(
                 outcome.toastText,
                 outcome.historyStatus === 'error'
@@ -971,6 +890,7 @@ export default function StaffDirectoryManagement() {
             showToast('Bulk import failed', 'error');
         } finally {
             setProcessing(false);
+            void fetchBulkHistory();
         }
     };
 
@@ -1344,7 +1264,21 @@ export default function StaffDirectoryManagement() {
 
     return (
         <>
-            {toast && <StaffManagementMacToast toast={toast} onDismiss={dismissToast} />}
+            {bulkResultErrors.length > 0 && (
+                <BulkImportErrorsSheet
+                    errors={bulkResultErrors}
+                    onDismiss={dismissBulkErrors}
+                    title="Bulk import — rows not imported"
+                    description={`${bulkResultErrors.length} row${bulkResultErrors.length === 1 ? '' : 's'} in this file were skipped. Correct the sheet and try again, or add these people individually.`}
+                    titleId="staff-bulk-errors-title"
+                    descId="staff-bulk-errors-desc"
+                />
+            )}
+            {toast && (
+                <MacVibrancyToastPortal>
+                    <MacVibrancyToast message={toast.message} variant={toast.variant} onDismiss={dismissToast} />
+                </MacVibrancyToastPortal>
+            )}
 
             <div className="app-main">
                 <TopBar
@@ -2039,8 +1973,8 @@ export default function StaffDirectoryManagement() {
                                     <a
                                         className="btn btn-ghost btn-xs"
                                         href={t.href}
-                                        download={'downloadName' in t ? t.downloadName : true}
-                                        onClick={() => showToast(`${'downloadName' in t ? t.downloadName : t.label} downloaded`)}
+                                        download={t.downloadName}
+                                        onClick={() => showToast(`${t.downloadName} downloaded`)}
                                     >
                                         <span className="material-icons-round" style={{ fontSize: 16, color: 'var(--text-muted)' }}>download</span>
                                     </a>
@@ -2049,58 +1983,18 @@ export default function StaffDirectoryManagement() {
                         </div>
                     </div>
 
-                    {(bulkResultCreated.length > 0 || bulkResultErrors.length > 0) && (
+                    {bulkResultCreated.length > 0 && (
                         <div className="fade-in" style={{ display: 'flex', flexDirection: 'column', gap: 20, marginBottom: 24 }}>
-                            {bulkResultCreated.length > 0 && (
-                                <div>
-                                    <h3 style={{ marginBottom: 12, fontSize: 15, fontWeight: 600, color: 'var(--text-primary)' }}>
-                                        Created staff ({bulkResultCreated.length})
-                                    </h3>
-                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                                        {bulkResultCreated.map((raw, idx) => {
-                                            const { name, email, meta } = summarizeBulkCreatedEntry(raw);
-                                            return (
-                                                <div
-                                                    key={`created-${idx}-${email || name}`}
-                                                    style={{
-                                                        display: 'flex',
-                                                        alignItems: 'flex-start',
-                                                        gap: 12,
-                                                        padding: '14px 16px',
-                                                        borderRadius: 'var(--radius-lg)',
-                                                        background: 'var(--surface-card)',
-                                                        border: '1px solid var(--border-subtle)',
-                                                        borderLeft: '4px solid var(--success)',
-                                                        boxShadow: 'var(--shadow-soft)',
-                                                    }}
-                                                >
-                                                    <span className="material-icons-round" style={{ fontSize: 22, color: 'var(--success)', flexShrink: 0, marginTop: 1 }} aria-hidden>
-                                                        person_add
-                                                    </span>
-                                                    <div style={{ flex: 1, minWidth: 0 }}>
-                                                        <div style={{ fontWeight: 600, fontSize: 14, color: 'var(--text-primary)' }}>{name}</div>
-                                                        {email ? (
-                                                            <div style={{ fontSize: 12.5, color: 'var(--text-secondary)', marginTop: 2 }}>{email}</div>
-                                                        ) : null}
-                                                        {meta ? (
-                                                            <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>{meta}</div>
-                                                        ) : null}
-                                                    </div>
-                                                </div>
-                                            );
-                                        })}
-                                    </div>
-                                </div>
-                            )}
-                            {bulkResultErrors.length > 0 && (
-                                <div>
-                                    <h3 style={{ marginBottom: 12, fontSize: 15, fontWeight: 600, color: 'var(--text-primary)' }}>
-                                        Row errors ({bulkResultErrors.length})
-                                    </h3>
-                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                                        {bulkResultErrors.map((err, idx) => (
+                            <div>
+                                <h3 style={{ marginBottom: 12, fontSize: 15, fontWeight: 600, color: 'var(--text-primary)' }}>
+                                    Created staff ({bulkResultCreated.length})
+                                </h3>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                                    {bulkResultCreated.map((raw, idx) => {
+                                        const { name, email, meta } = summarizeBulkCreatedEntry(raw);
+                                        return (
                                             <div
-                                                key={`err-${err.row}-${err.email}-${idx}`}
+                                                key={`created-${idx}-${email || name}`}
                                                 style={{
                                                     display: 'flex',
                                                     alignItems: 'flex-start',
@@ -2109,47 +2003,104 @@ export default function StaffDirectoryManagement() {
                                                     borderRadius: 'var(--radius-lg)',
                                                     background: 'var(--surface-card)',
                                                     border: '1px solid var(--border-subtle)',
-                                                    borderLeft: '4px solid var(--critical)',
+                                                    borderLeft: '4px solid var(--success)',
                                                     boxShadow: 'var(--shadow-soft)',
                                                 }}
                                             >
-                                                <span className="material-icons-round" style={{ fontSize: 22, color: 'var(--critical)', flexShrink: 0, marginTop: 1 }} aria-hidden>
-                                                    error
+                                                <span className="material-icons-round" style={{ fontSize: 22, color: 'var(--success)', flexShrink: 0, marginTop: 1 }} aria-hidden>
+                                                    person_add
                                                 </span>
                                                 <div style={{ flex: 1, minWidth: 0 }}>
-                                                    <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', color: 'var(--text-muted)', textTransform: 'uppercase' }}>
-                                                        Row {err.row}
-                                                    </div>
-                                                    {err.email ? (
-                                                        <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--text-primary)', marginTop: 4, wordBreak: 'break-word' }}>
-                                                            {err.email}
-                                                        </div>
+                                                    <div style={{ fontWeight: 600, fontSize: 14, color: 'var(--text-primary)' }}>{name}</div>
+                                                    {email ? (
+                                                        <div style={{ fontSize: 12.5, color: 'var(--text-secondary)', marginTop: 2 }}>{email}</div>
                                                     ) : null}
-                                                    <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 6, lineHeight: 1.45 }}>{err.message}</div>
+                                                    {meta ? (
+                                                        <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>{meta}</div>
+                                                    ) : null}
                                                 </div>
                                             </div>
-                                        ))}
-                                    </div>
+                                        );
+                                    })}
                                 </div>
-                            )}
+                            </div>
                         </div>
                     )}
 
                     <div className="fade-in delay-3 card">
-                        <h3 style={{ marginBottom: 14 }}>Import History</h3>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12, marginBottom: 14 }}>
+                            <h3 style={{ margin: 0 }}>Import history</h3>
+                            <span
+                                title="This page only shows staff bulk imports"
+                                style={{
+                                    fontSize: 11,
+                                    fontWeight: 600,
+                                    padding: '6px 12px',
+                                    borderRadius: 8,
+                                    textTransform: 'capitalize',
+                                    color: '#fff',
+                                    background: 'var(--helix-primary)',
+                                    border: '1px solid var(--helix-primary)',
+                                    userSelect: 'none',
+                                    pointerEvents: 'none',
+                                }}
+                            >
+                                Staff
+                            </span>
+                        </div>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                            {bulkHistory.map(h => (
-                                <div key={h.id} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '12px 14px', borderRadius: 'var(--radius-md)', background: 'var(--surface-2)', border: '1px solid var(--border-subtle)' }}>
-                                    <div style={{ width: 36, height: 36, borderRadius: 9, flexShrink: 0, background: h.status === 'success' ? 'var(--success-bg)' : 'var(--error-bg)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                        <span className="material-icons-round" style={{ fontSize: 18, color: h.status === 'success' ? 'var(--success)' : 'var(--error)' }}>{h.status === 'success' ? 'check_circle' : 'error'}</span>
-                                    </div>
-                                    <div style={{ flex: 1 }}>
-                                        <div style={{ fontWeight: 600, fontSize: 13 }}>{h.file}</div>
-                                        <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 1 }}>{h.records} records · {h.date} · {h.user}</div>
-                                    </div>
-                                    {h.warnings > 0 && <span className="badge badge-warning">{h.warnings} warnings</span>}
+                            {bulkHistoryLoading && (
+                                <div style={{ padding: 24, textAlign: 'center', color: 'var(--text-muted)', fontSize: 13 }}>
+                                    Loading history…
                                 </div>
-                            ))}
+                            )}
+                            {!bulkHistoryLoading && bulkHistory.length === 0 && (
+                                <div style={{ padding: 20, textAlign: 'center', color: 'var(--text-muted)', fontSize: 13 }}>
+                                    No staff imports found.
+                                </div>
+                            )}
+                            {!bulkHistoryLoading &&
+                                bulkHistory.map(h => (
+                                    <div
+                                        key={h.id}
+                                        style={{
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: 14,
+                                            padding: '12px 14px',
+                                            borderRadius: 'var(--radius-md)',
+                                            background: 'var(--surface-2)',
+                                            border: '1px solid var(--border-subtle)',
+                                        }}
+                                    >
+                                        <div
+                                            style={{
+                                                width: 36,
+                                                height: 36,
+                                                borderRadius: 9,
+                                                flexShrink: 0,
+                                                background: h.status === 'success' ? 'var(--success-bg)' : 'var(--error-bg)',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                            }}
+                                        >
+                                            <span
+                                                className="material-icons-round"
+                                                style={{ fontSize: 18, color: h.status === 'success' ? 'var(--success)' : 'var(--error)' }}
+                                            >
+                                                {h.status === 'success' ? 'check_circle' : 'error'}
+                                            </span>
+                                        </div>
+                                        <div style={{ flex: 1, minWidth: 0 }}>
+                                            <div style={{ fontWeight: 600, fontSize: 13, wordBreak: 'break-word' }}>{h.file}</div>
+                                            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 1 }}>
+                                                {h.records} records · {h.date} · {h.user}
+                                            </div>
+                                        </div>
+                                        {h.warnings > 0 && <span className="badge badge-warning">{h.warnings} warnings</span>}
+                                    </div>
+                                ))}
                         </div>
                     </div>
                 </main>

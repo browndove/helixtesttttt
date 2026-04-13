@@ -594,6 +594,29 @@ a.card:hover,
   to   { opacity: 1; transform: translateY(0); }
 }
 
+/* macOS-style toast: slide from right + fade */
+@keyframes helixMacToastInFromRight {
+  from {
+    opacity: 0;
+    transform: translateX(32px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes helixMacSheetInFromRight {
+  from {
+    opacity: 0;
+    transform: translateX(24px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
 @keyframes scaleIn {
   from { opacity: 0; transform: scale(0.95); }
   to   { opacity: 1; transform: scale(1); }
@@ -874,7 +897,371 @@ select.input {
 /* ── Tooltip / toast entrance ───────────────────────────── */
 
 .toast-enter {
-  animation: slideInDown 0.35s var(--ease-out-expo) both;
+  animation: helixMacToastInFromRight 0.42s ease-out both;
+}
+
+/* ── macOS vibrancy toasts (frosted glass stack, top-right) ─ */
+
+.helix-mac-toast-portal,
+.helix-mac-toast-stack {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  z-index: 10000;
+  display: flex;
+  flex-direction: column-reverse;
+  align-items: flex-end;
+  gap: 10px;
+  max-width: min(360px, calc(100vw - 40px));
+  pointer-events: none;
+}
+
+.helix-mac-toast-portal > *,
+.helix-mac-toast-stack > * {
+  pointer-events: auto;
+}
+
+/* Older items sink visually; hide beyond five (Notification Center–style cap) */
+.helix-mac-toast-stack > .helix-mac-toast-item:nth-child(n + 6) {
+  display: none;
+}
+
+.helix-mac-toast-item {
+  animation: helixMacToastInFromRight 0.42s ease-out both;
+  width: 100%;
+  max-width: min(360px, calc(100vw - 40px));
+}
+
+.helix-mac-sheet-item {
+  animation: helixMacSheetInFromRight 0.38s ease-out both;
+}
+
+.helix-mac-toast-surface {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  width: 100%;
+  min-width: 260px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  overflow: hidden;
+  font-size: 13px;
+  line-height: 1.45;
+  font-weight: 400;
+  letter-spacing: -0.01em;
+  color: var(--text-primary);
+  border: 1px solid rgba(255, 255, 255, 0.55);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.78) 0%, rgba(255, 255, 255, 0.62) 100%);
+  -webkit-backdrop-filter: saturate(180%) blur(22px);
+  backdrop-filter: saturate(180%) blur(22px);
+  transition:
+    background 0.22s ease,
+    border-color 0.22s ease,
+    box-shadow 0.22s ease,
+    filter 0.22s ease;
+}
+
+.helix-mac-toast-surface:hover {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.9) 0%, rgba(255, 255, 255, 0.78) 100%);
+  border-color: rgba(255, 255, 255, 0.72);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.12);
+  filter: brightness(1.02);
+}
+
+.helix-mac-toast-accent {
+  width: 3px;
+  flex-shrink: 0;
+  align-self: stretch;
+  min-height: 2.5rem;
+  border-radius: 2px;
+  margin-top: 2px;
+  background: var(--helix-primary, var(--accent-primary));
+}
+
+.helix-mac-toast-surface--success .helix-mac-toast-accent {
+  background: var(--success);
+}
+
+.helix-mac-toast-surface--error .helix-mac-toast-accent {
+  background: var(--critical);
+}
+
+.helix-mac-toast-surface--info .helix-mac-toast-accent {
+  background: var(--helix-primary, var(--accent-primary));
+}
+
+.helix-mac-toast-leading {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  margin-top: 1px;
+  color: var(--text-secondary);
+}
+
+.helix-mac-toast-leading .material-icons-round {
+  font-size: 18px;
+}
+
+.helix-mac-toast-body {
+  flex: 1;
+  min-width: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: min(40vh, 220px);
+  overflow-y: auto;
+}
+
+.helix-mac-toast-dismiss {
+  flex-shrink: 0;
+  align-self: flex-start;
+  margin: -4px -6px -4px 0;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--text-muted);
+  background: transparent;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  opacity: 0.45;
+  transition: opacity 0.2s ease, background 0.2s ease, color 0.2s ease;
+}
+
+.helix-mac-toast-surface:hover .helix-mac-toast-dismiss {
+  opacity: 1;
+}
+
+.helix-mac-toast-dismiss:hover {
+  background: rgba(0, 0, 0, 0.05);
+  color: var(--text-primary);
+}
+
+.dark .helix-mac-toast-surface {
+  color: var(--text-primary);
+  border-color: rgba(255, 255, 255, 0.1);
+  background: linear-gradient(180deg, rgba(48, 50, 54, 0.82) 0%, rgba(32, 33, 36, 0.74) 100%);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+}
+
+.dark .helix-mac-toast-surface:hover {
+  background: linear-gradient(180deg, rgba(58, 60, 64, 0.9) 0%, rgba(40, 41, 44, 0.85) 100%);
+  border-color: rgba(255, 255, 255, 0.14);
+}
+
+.dark .helix-mac-toast-dismiss:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+/* ── macOS vibrancy sheet (bulk import errors, wide panels) ─ */
+
+.helix-mac-sheet-surface {
+  display: flex;
+  flex-direction: column;
+  max-height: 100%;
+  border-radius: 16px;
+  overflow: hidden;
+  color: var(--text-primary);
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.78) 0%, rgba(255, 255, 255, 0.62) 100%);
+  -webkit-backdrop-filter: saturate(180%) blur(22px);
+  backdrop-filter: saturate(180%) blur(22px);
+  transition:
+    background 0.22s ease,
+    border-color 0.22s ease,
+    box-shadow 0.22s ease,
+    filter 0.22s ease;
+}
+
+.helix-mac-sheet-surface:hover {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.88) 0%, rgba(255, 255, 255, 0.74) 100%);
+  border-color: rgba(255, 255, 255, 0.65);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.12);
+  filter: brightness(1.01);
+}
+
+.helix-mac-sheet-header {
+  flex-shrink: 0;
+  padding: 16px 18px 14px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.helix-mac-sheet-title {
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--text-primary);
+}
+
+.helix-mac-sheet-desc {
+  margin: 6px 0 0;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--text-muted);
+}
+
+.helix-mac-sheet-badge {
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 9999px;
+  color: var(--text-secondary);
+  background: rgba(255, 255, 255, 0.45);
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+}
+
+.helix-mac-sheet-actions {
+  margin-top: 14px;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.helix-mac-sheet-close {
+  padding: 7px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--text-muted);
+  background: rgba(255, 255, 255, 0.35);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.2s ease, color 0.2s ease, border-color 0.2s ease;
+}
+
+.helix-mac-sheet-close:hover {
+  background: rgba(255, 255, 255, 0.65);
+  color: var(--text-primary);
+  border-color: rgba(0, 0, 0, 0.1);
+}
+
+.helix-mac-sheet-table-wrap {
+  overflow: auto;
+  flex: 1;
+  min-height: 0;
+}
+
+.helix-mac-sheet-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+  table-layout: fixed;
+}
+
+.helix-mac-sheet-table thead tr {
+  background: rgba(255, 255, 255, 0.35);
+}
+
+.helix-mac-sheet-table th {
+  padding: 9px 12px;
+  text-align: left;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.helix-mac-sheet-table th:first-child {
+  width: 52px;
+}
+
+.helix-mac-sheet-table th:nth-child(2) {
+  width: 34%;
+}
+
+.helix-mac-sheet-table td {
+  padding: 11px 12px;
+  vertical-align: top;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+}
+
+.helix-mac-sheet-table td:nth-child(2) {
+  padding-right: 8px;
+}
+
+.helix-mac-sheet-table td:nth-child(3) {
+  padding-right: 14px;
+}
+
+.helix-mac-sheet-table tbody tr:nth-child(even) {
+  background: rgba(255, 255, 255, 0.22);
+}
+
+.helix-mac-sheet-table tbody tr:nth-child(odd) {
+  background: transparent;
+}
+
+.helix-mac-sheet-table .helix-mac-sheet-col-row {
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.helix-mac-sheet-table .helix-mac-sheet-col-id {
+  word-break: break-word;
+  color: var(--text-primary);
+  font-weight: 400;
+}
+
+.helix-mac-sheet-table .helix-mac-sheet-col-reason {
+  word-break: break-word;
+  color: var(--text-secondary);
+  line-height: 1.45;
+}
+
+.dark .helix-mac-sheet-surface {
+  border-color: rgba(255, 255, 255, 0.1);
+  background: linear-gradient(180deg, rgba(48, 50, 54, 0.82) 0%, rgba(32, 33, 36, 0.74) 100%);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+}
+
+.dark .helix-mac-sheet-surface:hover {
+  background: linear-gradient(180deg, rgba(58, 60, 64, 0.88) 0%, rgba(40, 41, 44, 0.8) 100%);
+  border-color: rgba(255, 255, 255, 0.14);
+}
+
+.dark .helix-mac-sheet-header {
+  border-bottom-color: rgba(255, 255, 255, 0.08);
+}
+
+.dark .helix-mac-sheet-badge {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+.dark .helix-mac-sheet-close {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.12);
+  color: var(--text-secondary);
+}
+
+.dark .helix-mac-sheet-close:hover {
+  background: rgba(255, 255, 255, 0.14);
+  color: var(--text-primary);
+}
+
+.dark .helix-mac-sheet-table thead tr {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.dark .helix-mac-sheet-table th {
+  border-bottom-color: rgba(255, 255, 255, 0.08);
+}
+
+.dark .helix-mac-sheet-table td {
+  border-bottom-color: rgba(255, 255, 255, 0.06);
+}
+
+.dark .helix-mac-sheet-table tbody tr:nth-child(even) {
+  background: rgba(255, 255, 255, 0.04);
 }
 
 /* ── Smooth collapse ────────────────────────────────────── */
@@ -898,6 +1285,13 @@ select.input {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
+  }
+
+  .helix-mac-toast-item,
+  .helix-mac-sheet-item,
+  .toast-enter {
+    animation-name: fadeIn;
+    animation-duration: 0.2s !important;
   }
 }
 

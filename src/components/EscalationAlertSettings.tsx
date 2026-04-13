@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import TopBar from '@/components/TopBar';
 import CustomSelect from '@/components/CustomSelect';
+import { MacVibrancyToast, MacVibrancyToastPortal } from '@/components/MacVibrancyToast';
 
 type EscalationLevel = {
     level: number;
@@ -855,10 +856,9 @@ export default function EscalationAlertSettings() {
     return (
         <>
             {toast && (
-                <div className="toast-enter" style={{ position: 'fixed', top: 20, right: 20, zIndex: 999, background: 'var(--surface-card)', border: '1px solid var(--border-default)', borderRadius: 'var(--radius-md)', padding: '10px 18px', fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <span className="material-icons-round" style={{ fontSize: 16, color: 'var(--success)' }}>check_circle</span>
-                    {toast}
-                </div>
+                <MacVibrancyToastPortal>
+                    <MacVibrancyToast message={toast} variant="success" dismissible={false} />
+                </MacVibrancyToastPortal>
             )}
 
             {/* Edit Modal */}

@@ -3,6 +3,7 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { API_ENDPOINTS } from '@/lib/config';
+import { MacVibrancyToast, MacVibrancyToastPortal } from '@/components/MacVibrancyToast';
 
 interface Facility {
     id: string;
@@ -591,30 +592,14 @@ export default function HospitalAdminLogin() {
                 </p>
             </div>
 
-            {/* Toast Notification */}
             {toast && (
-                <div className="toast-enter" style={{
-                    position: 'fixed',
-                    top: 20,
-                    right: 20,
-                    zIndex: 999,
-                    background: 'var(--surface-card)',
-                    border: `1px solid ${toast.type === 'error' ? 'var(--critical)' : 'var(--success)'}`,
-                    borderRadius: 'var(--radius-md)',
-                    padding: '12px 16px',
-                    fontSize: 13,
-                    fontWeight: 600,
-                    color: toast.type === 'error' ? 'var(--critical)' : 'var(--success)',
-                    boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 8,
-                }}>
-                    <span className="material-icons-round" style={{ fontSize: 16 }}>
-                        {toast.type === 'error' ? 'error' : 'check_circle'}
-                    </span>
-                    {toast.message}
-                </div>
+                <MacVibrancyToastPortal>
+                    <MacVibrancyToast
+                        message={toast.message}
+                        variant={toast.type === 'error' ? 'error' : 'success'}
+                        dismissible={false}
+                    />
+                </MacVibrancyToastPortal>
             )}
         </div>
     );

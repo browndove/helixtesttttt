@@ -1,0 +1,4 @@
+first_name,last_name,dob,medical_record_number,phone,email,admitted_date,status,gender,room,bed,unit,discharge_date
+Ama,Mensah,1990-05-12,MRN-BULK-FULL-001,+233201000001,ama.mensah@example.com,2026-02-10,admitted,female,201,A,Medical Ward,
+Kwesi,Boateng,1985-03-22,MRN-BULK-FULL-002,+233201000002,kwesi.boateng@example.com,2026-01-15,discharged,male,305,B,ICU West,2026-03-15
+Efua,Asante,1992-11-01,MRN-BULK-FULL-003,+233201000003,efua.asante@example.com,2026-04-09,outpatient,female,OPD-1,1,OPD,
