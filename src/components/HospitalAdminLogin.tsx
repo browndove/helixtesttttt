@@ -227,14 +227,23 @@ export default function HospitalAdminLogin() {
                 {/* Brand */}
                 <div style={{ textAlign: 'center', marginBottom: 36 }}>
                     <div style={{
-                        width: 52, height: 52,
-                        background: 'var(--helix-primary)',
+                        width: 52,
+                        height: 52,
                         borderRadius: 14,
-                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
                         margin: '0 auto 16px',
                         boxShadow: '0 2px 8px rgba(30,58,95,0.18)',
+                        overflow: 'hidden',
                     }}>
-                        <span className="material-icons-round" style={{ fontSize: 26, color: '#fff' }}>local_hospital</span>
+                        <img
+                            src="/helix-logo.png"
+                            alt="Helix logo"
+                            width={52}
+                            height={52}
+                            style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+                        />
                     </div>
                     <h1 style={{ fontSize: '1.8rem', fontWeight: 700, letterSpacing: '-0.02em', color: 'var(--text-primary)' }}>
                         Helix
@@ -283,25 +292,6 @@ export default function HospitalAdminLogin() {
                     {step === 'credentials' ? (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
                             <div>
-                                <label className="label">Email Address</label>
-                                <div style={{ position: 'relative' }}>
-                                    <span className="material-icons-round" style={{
-                                        position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)',
-                                        fontSize: 16, color: 'var(--text-muted)',
-                                    }}>mail</span>
-                                    <input
-                                        id="email"
-                                        className="input"
-                                        type="email"
-                                        placeholder="admin@accramedical.com.gh"
-                                        value={email}
-                                        onChange={e => setEmail(e.target.value)}
-                                        onKeyDown={e => e.key === 'Enter' && handleLogin()}
-                                        style={{ paddingLeft: 36 }}
-                                    />
-                                </div>
-                            </div>
-                            <div>
                                 <label className="label">Facility code</label>
                                 <div style={{ position: 'relative' }}>
                                     <span className="material-icons-round" style={{
@@ -325,6 +315,25 @@ export default function HospitalAdminLogin() {
                                 <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 6, marginBottom: 0 }}>
                                     Letters and numbers only; typed as capitals.
                                 </p>
+                            </div>
+                            <div>
+                                <label className="label">Email Address</label>
+                                <div style={{ position: 'relative' }}>
+                                    <span className="material-icons-round" style={{
+                                        position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)',
+                                        fontSize: 16, color: 'var(--text-muted)',
+                                    }}>mail</span>
+                                    <input
+                                        id="email"
+                                        className="input"
+                                        type="email"
+                                        placeholder="admin@accramedical.com.gh"
+                                        value={email}
+                                        onChange={e => setEmail(e.target.value)}
+                                        onKeyDown={e => e.key === 'Enter' && handleLogin()}
+                                        style={{ paddingLeft: 36 }}
+                                    />
+                                </div>
                             </div>
                             <div>
                                 <label className="label">Password</label>

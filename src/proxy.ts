@@ -3,7 +3,8 @@ import { NextRequest, NextResponse } from 'next/server';
 const COOKIE_NAME = 'helix-session';
 
 const PUBLIC_PATHS = ['/', '/login', '/setup-account', '/setup'];
-const PUBLIC_PREFIXES = ['/api/auth', '/api/proxy', '/_next', '/favicon.ico'];
+const PUBLIC_PREFIXES = ['/api/auth', '/api/proxy', '/_next', '/favicon.ico', '/assets'];
+const PUBLIC_FILE_EXTENSIONS = /\.(png|jpg|jpeg|gif|webp|svg|ico)$/i;
 
 export async function proxy(req: NextRequest) {
     const { pathname } = req.nextUrl;
@@ -11,6 +12,7 @@ export async function proxy(req: NextRequest) {
     // Allow public paths
     if (PUBLIC_PATHS.includes(pathname)) return NextResponse.next();
     if (PUBLIC_PREFIXES.some(prefix => pathname.startsWith(prefix))) return NextResponse.next();
+    if (PUBLIC_FILE_EXTENSIONS.test(pathname)) return NextResponse.next();
 
     // Check session cookie (token is from external backend, so we decode without signature verification)
     const token = req.cookies.get(COOKIE_NAME)?.value;

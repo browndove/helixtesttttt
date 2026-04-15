@@ -215,13 +215,22 @@ export default function Sidebar({
             }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 11 }}>
                     <div style={{
-                        width: 34, height: 34,
-                        background: 'var(--helix-primary)',
+                        width: 34,
+                        height: 34,
                         borderRadius: 8,
-                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
                         flexShrink: 0,
+                        overflow: 'hidden',
                     }}>
-                        <span className="material-icons-round" style={{ fontSize: 18, color: '#fff' }}>local_hospital</span>
+                        <img
+                            src="/helix-logo.png"
+                            alt="Helix logo"
+                            width={34}
+                            height={34}
+                            style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+                        />
                     </div>
                     <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ fontWeight: 700, fontSize: 14, letterSpacing: '-0.01em', color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>

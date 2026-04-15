@@ -1,15 +1,8 @@
 "use client";
 
-import { Montserrat } from "next/font/google";
 import * as React from "react";
 import clsx from "clsx";
 import { tailwindTextColors } from "@/lib/theme-colors";
-
-const montserrat = Montserrat({
-    subsets: ["latin"],
-    weight: ["400", "500", "600", "700"],
-    variable: "--font-montserrat",
-});
 
 /* --------------------------------------------
  * Typography scale (design tokens)
@@ -60,6 +53,7 @@ function Text<T extends React.ElementType = "span">({
     clampLines,
     className,
     children,
+    style,
     ...props
 }: TextProps<T>) {
     const Component = as || "span";
@@ -67,7 +61,6 @@ function Text<T extends React.ElementType = "span">({
     return (
         <Component
             className={clsx(
-                montserrat.variable,
                 "tracking-tight",
                 textVariants[variant],
                 color !== "none" && tailwindTextColors[color],
@@ -75,6 +68,7 @@ function Text<T extends React.ElementType = "span">({
                 clampLines && `line-clamp-${clampLines}`,
                 className
             )}
+            style={{ fontFamily: "Montserrat, sans-serif", ...style }}
             {...props}
         >
             {children}
