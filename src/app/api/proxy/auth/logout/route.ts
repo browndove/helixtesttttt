@@ -2,6 +2,13 @@ import { NextResponse } from 'next/server';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3000';
 
+function jsonWithSessionCleared(body: unknown, init: { status: number }) {
+    const response = NextResponse.json(body, init);
+    response.cookies.delete('helix-session');
+    response.cookies.delete('helix-facility');
+    return response;
+}
+
 export async function POST() {
     try {
         const url = `${API_BASE_URL}/api/v1/auth/logout`;
@@ -21,19 +28,16 @@ export async function POST() {
             data = JSON.parse(text);
         } catch {
             console.error('Failed to parse backend response as JSON');
-            return NextResponse.json(
+            return jsonWithSessionCleared(
                 { error: 'Backend returned invalid response', details: text.substring(0, 200) },
-                { status: 502 }
+                { status: 502 },
             );
         }
         
-        const response = NextResponse.json(data, { status: res.status });
-        response.cookies.delete('helix-session');
-        response.cookies.delete('helix-facility');
-        return response;
+        return jsonWithSessionCleared(data, { status: res.status });
     } catch (err) {
         console.error('Proxy error:', err);
         const message = err instanceof Error ? err.message : 'Unknown error';
-        return NextResponse.json({ error: 'Proxy error', details: message }, { status: 500 });
+        return jsonWithSessionCleared({ error: 'Proxy error', details: message }, { status: 500 });
     }
 }

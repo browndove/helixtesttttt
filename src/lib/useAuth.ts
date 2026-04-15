@@ -12,21 +12,30 @@ export function useAuth() {
                 headers: { 'Content-Type': 'application/json' },
             });
 
-            const data = await res.json();
-            if (!res.ok) {
-                onToast?.(data.message || 'Logout failed', 'error');
-                return false;
+            let data: { message?: string; error?: string } = {};
+            try {
+                data = await res.json();
+            } catch {
+                /* ignore non-JSON */
             }
-
-            onToast?.(data.message || 'Logged out successfully', 'success');
-            clearAdminSidebarSession();
-            router.replace('/login');
-            return true;
+            if (res.ok) {
+                onToast?.(data.message || 'Logged out successfully', 'success');
+            } else {
+                onToast?.(data.message || data.error || 'Session cleared', 'error');
+            }
         } catch (err) {
             const errMsg = err instanceof Error ? err.message : 'Network error';
             onToast?.(errMsg, 'error');
-            return false;
+        } finally {
+            clearAdminSidebarSession();
+            // Full navigation so we always leave the admin shell and land on login, even if the API errored.
+            if (typeof window !== 'undefined') {
+                window.location.assign('/login');
+            } else {
+                router.replace('/login');
+            }
         }
+        return true;
     };
 
     const changePassword = async (
