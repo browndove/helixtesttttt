@@ -1,9 +1,16 @@
 'use client';
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useLayoutEffect, useCallback, useMemo } from 'react';
 import TopBar from '@/components/TopBar';
 import CustomSelect from '@/components/CustomSelect';
 import { MacVibrancyToast, MacVibrancyToastPortal } from '@/components/MacVibrancyToast';
+import { readCachedJson, writeCachedJson } from '@/lib/getJsonCache';
+import {
+    ROLES_CACHE_DEPTS,
+    ROLES_CACHE_POLICIES,
+    ROLES_CACHE_ROLES,
+    ROLES_PAGE_CACHE_TTL_MS,
+} from '@/lib/rolesAdminCache';
 
 type EscalationLevel = {
     level: number;
@@ -223,19 +230,22 @@ export default function EscalationAlertSettings() {
 
     const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(null), 2500); };
 
-    const fetchData = useCallback(async () => {
-        try {
-            const [rolesRes, deptsRes, policiesRes] = await Promise.all([
-                fetch('/api/proxy/roles'),
-                fetch('/api/proxy/departments'),
-                fetch('/api/proxy/escalation-policies'),
-            ]);
-            // Build department ID → name map
+    const ingestEscalationPayloads = useCallback(
+        (
+            ok: { roles: boolean; depts: boolean; policies: boolean },
+            parsed: {
+                roles: unknown | null;
+                departments: unknown | null;
+                policiesListRaw: unknown | null;
+                policiesResolved: Policy[] | null;
+            },
+        ) => {
             let deptMap = new Map<string, string>();
-            if (deptsRes.ok) {
-                const depts = await deptsRes.json();
+            if (ok.depts && parsed.departments != null) {
+                const depts = parsed.departments;
                 setDepartments(extractDepartmentNames(depts));
-                const list = Array.isArray(depts) ? depts : (depts?.items || depts?.data || depts?.departments || []);
+                const deptRec = depts as Record<string, unknown>;
+                const list = Array.isArray(depts) ? depts : (deptRec.items || deptRec.data || deptRec.departments || []);
                 const nameToId = new Map<string, string>();
                 if (Array.isArray(list)) {
                     for (const d of list) {
@@ -256,8 +266,9 @@ export default function EscalationAlertSettings() {
                 }
                 setDeptIdMap(nameToId);
             }
-            if (rolesRes.ok) {
-                const data = await rolesRes.json();
+
+            if (ok.roles && parsed.roles != null) {
+                const data = parsed.roles;
                 const rolesArr = Array.isArray(data) ? data : [];
                 setRoles(rolesArr.map((r: Role & { department_id?: string; department_name?: string; department?: unknown }) => normalizeRoleForUi({
                     ...r,
@@ -265,10 +276,63 @@ export default function EscalationAlertSettings() {
                     escalation_levels: r.escalation_levels?.length ? r.escalation_levels : [],
                 })));
             }
-            if (policiesRes.ok) {
-                const pData = await policiesRes.json();
-                let policiesArr: Policy[] = extractPolicies(pData);
-                // Hydrate policies that are missing steps by fetching individually
+
+            if (ok.policies) {
+                let policiesArr: Policy[] = [];
+                if (parsed.policiesResolved != null) {
+                    policiesArr = parsed.policiesResolved;
+                } else if (parsed.policiesListRaw != null) {
+                    policiesArr = extractPolicies(parsed.policiesListRaw);
+                }
+                setPolicies(policiesArr);
+            }
+        },
+        [],
+    );
+
+    useLayoutEffect(() => {
+        const rolesJ = readCachedJson(ROLES_CACHE_ROLES, ROLES_PAGE_CACHE_TTL_MS);
+        const deptsJ = readCachedJson(ROLES_CACHE_DEPTS, ROLES_PAGE_CACHE_TTL_MS);
+        const policiesJ = readCachedJson(ROLES_CACHE_POLICIES, ROLES_PAGE_CACHE_TTL_MS);
+        if (rolesJ == null || deptsJ == null || policiesJ == null) return;
+        const basePolicies = extractPolicies(policiesJ);
+        const mergedPolicies = basePolicies.map((p) => {
+            const d = readCachedJson(`/api/proxy/escalation-policies/${p.id}`, ROLES_PAGE_CACHE_TTL_MS);
+            if (d && typeof d === 'object') return { ...p, ...(d as Record<string, unknown>) } as Policy;
+            return p;
+        });
+        ingestEscalationPayloads(
+            { roles: true, depts: true, policies: true },
+            {
+                roles: rolesJ,
+                departments: deptsJ,
+                policiesListRaw: null,
+                policiesResolved: mergedPolicies,
+            },
+        );
+        setLoading(false);
+    }, [ingestEscalationPayloads]);
+
+    const fetchData = useCallback(async () => {
+        try {
+            const [rolesRes, deptsRes, policiesRes] = await Promise.all([
+                fetch(ROLES_CACHE_ROLES),
+                fetch(ROLES_CACHE_DEPTS),
+                fetch(ROLES_CACHE_POLICIES),
+            ]);
+            const [rolesJson, deptsJson, policiesJson] = await Promise.all([
+                rolesRes.ok ? rolesRes.json() : Promise.resolve(null),
+                deptsRes.ok ? deptsRes.json() : Promise.resolve(null),
+                policiesRes.ok ? policiesRes.json() : Promise.resolve(null),
+            ]);
+
+            if (rolesRes.ok && rolesJson != null) writeCachedJson(ROLES_CACHE_ROLES, rolesJson);
+            if (deptsRes.ok && deptsJson != null) writeCachedJson(ROLES_CACHE_DEPTS, deptsJson);
+            if (policiesRes.ok && policiesJson != null) writeCachedJson(ROLES_CACHE_POLICIES, policiesJson);
+
+            let policiesResolved: Policy[] | null = null;
+            if (policiesRes.ok && policiesJson != null) {
+                let policiesArr = extractPolicies(policiesJson);
                 const needsHydration = policiesArr.some(p => !p.steps || p.steps.length === 0);
                 if (needsHydration && policiesArr.length > 0) {
                     const hydrated = await Promise.all(
@@ -278,19 +342,32 @@ export default function EscalationAlertSettings() {
                                 const res = await fetch(`/api/proxy/escalation-policies/${p.id}`);
                                 if (res.ok) {
                                     const full = await res.json();
+                                    writeCachedJson(`/api/proxy/escalation-policies/${p.id}`, full);
                                     return { ...p, ...full };
                                 }
                             } catch { /* keep original */ }
                             return p;
-                        })
+                        }),
                     );
                     policiesArr = hydrated;
                 }
-                setPolicies(policiesArr);
+                policiesResolved = policiesArr;
             }
-        } catch { showToast('Failed to load data'); }
+
+            ingestEscalationPayloads(
+                { roles: rolesRes.ok, depts: deptsRes.ok, policies: policiesRes.ok },
+                {
+                    roles: rolesJson,
+                    departments: deptsJson,
+                    policiesListRaw: policiesJson,
+                    policiesResolved,
+                },
+            );
+        } catch {
+            showToast('Failed to load data');
+        }
         setLoading(false);
-    }, []);
+    }, [ingestEscalationPayloads]);
 
     useEffect(() => { fetchData(); }, [fetchData]);
 

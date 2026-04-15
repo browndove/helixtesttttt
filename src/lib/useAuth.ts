@@ -20,7 +20,7 @@ export function useAuth() {
 
             onToast?.(data.message || 'Logged out successfully', 'success');
             clearAdminSidebarSession();
-            router.push('/');
+            router.replace('/login');
             return true;
         } catch (err) {
             const errMsg = err instanceof Error ? err.message : 'Network error';

@@ -1,9 +1,18 @@
 'use client';
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useLayoutEffect, useCallback, useMemo } from 'react';
 import TopBar from '@/components/TopBar';
 import CustomSelect from '@/components/CustomSelect';
 import { MacVibrancyToast, MacVibrancyToastPortal } from '@/components/MacVibrancyToast';
+import { readCachedJson, writeCachedJson } from '@/lib/getJsonCache';
+import {
+    ROLES_CACHE_DEPTS,
+    ROLES_CACHE_HOSPITAL,
+    ROLES_CACHE_POLICIES,
+    ROLES_CACHE_ROLES,
+    ROLES_CACHE_STAFF,
+    ROLES_PAGE_CACHE_TTL_MS,
+} from '@/lib/rolesAdminCache';
 
 type EscalationLevel = {
     level: number;
@@ -526,37 +535,29 @@ export default function RolesBuilderAssignment() {
 
     const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(null), 2500); };
 
-    const fetchData = useCallback(async () => {
-        try {
-            const [rolesRes, deptsRes, policiesRes, staffRes, hospitalRes] = await Promise.all([
-                fetch('/api/proxy/roles'),
-                fetch('/api/proxy/departments'),
-                fetch('/api/proxy/escalation-policies'),
-                fetch('/api/proxy/staff?page_size=100&page_id=1'),
-                fetch('/api/proxy/hospital'),
-            ]);
-            // Fetch facility-level external messaging flag
-            if (hospitalRes.ok) {
-                try {
-                    const hospital = await hospitalRes.json();
-                    const fid = typeof hospital?.id === 'string' ? hospital.id : '';
-                    if (fid) {
-                        const facRes = await fetch(`/api/proxy/facilities/${fid}`);
-                        if (facRes.ok) {
-                            const fac = await facRes.json();
-                            const rec = fac && typeof fac === 'object' ? (fac as Record<string, unknown>) : {};
-                            const v = rec.external_messaging_enabled;
-                            setFacilityExternalEnabled(v !== false && v !== 'false' && v !== 0);
-                        }
-                    }
-                } catch { /* best effort */ }
+    const ingestRolesPagePayloads = useCallback(
+        (
+            ok: { roles: boolean; depts: boolean; policies: boolean; staff: boolean },
+            parsed: {
+                roles: unknown;
+                departments: unknown;
+                policies: unknown;
+                staff: unknown;
+                facility: unknown | null;
+            },
+        ) => {
+            if (parsed.facility != null && typeof parsed.facility === 'object') {
+                const rec = parsed.facility as Record<string, unknown>;
+                const v = rec.external_messaging_enabled;
+                setFacilityExternalEnabled(v !== false && v !== 'false' && v !== 0);
             }
-            // Build department ID → name map
+
             let deptMap = new Map<string, string>();
-            if (deptsRes.ok) {
-                const depts = await deptsRes.json();
+            if (ok.depts && parsed.departments != null) {
+                const depts = parsed.departments;
                 setDepartments(extractDepartmentNames(depts));
-                const list = Array.isArray(depts) ? depts : (depts?.items || depts?.data || depts?.departments || []);
+                const deptRec = depts as Record<string, unknown>;
+                const list = Array.isArray(depts) ? depts : (deptRec.items || deptRec.data || deptRec.departments || []);
                 const nameToId = new Map<string, string>();
                 if (Array.isArray(list)) {
                     for (const d of list) {
@@ -577,25 +578,23 @@ export default function RolesBuilderAssignment() {
                 }
                 setDeptIdMap(nameToId);
             }
-            // Fetch policies
+
             let policiesArr: Policy[] = [];
-            if (policiesRes.ok) {
-                const pData = await policiesRes.json();
-                policiesArr = extractPolicies(pData);
+            if (ok.policies && parsed.policies != null) {
+                policiesArr = extractPolicies(parsed.policies);
                 setPolicies(policiesArr);
             }
-            if (staffRes.ok) {
-                const staffData = await staffRes.json();
-                setStaffOptions(extractStaffOptions(staffData));
-            } else {
+
+            if (ok.staff && parsed.staff != null) {
+                setStaffOptions(extractStaffOptions(parsed.staff));
+            } else if (!ok.staff) {
                 setStaffOptions([]);
             }
-            if (rolesRes.ok) {
-                const data = await rolesRes.json();
+
+            if (ok.roles && parsed.roles != null) {
+                const data = parsed.roles;
                 const rolesArr = Array.isArray(data) ? data : [];
-                // Build role ID → name map for step name resolution
                 const roleNameMap = new Map(rolesArr.map((r: Role) => [r.id, r.name]));
-                // Build role_id → policy map
                 const policyByRole = new Map(policiesArr.map(p => [p.role_id, p]));
                 setRoles(rolesArr.map((r: Role & { department_id?: string; department_name?: string; department?: unknown }) => {
                     const policy = policyByRole.get(r.id);
@@ -609,9 +608,104 @@ export default function RolesBuilderAssignment() {
                     }, deptMap);
                 }));
             }
-        } catch { showToast('Failed to load data'); }
+        },
+        [],
+    );
+
+    useLayoutEffect(() => {
+        const rolesJ = readCachedJson(ROLES_CACHE_ROLES, ROLES_PAGE_CACHE_TTL_MS);
+        const deptsJ = readCachedJson(ROLES_CACHE_DEPTS, ROLES_PAGE_CACHE_TTL_MS);
+        const policiesJ = readCachedJson(ROLES_CACHE_POLICIES, ROLES_PAGE_CACHE_TTL_MS);
+        const staffJ = readCachedJson(ROLES_CACHE_STAFF, ROLES_PAGE_CACHE_TTL_MS);
+        const hospitalJ = readCachedJson(ROLES_CACHE_HOSPITAL, ROLES_PAGE_CACHE_TTL_MS);
+        if (rolesJ == null || deptsJ == null || policiesJ == null || staffJ == null || hospitalJ == null) {
+            return;
+        }
+        let facilityJ: unknown | null = null;
+        if (hospitalJ && typeof hospitalJ === 'object') {
+            const fid = typeof (hospitalJ as Record<string, unknown>).id === 'string'
+                ? (hospitalJ as Record<string, unknown>).id
+                : '';
+            if (fid) facilityJ = readCachedJson(`/api/proxy/facilities/${fid}`, ROLES_PAGE_CACHE_TTL_MS);
+        }
+        ingestRolesPagePayloads(
+            { roles: true, depts: true, policies: true, staff: true },
+            {
+                roles: rolesJ,
+                departments: deptsJ,
+                policies: policiesJ,
+                staff: staffJ,
+                facility: facilityJ,
+            },
+        );
         setLoading(false);
-    }, []);
+    }, [ingestRolesPagePayloads]);
+
+    const fetchData = useCallback(async () => {
+        try {
+            const [rolesRes, deptsRes, policiesRes, staffRes, hospitalRes] = await Promise.all([
+                fetch(ROLES_CACHE_ROLES),
+                fetch(ROLES_CACHE_DEPTS),
+                fetch(ROLES_CACHE_POLICIES),
+                fetch(ROLES_CACHE_STAFF),
+                fetch(ROLES_CACHE_HOSPITAL),
+            ]);
+
+            const [rolesJson, deptsJson, policiesJson, staffJson, hospitalJson] = await Promise.all([
+                rolesRes.ok ? rolesRes.json() : Promise.resolve(null),
+                deptsRes.ok ? deptsRes.json() : Promise.resolve(null),
+                policiesRes.ok ? policiesRes.json() : Promise.resolve(null),
+                staffRes.ok ? staffRes.json() : Promise.resolve(null),
+                hospitalRes.ok ? hospitalRes.json() : Promise.resolve(null),
+            ]);
+
+            let facilityJson: unknown | null = null;
+            if (hospitalJson && typeof hospitalJson === 'object') {
+                try {
+                    const fid = typeof (hospitalJson as Record<string, unknown>).id === 'string'
+                        ? (hospitalJson as Record<string, unknown>).id as string
+                        : '';
+                    if (fid) {
+                        const facRes = await fetch(`/api/proxy/facilities/${fid}`);
+                        if (facRes.ok) {
+                            facilityJson = await facRes.json();
+                        }
+                    }
+                } catch { /* best effort */ }
+            }
+
+            ingestRolesPagePayloads(
+                {
+                    roles: rolesRes.ok,
+                    depts: deptsRes.ok,
+                    policies: policiesRes.ok,
+                    staff: staffRes.ok,
+                },
+                {
+                    roles: rolesJson,
+                    departments: deptsJson,
+                    policies: policiesJson,
+                    staff: staffJson,
+                    facility: facilityJson,
+                },
+            );
+
+            if (rolesRes.ok && rolesJson != null) writeCachedJson(ROLES_CACHE_ROLES, rolesJson);
+            if (deptsRes.ok && deptsJson != null) writeCachedJson(ROLES_CACHE_DEPTS, deptsJson);
+            if (policiesRes.ok && policiesJson != null) writeCachedJson(ROLES_CACHE_POLICIES, policiesJson);
+            if (staffRes.ok && staffJson != null) writeCachedJson(ROLES_CACHE_STAFF, staffJson);
+            if (hospitalRes.ok && hospitalJson != null) writeCachedJson(ROLES_CACHE_HOSPITAL, hospitalJson);
+            if (facilityJson != null && hospitalJson && typeof hospitalJson === 'object') {
+                const hid = typeof (hospitalJson as Record<string, unknown>).id === 'string'
+                    ? (hospitalJson as Record<string, unknown>).id as string
+                    : '';
+                if (hid) writeCachedJson(`/api/proxy/facilities/${hid}`, facilityJson);
+            }
+        } catch {
+            showToast('Failed to load data');
+        }
+        setLoading(false);
+    }, [ingestRolesPagePayloads]);
 
     useEffect(() => { fetchData(); }, [fetchData]);
 

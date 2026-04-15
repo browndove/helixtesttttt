@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
 import TopBar from '@/components/TopBar';
 import CustomSelect from '@/components/CustomSelect';
@@ -9,6 +9,11 @@ import { formatGhanaPhoneInput, isValidGhanaPhone } from '@/lib/phone';
 import { parseBulkUploadHistoryResponse, type BulkUploadHistoryEntry } from '@/lib/bulk-upload-history';
 import { MacVibrancyToast, MacVibrancyToastPortal } from '@/components/MacVibrancyToast';
 import { BulkImportErrorsSheet } from '@/components/BulkImportErrorsSheet';
+import { readCachedJson, writeCachedJson } from '@/lib/getJsonCache';
+
+const STAFF_PAGE_CACHE_TTL_MS = 120_000;
+const STAFF_CACHE_LIST = '/api/proxy/staff?page_size=100&page_id=1';
+const STAFF_CACHE_DEPTS = '/api/proxy/departments';
 
 type StaffMember = {
     id: string;
@@ -723,9 +728,10 @@ export default function StaffDirectoryManagement() {
     const fetchStaff = useCallback(async () => {
         setFetchError(false);
         try {
-            const res = await fetch('/api/proxy/staff?page_size=100&page_id=1');
+            const res = await fetch(STAFF_CACHE_LIST);
             if (res.ok) {
                 const data = await res.json();
+                writeCachedJson(STAFF_CACHE_LIST, data);
                 const parsed = parseStaffList(data);
                 setStaff(parsed);
             } else {
@@ -739,9 +745,10 @@ export default function StaffDirectoryManagement() {
 
     const fetchDepartments = useCallback(async () => {
         try {
-            const res = await fetch('/api/proxy/departments');
+            const res = await fetch(STAFF_CACHE_DEPTS);
             if (!res.ok) return;
             const data = await res.json();
+            writeCachedJson(STAFF_CACHE_DEPTS, data);
             const list = extractDepartmentArray(data);
             const idToName = new Map<string, string>();
             const names: string[] = [];
@@ -757,6 +764,30 @@ export default function StaffDirectoryManagement() {
             setDepartmentOptions(Array.from(new Set(names)));
         } catch {
             // best effort
+        }
+    }, []);
+
+    useLayoutEffect(() => {
+        const staffJ = readCachedJson(STAFF_CACHE_LIST, STAFF_PAGE_CACHE_TTL_MS);
+        if (staffJ != null) {
+            setStaff(parseStaffList(staffJ));
+            setLoading(false);
+        }
+        const deptJ = readCachedJson(STAFF_CACHE_DEPTS, STAFF_PAGE_CACHE_TTL_MS);
+        if (deptJ != null) {
+            const list = extractDepartmentArray(deptJ);
+            const idToName = new Map<string, string>();
+            const names: string[] = [];
+            for (const d of list) {
+                if (!d || typeof d !== 'object') continue;
+                const r = d as Record<string, unknown>;
+                const id = String(r.id || r.department_id || r.uuid || '').trim();
+                const name = String(r.name || r.department_name || r.departmentName || r.title || '').trim();
+                if (name) names.push(name);
+                if (id && name) idToName.set(id.toLowerCase(), name);
+            }
+            setDeptIdToName(idToName);
+            setDepartmentOptions(Array.from(new Set(names)));
         }
     }, []);
 

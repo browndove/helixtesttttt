@@ -410,7 +410,7 @@ export default function SettingsPage() {
             // Continue logout UX even if request fails.
         }
         clearAdminSidebarSession();
-        router.push('/');
+        router.replace('/login');
     };
 
     const sendPasswordResetEmail = async (targetEmail: string): Promise<boolean> => {

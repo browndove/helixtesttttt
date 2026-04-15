@@ -1,9 +1,13 @@
 'use client';
 
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { useState, useEffect, useLayoutEffect, useCallback, useMemo, useRef } from 'react';
 import TopBar from '@/components/TopBar';
 import { DEPARTMENT_DESCRIPTION_MAX_LENGTH, DEPARTMENT_NAME_MAX_LENGTH } from '@/lib/departmentName';
 import { MacVibrancyToast, MacVibrancyToastPortal } from '@/components/MacVibrancyToast';
+import { readCachedJson, writeCachedJson } from '@/lib/getJsonCache';
+
+const DEPTS_PAGE_CACHE_TTL_MS = 120_000;
+const DEPTS_CACHE_HOSPITAL = '/api/proxy/hospital';
 
 /** Lock main column to the viewport so only inner panes scroll (not the document). */
 const departmentsAppMainStyle = {
@@ -90,12 +94,15 @@ export default function DepartmentsManagement() {
 
     const fetchData = useCallback(async () => {
         try {
-            const hRes = await fetch('/api/proxy/hospital');
+            const hRes = await fetch(DEPTS_CACHE_HOSPITAL);
             let facilityId = '';
+            let hospitalJson: unknown = null;
             if (hRes.ok) {
-                const h = await hRes.json();
+                hospitalJson = await hRes.json();
+                const h = hospitalJson as { id?: string };
                 facilityId = h.id || '';
                 setHospitalId(facilityId);
+                writeCachedJson(DEPTS_CACHE_HOSPITAL, hospitalJson);
             }
             const deptUrl = facilityId
                 ? `/api/proxy/departments?facility_id=${facilityId}`
@@ -103,11 +110,24 @@ export default function DepartmentsManagement() {
             const dRes = await fetch(deptUrl);
             if (dRes.ok) {
                 const d = await dRes.json();
+                writeCachedJson(deptUrl, d);
                 setDepartments(Array.isArray(d) ? d.map(normalizeDepartment) : []);
             }
         } catch { showToast('Failed to load departments'); }
         setLoading(false);
     }, [showToast]);
+
+    useLayoutEffect(() => {
+        const hospitalJ = readCachedJson(DEPTS_CACHE_HOSPITAL, DEPTS_PAGE_CACHE_TTL_MS);
+        if (!hospitalJ || typeof hospitalJ !== 'object') return;
+        const fid = String((hospitalJ as Record<string, unknown>).id || '');
+        const deptUrl = fid ? `/api/proxy/departments?facility_id=${fid}` : '/api/proxy/departments';
+        const deptsJ = readCachedJson(deptUrl, DEPTS_PAGE_CACHE_TTL_MS);
+        if (deptsJ == null) return;
+        setHospitalId(fid);
+        setDepartments(Array.isArray(deptsJ) ? deptsJ.map(normalizeDepartment) : []);
+        setLoading(false);
+    }, []);
 
     useEffect(() => { fetchData(); }, [fetchData]);
 

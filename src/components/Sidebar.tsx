@@ -169,6 +169,16 @@ export default function Sidebar({
         return () => { cancelled = true; };
     }, []);
 
+    // Warm the client router cache for common admin routes so clicks feel instant.
+    useEffect(() => {
+        const hrefs = new Set<string>();
+        for (const section of sections) {
+            for (const item of section.items) hrefs.add(item.href);
+        }
+        hrefs.add('/settings');
+        for (const href of hrefs) router.prefetch(href);
+    }, [router, sections]);
+
     const hospitalName = facilityName || hospitalNameProp || 'Facility';
     const adminName = adminNameProp || sessionUser?.name || 'User';
     const resolvedAdminRole = adminRole || sessionUser?.role || 'Admin';
@@ -266,6 +276,7 @@ export default function Sidebar({
                                 <Link
                                     key={item.href}
                                     href={item.href}
+                                    prefetch
                                     className="nav-item"
                                     style={{
                                         display: 'flex',

@@ -1,8 +1,9 @@
 'use client';
 
-import { useState, useRef, useCallback, useEffect } from 'react';
+import { useState, useRef, useCallback, useEffect, useLayoutEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { API_ENDPOINTS } from '@/lib/config';
+import { warmRolesPageCache } from '@/lib/rolesAdminCache';
 import { MacVibrancyToast, MacVibrancyToastPortal } from '@/components/MacVibrancyToast';
 
 function normalizeFacilityCode(raw: string): string {
@@ -27,36 +28,20 @@ export default function HospitalAdminLogin() {
 
     const otp = otpDigits.join('');
 
-    const extractFacilityIdFromPayload = (raw: unknown): string => {
-        if (!raw || typeof raw !== 'object') return '';
-        const rec = raw as Record<string, unknown>;
-        const user = rec.user && typeof rec.user === 'object' ? rec.user as Record<string, unknown> : null;
-        const staff = rec.staff && typeof rec.staff === 'object' ? rec.staff as Record<string, unknown> : null;
-
-        const candidates = [
-            rec.facility_id,
-            rec.facilityId,
-            rec.current_facility_id,
-            rec.currentFacilityId,
-            user?.facility_id,
-            user?.facilityId,
-            user?.current_facility_id,
-            user?.currentFacilityId,
-            staff?.facility_id,
-            staff?.facilityId,
-            staff?.current_facility_id,
-            staff?.currentFacilityId,
-        ];
-
-        const match = candidates.find(v => typeof v === 'string' && v.trim());
-        return typeof match === 'string' ? match.trim() : '';
-    };
-
     useEffect(() => {
         if (resendTimer <= 0) return;
         const t = setTimeout(() => setResendTimer(r => r - 1), 1000);
         return () => clearTimeout(t);
     }, [resendTimer]);
+
+    // Warm the post-login landing route and RSC payload as early as possible.
+    useLayoutEffect(() => {
+        router.prefetch('/roles');
+    }, [router]);
+
+    useEffect(() => {
+        if (step === 'otp') router.prefetch('/roles');
+    }, [router, step]);
 
     const handleOtpChange = useCallback((index: number, value: string) => {
         // Handle paste of full code
@@ -188,15 +173,11 @@ export default function HospitalAdminLogin() {
                 setLoading(false);
                 return;
             }
-            showToast('Login successful! Redirecting...', 'success');
-            // Best-effort read to warm auth context after OTP verification.
-            // We intentionally do not call /api/proxy/facility-select here.
-            try {
-                if (!extractFacilityIdFromPayload(data)) {
-                    await fetch(API_ENDPOINTS.AUTH_ME).catch(() => null);
-                }
-            } catch { /* best effort — proceed to dashboard */ }
-            setTimeout(() => router.push('/roles'), 1500);
+            showToast('Signed in', 'success');
+            // Do not block navigation on extra auth calls — session cookie is set by verify-otp.
+            void fetch(API_ENDPOINTS.AUTH_ME).catch(() => null);
+            warmRolesPageCache();
+            router.replace('/roles');
         } catch (err) {
             const errMsg = err instanceof Error ? err.message : 'Network error. Please try again.';
             setError(errMsg);

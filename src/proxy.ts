@@ -17,7 +17,7 @@ export async function proxy(req: NextRequest) {
     // Check session cookie (token is from external backend, so we decode without signature verification)
     const token = req.cookies.get(COOKIE_NAME)?.value;
     if (!token) {
-        return NextResponse.redirect(new URL('/', req.url));
+        return NextResponse.redirect(new URL('/login', req.url));
     }
 
     try {
@@ -36,7 +36,7 @@ export async function proxy(req: NextRequest) {
         return NextResponse.next();
     } catch {
         // Invalid or expired token
-        const response = NextResponse.redirect(new URL('/', req.url));
+        const response = NextResponse.redirect(new URL('/login', req.url));
         response.cookies.delete(COOKIE_NAME);
         return response;
     }
