@@ -198,6 +198,37 @@ export default function ProviderTeamsPage() {
 
     const selectedTeam = teams.find(t => t.id === selectedTeamId) || null;
 
+    const parseMembersPayload = useCallback((data: unknown): Member[] => {
+        const membersList = Array.isArray(data) ? data : (data && typeof data === 'object'
+            ? ((data as Record<string, unknown>).items
+                || (data as Record<string, unknown>).data
+                || (data as Record<string, unknown>).members)
+            : []);
+        if (!Array.isArray(membersList)) return [];
+        return membersList.map((m: unknown, i: number) => {
+            const rec = m && typeof m === 'object' ? (m as Record<string, unknown>) : {};
+            return {
+                id: String(rec.id || rec.staff_id || `m-${i}`),
+                firstName: String(rec.first_name || ''),
+                lastName: String(rec.last_name || ''),
+                jobTitle: String(rec.job_title || rec.role || 'Staff'),
+                status: toStatusLabel(String(rec.status || 'active')),
+            };
+        });
+    }, []);
+
+    const syncMembersFromServer = useCallback(async (teamId: string) => {
+        try {
+            const res = await fetch(`/api/proxy/teams/${teamId}/members`);
+            if (!res.ok) return;
+            const data = await res.json();
+            const parsed = parseMembersPayload(data);
+            setTeams(prev => prev.map(t =>
+                t.id === teamId ? { ...t, members: parsed, memberCount: parsed.length } : t
+            ));
+        } catch { /* silent */ }
+    }, [parseMembersPayload]);
+
     // Fetch members when a team is selected
     useEffect(() => {
         if (!selectedTeamId) return;
@@ -207,23 +238,16 @@ export default function ProviderTeamsPage() {
                 const res = await fetch(`/api/proxy/teams/${selectedTeamId}/members`);
                 if (!res.ok || cancelled) return;
                 const data = await res.json();
-                const membersList = Array.isArray(data) ? data : (data?.items || data?.data || data?.members || []);
-                if (!Array.isArray(membersList) || cancelled) return;
-                const parsed: Member[] = membersList.map((m: Record<string, unknown>, i: number) => ({
-                    id: String(m.id || m.staff_id || `m-${i}`),
-                    firstName: String(m.first_name || ''),
-                    lastName: String(m.last_name || ''),
-                    jobTitle: String(m.job_title || m.role || 'Staff'),
-                    status: toStatusLabel(String(m.status || 'active')),
-                }));
+                if (cancelled) return;
+                const parsed = parseMembersPayload(data);
+                if (cancelled) return;
                 setTeams(prev => prev.map(t =>
                     t.id === selectedTeamId ? { ...t, members: parsed, memberCount: parsed.length } : t
                 ));
             } catch { /* silent */ }
         })();
         return () => { cancelled = true; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [selectedTeamId]);
+    }, [selectedTeamId, parseMembersPayload]);
 
     const filtered = teams.filter(t => {
         if (deptFilter !== 'All' && t.department !== deptFilter) return false;
@@ -389,37 +413,52 @@ export default function ProviderTeamsPage() {
 
     const selectedStaff = allStaff.find(s => s.id === selectedStaffId) || null;
 
-    const handleAddMember = () => {
+    const handleAddMember = async () => {
         if (!selectedStaff || !selectedTeam) return;
-        const member: Member = {
-            id: selectedStaff.id.toString(),
-            firstName: selectedStaff.first_name,
-            lastName: selectedStaff.last_name,
-            jobTitle: memberRole,
-            status: 'Active',
-        };
-        setTeams(prev => prev.map(t =>
-            t.id === selectedTeam.id
-                ? { ...t, members: [...t.members, member], memberCount: (t.memberCount || t.members.length) + 1 }
-                : t
-        ));
-        setShowAddMember(false);
-        setStaffSearch('');
-        setStaffDeptFilter('All');
-        setSelectedStaffId(null);
-        setMemberRole(roleOptions[0]);
-        showToast(`${member.firstName} ${member.lastName} added`);
+        try {
+            const res = await fetch(`/api/proxy/teams/${selectedTeam.id}/members`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ staff_ids: [selectedStaff.id] }),
+            });
+            if (!res.ok) {
+                let msg = 'Failed to add member';
+                try {
+                    const err = await res.json() as { message?: string; detail?: string; error?: string };
+                    msg = String(err.detail || err.message || err.error || msg);
+                } catch { /* ignore */ }
+                showToast(msg);
+                return;
+            }
+            await syncMembersFromServer(selectedTeam.id);
+            setShowAddMember(false);
+            setStaffSearch('');
+            setStaffDeptFilter('All');
+            setSelectedStaffId(null);
+            setMemberRole(roleOptions[0]);
+            showToast(`${selectedStaff.first_name} ${selectedStaff.last_name} added`);
+        } catch {
+            showToast('Failed to add member');
+        }
     };
 
-    const handleRemoveMember = (memberId: string) => {
+    const handleRemoveMember = async (memberId: string) => {
         if (!selectedTeam) return;
         const member = selectedTeam.members.find(m => m.id === memberId);
-        setTeams(prev => prev.map(t =>
-            t.id === selectedTeam.id
-                ? { ...t, members: t.members.filter(m => m.id !== memberId), memberCount: Math.max((t.memberCount || t.members.length) - 1, 0) }
-                : t
-        ));
-        showToast(`${member?.firstName} ${member?.lastName} removed`);
+        try {
+            const res = await fetch(
+                `/api/proxy/teams/${selectedTeam.id}/members/${encodeURIComponent(memberId)}`,
+                { method: 'DELETE' },
+            );
+            if (!res.ok) {
+                showToast('Failed to remove member');
+                return;
+            }
+            await syncMembersFromServer(selectedTeam.id);
+            showToast(`${member?.firstName || ''} ${member?.lastName || ''} removed`.trim() || 'Member removed');
+        } catch {
+            showToast('Failed to remove member');
+        }
     };
 
     const handleSaveEdit = async () => {
