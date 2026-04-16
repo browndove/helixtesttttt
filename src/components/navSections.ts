@@ -2,13 +2,13 @@ const navSections = [
     {
         title: 'Setup',
         items: [
-            { icon: 'badge', label: 'Roles', href: '/roles' },
             { icon: 'domain', label: 'Departments', href: '/departments' },
+            { icon: 'badge', label: 'Roles', href: '/roles' },
+            { icon: 'notifications_active', label: 'Escalation Config', href: '/escalation' },
             { icon: 'groups', label: 'Staff Management', href: '/staff' },
             { icon: 'personal_injury', label: 'Patients', href: '/patients' },
-            { icon: 'folder_shared', label: 'Patient List', href: '/patient-list' },
+            { icon: 'folder_shared', label: 'Patient List Folders', href: '/patient-list' },
             { icon: 'diversity_3', label: 'Provider Teams', href: '/provider-teams' },
-            { icon: 'notifications_active', label: 'Escalation Config', href: '/escalation' },
             { icon: 'forum', label: 'External communication', href: '/external-communication' },
         ],
     },
