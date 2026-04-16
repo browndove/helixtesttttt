@@ -36,11 +36,11 @@ export default function HospitalAdminLogin() {
 
     // Warm the post-login landing route and RSC payload as early as possible.
     useLayoutEffect(() => {
-        router.prefetch('/roles');
+        router.prefetch('/home');
     }, [router]);
 
     useEffect(() => {
-        if (step === 'otp') router.prefetch('/roles');
+        if (step === 'otp') router.prefetch('/home');
     }, [router, step]);
 
     const handleOtpChange = useCallback((index: number, value: string) => {
@@ -177,7 +177,7 @@ export default function HospitalAdminLogin() {
             // Do not block navigation on extra auth calls — session cookie is set by verify-otp.
             void fetch(API_ENDPOINTS.AUTH_ME).catch(() => null);
             warmRolesPageCache();
-            router.replace('/roles');
+            router.replace('/home');
         } catch (err) {
             const errMsg = err instanceof Error ? err.message : 'Network error. Please try again.';
             setError(errMsg);

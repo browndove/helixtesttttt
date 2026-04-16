@@ -2,6 +2,7 @@ const navSections = [
     {
         title: 'Setup',
         items: [
+            { icon: 'home', label: 'Home', href: '/home' },
             { icon: 'domain', label: 'Departments', href: '/departments' },
             { icon: 'badge', label: 'Roles', href: '/roles' },
             { icon: 'notifications_active', label: 'Escalation Config', href: '/escalation' },
