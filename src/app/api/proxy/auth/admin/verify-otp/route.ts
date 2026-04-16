@@ -2,6 +2,21 @@ import { NextRequest, NextResponse } from 'next/server';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3000';
 
+function extractAccessToken(payload: unknown): string | undefined {
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return undefined;
+    const root = payload as Record<string, unknown>;
+    const direct = root.access_token ?? root.accessToken ?? root.token;
+    if (typeof direct === 'string' && direct.trim()) return direct.trim();
+
+    const nested = root.data ?? root.result ?? root.payload ?? root.user;
+    if (nested && typeof nested === 'object' && !Array.isArray(nested)) {
+        const n = nested as Record<string, unknown>;
+        const t = n.access_token ?? n.accessToken ?? n.token;
+        if (typeof t === 'string' && t.trim()) return t.trim();
+    }
+    return undefined;
+}
+
 function extractFacilityIdFromPayload(payload: unknown): string {
     if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return '';
     const root = payload as Record<string, unknown>;
@@ -67,8 +82,9 @@ export async function POST(req: NextRequest) {
 
         const response = NextResponse.json(data, { status: res.status });
         if (res.ok) {
-            if (data.access_token) {
-                response.cookies.set('helix-session', data.access_token, {
+            const accessToken = extractAccessToken(data);
+            if (accessToken) {
+                response.cookies.set('helix-session', accessToken, {
                     httpOnly: true,
                     secure: process.env.NODE_ENV === 'production',
                     sameSite: 'lax',

@@ -160,13 +160,23 @@ export default function HospitalAdminLogin() {
             const res = await fetch(API_ENDPOINTS.ADMIN_VERIFY_OTP, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
                 body: JSON.stringify({
                     email: sessionEmail,
                     otp,
                     facility_code: sessionFacilityCode,
                 }),
             });
-            const data = await res.json();
+            const text = await res.text();
+            let data: { message?: string } = {};
+            try {
+                data = text ? (JSON.parse(text) as { message?: string }) : {};
+            } catch {
+                setError('Invalid response from server');
+                showToast('Invalid response from server', 'error');
+                setLoading(false);
+                return;
+            }
             if (!res.ok) {
                 setError(data.message || 'OTP verification failed');
                 showToast(data.message || 'OTP verification failed', 'error');
@@ -175,9 +185,14 @@ export default function HospitalAdminLogin() {
             }
             showToast('Signed in', 'success');
             // Do not block navigation on extra auth calls — session cookie is set by verify-otp.
-            void fetch(API_ENDPOINTS.AUTH_ME).catch(() => null);
+            void fetch(API_ENDPOINTS.AUTH_ME, { credentials: 'include' }).catch(() => null);
             warmRolesPageCache();
-            router.replace('/home');
+            // Full navigation so the new Set-Cookie from verify-otp is always applied (avoids soft-nav issues on some hosts).
+            if (typeof window !== 'undefined') {
+                window.location.assign('/home');
+            } else {
+                router.replace('/home');
+            }
         } catch (err) {
             const errMsg = err instanceof Error ? err.message : 'Network error. Please try again.';
             setError(errMsg);
