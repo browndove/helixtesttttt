@@ -264,19 +264,6 @@ function parseStaffList(raw: unknown): StaffMember[] {
         .filter((s): s is StaffMember => Boolean(s));
 }
 
-const STAFF_TITLE_OPTIONS = [
-    'House Officer',
-    'Medical Officer',
-    'Resident',
-    'Specialist',
-    'Consultant',
-    'Chief of Surgery',
-    'Nurse',
-    'Pharmacist',
-    'Physiotherapist',
-    'Lab Scientist',
-];
-
 const QUALIFICATION_OPTIONS = ['MBBS', 'RN', 'MSc', 'PhD', 'MD', 'BPharm', 'BSc'];
 
 const statusColors: Record<string, { color: string; bg: string; label: string }> = {
@@ -673,7 +660,6 @@ export default function StaffDirectoryManagement() {
         && Boolean(newPhone.trim())
         && Boolean(newDob.trim())
         && Boolean(newGender.trim())
-        && Boolean(newRole.trim())
         && Boolean(newHighestQualification.trim())
         && Boolean(newIsDoctor)
         && Boolean(newDept.trim())
@@ -700,7 +686,6 @@ export default function StaffDirectoryManagement() {
         if (newPhone.trim() && !isValidGhanaPhone(newPhone)) missing.push('Phone format (+233 + 9 digits)');
         if (!newDob.trim()) missing.push('DOB');
         if (!newGender.trim()) missing.push('Gender');
-        if (!newRole.trim()) missing.push('Title');
         if (!newHighestQualification.trim()) missing.push('Highest qualification');
         if (!newIsDoctor) missing.push('Is doctor');
         if (!newDept.trim()) missing.push('Department');
@@ -981,8 +966,8 @@ export default function StaffDirectoryManagement() {
                     phone: newPhone.trim() ? formatGhanaPhoneInput(newPhone) : '',
                     dob: newDob.trim() || undefined,
                     gender: newGender.trim() || undefined,
-                    title: (newRole || 'Staff').trim(),
-                    job_title: (newRole || 'Staff').trim(),
+                    title: newRole.trim() || undefined,
+                    job_title: newRole.trim() || undefined,
                     highest_qualification: newHighestQualification.trim() || undefined,
                     is_doctor: newIsDoctor === 'dr',
                     patient_access: newPatientAccess,
@@ -1005,8 +990,8 @@ export default function StaffDirectoryManagement() {
                 middle_name: newMiddleName.trim(),
                 last_name: newLastName.trim(),
                 email: newEmail.trim(),
-                job_title: (newRole || 'Staff').trim(),
-                title: (newRole || 'Staff').trim(),
+                job_title: newRole.trim(),
+                title: newRole.trim(),
                 highest_qualification: newHighestQualification.trim(),
                 is_doctor: newIsDoctor === 'dr',
                 dept: newDept,
@@ -1382,14 +1367,13 @@ export default function StaffDirectoryManagement() {
                                     />
                                 </div>
                                 <div>
-                                    <label className="label">Title *</label>
-                                    <CustomSelect
+                                    <label className="label">Rank</label>
+                                    <input
+                                        className="input"
                                         value={newRole}
-                                        onChange={v => setNewRole(v)}
-                                        options={STAFF_TITLE_OPTIONS.map(t => ({ label: t, value: t }))}
-                                        placeholder="-- Select Title --"
-                                        allowCustom
-                                        customPlaceholder="Type title and press Enter"
+                                        onChange={e => setNewRole(e.target.value)}
+                                        placeholder="Enter rank (optional)"
+                                        maxLength={20}
                                     />
                                 </div>
                                 <div>
@@ -1788,15 +1772,14 @@ export default function StaffDirectoryManagement() {
                                             </div>
                                         </div>
                                         <div style={{ minWidth: 0 }}>
-                                            <label className="label">Title</label>
+                                            <label className="label">Rank</label>
                                             <div style={{ opacity: !editingSelected || savingEdit ? 0.65 : 1, pointerEvents: !editingSelected || savingEdit ? 'none' : 'auto' }}>
-                                                <CustomSelect
+                                                <input
+                                                    className="input"
                                                     value={editJobTitle}
-                                                    onChange={setEditJobTitle}
-                                                    options={STAFF_TITLE_OPTIONS.map(t => ({ label: t, value: t }))}
-                                                    placeholder="-- Select Title --"
-                                                    allowCustom
-                                                    customPlaceholder="Type title and press Enter"
+                                                    onChange={e => setEditJobTitle(e.target.value)}
+                                                    placeholder="Enter rank (optional)"
+                                                    maxLength={20}
                                                 />
                                             </div>
                                         </div>
