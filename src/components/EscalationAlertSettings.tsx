@@ -418,7 +418,14 @@ export default function EscalationAlertSettings() {
     const filtered = chainGroups.filter(c => {
         if (!search.trim()) return true;
         const q = search.toLowerCase();
-        return c.chainName.toLowerCase().includes(q) || c.department.toLowerCase().includes(q) || c.roles.some(r => r.name.toLowerCase().includes(q) || r.description.toLowerCase().includes(q));
+        return (
+            String(c.chainName ?? '').toLowerCase().includes(q)
+            || String(c.department ?? '').toLowerCase().includes(q)
+            || c.roles.some(r =>
+                String(r.name ?? '').toLowerCase().includes(q)
+                || String(r.description ?? '').toLowerCase().includes(q),
+            )
+        );
     });
 
     // --- Create ---
