@@ -320,10 +320,10 @@ export default function HomePage() {
     ]), [patientCount, staffCount, teamCount, departmentCount, escalationCount, facilityShort]);
 
     const quickActions = [
-        { label: 'Add New Patient', sub: 'Onboard', icon: 'person_add_alt_1', iconBg: '#DBEAFE', iconFg: '#1D4ED8', href: '/patients' },
+        { label: 'Add role', sub: 'Roles', icon: 'badge', iconBg: '#DBEAFE', iconFg: '#1D4ED8', href: '/roles' },
         { label: 'Add Staff Member', sub: 'Staff', icon: 'person_add', iconBg: '#CCFBF1', iconFg: '#0D9488', href: '/staff' },
         { label: 'Create Provider Team', sub: 'Teams', icon: 'groups', iconBg: '#E0E7FF', iconFg: '#4F46E5', href: '/provider-teams' },
-        { label: 'Generate Report', sub: 'Analytics', icon: 'summarize', iconBg: '#FEF3C7', iconFg: '#D97706', href: '/usage' },
+        { label: 'Escalation Config', sub: 'Escalation', icon: 'notifications_active', iconBg: '#FEF3C7', iconFg: '#D97706', href: '/escalation' },
     ];
 
     const openAlerts = (failedImports24h > 0 ? 1 : 0) + (setupTasks > 0 ? 1 : 0);
