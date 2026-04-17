@@ -298,7 +298,6 @@ export default function HospitalAdminLogin() {
                                         id="facility-code"
                                         className="input"
                                         type="text"
-                                        placeholder="SMH"
                                         value={facilityCode}
                                         onChange={e => setFacilityCode(normalizeFacilityCode(e.target.value))}
                                         onKeyDown={e => e.key === 'Enter' && handleLogin()}
@@ -323,7 +322,6 @@ export default function HospitalAdminLogin() {
                                         id="email"
                                         className="input"
                                         type="email"
-                                        placeholder="admin@accramedical.com.gh"
                                         value={email}
                                         onChange={e => setEmail(e.target.value)}
                                         onKeyDown={e => e.key === 'Enter' && handleLogin()}
@@ -342,7 +340,6 @@ export default function HospitalAdminLogin() {
                                         id="password"
                                         className="input"
                                         type={showPassword ? 'text' : 'password'}
-                                        placeholder="••••••••••"
                                         value={password}
                                         onChange={e => setPassword(e.target.value)}
                                         onKeyDown={e => e.key === 'Enter' && handleLogin()}

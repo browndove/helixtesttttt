@@ -82,80 +82,122 @@ const KPIGrid = () => {
 		</div>
 	);
 
+	type CardDef = {
+		title: string;
+		subLabel: string;
+		value: string;
+		footerLabel: string;
+		footerValue: string;
+		info: string;
+		iconBg: string;
+		icon: React.ReactNode;
+	};
+
+	const cards: CardDef[] = [
+		{
+			title: 'Readmissions',
+			subLabel: '30-day window',
+			value: '51',
+			footerLabel: 'of discharges',
+			footerValue: '540',
+			info: '51 readmissions out of 540 discharges.',
+			iconBg: 'bg-accent-primary',
+			icon: (
+				<div className="w-5 h-5 rounded-[6px] bg-white/20 flex items-center justify-center">
+					<PulseWaveIcon color="#FFFFFF" />
+				</div>
+			),
+		},
+		{
+			title: 'Average Days To Readmit',
+			subLabel: 'Median',
+			value: '6.5 Days',
+			footerLabel: 'Window',
+			footerValue: '30 days',
+			info: 'Average days to readmit within a 30-day window.',
+			iconBg: 'bg-accent-green',
+			icon: <BsClockFill size={20} className="text-white" />,
+		},
+		{
+			title: 'Post-op Complications',
+			subLabel: 'Returns contrib.',
+			value: '11',
+			footerLabel: 'Period',
+			footerValue: 'This month',
+			info: 'Post-operative complications recorded this period.',
+			iconBg: 'bg-accent-red',
+			icon: <ImScissors size={18} className="text-white" />,
+		},
+		{
+			title: 'Incoming Transfer Requests',
+			subLabel: '48h window',
+			value: '128',
+			footerLabel: 'Completed',
+			footerValue: 'Within 48h',
+			info: 'Transition calls completed within 48 hours.',
+			iconBg: 'bg-accent-violet',
+			icon: <IoCallSharp size={18} className="text-white" />,
+		},
+	];
+
 	return (
 		<div className="w-full">
 			<div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16 }}>
-				{/* Readmissions Card */}
-				<DashboardCard padding="none" className="group relative w-full rounded-[15px] flex justify-between" style={{ padding: 18, height: 135 }}>
-					{renderInfo("51 readmissions out of 540 discharges.")}
-					<div style={{ flex: 1, height: 88, display: 'flex', flexDirection: 'column', gap: 12 }}>
-						<div className="w-full h-[49px] flex flex-col gap-[5px]">
-							<Text variant="body-sm-semibold" color="text-primary">Readmissions</Text>
-							<AnimatedValue value="51" className="font-bold text-[32px] leading-[100%] text-text-primary" />
-						</div>
-						<div className="w-full border-t border-dashed border-tertiary" />
-						<Text variant="body-sm" color="text-tertiary">of 540 discharges</Text>
-					</div>
-					<div className="w-[37px] h-[37px] rounded-[10px] bg-accent-primary/10 flex items-center justify-center self-start mr-2 p-2 transition-transform duration-300 group-hover:scale-110">
-						<div className="w-5 h-5 rounded-[6px] bg-accent-primary flex items-center justify-center">
-							<PulseWaveIcon color="#FFFFFF" />
-						</div>
-					</div>
-				</DashboardCard>
+				{cards.map((card) => (
+					<DashboardCard
+						key={card.title}
+						padding="none"
+						className="group relative w-full rounded-[15px]"
+						style={{ padding: 20, minHeight: 172 }}
+					>
+						{renderInfo(card.info)}
+						<div style={{ display: 'flex', flexDirection: 'column', gap: 14, height: '100%' }}>
+							{/* Header: icon + title + sub-label */}
+							<div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
+								<div
+									className={clsx(
+										'flex items-center justify-center shrink-0 transition-transform duration-300 group-hover:scale-110',
+										card.iconBg,
+									)}
+									style={{ width: 40, height: 40, borderRadius: 12 }}
+								>
+									{card.icon}
+								</div>
+								<div style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 0 }}>
+									<Text variant="body-md-semibold" color="text-primary" className="leading-tight">
+										{card.title}
+									</Text>
+									<span
+										style={{
+											alignSelf: 'flex-start',
+											fontSize: 11,
+											fontWeight: 600,
+											color: '#475569',
+											background: '#EEF2F7',
+											padding: '3px 10px',
+											borderRadius: 999,
+										}}
+									>
+										{card.subLabel}
+									</span>
+								</div>
+							</div>
 
-				{/* Average Days To Readmit Card */}
-				<DashboardCard padding="none" className="group relative w-full rounded-[15px] flex justify-between" style={{ padding: 18, height: 135 }}>
-					{renderInfo("Average days to readmit within a 30-day window.")}
-					<div style={{ width: '100%', height: 88, display: 'flex', flexDirection: 'column', gap: 12 }}>
-						<div className="w-full h-[49px] flex items-start justify-between">
-							<div className="min-w-0 h-[49px] flex flex-col gap-[5px]">
-								<Text variant="body-sm-semibold" color="text-primary" className="truncate">Average Days To Readmit</Text>
-								<AnimatedValue value="6.5 Days" className="font-bold text-[32px] leading-[100%] text-text-primary" />
-							</div>
-							<div className="w-[37px] h-[37px] rounded-[10px] bg-accent-green/10 flex items-center justify-center mr-2 p-2 transition-transform duration-300 group-hover:scale-110">
-								<BsClockFill size={20} className="text-accent-green" />
-							</div>
-						</div>
-						<div className="w-full border-t border-dashed border-tertiary" />
-						<Text variant="body-sm" color="text-tertiary">Median 30-day window</Text>
-					</div>
-				</DashboardCard>
+							{/* Big value */}
+							<AnimatedValue
+								value={card.value}
+								className="font-bold text-[38px] leading-[100%] tracking-tight text-text-primary"
+							/>
 
-				{/* Post-op Complications Card */}
-				<DashboardCard padding="none" className="group relative w-full rounded-[15px] flex justify-between" style={{ padding: 18, height: 135 }}>
-					{renderInfo("Post-operative complications recorded this period.")}
-					<div style={{ width: '100%', height: 88, display: 'flex', flexDirection: 'column', gap: 12 }}>
-						<div className="w-full h-[49px] flex items-start justify-between">
-							<div className="min-w-0 h-[49px] flex flex-col gap-[5px]">
-								<Text variant="body-sm-semibold" color="text-primary" className="truncate">Post-op Complications</Text>
-								<AnimatedValue value="11" className="font-bold text-[32px] leading-[100%] text-text-primary" />
-							</div>
-							<div className="w-[37px] h-[37px] rounded-[10px] bg-accent-red/10 flex items-center justify-center mr-2 p-2 transition-transform duration-300 group-hover:scale-110">
-								<ImScissors size={18} className="text-accent-red" />
+							{/* Footer */}
+							<div className="w-full border-t border-dashed border-tertiary" style={{ marginTop: 'auto' }} />
+							<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+								<Text variant="body-sm" color="text-tertiary">{card.footerLabel}</Text>
+								<Text variant="body-sm-semibold" color="text-primary">{card.footerValue}</Text>
 							</div>
 						</div>
-						<div className="w-full border-t border-dashed border-tertiary" />
-						<Text variant="body-sm" color="text-tertiary">Contribution to returns</Text>
-					</div>
-				</DashboardCard>
-
-				{/* Incoming Transfer Request Card */}
-				<DashboardCard padding="none" className="group relative w-full rounded-[15px] flex justify-between" style={{ padding: 18, height: 135 }}>
-					{renderInfo("Transition calls completed within 48 hours.")}
-					<div style={{ width: '100%', height: 88, display: 'flex', flexDirection: 'column', gap: 12 }}>
-						<div className="w-full h-[49px] flex items-start justify-between">
-							<div className="min-w-0 h-[49px] flex flex-col gap-[5px]">
-								<Text variant="body-sm-semibold" color="text-primary" className="truncate">Incoming Transfer Request</Text>
-								<AnimatedValue value="128" className="font-bold text-[32px] leading-[100%] text-text-primary" />
-							</div>
-							<div className="w-[37px] h-[37px] rounded-[10px] bg-accent-violet/10 flex items-center justify-center mr-2 p-2 transition-transform duration-300 group-hover:scale-110">
-								<IoCallSharp size={18} className="text-accent-violet" />
-							</div>
-						</div>
-						<div className="w-full border-t border-dashed border-tertiary" />
-						<Text variant="body-sm" color="text-tertiary">Completed within 48h</Text>
-					</div>
-				</DashboardCard>
+					</DashboardCard>
+				))}
 			</div>
 		</div>
 	);
