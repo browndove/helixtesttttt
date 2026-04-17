@@ -264,6 +264,20 @@ function parseStaffList(raw: unknown): StaffMember[] {
         .filter((s): s is StaffMember => Boolean(s));
 }
 
+/** Clinical / professional rank presets (optional field); custom values allowed via CustomSelect. */
+const STAFF_RANK_OPTIONS = [
+    'House Officer',
+    'Medical Officer',
+    'Resident',
+    'Specialist',
+    'Consultant',
+    'Chief of Surgery',
+    'Nurse',
+    'Pharmacist',
+    'Physiotherapist',
+    'Lab Scientist',
+];
+
 const QUALIFICATION_OPTIONS = ['MBBS', 'RN', 'MSc', 'PhD', 'MD', 'BPharm', 'BSc'];
 
 const statusColors: Record<string, { color: string; bg: string; label: string }> = {
@@ -671,7 +685,6 @@ export default function StaffDirectoryManagement() {
         newPhone,
         newDob,
         newGender,
-        newRole,
         newHighestQualification,
         newIsDoctor,
         newDept,
@@ -697,7 +710,6 @@ export default function StaffDirectoryManagement() {
         newPhone,
         newDob,
         newGender,
-        newRole,
         newHighestQualification,
         newIsDoctor,
         newDept,
@@ -1368,12 +1380,13 @@ export default function StaffDirectoryManagement() {
                                 </div>
                                 <div>
                                     <label className="label">Rank</label>
-                                    <input
-                                        className="input"
+                                    <CustomSelect
                                         value={newRole}
-                                        onChange={e => setNewRole(e.target.value)}
-                                        placeholder="Enter rank (optional)"
-                                        maxLength={20}
+                                        onChange={v => setNewRole(v)}
+                                        options={STAFF_RANK_OPTIONS.map(t => ({ label: t, value: t }))}
+                                        placeholder="-- Select rank --"
+                                        allowCustom
+                                        customPlaceholder="Type rank and press Enter"
                                     />
                                 </div>
                                 <div>
@@ -1774,12 +1787,13 @@ export default function StaffDirectoryManagement() {
                                         <div style={{ minWidth: 0 }}>
                                             <label className="label">Rank</label>
                                             <div style={{ opacity: !editingSelected || savingEdit ? 0.65 : 1, pointerEvents: !editingSelected || savingEdit ? 'none' : 'auto' }}>
-                                                <input
-                                                    className="input"
+                                                <CustomSelect
                                                     value={editJobTitle}
-                                                    onChange={e => setEditJobTitle(e.target.value)}
-                                                    placeholder="Enter rank (optional)"
-                                                    maxLength={20}
+                                                    onChange={setEditJobTitle}
+                                                    options={STAFF_RANK_OPTIONS.map(t => ({ label: t, value: t }))}
+                                                    placeholder="-- Select rank --"
+                                                    allowCustom
+                                                    customPlaceholder="Type rank and press Enter"
                                                 />
                                             </div>
                                         </div>
