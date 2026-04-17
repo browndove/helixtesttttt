@@ -84,7 +84,6 @@ export default function HomePage() {
     const [firstName, setFirstName] = useState('');
     const [facilityName, setFacilityName] = useState('');
     const [lastFailedImport, setLastFailedImport] = useState<BulkUploadHistoryEntry | null>(null);
-    const [staffByRole, setStaffByRole] = useState({ doctors: 0, nurses: 0, techs: 0, admins: 0, other: 0 });
     const [twoFactorAdoption, setTwoFactorAdoption] = useState<{ enabled: number; total: number }>({ enabled: 0, total: 0 });
     const [latestAuditAt, setLatestAuditAt] = useState<string>('');
     const [activeSessions, setActiveSessions] = useState(0);
@@ -166,20 +165,11 @@ export default function HomePage() {
 
             setStaffCount(readTotal(staffJson, staffItems.length));
 
-            // Staff breakdown by role
-            const roleBreakdown = { doctors: 0, nurses: 0, techs: 0, admins: 0, other: 0 };
             let twoFactorEnabled = 0;
             for (const s of staffItems) {
                 const rec = s as Record<string, unknown>;
-                const role = String(rec.system_role || rec.role || rec.job_title || '').toLowerCase();
-                if (role.includes('admin')) roleBreakdown.admins += 1;
-                else if (role.includes('nurse')) roleBreakdown.nurses += 1;
-                else if (/doctor|dr\.|physician|surgeon|ologist|resident|fellow|attending|intensivist|pediatrician|anaesth|anesth/.test(role)) roleBreakdown.doctors += 1;
-                else if (/tech|therapist|radiographer|pharmacist|lab/.test(role)) roleBreakdown.techs += 1;
-                else roleBreakdown.other += 1;
                 if (rec.otp_enabled === true || rec.two_factor_enabled === true || rec.twoFactorEnabled === true) twoFactorEnabled += 1;
             }
-            setStaffByRole(roleBreakdown);
             setTwoFactorAdoption({ enabled: twoFactorEnabled, total: staffItems.length });
 
             // Currently signed-in staff (ranked by most recent last_login)
@@ -449,7 +439,7 @@ export default function HomePage() {
                 </div>
 
                 <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 20, alignItems: 'start' }}>
-                    {/* Left column: Needs Attention + Staff Breakdown */}
+                    {/* Left column: Needs Attention + signed-in staff */}
                     <div style={{ minWidth: 0, display: 'flex', flexDirection: 'column', gap: 20 }}>
                         <div style={{ background: '#FFFFFF', border: '1px solid #EEF1F5', borderRadius: 16, boxShadow: '0 1px 2px rgba(15,23,42,0.03)', overflow: 'hidden' }}>
                             {/* Section header */}
@@ -587,157 +577,109 @@ export default function HomePage() {
                             </div>
                         </div>
 
-                        {/* Staff Breakdown */}
+                        {/* Currently signed in */}
                         <div style={{ background: '#FFFFFF', border: '1px solid #EEF1F5', borderRadius: 16, padding: 20, boxShadow: '0 1px 2px rgba(15,23,42,0.03)' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                                    <div style={{ width: 40, height: 40, borderRadius: 12, background: '#CCFBF1', color: '#0D9488', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, gap: 12 }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
+                                    <div style={{ width: 40, height: 40, borderRadius: 12, background: '#CCFBF1', color: '#0D9488', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                                         <span className="material-icons-round" style={{ fontSize: 20, fontWeight: 900 }}>groups_2</span>
                                     </div>
-                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                                        <div style={{ fontSize: 14, fontWeight: 700, color: '#0F172A', lineHeight: 1.25 }}>Staff Breakdown</div>
-                                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, alignSelf: 'flex-start', fontSize: 11, fontWeight: 600, color: '#059669', background: '#D1FAE5', padding: '3px 10px', borderRadius: 999 }}>
-                                            <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#059669' }} />
-                                            Live
-                                        </span>
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, minWidth: 0 }}>
+                                        <div style={{ fontSize: 14, fontWeight: 700, color: '#0F172A', lineHeight: 1.25 }}>Currently signed in</div>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11, fontWeight: 600, color: '#059669', background: '#D1FAE5', padding: '3px 10px', borderRadius: 999 }}>
+                                                <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#059669' }} />
+                                                Live
+                                            </span>
+                                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11, fontWeight: 600, color: '#047857', background: '#D1FAE5', padding: '3px 10px', borderRadius: 999 }}>
+                                                <span style={{ width: 5, height: 5, borderRadius: '50%', background: '#059669' }} />
+                                                {loading ? '—' : `${signedInStaff.filter((s) => s.status === 'online').length} online`}
+                                            </span>
+                                            {!loading && signedInStaff.length > 0 ? (
+                                                <span style={{ fontSize: 10.5, fontWeight: 600, color: '#64748B' }}>
+                                                    {signedInStaff.length} recent
+                                                </span>
+                                            ) : null}
+                                        </div>
                                     </div>
                                 </div>
                                 <button
+                                    type="button"
                                     onClick={() => router.push('/staff')}
-                                    style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11, fontWeight: 700, color: '#334155', background: '#F1F5F9', border: 'none', borderRadius: 999, padding: '7px 14px', cursor: 'pointer' }}
+                                    style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11, fontWeight: 700, color: '#334155', background: '#F1F5F9', border: 'none', borderRadius: 999, padding: '7px 14px', cursor: 'pointer', flexShrink: 0 }}
                                 >
                                     View directory
                                     <span className="material-icons-round" style={{ fontSize: 14, fontWeight: 900 }}>arrow_forward</span>
                                 </button>
                             </div>
 
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                                {(() => {
-                                    const rows = [
-                                        { label: 'Doctors', value: staffByRole.doctors, icon: 'medical_services', fg: '#1D4ED8', bg: '#DBEAFE' },
-                                        { label: 'Nurses', value: staffByRole.nurses, icon: 'health_and_safety', fg: '#0D9488', bg: '#CCFBF1' },
-                                        { label: 'Technicians', value: staffByRole.techs, icon: 'biotech', fg: '#4F46E5', bg: '#E0E7FF' },
-                                        { label: 'Administrators', value: staffByRole.admins, icon: 'admin_panel_settings', fg: '#D97706', bg: '#FEF3C7' },
-                                        { label: 'Other staff', value: staffByRole.other, icon: 'badge', fg: '#475569', bg: '#F1F5F9' },
-                                    ];
-                                    const total = rows.reduce((acc, r) => acc + r.value, 0) || 1;
-                                    return rows.map((r) => {
-                                        const pct = Math.round((r.value / total) * 100);
+                            {loading ? (
+                                <div style={{ fontSize: 11.5, color: '#94A3B8', padding: '8px 0' }}>Loading signed-in staff…</div>
+                            ) : signedInStaff.length === 0 ? (
+                                <div style={{ fontSize: 11.5, color: '#94A3B8', padding: '8px 0' }}>
+                                    No recent sign-ins recorded.
+                                </div>
+                            ) : (
+                                <div style={{ display: 'grid', gap: 8 }}>
+                                    {signedInStaff.map((s) => {
+                                        const statusBg = s.status === 'online' ? '#D1FAE5' : s.status === 'recent' ? '#FEF3C7' : '#F1F5F9';
+                                        const statusFg = s.status === 'online' ? '#047857' : s.status === 'recent' ? '#B45309' : '#475569';
+                                        const dot = s.status === 'online' ? '#059669' : s.status === 'recent' ? '#F59E0B' : '#94A3B8';
+                                        const statusLabel = s.status === 'online' ? 'Online' : s.status === 'recent' ? 'Recent' : 'Away';
+                                        const avatarBg = s.status === 'online' ? '#D1FAE5' : s.status === 'recent' ? '#FEF3C7' : '#F1F5F9';
+                                        const avatarFg = s.status === 'online' ? '#047857' : s.status === 'recent' ? '#B45309' : '#475569';
                                         return (
-                                            <div key={r.label} style={{ display: 'grid', gridTemplateColumns: '32px 1fr auto', alignItems: 'center', gap: 12, padding: '10px 12px', background: '#F8FAFC', border: '1px solid #EEF1F5', borderRadius: 12 }}>
-                                                <span style={{ width: 32, height: 32, borderRadius: 10, background: r.bg, color: r.fg, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
-                                                    <span className="material-icons-round" style={{ fontSize: 16, fontWeight: 900 }}>{r.icon}</span>
-                                                </span>
-                                                <div style={{ minWidth: 0 }}>
-                                                    <div style={{ fontSize: 12.5, fontWeight: 700, color: '#0F172A', marginBottom: 5 }}>{r.label}</div>
-                                                    <div style={{ height: 5, borderRadius: 999, background: '#E2E8F0', overflow: 'hidden' }}>
-                                                        <div style={{ width: `${pct}%`, height: '100%', background: r.fg, borderRadius: 999, transition: 'width 0.6s ease' }} />
+                                            <div
+                                                key={s.id}
+                                                style={{
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    gap: 12,
+                                                    padding: '10px 12px',
+                                                    background: '#F8FAFC',
+                                                    border: '1px solid #EEF1F5',
+                                                    borderRadius: 12,
+                                                }}
+                                            >
+                                                <div style={{ position: 'relative', flexShrink: 0 }}>
+                                                    <span style={{ width: 34, height: 34, borderRadius: '50%', background: avatarBg, color: avatarFg, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 800, letterSpacing: '0.02em' }}>
+                                                        {s.initials}
+                                                    </span>
+                                                    <span
+                                                        aria-hidden
+                                                        style={{
+                                                            position: 'absolute',
+                                                            right: -2,
+                                                            bottom: -2,
+                                                            width: 11,
+                                                            height: 11,
+                                                            borderRadius: '50%',
+                                                            background: dot,
+                                                            border: '2px solid #F8FAFC',
+                                                        }}
+                                                    />
+                                                </div>
+                                                <div style={{ flex: 1, minWidth: 0 }}>
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                                                        <span style={{ fontSize: 12.5, fontWeight: 700, color: '#0F172A', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 160 }}>
+                                                            {s.name}
+                                                        </span>
+                                                        <span style={{ fontSize: 9.5, fontWeight: 600, color: statusFg, background: statusBg, padding: '2px 7px', borderRadius: 999 }}>
+                                                            {statusLabel}
+                                                        </span>
                                                     </div>
-                                                </div>
-                                                <div style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'flex-end' }}>
-                                                    <span style={{ fontSize: 13, fontWeight: 800, color: '#0F172A', fontVariantNumeric: 'tabular-nums', minWidth: 24, textAlign: 'right' }}>
-                                                        {loading ? '—' : r.value.toLocaleString()}
-                                                    </span>
-                                                    <span style={{ fontSize: 10, fontWeight: 600, color: r.fg, background: r.bg, padding: '2px 7px', borderRadius: 999, minWidth: 36, textAlign: 'center' }}>
-                                                        {loading ? '—' : `${pct}%`}
+                                                    <span style={{ fontSize: 10.5, color: '#64748B', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'block' }}>
+                                                        {s.role}
                                                     </span>
                                                 </div>
+                                                <span style={{ fontSize: 10.5, fontWeight: 600, color: '#64748B', background: '#F1F5F9', padding: '3px 8px', borderRadius: 999, flexShrink: 0, whiteSpace: 'nowrap' }}>
+                                                    {s.when}
+                                                </span>
                                             </div>
                                         );
-                                    });
-                                })()}
-                            </div>
-
-                            <div style={{ borderTop: '1px dashed #E2E8F0', marginTop: 14, paddingTop: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                                <span style={{ fontSize: 11.5, color: '#94A3B8' }}>Total active staff</span>
-                                <span style={{ fontSize: 13, fontWeight: 800, color: '#0F172A' }}>
-                                    {loading ? '—' : staffCount.toLocaleString()}
-                                </span>
-                            </div>
-
-                            {/* Currently signed in */}
-                            <div style={{ borderTop: '1px solid #EEF1F5', marginTop: 16, paddingTop: 16 }}>
-                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                        <span style={{ fontSize: 12.5, fontWeight: 700, color: '#0F172A' }}>Currently signed in</span>
-                                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 10, fontWeight: 600, color: '#047857', background: '#D1FAE5', padding: '2px 8px', borderRadius: 999 }}>
-                                            <span style={{ width: 5, height: 5, borderRadius: '50%', background: '#059669' }} />
-                                            {signedInStaff.filter((s) => s.status === 'online').length} online
-                                        </span>
-                                    </div>
-                                    <span style={{ fontSize: 10.5, fontWeight: 600, color: '#64748B' }}>
-                                        {signedInStaff.length > 0 ? `${signedInStaff.length} recent` : '—'}
-                                    </span>
+                                    })}
                                 </div>
-
-                                {loading ? (
-                                    <div style={{ fontSize: 11.5, color: '#94A3B8', padding: '8px 0' }}>Loading signed-in staff…</div>
-                                ) : signedInStaff.length === 0 ? (
-                                    <div style={{ fontSize: 11.5, color: '#94A3B8', padding: '8px 0' }}>
-                                        No recent sign-ins recorded.
-                                    </div>
-                                ) : (
-                                    <div style={{ display: 'grid', gap: 8 }}>
-                                        {signedInStaff.map((s) => {
-                                            const statusBg = s.status === 'online' ? '#D1FAE5' : s.status === 'recent' ? '#FEF3C7' : '#F1F5F9';
-                                            const statusFg = s.status === 'online' ? '#047857' : s.status === 'recent' ? '#B45309' : '#475569';
-                                            const dot = s.status === 'online' ? '#059669' : s.status === 'recent' ? '#F59E0B' : '#94A3B8';
-                                            const statusLabel = s.status === 'online' ? 'Online' : s.status === 'recent' ? 'Recent' : 'Away';
-                                            const avatarBg = s.status === 'online' ? '#D1FAE5' : s.status === 'recent' ? '#FEF3C7' : '#F1F5F9';
-                                            const avatarFg = s.status === 'online' ? '#047857' : s.status === 'recent' ? '#B45309' : '#475569';
-                                            return (
-                                                <div
-                                                    key={s.id}
-                                                    style={{
-                                                        display: 'flex',
-                                                        alignItems: 'center',
-                                                        gap: 12,
-                                                        padding: '10px 12px',
-                                                        background: '#F8FAFC',
-                                                        border: '1px solid #EEF1F5',
-                                                        borderRadius: 12,
-                                                    }}
-                                                >
-                                                    <div style={{ position: 'relative', flexShrink: 0 }}>
-                                                        <span style={{ width: 34, height: 34, borderRadius: '50%', background: avatarBg, color: avatarFg, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 800, letterSpacing: '0.02em' }}>
-                                                            {s.initials}
-                                                        </span>
-                                                        <span
-                                                            aria-hidden
-                                                            style={{
-                                                                position: 'absolute',
-                                                                right: -2,
-                                                                bottom: -2,
-                                                                width: 11,
-                                                                height: 11,
-                                                                borderRadius: '50%',
-                                                                background: dot,
-                                                                border: '2px solid #F8FAFC',
-                                                            }}
-                                                        />
-                                                    </div>
-                                                    <div style={{ flex: 1, minWidth: 0 }}>
-                                                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                                                            <span style={{ fontSize: 12.5, fontWeight: 700, color: '#0F172A', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 160 }}>
-                                                                {s.name}
-                                                            </span>
-                                                            <span style={{ fontSize: 9.5, fontWeight: 600, color: statusFg, background: statusBg, padding: '2px 7px', borderRadius: 999 }}>
-                                                                {statusLabel}
-                                                            </span>
-                                                        </div>
-                                                        <span style={{ fontSize: 10.5, color: '#64748B', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'block' }}>
-                                                            {s.role}
-                                                        </span>
-                                                    </div>
-                                                    <span style={{ fontSize: 10.5, fontWeight: 600, color: '#64748B', background: '#F1F5F9', padding: '3px 8px', borderRadius: 999, flexShrink: 0, whiteSpace: 'nowrap' }}>
-                                                        {s.when}
-                                                    </span>
-                                                </div>
-                                            );
-                                        })}
-                                    </div>
-                                )}
-                            </div>
+                            )}
                         </div>
                     </div>
 
@@ -1013,196 +955,6 @@ export default function HomePage() {
                                 );
                             })()}
                         </div>
-                    </div>
-                </div>
-
-                {/* PLACEHOLDER_REMOVE_ROW2_START */}
-                <div style={{ display: 'none' }}>
-                    {/* Staff on-shift */}
-                    <div style={{ background: '#FFFFFF', border: '1px solid #EEF1F5', borderRadius: 16, padding: 20, boxShadow: '0 1px 2px rgba(15,23,42,0.03)' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                                <div style={{ width: 40, height: 40, borderRadius: 12, background: '#00C8B3', color: '#FFFFFF', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
-                                    <span className="material-icons-round" style={{ fontSize: 20, fontWeight: 900 }}>groups_2</span>
-                                </div>
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                                    <div style={{ fontSize: 14, fontWeight: 700, color: '#0F172A', lineHeight: 1.25 }}>Staff Breakdown</div>
-                                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, alignSelf: 'flex-start', fontSize: 11, fontWeight: 600, color: '#059669', background: '#D1FAE5', padding: '3px 10px', borderRadius: 999 }}>
-                                        <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#059669' }} />
-                                        Live
-                                    </span>
-                                </div>
-                            </div>
-                            <button
-                                onClick={() => router.push('/staff')}
-                                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11, fontWeight: 700, color: '#334155', background: '#F1F5F9', border: 'none', borderRadius: 999, padding: '7px 14px', cursor: 'pointer' }}
-                            >
-                                View directory
-                                <span className="material-icons-round" style={{ fontSize: 14, fontWeight: 900 }}>arrow_forward</span>
-                            </button>
-                        </div>
-
-                        <div style={{ display: 'grid', gap: 10 }}>
-                            {(() => {
-                                const rows = [
-                                    { label: 'Doctors', value: staffByRole.doctors, icon: 'medical_services', color: '#2484C7', bg: '#DBEAFE' },
-                                    { label: 'Nurses', value: staffByRole.nurses, icon: 'health_and_safety', color: '#00C8B3', bg: '#CCFBF1' },
-                                    { label: 'Technicians', value: staffByRole.techs, icon: 'biotech', color: '#6974F7', bg: '#E0E7FF' },
-                                    { label: 'Administrators', value: staffByRole.admins, icon: 'shield_person', color: '#F59E0B', bg: '#FEF3C7' },
-                                    { label: 'Other staff', value: staffByRole.other, icon: 'badge', color: '#64748B', bg: '#F1F5F9' },
-                                ];
-                                const total = rows.reduce((acc, r) => acc + r.value, 0) || 1;
-                                return rows.map((r) => {
-                                    const pct = Math.round((r.value / total) * 100);
-                                    return (
-                                        <div key={r.label} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                                            <span style={{ width: 32, height: 32, borderRadius: 10, background: r.color, color: '#FFFFFF', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                                                <span className="material-icons-round" style={{ fontSize: 16, fontWeight: 900 }}>{r.icon}</span>
-                                            </span>
-                                            <div style={{ flex: 1, minWidth: 0 }}>
-                                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 4 }}>
-                                                    <span style={{ fontSize: 12.5, fontWeight: 700, color: '#0F172A' }}>{r.label}</span>
-                                                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                                                        <span style={{ fontSize: 12, fontWeight: 800, color: '#0F172A', fontVariantNumeric: 'tabular-nums' }}>
-                                                            {loading ? '—' : r.value.toLocaleString()}
-                                                        </span>
-                                                        <span style={{ fontSize: 10, fontWeight: 600, color: r.color, background: r.bg, padding: '2px 7px', borderRadius: 999 }}>
-                                                            {loading ? '—' : `${pct}%`}
-                                                        </span>
-                                                    </span>
-                                                </div>
-                                                <div style={{ height: 6, borderRadius: 999, background: '#F1F5F9', overflow: 'hidden' }}>
-                                                    <div style={{ width: `${pct}%`, height: '100%', background: r.color, borderRadius: 999, transition: 'width 0.6s ease' }} />
-                                                </div>
-                                            </div>
-                                        </div>
-                                    );
-                                });
-                            })()}
-                        </div>
-
-                        <div style={{ borderTop: '1px dashed #E2E8F0', marginTop: 16, paddingTop: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                            <span style={{ fontSize: 11.5, color: '#94A3B8' }}>Total active staff</span>
-                            <span style={{ fontSize: 12, fontWeight: 800, color: '#0F172A' }}>
-                                {loading ? '—' : staffCount.toLocaleString()}
-                            </span>
-                        </div>
-                    </div>
-
-                    {/* System health & compliance */}
-                    <div style={{ background: '#FFFFFF', border: '1px solid #EEF1F5', borderRadius: 16, padding: 20, boxShadow: '0 1px 2px rgba(15,23,42,0.03)' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                                <div style={{ width: 40, height: 40, borderRadius: 12, background: '#059669', color: '#FFFFFF', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
-                                    <span className="material-icons-round" style={{ fontSize: 20, fontWeight: 900 }}>verified_user</span>
-                                </div>
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                                    <div style={{ fontSize: 14, fontWeight: 700, color: '#0F172A', lineHeight: 1.25 }}>System Health & Compliance</div>
-                                    <span style={{ alignSelf: 'flex-start', fontSize: 11, fontWeight: 600, color: failedImports24h > 0 ? '#B45309' : '#047857', background: failedImports24h > 0 ? '#FEF3C7' : '#D1FAE5', padding: '3px 10px', borderRadius: 999 }}>
-                                        {failedImports24h > 0 ? 'Attention needed' : 'All systems healthy'}
-                                    </span>
-                                </div>
-                            </div>
-                            <button
-                                onClick={() => router.push('/audit-log')}
-                                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11, fontWeight: 700, color: '#334155', background: '#F1F5F9', border: 'none', borderRadius: 999, padding: '7px 14px', cursor: 'pointer' }}
-                            >
-                                Audit log
-                                <span className="material-icons-round" style={{ fontSize: 14, fontWeight: 900 }}>arrow_forward</span>
-                            </button>
-                        </div>
-
-                        {(() => {
-                            const twoFactorPct = twoFactorAdoption.total > 0 ? Math.round((twoFactorAdoption.enabled / twoFactorAdoption.total) * 100) : 0;
-                            const twoFactorStatus = twoFactorPct >= 80 ? 'Healthy' : twoFactorPct >= 50 ? 'Improving' : 'Action needed';
-                            const twoFactorPillBg = twoFactorPct >= 80 ? '#D1FAE5' : twoFactorPct >= 50 ? '#FEF3C7' : '#FEE2E2';
-                            const twoFactorPillFg = twoFactorPct >= 80 ? '#047857' : twoFactorPct >= 50 ? '#B45309' : '#B91C1C';
-
-                            const importStatus = failedImports24h > 0 ? 'Degraded' : 'Healthy';
-                            const importPillBg = failedImports24h > 0 ? '#FEE2E2' : '#D1FAE5';
-                            const importPillFg = failedImports24h > 0 ? '#B91C1C' : '#047857';
-
-                            const rows = [
-                                {
-                                    icon: 'shield_lock',
-                                    iconBg: '#2484C7',
-                                    label: 'Two-factor adoption',
-                                    detail: `${twoFactorAdoption.enabled.toLocaleString()} of ${twoFactorAdoption.total.toLocaleString()} staff enrolled`,
-                                    value: loading ? '—' : `${twoFactorPct}%`,
-                                    pillLabel: twoFactorStatus,
-                                    pillBg: twoFactorPillBg,
-                                    pillFg: twoFactorPillFg,
-                                },
-                                {
-                                    icon: 'sync',
-                                    iconBg: failedImports24h > 0 ? '#DC2626' : '#059669',
-                                    label: 'Data sync',
-                                    detail: failedImports24h > 0
-                                        ? `${failedImports24h} failed ${failedImports24h === 1 ? 'import' : 'imports'} in last 24h`
-                                        : 'All bulk imports completed successfully',
-                                    value: failedImports24h > 0 ? `${failedImports24h}` : 'OK',
-                                    pillLabel: importStatus,
-                                    pillBg: importPillBg,
-                                    pillFg: importPillFg,
-                                },
-                                {
-                                    icon: 'devices',
-                                    iconBg: '#6974F7',
-                                    label: 'Active sessions',
-                                    detail: activeSessions === 1 ? 'Your current session' : `${activeSessions.toLocaleString()} sessions signed in`,
-                                    value: loading ? '—' : activeSessions.toLocaleString(),
-                                    pillLabel: 'Live',
-                                    pillBg: '#E0E7FF',
-                                    pillFg: '#4338CA',
-                                },
-                                {
-                                    icon: 'fact_check',
-                                    iconBg: '#F59E0B',
-                                    label: 'Last audit activity',
-                                    detail: latestAuditAt ? `Recorded ${toWhenLabel(latestAuditAt)}` : 'No recent audit events',
-                                    value: latestAuditAt ? toWhenLabel(latestAuditAt) : '—',
-                                    pillLabel: latestAuditAt ? 'Tracked' : 'Idle',
-                                    pillBg: latestAuditAt ? '#FEF3C7' : '#F1F5F9',
-                                    pillFg: latestAuditAt ? '#B45309' : '#475569',
-                                },
-                            ];
-
-                            return (
-                                <div style={{ display: 'grid', gap: 10 }}>
-                                    {rows.map((r, idx) => (
-                                        <div
-                                            key={r.label}
-                                            style={{
-                                                display: 'flex',
-                                                alignItems: 'center',
-                                                gap: 12,
-                                                padding: '12px 14px',
-                                                background: '#F8FAFC',
-                                                border: '1px solid #EEF1F5',
-                                                borderRadius: 12,
-                                            }}
-                                        >
-                                            <span style={{ width: 36, height: 36, borderRadius: 10, background: r.iconBg, color: '#FFFFFF', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                                                <span className="material-icons-round" style={{ fontSize: 18, fontWeight: 900 }}>{r.icon}</span>
-                                            </span>
-                                            <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 3 }}>
-                                                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                                                    <span style={{ fontSize: 13, fontWeight: 700, color: '#0F172A' }}>{r.label}</span>
-                                                    <span style={{ fontSize: 10, fontWeight: 600, color: r.pillFg, background: r.pillBg, padding: '2px 8px', borderRadius: 999 }}>
-                                                        {r.pillLabel}
-                                                    </span>
-                                                </div>
-                                                <span style={{ fontSize: 11.5, color: '#64748B', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.detail}</span>
-                                            </div>
-                                            <span style={{ fontSize: 15, fontWeight: 800, color: '#0F172A', flexShrink: 0, fontVariantNumeric: 'tabular-nums', textAlign: 'right' }}>
-                                                {r.value}
-                                            </span>
-                                            {idx < rows.length - 1 ? null : null}
-                                        </div>
-                                    ))}
-                                </div>
-                            );
-                        })()}
                     </div>
                 </div>
             </main>
