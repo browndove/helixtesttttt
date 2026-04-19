@@ -6,6 +6,13 @@ import CustomSelect from '@/components/CustomSelect';
 import { MacVibrancyToast, MacVibrancyToastPortal } from '@/components/MacVibrancyToast';
 import { readCachedJson, writeCachedJson } from '@/lib/getJsonCache';
 import {
+    clampEscalationDelaySeconds,
+    delayToSeconds,
+    ESCALATION_DELAY_OPTIONS,
+    MIN_ESCALATION_DELAY_SEC,
+    secondsToDelay,
+} from '@/lib/escalation-delays';
+import {
     ROLES_CACHE_DEPTS,
     ROLES_CACHE_POLICIES,
     ROLES_CACHE_ROLES,
@@ -128,32 +135,11 @@ const escalationTemplates: EscalationTemplate[] = [
     { name: 'Missing Child', description: 'Escalation chain for missing child incidents.', roleNames: ['Ward Nurse In-Charge', 'Safety Officer', 'Administrator On-Call'] },
 ];
 
-const delayOptions = ['30 sec', '45 sec', '0 min', '1 min', '2 min', '3 min', '5 min', '7 min', '10 min', '12 min', '15 min', '20 min', '30 min', '1 hr', '2 hr'];
-
 const levelColor = (i: number) => {
     if (i === 0) return '#6bb89c';
     if (i === 1) return '#c9a94e';
     return '#c26b6b';
 };
-
-function secondsToDelay(s: number): string {
-    if (s <= 0) return '0 min';
-    if (s < 60) return `${s} sec`;
-    if (s % 3600 === 0) return `${s / 3600} hr`;
-    return `${Math.round(s / 60)} min`;
-}
-
-function delayToSeconds(d: string): number {
-    const raw = d.trim().toLowerCase();
-    const match = raw.match(/(\d+(?:\.\d+)?)\s*(s|sec|secs|second|seconds|m|min|mins|minute|minutes|h|hr|hrs|hour|hours)?/);
-    if (!match) return 0;
-    const value = Number(match[1]);
-    const unit = match[2] || 'm';
-    if (!Number.isFinite(value)) return 0;
-    if (unit.startsWith('h')) return Math.round(value * 3600);
-    if (unit === 's' || unit.startsWith('sec')) return Math.round(value);
-    return Math.round(value * 60);
-}
 
 function stepsToLevels(steps: EscalationStep[], roleNameMap?: Map<string, string>): EscalationLevel[] {
     return [...steps]
@@ -209,7 +195,7 @@ export default function EscalationAlertSettings() {
     const [newDesc, setNewDesc] = useState('');
     const [newDept, setNewDept] = useState('');
     const [newLevels, setNewLevels] = useState<EscalationLevel[]>([
-        { level: 1, target: '', delay: '0 min' },
+        { level: 1, target: '', delay: '30 sec' },
         { level: 2, target: '', delay: '3 min' },
     ]);
 
@@ -432,7 +418,7 @@ export default function EscalationAlertSettings() {
     const resetCreate = () => {
         setShowCreate(false); setCreateStep(0);
         setCreatePrimaryRoleId(''); setNewDesc(''); setNewDept('');
-        setNewLevels([{ level: 1, target: '', delay: '0 min' }, { level: 2, target: '', delay: '3 min' }]);
+        setNewLevels([{ level: 1, target: '', delay: '30 sec' }, { level: 2, target: '', delay: '3 min' }]);
         setLevelRoleSearch({});
     };
 
@@ -444,7 +430,7 @@ export default function EscalationAlertSettings() {
         setNewDept(role.department || '');
         setNewLevels(prev => {
             const rest = prev.slice(1);
-            return [{ level: 1, target: role.name, target_role_id: role.id, delay: prev[0]?.delay || '0 min' }, ...rest.map((l, i) => ({ ...l, level: i + 2 }))];
+            return [{ level: 1, target: role.name, target_role_id: role.id, delay: prev[0]?.delay || '30 sec' }, ...rest.map((l, i) => ({ ...l, level: i + 2 }))];
         });
     }, [roles]);
 
@@ -475,17 +461,21 @@ export default function EscalationAlertSettings() {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     role_id: createPrimaryRoleId,
-                    initial_timeout_seconds: Math.max(30, delayToSeconds(newLevels[0]?.delay || '3 min')),
+                    initial_timeout_seconds: clampEscalationDelaySeconds(delayToSeconds(newLevels[0]?.delay || '3 min')),
                 }),
             });
             if (!policyRes.ok) { showToast('Failed to create escalation policy'); return; }
             const policy = await policyRes.json();
 
-            const steps = newLevels
+            const sortedTargets = newLevels
                 .filter(l => l.target && l.target_role_id)
-                .map(l => ({
+                .sort((a, b) => a.level - b.level);
+            const steps = sortedTargets
+                .map((l, idx, arr) => ({
                     target_role_id: l.target_role_id || allRolesForSelect.find(r => r.name === l.target)?.id || '',
-                    timeout_seconds: Math.max(30, delayToSeconds(l.delay)),
+                    timeout_seconds: arr.length > 1 && idx === arr.length - 1
+                        ? MIN_ESCALATION_DELAY_SEC
+                        : clampEscalationDelaySeconds(delayToSeconds(l.delay)),
                 }))
                 .filter(s => s.target_role_id);
             if (steps.length > 0) {
@@ -539,7 +529,7 @@ export default function EscalationAlertSettings() {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    initial_timeout_seconds: Math.max(30, delayToSeconds(
+                    initial_timeout_seconds: clampEscalationDelaySeconds(delayToSeconds(
                         [...editLevels].sort((a, b) => a.level - b.level)[0]?.delay || '3 min',
                     )),
                 }),
@@ -556,13 +546,17 @@ export default function EscalationAlertSettings() {
                     target_role_id: editRole.id,
                 };
             }
-            const steps = levelsNormalized
+            const sortedTargets = levelsNormalized
                 .filter(l => l.target)
-                .map(l => {
+                .sort((a, b) => a.level - b.level);
+            const steps = sortedTargets
+                .map((l, idx, arr) => {
                     const roleId = l.target_role_id || allRolesForSelect.find(r => r.name === l.target)?.id || '';
                     return {
                         target_role_id: roleId,
-                        timeout_seconds: Math.max(30, delayToSeconds(l.delay)),
+                        timeout_seconds: arr.length > 1 && idx === arr.length - 1
+                            ? MIN_ESCALATION_DELAY_SEC
+                            : clampEscalationDelaySeconds(delayToSeconds(l.delay)),
                     };
                 })
                 .filter(s => s.target_role_id);
@@ -643,12 +637,13 @@ export default function EscalationAlertSettings() {
                     <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 2 }}>Escalation Ladder</div>
                     <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
                         {opts?.lockFirstLevelRole
-                            ? 'Level 1 is the policy role (fixed). Change only its delay; add further escalation levels below.'
+                            ? 'Level 1 is the policy role (fixed). Change only its delay; use Add escalation level below for each further target.'
                             : 'Select a role for each escalation level. Each role can only appear once in the chain.'}
                     </div>
                 </div>
                 {sorted.map((lvl, i) => {
                     const lockPrimary = Boolean(opts?.lockFirstLevelRole && i === 0);
+                    const hideDelayRow = sorted.length > 1 && i === sorted.length - 1;
                     const available = getAvailable(lvl.target);
                     const roleQuery = (levelRoleSearch[lvl.level] || '').trim().toLowerCase();
                     const filteredAvailable = roleQuery
@@ -783,28 +778,34 @@ export default function EscalationAlertSettings() {
                                         </div>
                                     ) : null}
                                 </div>
-                                {/* Delay */}
-                                <div style={{ padding: '8px 12px', display: 'flex', alignItems: 'center', gap: 8, background: 'var(--surface-2)' }}>
-                                    <span className="material-icons-round" style={{ fontSize: 14, color: 'var(--text-muted)' }}>schedule</span>
-                                    <span style={{ fontSize: 11, color: 'var(--text-muted)', flexShrink: 0 }}>Delay:</span>
-                                    <CustomSelect
-                                        value={lvl.delay}
-                                        onChange={v => { const u = levels.map(l => l.level === lvl.level ? { ...l, delay: v } : l); setLevels(u); }}
-                                        options={delayOptions.map(d => ({ label: d, value: d }))}
-                                        placeholder="Delay"
-                                        style={{ width: 100 }}
-                                        maxH={160}
-                                        allowCustom
-                                        customPlaceholder="e.g. 45 sec, 2 min, 1 hr"
-                                    />
-                                </div>
+                                {/* Delay (hidden for final target when there is more than one level) */}
+                                {hideDelayRow ? (
+                                    <div style={{ padding: '8px 12px', background: 'var(--surface-2)', borderTop: '1px solid var(--border-subtle)' }}>
+                                        <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>Final escalation target — no delay before another role.</span>
+                                    </div>
+                                ) : (
+                                    <div style={{ padding: '8px 12px', display: 'flex', alignItems: 'center', gap: 8, background: 'var(--surface-2)' }}>
+                                        <span className="material-icons-round" style={{ fontSize: 14, color: 'var(--text-muted)' }}>schedule</span>
+                                        <span style={{ fontSize: 11, color: 'var(--text-muted)', flexShrink: 0 }}>Delay:</span>
+                                        <CustomSelect
+                                            value={lvl.delay}
+                                            onChange={v => { const u = levels.map(l => l.level === lvl.level ? { ...l, delay: v } : l); setLevels(u); }}
+                                            options={ESCALATION_DELAY_OPTIONS.map(d => ({ label: d, value: d }))}
+                                            placeholder="Delay"
+                                            style={{ width: 100 }}
+                                            maxH={160}
+                                            allowCustom
+                                            customPlaceholder="e.g. 45 sec, 2 min, 1 hr"
+                                        />
+                                    </div>
+                                )}
                             </div>
                         </div>
                     );
                 })}
                 {sorted.length < MAX_STEPS && (
                     <button type="button" className="btn btn-secondary btn-xs" onClick={addLevel} style={{ alignSelf: 'flex-start', marginTop: 4 }}>
-                        <span className="material-icons-round" style={{ fontSize: 13 }}>add</span>Add Level
+                        <span className="material-icons-round" style={{ fontSize: 13 }}>add</span>Add escalation level
                     </button>
                 )}
                 {/* Duplicate warning */}
@@ -858,7 +859,9 @@ export default function EscalationAlertSettings() {
                                     <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>{lvl.target || '(not set)'}</span>
                                 </div>
                                 <div style={{ display: 'flex', gap: 12, fontSize: 11, color: 'var(--text-muted)' }}>
-                                    <span>Delay: <strong style={{ color: 'var(--text-secondary)' }}>{lvl.delay}</strong></span>
+                                    {!(effective.length > 1 && i === effective.length - 1) && (
+                                        <span>Delay: <strong style={{ color: 'var(--text-secondary)' }}>{lvl.delay}</strong></span>
+                                    )}
                                     <span style={{ color: levelColor(i), fontWeight: 600 }}>
                                         {i === 0 ? 'Initial Responder' : i === 1 ? 'First Escalation' : `Escalation Level ${lvl.level}`}
                                     </span>
@@ -897,7 +900,9 @@ export default function EscalationAlertSettings() {
                             </div>
                             <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderRadius: 'var(--radius-md)', background: 'var(--surface-2)', border: '1px solid var(--border-subtle)', marginTop: i === 0 ? 0 : 4 }}>
                                 <span style={{ fontSize: 12.5, fontWeight: 600, flex: 1, color: 'var(--text-primary)' }}>{lvl.target}</span>
-                                <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>+{lvl.delay}</span>
+                                {!(sorted.length > 1 && i === sorted.length - 1) && (
+                                    <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>+{lvl.delay}</span>
+                                )}
                             </div>
                         </div>
                     ))}

@@ -6,6 +6,13 @@ import CustomSelect from '@/components/CustomSelect';
 import { MacVibrancyToast, MacVibrancyToastPortal } from '@/components/MacVibrancyToast';
 import { readCachedJson, writeCachedJson } from '@/lib/getJsonCache';
 import {
+    clampEscalationDelaySeconds,
+    delayToSeconds,
+    ESCALATION_DELAY_OPTIONS,
+    MIN_ESCALATION_DELAY_SEC,
+    secondsToDelay,
+} from '@/lib/escalation-delays';
+import {
     ROLES_CACHE_DEPTS,
     ROLES_CACHE_HOSPITAL,
     ROLES_CACHE_POLICIES,
@@ -48,25 +55,6 @@ function extractPolicies(raw: unknown): Policy[] {
     const obj = raw as Record<string, unknown>;
     const list = obj.data ?? obj.items ?? obj.policies ?? obj.results;
     return Array.isArray(list) ? (list as Policy[]) : [];
-}
-
-function delayToSeconds(d: string): number {
-    const raw = d.trim().toLowerCase();
-    const match = raw.match(/(\d+(?:\.\d+)?)\s*(s|sec|secs|second|seconds|m|min|mins|minute|minutes|h|hr|hrs|hour|hours)?/);
-    if (!match) return 0;
-    const value = Number(match[1]);
-    const unit = match[2] || 'm';
-    if (!Number.isFinite(value)) return 0;
-    if (unit.startsWith('h')) return Math.round(value * 3600);
-    if (unit === 's' || unit.startsWith('sec')) return Math.round(value);
-    return Math.round(value * 60);
-}
-
-function secondsToDelay(s: number): string {
-    if (s <= 0) return '0 min';
-    if (s < 60) return `${s} sec`;
-    if (s % 3600 === 0) return `${s / 3600} hr`;
-    return `${Math.round(s / 60)} min`;
 }
 
 function stepsToLevels(steps: EscalationStep[], roleNameMap?: Map<string, string>): EscalationLevel[] {
@@ -121,16 +109,6 @@ function staffNameOnly(label: string): string {
     return label.replace(/\s*\([^)]*\)\s*$/, '').trim();
 }
 
-function titleCaseWords(raw: string): string {
-    const value = raw.trim();
-    if (!value) return '';
-    return value
-        .split(/\s+/)
-        .filter(Boolean)
-        .map(part => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
-        .join(' ');
-}
-
 function splitRoleName(name: string): { prefix: string; suffix: string } {
     const trimmed = String(name || '').trim();
     if (!trimmed) return { prefix: '', suffix: '' };
@@ -144,14 +122,14 @@ function splitRoleName(name: string): { prefix: string; suffix: string } {
     };
 }
 
+/** Join prefix + suffix for compound role names; preserves user capitalization (trim only). */
 function buildRoleName(prefix: string, suffix: string): string {
     const cleanPrefix = String(prefix || '').trim();
     const cleanSuffix = String(suffix || '').trim();
-    const normalizedSuffix = titleCaseWords(cleanSuffix);
     if (cleanPrefix) {
-        return normalizedSuffix ? `${cleanPrefix} - ${normalizedSuffix}` : cleanPrefix;
+        return cleanSuffix ? `${cleanPrefix} - ${cleanSuffix}` : cleanPrefix;
     }
-    return normalizedSuffix;
+    return cleanSuffix;
 }
 
 function normalizeRoleForUi<T extends Role>(role: T, deptIdToName: Map<string, string> = new Map()): T {
@@ -189,7 +167,7 @@ const roleTemplates: RoleTemplate[] = [
         name: 'Emergency Department Critical',
         description: 'Creates 3 roles linked in an escalation chain for the Emergency Department.',
         roles: [
-            { name: 'ED Doctor On-Call', description: 'Primary critical responder for Emergency Department cases.', delay: '0 min' },
+            { name: 'ED Doctor On-Call', description: 'Primary critical responder for Emergency Department cases.', delay: '30 sec' },
             { name: 'ED Supervisor', description: 'Escalation Level 1 — receives unacknowledged ED cases.', delay: '3 min' },
             { name: 'CEO', description: 'Final escalation — executive leadership for unresolved ED emergencies.', delay: '7 min' },
         ],
@@ -199,7 +177,7 @@ const roleTemplates: RoleTemplate[] = [
         name: 'Inpatient Ward Critical',
         description: 'Creates 3 roles linked in an escalation chain for inpatient wards (department-based).',
         roles: [
-            { name: 'Doctor in Charge of Patient', description: 'Primary attending doctor responsible for the inpatient case.', delay: '0 min' },
+            { name: 'Doctor in Charge of Patient', description: 'Primary attending doctor responsible for the inpatient case.', delay: '30 sec' },
             { name: 'Department Lead', description: 'Escalation Level 1 — department lead for unacknowledged inpatient cases.', delay: '3 min' },
             { name: 'CEO', description: 'Final escalation — executive leadership for unresolved inpatient emergencies.', delay: '7 min' },
         ],
@@ -209,7 +187,7 @@ const roleTemplates: RoleTemplate[] = [
         name: 'ICU Critical',
         description: 'Creates 3 roles linked in an escalation chain for the Intensive Care Unit.',
         roles: [
-            { name: 'ICU Doctor On-Call', description: 'Primary critical responder for ICU patient situations.', delay: '0 min' },
+            { name: 'ICU Doctor On-Call', description: 'Primary critical responder for ICU patient situations.', delay: '30 sec' },
             { name: 'ICU Department Lead', description: 'Escalation Level 1 — ICU lead for unacknowledged critical cases.', delay: '3 min' },
             { name: 'CEO', description: 'Final escalation — executive leadership for unresolved ICU emergencies.', delay: '7 min' },
         ],
@@ -219,7 +197,7 @@ const roleTemplates: RoleTemplate[] = [
         name: 'Maternity Ward Critical',
         description: 'Creates 3 roles linked in an escalation chain for the maternity and labor ward.',
         roles: [
-            { name: 'OBGYN On-Call', description: 'Primary on-call OBGYN for maternity and labor ward cases.', delay: '0 min' },
+            { name: 'OBGYN On-Call', description: 'Primary on-call OBGYN for maternity and labor ward cases.', delay: '30 sec' },
             { name: 'OBGYN Department Supervisor', description: 'Escalation Level 1 — OBGYN supervisor for unacknowledged cases.', delay: '3 min' },
             { name: 'CEO', description: 'Final escalation — executive leadership for unresolved maternity emergencies.', delay: '7 min' },
         ],
@@ -229,7 +207,7 @@ const roleTemplates: RoleTemplate[] = [
         name: 'Pediatrics Critical',
         description: 'Creates 3 roles linked in an escalation chain for pediatrics and neonatal intensive care.',
         roles: [
-            { name: 'Peds Doctor On-Call', description: 'Primary on-call doctor for pediatric and NICU critical situations.', delay: '0 min' },
+            { name: 'Peds Doctor On-Call', description: 'Primary on-call doctor for pediatric and NICU critical situations.', delay: '30 sec' },
             { name: 'Peds Unit Lead', description: 'Escalation Level 1 — pediatrics unit lead for unacknowledged cases.', delay: '3 min' },
             { name: 'CEO', description: 'Final escalation — executive leadership for unresolved pediatric emergencies.', delay: '7 min' },
         ],
@@ -239,7 +217,7 @@ const roleTemplates: RoleTemplate[] = [
         name: 'Operating Theatre Critical',
         description: 'Creates 3 roles linked in an escalation chain for the operating theatre and anaesthesia.',
         roles: [
-            { name: 'Anaesthesia On-Call', description: 'Primary on-call anaesthetist for operating theatre cases.', delay: '0 min' },
+            { name: 'Anaesthesia On-Call', description: 'Primary on-call anaesthetist for operating theatre cases.', delay: '30 sec' },
             { name: 'Theatre Supervisor', description: 'Escalation Level 1 — senior theatre staff for unacknowledged cases.', delay: '3 min' },
             { name: 'CEO', description: 'Final escalation — executive leadership for unresolved theatre emergencies.', delay: '7 min' },
         ],
@@ -249,7 +227,7 @@ const roleTemplates: RoleTemplate[] = [
         name: 'Ambulance Transfers Critical',
         description: 'Creates 3 roles linked in an escalation chain for ambulance arrivals, referrals, and transfers.',
         roles: [
-            { name: 'ED Triage On-Call', description: 'Primary triage responder for ambulance arrivals and referrals.', delay: '0 min' },
+            { name: 'ED Triage On-Call', description: 'Primary triage responder for ambulance arrivals and referrals.', delay: '30 sec' },
             { name: 'ED Supervisor', description: 'Escalation Level 1 — ED supervisor for unacknowledged referral cases.', delay: '3 min' },
             { name: 'CEO', description: 'Final escalation — executive leadership for unresolved transfer emergencies.', delay: '7 min' },
         ],
@@ -259,7 +237,7 @@ const roleTemplates: RoleTemplate[] = [
         name: 'Safety Threat Escalation',
         description: 'Creates 3 roles linked in an escalation chain for non-clinical security incidents and threats.',
         roles: [
-            { name: 'Safety Officer', description: 'Primary security responder for violence, threats, or safety incidents.', delay: '0 min' },
+            { name: 'Safety Officer', description: 'Primary security responder for violence, threats, or safety incidents.', delay: '30 sec' },
             { name: 'Hospital Administrator On-Call', description: 'Escalation Level 1 — administrator for unacknowledged security incidents.', delay: '3 min' },
             { name: 'CEO', description: 'Final escalation — CEO for unresolved safety or threat situations.', delay: '5 min' },
         ],
@@ -269,7 +247,7 @@ const roleTemplates: RoleTemplate[] = [
         name: 'Missing Child',
         description: 'Creates 3 roles linked in an escalation chain for missing child incidents.',
         roles: [
-            { name: 'Ward Nurse In-Charge', description: 'Primary responder — ward nurse in charge during missing child incidents.', delay: '0 min' },
+            { name: 'Ward Nurse In-Charge', description: 'Primary responder — ward nurse in charge during missing child incidents.', delay: '30 sec' },
             { name: 'Safety Officer', description: 'Escalation Level 1 — security supervisor for unresolved missing child cases.', delay: '2 min' },
             { name: 'Administrator On-Call', description: 'Final escalation — administrator for unresolved missing child incidents.', delay: '5 min' },
         ],
@@ -286,10 +264,9 @@ const defaultRoutingRules: RoutingRule[] = [
 /** Level 1 = primary role; at most two further escalation targets (3 steps total). */
 const ESCALATION_LADDER_MAX_LEVELS = 3;
 
+/** Single primary row; user adds further targets with "Add escalation level". */
 const defaultEscalationLevels: EscalationLevel[] = [
-    { level: 1, target: 'Same Role', delay: '0 min' },
-    { level: 2, target: 'Supervisor', delay: '3 min' },
-    { level: 3, target: 'Department Head', delay: '7 min' },
+    { level: 1, target: '', delay: '30 sec' },
 ];
 
 function clampEscalationLevels(levels: EscalationLevel[]): EscalationLevel[] {
@@ -298,7 +275,6 @@ function clampEscalationLevels(levels: EscalationLevel[]): EscalationLevel[] {
 }
 
 const escalationTargetOptions = ['Same Role', 'Supervisor', 'Department Head', 'Admin On-Call', 'Charge Nurse', 'Attending Physician', 'ED Doctor On-Call', 'ED Supervisor', 'CEO', 'Doctor in Charge of Patient', 'Department Lead', 'ICU Doctor On-Call', 'ICU Department Lead', 'OBGYN On-Call', 'OBGYN Department Supervisor', 'Peds Doctor On-Call', 'Peds Unit Lead', 'Anaesthesia On-Call', 'Theatre Supervisor', 'ED Triage On-Call', 'Safety Officer', 'Hospital Administrator On-Call', 'Ward Nurse In-Charge', 'Administrator On-Call'];
-const delayOptions = ['30 sec', '45 sec', '0 min', '1 min', '2 min', '3 min', '5 min', '7 min', '10 min', '12 min', '15 min', '20 min', '30 min', '1 hr', '2 hr'];
 
 function extractDepartmentNames(raw: unknown): string[] {
     const list = Array.isArray(raw)
@@ -748,6 +724,14 @@ export default function RolesBuilderAssignment() {
             });
     }, [selectedId, departmentIdToName]);
 
+    useEffect(() => {
+        if (showAddForm && addStep === 3 && !newRoleMandatory) setAddStep(2);
+    }, [showAddForm, addStep, newRoleMandatory]);
+
+    useEffect(() => {
+        if (editingRole && editStep === 2 && !editMandatory) setEditStep(1);
+    }, [editingRole, editStep, editMandatory]);
+
     const resetAddForm = () => {
         setNewRoleName('');
         setNewRoleDesc('');
@@ -818,20 +802,26 @@ export default function RolesBuilderAssignment() {
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         role_id: createdRoles[0].id,
-                        initial_timeout_seconds: Math.max(30, delayToSeconds(selectedTemplate.roles[0]?.delay || '3 min')),
+                        initial_timeout_seconds: clampEscalationDelaySeconds(delayToSeconds(selectedTemplate.roles[0]?.delay || '3 min')),
                     }),
                 });
                 if (policyRes.ok) {
                     const policy = await policyRes.json();
                     // Build steps: for each template role, find the created or existing role ID
-                    const steps = selectedTemplate.roles
+                    const stepRows = selectedTemplate.roles
                         .map(tr => {
                             const created = createdRoles.find(r => r.name.toLowerCase() === tr.name.toLowerCase());
                             const existing = roles.find(r => r.name.toLowerCase() === tr.name.toLowerCase());
                             const roleId = created?.id || existing?.id;
-                            return roleId ? { target_role_id: roleId, timeout_seconds: Math.max(30, delayToSeconds(tr.delay)) } : null;
+                            return roleId ? { target_role_id: roleId, tr } : null;
                         })
-                        .filter(Boolean);
+                        .filter((row): row is { target_role_id: string; tr: (typeof selectedTemplate.roles)[number] } => Boolean(row));
+                    const steps = stepRows.map((row, idx, arr) => ({
+                        target_role_id: row.target_role_id,
+                        timeout_seconds: arr.length > 1 && idx === arr.length - 1
+                            ? MIN_ESCALATION_DELAY_SEC
+                            : clampEscalationDelaySeconds(delayToSeconds(row.tr.delay)),
+                    }));
                     if (steps.length > 0) {
                         await fetch(`/api/proxy/escalation-policies/${policy.id}/steps/bulk`, {
                             method: 'POST',
@@ -877,25 +867,27 @@ export default function RolesBuilderAssignment() {
             // Create escalation policy + steps for critical/mandatory roles (max 3 levels)
             const ladderLevels = clampEscalationLevels(newEscLevels);
             let policyLevels = ladderLevels;
-            if (withEscalations && ladderLevels.length > 0) {
+            if (withEscalations && newRoleMandatory && ladderLevels.length > 0) {
                 const policyRes = await fetch('/api/proxy/escalation-policies', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         role_id: role.id,
-                        initial_timeout_seconds: Math.max(30, delayToSeconds(ladderLevels[0]?.delay || '3 min')),
+                        initial_timeout_seconds: clampEscalationDelaySeconds(delayToSeconds(ladderLevels[0]?.delay || '3 min')),
                     }),
                 });
                 if (policyRes.ok) {
                     const policy = await policyRes.json();
-                    const steps = ladderLevels
-                        .filter(l => l.target)
-                        .map(l => {
+                    const sortedLadder = ladderLevels.filter(l => l.target).sort((a, b) => a.level - b.level);
+                    const steps = sortedLadder
+                        .map((l, idx, arr) => {
                             const match = roles.find(r => r.name === l.target);
                             return {
                                 target_role_id: match?.id || '',
                                 target_role_name: l.target,
-                                timeout_seconds: Math.max(30, delayToSeconds(l.delay)),
+                                timeout_seconds: arr.length > 1 && idx === arr.length - 1
+                                    ? MIN_ESCALATION_DELAY_SEC
+                                    : clampEscalationDelaySeconds(delayToSeconds(l.delay)),
                             };
                         })
                         .filter(s => s.target_role_id);
@@ -1048,10 +1040,23 @@ export default function RolesBuilderAssignment() {
                 department_name: updated?.department_name,
             });
 
-            // 2. Create or update escalation policy for critical/mandatory roles (max 3 levels)
+            // 2. Escalation policy: only Critical roles may have a chain; demoting to Standard removes it.
             const ladderLevels = clampEscalationLevels(editEscLevels);
             let finalLevels = ladderLevels;
-            if (withEscalations && ladderLevels.length > 0) {
+            if (!editMandatory) {
+                try {
+                    const existingPolicyRes = await fetch(`/api/proxy/escalation-policies/by-role/${editingRole.id}`);
+                    if (existingPolicyRes.ok) {
+                        const existingPolicy = await existingPolicyRes.json();
+                        if (existingPolicy?.id) {
+                            await fetch(`/api/proxy/escalation-policies/${existingPolicy.id}`, { method: 'DELETE' });
+                        }
+                    }
+                } catch {
+                    // best effort
+                }
+                finalLevels = [];
+            } else if (withEscalations && ladderLevels.length > 0) {
                 // Check if a policy already exists for this role
                 const existingPolicyRes = await fetch(`/api/proxy/escalation-policies/by-role/${editingRole.id}`);
                 let policyId: string | null = null;
@@ -1065,7 +1070,7 @@ export default function RolesBuilderAssignment() {
                             method: 'PUT',
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({
-                                initial_timeout_seconds: Math.max(30, delayToSeconds(ladderLevels[0]?.delay || '3 min')),
+                                initial_timeout_seconds: clampEscalationDelaySeconds(delayToSeconds(ladderLevels[0]?.delay || '3 min')),
                             }),
                         });
                         // Delete old steps
@@ -1084,7 +1089,7 @@ export default function RolesBuilderAssignment() {
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
                             role_id: editingRole.id,
-                            initial_timeout_seconds: Math.max(30, delayToSeconds(ladderLevels[0]?.delay || '3 min')),
+                            initial_timeout_seconds: clampEscalationDelaySeconds(delayToSeconds(ladderLevels[0]?.delay || '3 min')),
                         }),
                     });
                     if (policyRes.ok) {
@@ -1095,14 +1100,16 @@ export default function RolesBuilderAssignment() {
 
                 // Bulk add new steps
                 if (policyId) {
-                    const steps = ladderLevels
-                        .filter(l => l.target)
-                        .map(l => {
+                    const sortedLadder = ladderLevels.filter(l => l.target).sort((a, b) => a.level - b.level);
+                    const steps = sortedLadder
+                        .map((l, idx, arr) => {
                             const match = roles.find(r => r.name === l.target);
                             return {
                                 target_role_id: match?.id || '',
                                 target_role_name: l.target,
-                                timeout_seconds: Math.max(30, delayToSeconds(l.delay)),
+                                timeout_seconds: arr.length > 1 && idx === arr.length - 1
+                                    ? MIN_ESCALATION_DELAY_SEC
+                                    : clampEscalationDelaySeconds(delayToSeconds(l.delay)),
                             };
                         })
                         .filter(s => s.target_role_id);
@@ -1255,11 +1262,13 @@ export default function RolesBuilderAssignment() {
                 <div style={{ marginBottom: 2 }}>
                     <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 2 }}>Escalation Ladder</div>
                     <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-                        Level 1 is always this role (primary receiver). Up to three levels total — add at most two escalation targets after the primary.
+                        Level 1 is always this role (primary receiver). Use <strong style={{ fontWeight: 600, color: 'var(--text-secondary)' }}>Add escalation level</strong> below to add each further target (up to three levels total).
                     </div>
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
-                    {sorted.map((lvl, i) => (
+                    {sorted.map((lvl, i) => {
+                        const hideDelayRow = sorted.length > 1 && i === sorted.length - 1;
+                        return (
                         <div key={lvl.level} style={{ display: 'flex', alignItems: 'stretch', gap: 10 }}>
                             {/* Level number + connector line */}
                             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: 28, flexShrink: 0 }}>
@@ -1298,27 +1307,31 @@ export default function RolesBuilderAssignment() {
                                         style={{ flex: 1 }}
                                     />
                                 )}
-                                <CustomSelect
-                                    value={lvl.delay}
-                                    onChange={v => {
-                                        const updated = levels.map(l =>
-                                            l.level === lvl.level
-                                                ? {
-                                                    ...l,
-                                                    delay: v,
-                                                    ...(l.level === 1 && fixedFirstTarget ? { target: fixedFirstTarget } : {}),
-                                                }
-                                                : l
-                                        );
-                                        setLevels(updated);
-                                    }}
-                                    options={delayOptions.map(d => ({ label: d, value: d }))}
-                                    placeholder="Delay"
-                                    style={{ width: 100 }}
-                                    maxH={160}
-                                    allowCustom
-                                    customPlaceholder="e.g. 45 sec, 2 min, 1 hr"
-                                />
+                                {hideDelayRow ? (
+                                    <span style={{ fontSize: 10, color: 'var(--text-muted)', width: 100, flexShrink: 0, textAlign: 'center' }} title="No delay after the final target">—</span>
+                                ) : (
+                                    <CustomSelect
+                                        value={lvl.delay}
+                                        onChange={v => {
+                                            const updated = levels.map(l =>
+                                                l.level === lvl.level
+                                                    ? {
+                                                        ...l,
+                                                        delay: v,
+                                                        ...(l.level === 1 && fixedFirstTarget ? { target: fixedFirstTarget } : {}),
+                                                    }
+                                                    : l
+                                            );
+                                            setLevels(updated);
+                                        }}
+                                        options={ESCALATION_DELAY_OPTIONS.map(d => ({ label: d, value: d }))}
+                                        placeholder="Delay"
+                                        style={{ width: 100 }}
+                                        maxH={160}
+                                        allowCustom
+                                        customPlaceholder="e.g. 45 sec, 2 min, 1 hr"
+                                    />
+                                )}
                                 {sorted.length > 1 && lvl.level !== 1 && (
                                     <button
                                         type="button"
@@ -1333,7 +1346,8 @@ export default function RolesBuilderAssignment() {
                                 )}
                             </div>
                         </div>
-                    ))}
+                        );
+                    })}
                 </div>
                 {sorted.length < ESCALATION_LADDER_MAX_LEVELS && (
                     <button
@@ -1343,7 +1357,7 @@ export default function RolesBuilderAssignment() {
                         style={{ alignSelf: 'flex-start', marginTop: 4 }}
                     >
                         <span className="material-icons-round" style={{ fontSize: 13 }}>add</span>
-                        Add Level
+                        Add escalation level
                     </button>
                 )}
             </div>
@@ -1484,7 +1498,7 @@ export default function RolesBuilderAssignment() {
                                         <input type="checkbox" className="checkbox" checked={editMandatory} onChange={() => setEditMandatory(!editMandatory)} />
                                         <div style={{ flex: 1 }}>
                                             <div style={{ fontSize: 13, fontWeight: 600 }}>This role must always be filled</div>
-                                            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 1 }}>Require at least one person assigned and signed in at all times.</div>
+                                            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 1 }}>Require at least one person assigned and signed in at all times. Escalation chains are only available for Critical roles.</div>
                                         </div>
                                         <span className={`badge ${editMandatory ? 'badge-critical' : 'badge-neutral'}`} style={{ fontSize: 10, flexShrink: 0 }}>
                                             {editMandatory ? 'Critical' : 'Standard'}
@@ -1512,7 +1526,17 @@ export default function RolesBuilderAssignment() {
                                         >
                                             {editSaving ? 'Saving...' : 'Save Changes'}
                                         </button>
-                                        <button className="btn btn-primary btn-sm" onClick={() => setEditStep(2)} disabled={!editName.trim()}>
+                                        <button
+                                            className="btn btn-primary btn-sm"
+                                            onClick={() => {
+                                                if (!editMandatory) {
+                                                    showToast('Escalation is only available for Critical roles. Turn on “This role must always be filled” first.');
+                                                    return;
+                                                }
+                                                setEditStep(2);
+                                            }}
+                                            disabled={!editName.trim()}
+                                        >
                                             Next: Escalation Settings
                                             <span className="material-icons-round" style={{ fontSize: 14 }}>arrow_forward</span>
                                         </button>
@@ -1659,7 +1683,9 @@ export default function RolesBuilderAssignment() {
                                                         }
                                                     </div>
                                                     {!alreadyExists && <div style={{ fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.4 }}>{tr.description}</div>}
-                                                    {!alreadyExists && i > 0 && <div style={{ fontSize: 10, color: 'var(--text-disabled)', marginTop: 3 }}>Escalates after +{tr.delay}</div>}
+                                                    {!alreadyExists && i > 0 && i < selectedTemplate.roles.length - 1 && (
+                                                        <div style={{ fontSize: 10, color: 'var(--text-disabled)', marginTop: 3 }}>Escalates after +{tr.delay}</div>
+                                                    )}
                                                 </div>
                                             </div>
                                             );
@@ -1751,7 +1777,7 @@ export default function RolesBuilderAssignment() {
                                         <input type="checkbox" className="checkbox" checked={newRoleMandatory} onChange={() => setNewRoleMandatory(!newRoleMandatory)} />
                                         <div style={{ flex: 1 }}>
                                             <div style={{ fontSize: 13, fontWeight: 600 }}>This role must always be filled</div>
-                                            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 1 }}>Marking as mandatory sets priority to Critical.</div>
+                                            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 1 }}>Marking as mandatory sets priority to Critical. Escalation chains are only available for Critical roles.</div>
                                         </div>
                                         <span className={`badge ${newRoleMandatory ? 'badge-critical' : 'badge-neutral'}`} style={{ fontSize: 10, flexShrink: 0 }}>
                                             {newRoleMandatory ? 'Critical' : 'Standard'}
@@ -1768,7 +1794,17 @@ export default function RolesBuilderAssignment() {
                                                 <span className="material-icons-round" style={{ fontSize: 14 }}>skip_next</span>
                                                 Skip Escalation
                                             </button>
-                                            <button className="btn btn-primary btn-sm" onClick={() => setAddStep(3)} disabled={!newRoleName.trim()}>
+                                            <button
+                                                className="btn btn-primary btn-sm"
+                                                onClick={() => {
+                                                    if (!newRoleMandatory) {
+                                                        showToast('Escalation is only available for Critical roles. Turn on “This role must always be filled” first.');
+                                                        return;
+                                                    }
+                                                    setAddStep(3);
+                                                }}
+                                                disabled={!newRoleName.trim()}
+                                            >
                                                 Next: Escalation Settings
                                                 <span className="material-icons-round" style={{ fontSize: 14 }}>arrow_forward</span>
                                             </button>

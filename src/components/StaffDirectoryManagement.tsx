@@ -14,6 +14,8 @@ import { readCachedJson, writeCachedJson } from '@/lib/getJsonCache';
 const STAFF_PAGE_CACHE_TTL_MS = 120_000;
 const STAFF_CACHE_LIST = '/api/proxy/staff?page_size=100&page_id=1';
 const STAFF_CACHE_DEPTS = '/api/proxy/departments';
+/** Local-only field on the add-staff form (not sent to the API). */
+const STAFF_CREATE_TITLE_MAX_LEN = 20;
 
 type StaffMember = {
     id: string;
@@ -280,6 +282,19 @@ const STAFF_RANK_OPTIONS = [
 
 const QUALIFICATION_OPTIONS = ['MBBS', 'RN', 'MSc', 'PhD', 'MD', 'BPharm', 'BSc'];
 
+/** Physician degrees / titles — used to set is_doctor from highest qualification (no separate form field). */
+function isDoctorFromHighestQualification(raw: string): boolean {
+    const trimmed = raw.trim();
+    if (!trimmed) return false;
+    const collapsed = trimmed.toLowerCase().replace(/[\s.]/g, '');
+    if (collapsed === 'mbbs' || collapsed === 'md' || collapsed === 'mbchb') return true;
+    const lower = trimmed.toLowerCase();
+    if (/\bdoctor\s+of\s+medicine\b/.test(lower)) return true;
+    if (/\b(mbbs|mbchb)\b/.test(lower)) return true;
+    if (/\bmd\b/.test(lower)) return true;
+    return false;
+}
+
 const statusColors: Record<string, { color: string; bg: string; label: string }> = {
     active: { color: 'var(--success)', bg: 'var(--success-bg)', label: 'Active' },
     disabled: { color: 'var(--critical)', bg: 'var(--critical-bg)', label: 'Disabled' },
@@ -513,7 +528,6 @@ export default function StaffDirectoryManagement() {
     const [editGender, setEditGender] = useState('');
     const [editJobTitle, setEditJobTitle] = useState('');
     const [editHighestQualification, setEditHighestQualification] = useState('');
-    const [editIsDoctor, setEditIsDoctor] = useState<'dr' | 'other'>('other');
     const [editDept, setEditDept] = useState('');
     const [savingEdit, setSavingEdit] = useState(false);
     const [activeTab, setActiveTab] = useState<'directory' | 'import'>('directory');
@@ -525,9 +539,10 @@ export default function StaffDirectoryManagement() {
     const [newPhone, setNewPhone] = useState('+233');
     const [newDob, setNewDob] = useState('');
     const [newGender, setNewGender] = useState('');
+    /** Display-only on create form; not persisted to the backend. */
+    const [newCreationTitle, setNewCreationTitle] = useState('');
     const [newRole, setNewRole] = useState('');
     const [newHighestQualification, setNewHighestQualification] = useState('');
-    const [newIsDoctor, setNewIsDoctor] = useState<'dr' | 'other' | ''>('');
     const [newDept, setNewDept] = useState('');
     const [newPatientAccess, setNewPatientAccess] = useState(true);
     const [sortKey, setSortKey] = useState<SortKey>('last_name');
@@ -675,7 +690,6 @@ export default function StaffDirectoryManagement() {
         && Boolean(newDob.trim())
         && Boolean(newGender.trim())
         && Boolean(newHighestQualification.trim())
-        && Boolean(newIsDoctor)
         && Boolean(newDept.trim())
         && isValidGhanaPhone(newPhone)
     ), [
@@ -686,7 +700,6 @@ export default function StaffDirectoryManagement() {
         newDob,
         newGender,
         newHighestQualification,
-        newIsDoctor,
         newDept,
     ]);
 
@@ -700,7 +713,6 @@ export default function StaffDirectoryManagement() {
         if (!newDob.trim()) missing.push('DOB');
         if (!newGender.trim()) missing.push('Gender');
         if (!newHighestQualification.trim()) missing.push('Highest qualification');
-        if (!newIsDoctor) missing.push('Is doctor');
         if (!newDept.trim()) missing.push('Department');
         return missing;
     }, [
@@ -711,7 +723,6 @@ export default function StaffDirectoryManagement() {
         newDob,
         newGender,
         newHighestQualification,
-        newIsDoctor,
         newDept,
     ]);
 
@@ -807,7 +818,6 @@ export default function StaffDirectoryManagement() {
         setEditGender(selected.gender || '');
         setEditJobTitle(selected.title || selected.job_title || '');
         setEditHighestQualification(selected.highest_qualification || '');
-        setEditIsDoctor(selected.is_doctor ? 'dr' : 'other');
         setEditDept(selected.dept || '');
     }, [selected]);
 
@@ -967,6 +977,7 @@ export default function StaffDirectoryManagement() {
         }
         setAdding(true);
         try {
+            const derivedIsDoctor = isDoctorFromHighestQualification(newHighestQualification);
             const res = await fetch('/api/proxy/staff', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -981,7 +992,7 @@ export default function StaffDirectoryManagement() {
                     title: newRole.trim() || undefined,
                     job_title: newRole.trim() || undefined,
                     highest_qualification: newHighestQualification.trim() || undefined,
-                    is_doctor: newIsDoctor === 'dr',
+                    is_doctor: derivedIsDoctor,
                     patient_access: newPatientAccess,
                     role: 'staff',
                     department: newDept,
@@ -1005,7 +1016,7 @@ export default function StaffDirectoryManagement() {
                 job_title: newRole.trim(),
                 title: newRole.trim(),
                 highest_qualification: newHighestQualification.trim(),
-                is_doctor: newIsDoctor === 'dr',
+                is_doctor: derivedIsDoctor,
                 dept: newDept,
                 status: 'active',
                 access: 'Staff',
@@ -1026,7 +1037,7 @@ export default function StaffDirectoryManagement() {
                     highest_qualification: created.highest_qualification || newHighestQualification.trim(),
                     dob: created.dob || newDob.trim(),
                     gender: created.gender || newGender.trim(),
-                    is_doctor: created.is_doctor || newIsDoctor === 'dr',
+                    is_doctor: created.is_doctor ?? derivedIsDoctor,
                     patient_access: created.patient_access ?? newPatientAccess,
                 }
                 : fallbackMember;
@@ -1040,9 +1051,9 @@ export default function StaffDirectoryManagement() {
             setNewPhone('+233');
             setNewDob('');
             setNewGender('');
+            setNewCreationTitle('');
             setNewRole('');
             setNewHighestQualification('');
-            setNewIsDoctor('');
             setNewPatientAccess(true);
             showToast(`${newFirstName} ${newLastName} added to staff`, 'success');
         } catch {
@@ -1133,6 +1144,7 @@ export default function StaffDirectoryManagement() {
 
         setSavingEdit(true);
         try {
+            const editDerivedIsDoctor = isDoctorFromHighestQualification(editHighestQualification);
             const payload = {
                 first_name: editFirstName.trim(),
                 middle_name: editMiddleName.trim() || undefined,
@@ -1144,7 +1156,7 @@ export default function StaffDirectoryManagement() {
                 title: editJobTitle.trim(),
                 job_title: editJobTitle.trim(),
                 highest_qualification: editHighestQualification.trim() || undefined,
-                is_doctor: editIsDoctor === 'dr',
+                is_doctor: editDerivedIsDoctor,
                 department: editDept.trim(),
                 status: selected.status,
                 role: selected.role,
@@ -1379,6 +1391,19 @@ export default function StaffDirectoryManagement() {
                                     />
                                 </div>
                                 <div>
+                                    <label className="label">Title</label>
+                                    <input
+                                        className="input"
+                                        value={newCreationTitle}
+                                        onChange={e => setNewCreationTitle(e.target.value.slice(0, STAFF_CREATE_TITLE_MAX_LEN))}
+                                        maxLength={STAFF_CREATE_TITLE_MAX_LEN}
+                                        style={{ fontSize: 12 }}
+                                    />
+                                    <div style={{ marginTop: 4, fontSize: 10.5, color: 'var(--text-muted)' }}>
+                                        {newCreationTitle.length}/{STAFF_CREATE_TITLE_MAX_LEN}
+                                    </div>
+                                </div>
+                                <div>
                                     <label className="label">Rank</label>
                                     <CustomSelect
                                         value={newRole}
@@ -1398,18 +1423,6 @@ export default function StaffDirectoryManagement() {
                                         placeholder="-- Select Qualification --"
                                         allowCustom
                                         customPlaceholder="Type qualification and press Enter"
-                                    />
-                                </div>
-                                <div>
-                                    <label className="label">Is Doctor *</label>
-                                    <CustomSelect
-                                        value={newIsDoctor}
-                                        onChange={v => setNewIsDoctor(v === 'dr' || v === 'other' ? v : '')}
-                                        options={[
-                                            { label: 'Dr.', value: 'dr' },
-                                            { label: 'Other', value: 'other' },
-                                        ]}
-                                        placeholder="-- Select --"
                                     />
                                 </div>
                                 <div>
@@ -1807,20 +1820,6 @@ export default function StaffDirectoryManagement() {
                                                     placeholder="-- Select Qualification --"
                                                     allowCustom
                                                     customPlaceholder="Type qualification and press Enter"
-                                                />
-                                            </div>
-                                        </div>
-                                        <div style={{ minWidth: 0 }}>
-                                            <label className="label">Is Doctor</label>
-                                            <div style={{ opacity: !editingSelected || savingEdit ? 0.65 : 1, pointerEvents: !editingSelected || savingEdit ? 'none' : 'auto' }}>
-                                                <CustomSelect
-                                                    value={editIsDoctor}
-                                                    onChange={v => setEditIsDoctor((v === 'dr' ? 'dr' : 'other'))}
-                                                    options={[
-                                                        { label: 'Dr.', value: 'dr' },
-                                                        { label: 'Other', value: 'other' },
-                                                    ]}
-                                                    placeholder="-- Select --"
                                                 />
                                             </div>
                                         </div>
