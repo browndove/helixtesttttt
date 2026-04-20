@@ -372,7 +372,7 @@ export default function SetupAccountForm({ token }: { token: string }) {
                                 className="btn btn-primary"
                                 style={{ width: '100%', justifyContent: 'center', marginTop: 16 }}
                                 onClick={handleSubmit}
-                                disabled={loading || !token || !profileReady}
+                                disabled={loading || !token}
                             >
                                 {loading ? 'Setting up...' : 'Set up account'}
                             </button>
