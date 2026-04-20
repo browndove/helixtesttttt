@@ -206,9 +206,6 @@ export default function SettingsPage() {
     const [inviteJobTitle, setInviteJobTitle] = useState('Administrator');
     const [invitingAdmin, setInvitingAdmin] = useState(false);
 
-    // Active tab
-    const [activeTab, setActiveTab] = useState<'profile' | 'security' | 'admins'>('profile');
-
     const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(null), 2500); };
 
     const savePersonalProfile = async () => {
@@ -535,12 +532,6 @@ export default function SettingsPage() {
         }
     };
 
-    const tabs = [
-        { id: 'profile' as const, label: 'Profile', icon: 'person' },
-        { id: 'security' as const, label: 'Security', icon: 'shield' },
-        { id: 'admins' as const, label: 'Admin Users', icon: 'admin_panel_settings' },
-    ];
-
     const displayName = fullName.trim() || 'User';
     const initials = displayName.split(' ').filter(Boolean).map(w => w[0]).slice(0, 2).join('').toUpperCase();
     const visibleSessions = useMemo(() => sessions, [sessions]);
@@ -557,35 +548,10 @@ export default function SettingsPage() {
                 <TopBar title="Settings" subtitle="User & System Preferences" />
 
                 <main style={{ flex: 1, overflow: 'auto', padding: '24px 28px', background: 'var(--bg-900)' }}>
-                    {/* Tabs */}
-                    <div style={{ display: 'flex', gap: 2, marginBottom: 20, background: 'var(--surface-2)', borderRadius: 'var(--radius-md)', padding: 3, width: 'fit-content' }}>
-                        {tabs.map(tab => (
-                            <button
-                                key={tab.id}
-                                onClick={() => setActiveTab(tab.id)}
-                                style={{
-                                    display: 'flex', alignItems: 'center', gap: 6,
-                                    padding: '8px 16px', borderRadius: 'var(--radius-sm)',
-                                    fontSize: 12.5, fontWeight: activeTab === tab.id ? 600 : 500,
-                                    color: activeTab === tab.id ? 'var(--helix-primary)' : 'var(--text-secondary)',
-                                    background: activeTab === tab.id ? '#fff' : 'transparent',
-                                    border: activeTab === tab.id ? '1px solid var(--border-default)' : '1px solid transparent',
-                                    boxShadow: activeTab === tab.id ? '0 1px 3px rgba(0,0,0,0.06)' : 'none',
-                                    cursor: 'pointer', transition: 'all 0.15s',
-                                }}
-                            >
-                                <span className="material-icons-round" style={{ fontSize: 15, opacity: activeTab === tab.id ? 1 : 0.55 }}>{tab.icon}</span>
-                                {tab.label}
-                            </button>
-                        ))}
-                    </div>
-
-                    {/* Profile Tab */}
-                    {activeTab === 'profile' && (
-                        <div className="fade-in" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, maxWidth: 900 }}>
-                            {/* Profile Card */}
+                    <div className="fade-in" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, width: '100%' }}>
+                            {/* Profile Header */}
                             <div className="card" style={{ gridColumn: '1 / -1' }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 20 }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
                                     <div style={{
                                         width: 64, height: 64, borderRadius: '50%',
                                         background: 'var(--helix-primary)', color: '#fff',
@@ -598,10 +564,6 @@ export default function SettingsPage() {
                                         <h3 style={{ fontSize: 18, fontWeight: 700, marginBottom: 2 }}>{displayName}</h3>
                                         <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>{jobTitle || 'No title'} · {userRole}</p>
                                     </div>
-                                    <button className="btn btn-secondary btn-sm" onClick={() => showToast('Photo upload coming soon')}>
-                                        <span className="material-icons-round" style={{ fontSize: 14 }}>add_a_photo</span>
-                                        Change Photo
-                                    </button>
                                 </div>
                             </div>
 
@@ -677,13 +639,9 @@ export default function SettingsPage() {
                                     Update Password
                                 </button>
                             </div>
-                        </div>
-                    )}
 
-                    {/* Security Tab */}
-                    {activeTab === 'security' && (
-                        <div className="fade-in" style={{ maxWidth: 600 }}>
-                            <div className="card" style={{ marginBottom: 16 }}>
+                            {/* Security section */}
+                            <div className="card" style={{ gridColumn: '1 / -1' }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
                                     <h3>Two-Factor Authentication</h3>
                                     <button className="btn btn-danger btn-xs" onClick={handleLogout}>
@@ -713,7 +671,7 @@ export default function SettingsPage() {
                                 </div>
                             </div>
 
-                            <div className="card" style={{ marginBottom: 16 }}>
+                            <div className="card">
                                 <h3 style={{ marginBottom: 16 }}>Session Settings</h3>
                                 <div>
                                     <label className="label">Auto-logout after inactivity</label>
@@ -768,13 +726,9 @@ export default function SettingsPage() {
                                     ))}
                                 </div>
                             </div>
-                        </div>
-                    )}
 
-                    {/* Admins Tab */}
-                    {activeTab === 'admins' && (
-                        <div className="fade-in" style={{ maxWidth: 800 }}>
-                            <div className="card">
+                            {/* Admins section */}
+                            <div className="card" style={{ gridColumn: '1 / -1' }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
                                     <div>
                                         <h3 style={{ marginBottom: 2 }}>Hospital Administrators</h3>
@@ -851,19 +805,18 @@ export default function SettingsPage() {
                                             <th style={{ padding: '8px 12px', fontSize: 10, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', textAlign: 'left' }}>Role</th>
                                             <th style={{ padding: '8px 12px', fontSize: 10, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', textAlign: 'left' }}>Status</th>
                                             <th style={{ padding: '8px 12px', fontSize: 10, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', textAlign: 'left' }}>Last Login</th>
-                                            <th style={{ padding: '8px 12px', fontSize: 10, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', textAlign: 'right' }}>Actions</th>
                                         </tr>
                                     </thead>
                                     <tbody>
                                         {loadingAdmins ? (
                                             <tr>
-                                                <td colSpan={5} style={{ padding: '16px 12px', fontSize: 12, color: 'var(--text-muted)' }}>
+                                                <td colSpan={4} style={{ padding: '16px 12px', fontSize: 12, color: 'var(--text-muted)' }}>
                                                     Loading facility admins...
                                                 </td>
                                             </tr>
                                         ) : admins.length === 0 ? (
                                             <tr>
-                                                <td colSpan={5} style={{ padding: '16px 12px', fontSize: 12, color: 'var(--text-muted)' }}>
+                                                <td colSpan={4} style={{ padding: '16px 12px', fontSize: 12, color: 'var(--text-muted)' }}>
                                                     No facility admins found
                                                 </td>
                                             </tr>
@@ -910,18 +863,6 @@ export default function SettingsPage() {
                                                     <td style={{ padding: '12px 12px', fontSize: 12, color: 'var(--text-muted)' }}>
                                                         {admin.lastLogin}
                                                     </td>
-                                                    <td style={{ padding: '12px 12px', textAlign: 'right' }}>
-                                                        {!isSelf && (
-                                                            <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end' }}>
-                                                                <button className="btn btn-secondary btn-xs" onClick={() => showToast(`Editing ${admin.name}`)}>
-                                                                    <span className="material-icons-round" style={{ fontSize: 12 }}>edit</span>
-                                                                </button>
-                                                                <button className="btn btn-danger btn-xs" onClick={() => showToast(`${admin.name} removed`)}>
-                                                                    <span className="material-icons-round" style={{ fontSize: 12 }}>delete</span>
-                                                                </button>
-                                                            </div>
-                                                        )}
-                                                    </td>
                                                 </tr>
                                             );
                                         })}
@@ -934,8 +875,7 @@ export default function SettingsPage() {
                                     </div>
                                 </div>
                             </div>
-                        </div>
-                    )}
+                    </div>
                 </main>
             </div>
         </>
