@@ -5,7 +5,13 @@ import type { CSSProperties } from 'react';
 import TopBar from '@/components/TopBar';
 import CustomSelect from '@/components/CustomSelect';
 import DatePicker from '@/components/DatePicker';
-import { formatGhanaPhoneInput, isValidGhanaPhone } from '@/lib/phone';
+import {
+    PHONE_COUNTRIES,
+    formatPhoneByCountry,
+    isValidPhoneByCountry,
+    splitPhoneForCountryInput,
+    getPhoneCountryByCode,
+} from '@/lib/phone';
 import { parseBulkUploadHistoryResponse, type BulkUploadHistoryEntry } from '@/lib/bulk-upload-history';
 import { MacVibrancyToast, MacVibrancyToastPortal } from '@/components/MacVibrancyToast';
 import { BulkImportErrorsSheet } from '@/components/BulkImportErrorsSheet';
@@ -523,7 +529,8 @@ export default function StaffDirectoryManagement() {
     const [editMiddleName, setEditMiddleName] = useState('');
     const [editLastName, setEditLastName] = useState('');
     const [editEmail, setEditEmail] = useState('');
-    const [editPhone, setEditPhone] = useState('+233');
+    const [editPhoneCountry, setEditPhoneCountry] = useState('GH');
+    const [editPhoneLocal, setEditPhoneLocal] = useState('');
     const [editDob, setEditDob] = useState('');
     const [editGender, setEditGender] = useState('');
     const [editJobTitle, setEditJobTitle] = useState('');
@@ -536,7 +543,8 @@ export default function StaffDirectoryManagement() {
     const [newMiddleName, setNewMiddleName] = useState('');
     const [newLastName, setNewLastName] = useState('');
     const [newEmail, setNewEmail] = useState('');
-    const [newPhone, setNewPhone] = useState('+233');
+    const [newPhoneCountry, setNewPhoneCountry] = useState('GH');
+    const [newPhoneLocal, setNewPhoneLocal] = useState('');
     const [newDob, setNewDob] = useState('');
     const [newGender, setNewGender] = useState('');
     /** Display-only on create form; not persisted to the backend. */
@@ -561,6 +569,20 @@ export default function StaffDirectoryManagement() {
     const [departmentOptions, setDepartmentOptions] = useState<string[]>([]);
     const [deptIdToName, setDeptIdToName] = useState<Map<string, string>>(() => new Map());
     const fileInputRef = useRef<HTMLInputElement | null>(null);
+    const countryOptions = useMemo(
+        () => PHONE_COUNTRIES.map(c => ({ label: c.label, value: c.code })),
+        []
+    );
+    const newCountryMeta = useMemo(() => getPhoneCountryByCode(newPhoneCountry), [newPhoneCountry]);
+    const editCountryMeta = useMemo(() => getPhoneCountryByCode(editPhoneCountry), [editPhoneCountry]);
+    const formattedNewPhone = useMemo(
+        () => formatPhoneByCountry(newPhoneLocal, newPhoneCountry),
+        [newPhoneLocal, newPhoneCountry]
+    );
+    const formattedEditPhone = useMemo(
+        () => formatPhoneByCountry(editPhoneLocal, editPhoneCountry),
+        [editPhoneLocal, editPhoneCountry]
+    );
 
     const dismissToast = useCallback(() => {
         setToast(null);
@@ -686,17 +708,19 @@ export default function StaffDirectoryManagement() {
         Boolean(newFirstName.trim())
         && Boolean(newLastName.trim())
         && Boolean(newEmail.trim())
-        && Boolean(newPhone.trim())
+        && Boolean(newPhoneLocal.trim())
         && Boolean(newDob.trim())
         && Boolean(newGender.trim())
         && Boolean(newHighestQualification.trim())
         && Boolean(newDept.trim())
-        && isValidGhanaPhone(newPhone)
+        && isValidPhoneByCountry(formattedNewPhone, newPhoneCountry)
     ), [
         newFirstName,
         newLastName,
         newEmail,
-        newPhone,
+        newPhoneLocal,
+        formattedNewPhone,
+        newPhoneCountry,
         newDob,
         newGender,
         newHighestQualification,
@@ -708,8 +732,10 @@ export default function StaffDirectoryManagement() {
         if (!newFirstName.trim()) missing.push('First name');
         if (!newLastName.trim()) missing.push('Last name');
         if (!newEmail.trim()) missing.push('Email');
-        if (!newPhone.trim()) missing.push('Phone');
-        if (newPhone.trim() && !isValidGhanaPhone(newPhone)) missing.push('Phone format (+233 + 9 digits)');
+        if (!newPhoneLocal.trim()) missing.push('Phone');
+        if (newPhoneLocal.trim() && !isValidPhoneByCountry(formattedNewPhone, newPhoneCountry)) {
+            missing.push(`Phone format (${newCountryMeta.dialCode} + ${newCountryMeta.digits} digits)`);
+        }
         if (!newDob.trim()) missing.push('DOB');
         if (!newGender.trim()) missing.push('Gender');
         if (!newHighestQualification.trim()) missing.push('Highest qualification');
@@ -719,7 +745,11 @@ export default function StaffDirectoryManagement() {
         newFirstName,
         newLastName,
         newEmail,
-        newPhone,
+        newPhoneLocal,
+        formattedNewPhone,
+        newPhoneCountry,
+        newCountryMeta.dialCode,
+        newCountryMeta.digits,
         newDob,
         newGender,
         newHighestQualification,
@@ -813,7 +843,9 @@ export default function StaffDirectoryManagement() {
         setEditMiddleName(selected.middle_name || '');
         setEditLastName(selected.last_name || '');
         setEditEmail(selected.email || '');
-        setEditPhone(selected.phone ? formatGhanaPhoneInput(selected.phone) : '+233');
+        const split = splitPhoneForCountryInput(selected.phone || '');
+        setEditPhoneCountry(split.countryCode);
+        setEditPhoneLocal(split.local);
         setEditDob(selected.dob || '');
         setEditGender(selected.gender || '');
         setEditJobTitle(selected.title || selected.job_title || '');
@@ -986,7 +1018,7 @@ export default function StaffDirectoryManagement() {
                     middle_name: newMiddleName.trim() || undefined,
                     last_name: newLastName.trim(),
                     email: newEmail.trim(),
-                    phone: newPhone.trim() ? formatGhanaPhoneInput(newPhone) : '',
+                    phone: newPhoneLocal.trim() ? formattedNewPhone : '',
                     dob: newDob.trim() || undefined,
                     gender: newGender.trim() || undefined,
                     title: newRole.trim() || undefined,
@@ -1023,7 +1055,7 @@ export default function StaffDirectoryManagement() {
                 employee_id: '',
                 patient_access: newPatientAccess,
                 role: 'staff',
-                phone: newPhone.trim() ? formatGhanaPhoneInput(newPhone) : '',
+                phone: newPhoneLocal.trim() ? formattedNewPhone : '',
                 dob: newDob.trim(),
                 gender: newGender.trim(),
             };
@@ -1048,7 +1080,8 @@ export default function StaffDirectoryManagement() {
             setNewMiddleName('');
             setNewLastName('');
             setNewEmail('');
-            setNewPhone('+233');
+            setNewPhoneCountry('GH');
+            setNewPhoneLocal('');
             setNewDob('');
             setNewGender('');
             setNewCreationTitle('');
@@ -1137,8 +1170,8 @@ export default function StaffDirectoryManagement() {
             showToast('First name, last name, and email are required', 'error');
             return;
         }
-        if (editPhone.trim() && !isValidGhanaPhone(editPhone)) {
-            showToast('Phone must be +233 followed by 9 digits', 'error');
+        if (editPhoneLocal.trim() && !isValidPhoneByCountry(formattedEditPhone, editPhoneCountry)) {
+            showToast(`Phone must be ${editCountryMeta.dialCode} followed by ${editCountryMeta.digits} digits`, 'error');
             return;
         }
 
@@ -1150,7 +1183,7 @@ export default function StaffDirectoryManagement() {
                 middle_name: editMiddleName.trim() || undefined,
                 last_name: editLastName.trim(),
                 email: editEmail.trim(),
-                phone: editPhone.trim() ? formatGhanaPhoneInput(editPhone) : '',
+                phone: editPhoneLocal.trim() ? formattedEditPhone : '',
                 dob: editDob.trim() || undefined,
                 gender: editGender.trim() || undefined,
                 title: editJobTitle.trim(),
@@ -1361,16 +1394,26 @@ export default function StaffDirectoryManagement() {
                                 <div><label className="label">Email *</label><input className="input" value={newEmail} onChange={e => setNewEmail(e.target.value)} placeholder="Email address" style={{ fontSize: 12 }} /></div>
                                 <div>
                                     <label className="label">Phone *</label>
-                                    <input
-                                        className="input"
-                                        value={newPhone}
-                                        onChange={e => setNewPhone(formatGhanaPhoneInput(e.target.value))}
-                                        placeholder="+233241234567"
-                                        maxLength={13}
-                                        style={{ fontSize: 12 }}
-                                    />
+                                    <div style={{ display: 'flex', gap: 8 }}>
+                                        <div style={{ minWidth: 170 }}>
+                                            <CustomSelect
+                                                value={newPhoneCountry}
+                                                onChange={v => setNewPhoneCountry(v)}
+                                                options={countryOptions}
+                                                placeholder="Country code"
+                                            />
+                                        </div>
+                                        <input
+                                            className="input"
+                                            value={newPhoneLocal}
+                                            onChange={e => setNewPhoneLocal(e.target.value.replace(/\D/g, '').slice(0, newCountryMeta.digits))}
+                                            placeholder={`${newCountryMeta.digits} digits`}
+                                            maxLength={newCountryMeta.digits}
+                                            style={{ fontSize: 12, flex: 1 }}
+                                        />
+                                    </div>
                                     <div style={{ marginTop: 4, fontSize: 10.5, color: 'var(--text-muted)' }}>
-                                        Use +233 followed by 9 digits
+                                        {`Stored as ${newCountryMeta.dialCode} + ${newCountryMeta.digits} digits`}
                                     </div>
                                 </div>
                                 <div>
@@ -1759,7 +1802,25 @@ export default function StaffDirectoryManagement() {
                                         </div>
                                         <div style={{ minWidth: 0 }}>
                                             <label className="label">Phone</label>
-                                            <input className="input" value={editPhone} onChange={e => setEditPhone(formatGhanaPhoneInput(e.target.value))} disabled={!editingSelected || savingEdit} style={{ fontSize: 12, width: '100%', boxSizing: 'border-box', textOverflow: 'ellipsis' }} />
+                                            <div style={{ display: 'flex', gap: 8 }}>
+                                                <div style={{ minWidth: 170, opacity: !editingSelected || savingEdit ? 0.65 : 1, pointerEvents: !editingSelected || savingEdit ? 'none' : 'auto' }}>
+                                                    <CustomSelect
+                                                        value={editPhoneCountry}
+                                                        onChange={v => setEditPhoneCountry(v)}
+                                                        options={countryOptions}
+                                                        placeholder="Country code"
+                                                    />
+                                                </div>
+                                                <input
+                                                    className="input"
+                                                    value={editPhoneLocal}
+                                                    onChange={e => setEditPhoneLocal(e.target.value.replace(/\D/g, '').slice(0, editCountryMeta.digits))}
+                                                    disabled={!editingSelected || savingEdit}
+                                                    placeholder={`${editCountryMeta.digits} digits`}
+                                                    maxLength={editCountryMeta.digits}
+                                                    style={{ fontSize: 12, width: '100%', boxSizing: 'border-box', textOverflow: 'ellipsis' }}
+                                                />
+                                            </div>
                                         </div>
                                         <div style={{ minWidth: 0 }}>
                                             <label className="label">DOB</label>

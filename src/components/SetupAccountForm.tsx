@@ -49,7 +49,7 @@ export default function SetupAccountForm({ token }: { token: string }) {
         [firstName, lastName]
     );
     const phoneReady = useMemo(
-        () => Boolean(phone.trim()) && isValidGhanaPhone(phone),
+        () => !phone.trim() || isValidGhanaPhone(phone),
         [phone]
     );
     const profileReady = useMemo(
@@ -100,7 +100,7 @@ export default function SetupAccountForm({ token }: { token: string }) {
                 !identityReady
                     ? 'Your account details could not be loaded. Please use the full setup link from your invitation email.'
                     : !phoneReady
-                        ? 'Enter a valid Ghana phone number to complete setup.'
+                        ? 'If you enter phone, use a valid Ghana phone number.'
                     : 'Please enter and confirm your password.'
             );
             return;
@@ -122,7 +122,7 @@ export default function SetupAccountForm({ token }: { token: string }) {
                 body: JSON.stringify({
                     first_name: firstName.trim(),
                     last_name: lastName.trim(),
-                    phone: formatGhanaPhoneInput(phone),
+                    phone: phone.trim() ? formatGhanaPhoneInput(phone) : '',
                     password,
                     token,
                 }),
@@ -197,14 +197,14 @@ export default function SetupAccountForm({ token }: { token: string }) {
                                     Your account details could not be loaded. Open the setup link from your invitation email, or contact your administrator.
                                 </div>
                             )}
-                            {!prefillLoading && token && identityReady && !phoneReady && (
+                            {!prefillLoading && token && identityReady && !phoneReady && phone.trim() && (
                                 <div style={{ padding: '10px 12px', borderRadius: 'var(--radius-md)', background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.25)', marginBottom: 12, fontSize: 12.5, color: '#b45309' }}>
-                                    Your invite did not include a valid phone number. Please enter one to continue.
+                                    Phone is optional. If provided, it must be a valid Ghana number.
                                 </div>
                             )}
 
                             <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 10, lineHeight: 1.45 }}>
-                                Your name, email (if shown), and phone come from your invitation and cannot be changed here. Set your password below to finish setup.
+                                Your name and email come from your invitation and cannot be changed here. Phone is optional.
                             </p>
 
                             {email ? (
