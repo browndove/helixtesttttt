@@ -1401,16 +1401,44 @@ export default function RolesBuilderAssignment() {
     ) => {
         const sorted = [...levels].sort((a, b) => a.level - b.level);
 
+        const ensurePrimaryFirst = (next: EscalationLevel[]): EscalationLevel[] => {
+            const primary = fixedFirstTarget?.trim();
+            if (!primary) {
+                return [...next].sort((a, b) => a.level - b.level).map((l, i) => ({ ...l, level: i + 1 }));
+            }
+            const hadPrimaryRow = [...next].sort((a, b) => a.level - b.level)[0]?.target?.trim() === primary;
+            const primaryDelay = hadPrimaryRow
+                ? [...next].sort((a, b) => a.level - b.level)[0].delay
+                : (sorted[0]?.delay || '5 min');
+            const rest = next
+                .filter(l => l.target.trim() !== primary)
+                .sort((a, b) => a.level - b.level);
+            return [
+                { level: 1, target: primary, delay: primaryDelay },
+                ...rest.map((l, i) => ({ ...l, level: i + 2 })),
+            ];
+        };
+
         const handleAddLevel = () => {
             if (levels.length >= ESCALATION_LADDER_MAX_LEVELS) return;
-            const nextLevel = sorted.length > 0 ? sorted[sorted.length - 1].level + 1 : 1;
-            setLevels([...levels, { level: nextLevel, target: '', delay: '5 min' }]);
+            // If empty and a primary is locked, add primary first; otherwise add a blank target row.
+            let next: EscalationLevel[];
+            if (levels.length === 0 && fixedFirstTarget?.trim()) {
+                next = [{ level: 1, target: fixedFirstTarget.trim(), delay: '5 min' }];
+            } else {
+                const nextLevel = sorted.length > 0 ? sorted[sorted.length - 1].level + 1 : 1;
+                next = [...levels, { level: nextLevel, target: '', delay: '5 min' }];
+            }
+            setLevels(ensurePrimaryFirst(next));
         };
 
         const handleRemoveLevel = (levelNum: number) => {
             const filtered = levels.filter(l => l.level !== levelNum);
-            const renumbered = filtered.sort((a, b) => a.level - b.level).map((l, i) => ({ ...l, level: i + 1 }));
-            setLevels(renumbered);
+            if (filtered.length === 0) {
+                setLevels([]);
+                return;
+            }
+            setLevels(ensurePrimaryFirst(filtered));
         };
 
         const rowHasEscalationTarget = (lvl: EscalationLevel) => {

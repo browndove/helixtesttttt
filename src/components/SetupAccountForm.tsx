@@ -20,6 +20,15 @@ const readOnlyDisplayStyle: CSSProperties = {
     wordBreak: 'break-word',
 };
 
+/** True when user entered more than the Ghana country code (optional field). */
+function ghanaPhoneHasLocalDigits(phone: string): boolean {
+    const d = String(phone || '').replace(/\D/g, '');
+    if (!d) return false;
+    if (d.startsWith('233')) return d.length > 3;
+    if (d.startsWith('0')) return d.length > 1;
+    return d.length > 0;
+}
+
 export default function SetupAccountForm({ token }: { token: string }) {
     const [firstName, setFirstName] = useState('');
     const [lastName, setLastName] = useState('');
@@ -49,7 +58,7 @@ export default function SetupAccountForm({ token }: { token: string }) {
         [firstName, lastName]
     );
     const phoneReady = useMemo(
-        () => !phone.trim() || isValidGhanaPhone(phone),
+        () => !ghanaPhoneHasLocalDigits(phone) || isValidGhanaPhone(phone),
         [phone]
     );
     const profileReady = useMemo(
@@ -57,7 +66,7 @@ export default function SetupAccountForm({ token }: { token: string }) {
         [identityReady, phoneReady]
     );
     const phoneMissingFromInvite = useMemo(
-        () => !phone.trim(),
+        () => !ghanaPhoneHasLocalDigits(phone),
         [phone]
     );
 
@@ -75,7 +84,10 @@ export default function SetupAccountForm({ token }: { token: string }) {
                 if (typeof data.first_name === 'string') setFirstName(data.first_name);
                 if (typeof data.last_name === 'string') setLastName(data.last_name);
                 if (typeof data.email === 'string') setEmail(data.email.trim());
-                if (typeof data.phone === 'string') setPhone(formatGhanaPhoneInput(data.phone));
+                if (typeof data.phone === 'string') {
+                    const formatted = formatGhanaPhoneInput(data.phone);
+                    setPhone(isValidGhanaPhone(formatted) ? formatted : '');
+                }
             } catch {
                 // Prefill is best-effort. Form still works without it.
             } finally {
@@ -122,7 +134,7 @@ export default function SetupAccountForm({ token }: { token: string }) {
                 body: JSON.stringify({
                     first_name: firstName.trim(),
                     last_name: lastName.trim(),
-                    phone: phone.trim() ? formatGhanaPhoneInput(phone) : '',
+                    phone: ghanaPhoneHasLocalDigits(phone) ? formatGhanaPhoneInput(phone) : '',
                     password,
                     token,
                 }),
@@ -197,7 +209,7 @@ export default function SetupAccountForm({ token }: { token: string }) {
                                     Your account details could not be loaded. Open the setup link from your invitation email, or contact your administrator.
                                 </div>
                             )}
-                            {!prefillLoading && token && identityReady && !phoneReady && phone.trim() && (
+                            {!prefillLoading && token && identityReady && !phoneReady && ghanaPhoneHasLocalDigits(phone) && (
                                 <div style={{ padding: '10px 12px', borderRadius: 'var(--radius-md)', background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.25)', marginBottom: 12, fontSize: 12.5, color: '#b45309' }}>
                                     Phone is optional. If provided, it must be a valid Ghana number.
                                 </div>
@@ -253,7 +265,10 @@ export default function SetupAccountForm({ token }: { token: string }) {
                                 <input
                                     className="input"
                                     value={phone}
-                                    onChange={e => setPhone(formatGhanaPhoneInput(e.target.value))}
+                                    onChange={e => {
+                                        const next = formatGhanaPhoneInput(e.target.value);
+                                        setPhone(isValidGhanaPhone(next) || ghanaPhoneHasLocalDigits(next) ? next : '');
+                                    }}
                                     readOnly={!phoneMissingFromInvite}
                                     tabIndex={phoneMissingFromInvite ? 0 : -1}
                                     aria-readonly={phoneMissingFromInvite ? 'false' : 'true'}
