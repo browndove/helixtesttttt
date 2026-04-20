@@ -44,13 +44,21 @@ export default function SetupAccountForm({ token }: { token: string }) {
     ];
     const passwordIsValid = passwordChecks.every(check => check.met);
 
+    const identityReady = useMemo(
+        () => Boolean(firstName.trim()) && Boolean(lastName.trim()),
+        [firstName, lastName]
+    );
+    const phoneReady = useMemo(
+        () => Boolean(phone.trim()) && isValidGhanaPhone(phone),
+        [phone]
+    );
     const profileReady = useMemo(
-        () =>
-            Boolean(firstName.trim())
-            && Boolean(lastName.trim())
-            && Boolean(phone.trim())
-            && isValidGhanaPhone(phone),
-        [firstName, lastName, phone]
+        () => identityReady && phoneReady,
+        [identityReady, phoneReady]
+    );
+    const phoneMissingFromInvite = useMemo(
+        () => !phone.trim(),
+        [phone]
     );
 
     useEffect(() => {
@@ -87,10 +95,12 @@ export default function SetupAccountForm({ token }: { token: string }) {
             setError('Missing setup token. Use the full link from your email.');
             return;
         }
-        if (!profileReady || !password.trim()) {
+        if (!identityReady || !phoneReady || !password.trim()) {
             setError(
-                !profileReady
+                !identityReady
                     ? 'Your account details could not be loaded. Please use the full setup link from your invitation email.'
+                    : !phoneReady
+                        ? 'Enter a valid Ghana phone number to complete setup.'
                     : 'Please enter and confirm your password.'
             );
             return;
@@ -182,9 +192,14 @@ export default function SetupAccountForm({ token }: { token: string }) {
 
                     {!completed ? (
                         <>
-                            {!prefillLoading && token && !profileReady && (
+                            {!prefillLoading && token && !identityReady && (
                                 <div style={{ padding: '10px 12px', borderRadius: 'var(--radius-md)', background: 'var(--critical-bg)', border: '1px solid rgba(140,90,94,0.2)', marginBottom: 12, fontSize: 12.5, color: 'var(--critical)' }}>
                                     Your account details could not be loaded. Open the setup link from your invitation email, or contact your administrator.
+                                </div>
+                            )}
+                            {!prefillLoading && token && identityReady && !phoneReady && (
+                                <div style={{ padding: '10px 12px', borderRadius: 'var(--radius-md)', background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.25)', marginBottom: 12, fontSize: 12.5, color: '#b45309' }}>
+                                    Your invite did not include a valid phone number. Please enter one to continue.
                                 </div>
                             )}
 
@@ -238,11 +253,12 @@ export default function SetupAccountForm({ token }: { token: string }) {
                                 <input
                                     className="input"
                                     value={phone}
-                                    readOnly
-                                    tabIndex={-1}
-                                    aria-readonly="true"
-                                    placeholder="—"
-                                    style={readOnlyFieldStyle}
+                                    onChange={e => setPhone(formatGhanaPhoneInput(e.target.value))}
+                                    readOnly={!phoneMissingFromInvite}
+                                    tabIndex={phoneMissingFromInvite ? 0 : -1}
+                                    aria-readonly={phoneMissingFromInvite ? 'false' : 'true'}
+                                    placeholder={phoneMissingFromInvite ? 'Enter Ghana phone number' : '—'}
+                                    style={phoneMissingFromInvite ? undefined : readOnlyFieldStyle}
                                 />
                             </div>
 

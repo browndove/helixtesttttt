@@ -16,6 +16,8 @@ type IncomingRoleBody = {
     mandatory?: boolean;
     sign_in_allowed_user_ids?: string[];
     external_messaging?: boolean;
+    is_transfer_role?: boolean;
+    enabled?: boolean;
 };
 
 async function resolveDepartmentIdByName(req: NextRequest, facilityId: string, departmentName?: string): Promise<string | undefined> {
@@ -145,6 +147,12 @@ export async function POST(req: NextRequest) {
         if (Object.prototype.hasOwnProperty.call(body, 'external_messaging')) {
             payload.external_messaging = Boolean(body.external_messaging);
         }
+        if (Object.prototype.hasOwnProperty.call(body, 'is_transfer_role')) {
+            payload.is_transfer_role = Boolean(body.is_transfer_role);
+        }
+        if (Object.prototype.hasOwnProperty.call(body, 'enabled')) {
+            payload.enabled = Boolean(body.enabled);
+        }
         const url = `${API_BASE_URL}/api/v1/roles`;
 
         console.log('[createRole] Final payload:', JSON.stringify(payload));
@@ -154,9 +162,11 @@ export async function POST(req: NextRequest) {
             headers: getProxyHeaders(req),
             body: JSON.stringify(payload),
         });
-
         const text = await res.text();
         console.log('Backend response status:', res.status);
+        if (!res.ok) {
+            console.error('[createRole] Backend error body:', text.slice(0, 800));
+        }
 
         let data;
         try {

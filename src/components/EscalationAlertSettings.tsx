@@ -13,6 +13,11 @@ import {
     secondsToDelay,
 } from '@/lib/escalation-delays';
 import {
+    escalationLevelsHaveConflictingTargets,
+    findEscalationConflictingTargetLabels,
+    roleNamesConflictForEscalation,
+} from '@/lib/role-escalation-ladder';
+import {
     ROLES_CACHE_DEPTS,
     ROLES_CACHE_POLICIES,
     ROLES_CACHE_ROLES,
@@ -387,6 +392,14 @@ export default function EscalationAlertSettings() {
         roles.map(r => ({ id: r.id, name: r.name, description: r.description, department: r.department })).sort((a, b) => a.name.localeCompare(b.name)),
     [roles]);
 
+    const roleNameToIdLowerForEscalation = useMemo(() => {
+        const m = new Map<string, string>();
+        for (const r of allRolesForSelect) {
+            if (r.name?.trim()) m.set(r.name.trim().toLowerCase(), r.id);
+        }
+        return m;
+    }, [allRolesForSelect]);
+
     // Departments for the create form (from DB, not from existing roles)
 
     const selectedChain = chainGroups.find(c => c.key === selectedChainKey) || null;
@@ -442,6 +455,10 @@ export default function EscalationAlertSettings() {
         }
         const primaryRole = roles.find(r => r.id === createPrimaryRoleId);
         if (!primaryRole) { showToast('Role not found'); return; }
+        if (configuredLevelCount(newLevels, primaryRole.name) < 2) {
+            showToast('Escalation ladder must have at least 2 levels (max 3).');
+            return;
+        }
         try {
             const resolvedDeptId = newDept.trim() ? (deptIdMap.get(newDept.trim()) || undefined) : undefined;
             if (newDesc.trim() || newDept.trim()) {
@@ -522,6 +539,10 @@ export default function EscalationAlertSettings() {
 
     const handleSaveEdit = async () => {
         if (!editPolicyId) return;
+        if (configuredLevelCount(editLevels, editName) < 2) {
+            showToast('Escalation ladder must have at least 2 levels (max 3).');
+            return;
+        }
         setEditSaving(true);
         try {
             // 1. Update policy initial timeout
@@ -611,7 +632,6 @@ export default function EscalationAlertSettings() {
         opts?: { lockFirstLevelRole?: boolean },
     ) => {
         const sorted = [...levels].sort((a, b) => a.level - b.level);
-        const selectedTargets = new Set(levels.map(l => l.target).filter(Boolean));
 
         const MAX_STEPS = 3;
         const addLevel = () => {
@@ -626,9 +646,29 @@ export default function EscalationAlertSettings() {
             setLevels(f.sort((a, b) => a.level - b.level).map((l, i) => ({ ...l, level: i + 1 })));
         };
 
-        // Get available roles for a given level (exclude already-selected roles in other levels)
-        const getAvailable = (currentTarget: string) => {
-            return allRolesForSelect.filter(r => r.name === currentTarget || !selectedTargets.has(r.name));
+        const rowHasEscalationTarget = (lvl: EscalationLevel, index: number) => {
+            if (opts?.lockFirstLevelRole && index === 0) return Boolean(lvl.target?.trim());
+            return Boolean(lvl.target?.trim());
+        };
+        let lastFilledSortedIndex = -1;
+        sorted.forEach((lvl, idx) => {
+            if (rowHasEscalationTarget(lvl, idx)) lastFilledSortedIndex = idx;
+        });
+        const filledRowCount = sorted.filter((lvl, idx) => rowHasEscalationTarget(lvl, idx)).length;
+
+        // Exclude roles already used elsewhere in the chain (same name, id, or facility-prefixed duplicate).
+        const getAvailable = (levelNum: number, currentTarget: string) => {
+            return allRolesForSelect.filter(r => {
+                if (r.name === currentTarget) return true;
+                for (const l of levels) {
+                    if (l.level === levelNum) continue;
+                    if (!l.target.trim()) continue;
+                    if (roleNamesConflictForEscalation(r.name, l.target.trim(), roleNameToIdLowerForEscalation)) {
+                        return false;
+                    }
+                }
+                return true;
+            });
         };
 
         return (
@@ -643,8 +683,9 @@ export default function EscalationAlertSettings() {
                 </div>
                 {sorted.map((lvl, i) => {
                     const lockPrimary = Boolean(opts?.lockFirstLevelRole && i === 0);
-                    const hideDelayRow = sorted.length > 1 && i === sorted.length - 1;
-                    const available = getAvailable(lvl.target);
+                    const hideDelayRow = !rowHasEscalationTarget(lvl, i)
+                        || (filledRowCount > 1 && i === lastFilledSortedIndex);
+                    const available = getAvailable(lvl.level, lvl.target);
                     const roleQuery = (levelRoleSearch[lvl.level] || '').trim().toLowerCase();
                     const filteredAvailable = roleQuery
                         ? available.filter(r =>
@@ -811,12 +852,12 @@ export default function EscalationAlertSettings() {
                 {/* Duplicate warning */}
                 {(() => {
                     const targets = levels.map(l => l.target).filter(Boolean);
-                    const dupes = targets.filter((t, i) => targets.indexOf(t) !== i);
-                    if (dupes.length === 0) return null;
+                    if (!escalationLevelsHaveConflictingTargets(targets, roleNameToIdLowerForEscalation)) return null;
+                    const labels = findEscalationConflictingTargetLabels(targets, roleNameToIdLowerForEscalation);
                     return (
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderRadius: 'var(--radius-md)', background: 'rgba(234,179,8,0.08)', border: '1px solid rgba(234,179,8,0.25)', marginTop: 4 }}>
                             <span className="material-icons-round" style={{ fontSize: 14, color: '#eab308' }}>warning</span>
-                            <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>Duplicate role detected: <strong>{[...new Set(dupes)].join(', ')}</strong>. Each role should only appear once.</span>
+                            <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>Conflicting roles in chain: <strong>{labels.join(', ')}</strong>. Each role should only appear once.</span>
                         </div>
                     );
                 })()}
@@ -828,6 +869,12 @@ export default function EscalationAlertSettings() {
     const renderSummary = (levels: EscalationLevel[], name: string) => {
         const sorted = [...levels].sort((a, b) => a.level - b.level);
         const effective = sorted.map((lvl, i) => (i === 0 && !lvl.target ? { ...lvl, target: name } : lvl));
+        const summaryRowFilled = (lvl: EscalationLevel) => Boolean(lvl.target?.trim());
+        let summaryLastFilledIdx = -1;
+        effective.forEach((lvl, idx) => {
+            if (summaryRowFilled(lvl)) summaryLastFilledIdx = idx;
+        });
+        const summaryFilledCount = effective.filter(summaryRowFilled).length;
         return (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                 <div style={{ marginBottom: 4 }}>
@@ -859,7 +906,7 @@ export default function EscalationAlertSettings() {
                                     <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>{lvl.target || '(not set)'}</span>
                                 </div>
                                 <div style={{ display: 'flex', gap: 12, fontSize: 11, color: 'var(--text-muted)' }}>
-                                    {!(effective.length > 1 && i === effective.length - 1) && (
+                                    {summaryRowFilled(lvl) && !(summaryFilledCount > 1 && i === summaryLastFilledIdx) && (
                                         <span>Delay: <strong style={{ color: 'var(--text-secondary)' }}>{lvl.delay}</strong></span>
                                     )}
                                     <span style={{ color: levelColor(i), fontWeight: 600 }}>
@@ -929,7 +976,7 @@ export default function EscalationAlertSettings() {
     // Check if levels have duplicates
     const hasDuplicates = (levels: EscalationLevel[]) => {
         const targets = levels.map(l => l.target).filter(Boolean);
-        return new Set(targets).size !== targets.length;
+        return escalationLevelsHaveConflictingTargets(targets, roleNameToIdLowerForEscalation);
     };
 
     // Check if any level is effectively missing a role. When editing an existing
@@ -940,6 +987,14 @@ export default function EscalationAlertSettings() {
             if (i === 0 && primaryRoleName && primaryRoleName.trim()) return false;
             return !lvl.target;
         });
+    };
+
+    const configuredLevelCount = (levels: EscalationLevel[], primaryRoleName?: string | null) => {
+        const sorted = [...levels].sort((a, b) => a.level - b.level);
+        return sorted.filter((lvl, i) => {
+            if (i === 0 && primaryRoleName && primaryRoleName.trim()) return true;
+            return Boolean(lvl.target?.trim());
+        }).length;
     };
 
     return (
@@ -999,11 +1054,16 @@ export default function EscalationAlertSettings() {
                         {editStep === 1 && (
                             <>
                                 {renderLadder(editLevels, setEditLevels, { lockFirstLevelRole: true })}
+                                {configuredLevelCount(editLevels, editName) < 2 && (
+                                    <div style={{ marginTop: 10, fontSize: 11, color: '#b45309' }}>
+                                        Add at least 2 escalation levels before continuing (maximum 3).
+                                    </div>
+                                )}
                                 <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginTop: 18 }}>
                                     <button className="btn btn-secondary btn-sm" onClick={() => setEditStep(0)}>
                                         <span className="material-icons-round" style={{ fontSize: 14 }}>arrow_back</span> Back
                                     </button>
-                                    <button className="btn btn-primary btn-sm" onClick={() => setEditStep(2)} disabled={hasDuplicates(editLevels)}>
+                                    <button className="btn btn-primary btn-sm" onClick={() => setEditStep(2)} disabled={hasDuplicates(editLevels) || configuredLevelCount(editLevels, editName) < 2}>
                                         Next: Summary <span className="material-icons-round" style={{ fontSize: 14 }}>arrow_forward</span>
                                     </button>
                                 </div>
@@ -1017,7 +1077,7 @@ export default function EscalationAlertSettings() {
                                     <button className="btn btn-secondary btn-sm" onClick={() => setEditStep(1)}>
                                         <span className="material-icons-round" style={{ fontSize: 14 }}>arrow_back</span> Back
                                     </button>
-                                    <button className="btn btn-primary btn-sm" onClick={handleSaveEdit} disabled={editSaving || hasMissingTargets(editLevels, editName)}>
+                                    <button className="btn btn-primary btn-sm" onClick={handleSaveEdit} disabled={editSaving || hasMissingTargets(editLevels, editName) || configuredLevelCount(editLevels, editName) < 2}>
                                         <span className="material-icons-round" style={{ fontSize: 14 }}>check</span> {editSaving ? 'Saving...' : 'Save Changes'}
                                     </button>
                                 </div>
@@ -1144,11 +1204,16 @@ export default function EscalationAlertSettings() {
                             {createStep === 1 && (
                                 <>
                                     {renderLadder(newLevels, setNewLevels, { lockFirstLevelRole: Boolean(createPrimaryRoleId) })}
+                                    {configuredLevelCount(newLevels, roles.find(r => r.id === createPrimaryRoleId)?.name || null) < 2 && (
+                                        <div style={{ marginTop: 10, fontSize: 11, color: '#b45309' }}>
+                                            Add at least 2 escalation levels before continuing (maximum 3).
+                                        </div>
+                                    )}
                                     <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginTop: 18 }}>
                                         <button className="btn btn-secondary btn-sm" onClick={() => setCreateStep(0)}>
                                             <span className="material-icons-round" style={{ fontSize: 14 }}>arrow_back</span> Back
                                         </button>
-                                        <button className="btn btn-primary btn-sm" onClick={() => setCreateStep(2)} disabled={hasDuplicates(newLevels)}>
+                                        <button className="btn btn-primary btn-sm" onClick={() => setCreateStep(2)} disabled={hasDuplicates(newLevels) || configuredLevelCount(newLevels, roles.find(r => r.id === createPrimaryRoleId)?.name || null) < 2}>
                                             Next: Summary <span className="material-icons-round" style={{ fontSize: 14 }}>arrow_forward</span>
                                         </button>
                                     </div>
@@ -1162,7 +1227,7 @@ export default function EscalationAlertSettings() {
                                         <button className="btn btn-secondary btn-sm" onClick={() => setCreateStep(1)}>
                                             <span className="material-icons-round" style={{ fontSize: 14 }}>arrow_back</span> Back
                                         </button>
-                                        <button className="btn btn-primary btn-sm" onClick={handleCreate} disabled={!createPrimaryRoleId.trim() || Boolean(existingPolicyForCreateRole) || newLevels.some(l => !l.target)}>
+                                        <button className="btn btn-primary btn-sm" onClick={handleCreate} disabled={!createPrimaryRoleId.trim() || Boolean(existingPolicyForCreateRole) || newLevels.some(l => !l.target) || configuredLevelCount(newLevels, roles.find(r => r.id === createPrimaryRoleId)?.name || null) < 2}>
                                             <span className="material-icons-round" style={{ fontSize: 14 }}>check</span> Create Escalation
                                         </button>
                                     </div>

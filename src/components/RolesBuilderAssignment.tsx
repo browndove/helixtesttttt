@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useLayoutEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useLayoutEffect, useCallback, useMemo, useRef } from 'react';
 import TopBar from '@/components/TopBar';
 import CustomSelect from '@/components/CustomSelect';
 import { MacVibrancyToast, MacVibrancyToastPortal } from '@/components/MacVibrancyToast';
@@ -12,6 +12,7 @@ import {
     MIN_ESCALATION_DELAY_SEC,
     secondsToDelay,
 } from '@/lib/escalation-delays';
+import { escalationTargetsConflict } from '@/lib/role-escalation-ladder';
 import {
     ROLES_CACHE_DEPTS,
     ROLES_CACHE_HOSPITAL,
@@ -80,12 +81,16 @@ type Role = {
     name: string;
     description: string;
     department: string;
+    department_id?: string;
+    department_name?: string;
     mandatory: boolean;
     enabled: boolean;
     priority: string;
     visible_in_directory: boolean;
     /** Whether this role is enabled for facility external communication (cross-facility messaging). */
     external_messaging?: boolean;
+    /** When true, role is used for patient transfer workflows. */
+    is_transfer_role?: boolean;
     sign_in_restricted?: boolean;
     sign_in_allowed_user_ids?: string[];
     signed_in_by?: string;
@@ -132,6 +137,47 @@ function buildRoleName(prefix: string, suffix: string): string {
     return cleanSuffix;
 }
 
+/** Read transfer-role flag from API objects (supports alternate keys and string/number JSON). */
+function readIsTransferRoleFromRaw(raw: Record<string, unknown>): boolean | undefined {
+    const keys = ['is_transfer_role', 'transfer_role', 'isTransferRole'] as const;
+    for (const k of keys) {
+        if (!Object.prototype.hasOwnProperty.call(raw, k)) continue;
+        const v = raw[k as string];
+        if (v === true || v === 1) return true;
+        if (v === false || v === 0) return false;
+        if (typeof v === 'string') {
+            const s = v.trim().toLowerCase();
+            if (s === 'true' || s === '1' || s === 'yes') return true;
+            if (s === 'false' || s === '0' || s === 'no' || s === '') return false;
+        }
+        if (v == null) return undefined;
+        return Boolean(v);
+    }
+    return undefined;
+}
+
+/** Role GET responses may be flat or wrapped (`data`, `role`, etc.). */
+function unwrapRoleApiPayload(input: unknown): Record<string, unknown> | null {
+    if (!input || typeof input !== 'object' || Array.isArray(input)) return null;
+    let cur: Record<string, unknown> = input as Record<string, unknown>;
+    for (let depth = 0; depth < 5; depth++) {
+        const id = cur.id ?? cur.role_id;
+        if (typeof id === 'string' && id.length > 0) return cur;
+        const next = cur.data ?? cur.role ?? cur.item ?? cur.result ?? cur.payload;
+        if (!next || typeof next !== 'object' || Array.isArray(next)) break;
+        cur = next as Record<string, unknown>;
+    }
+    return Object.keys(cur).length > 0 ? cur : null;
+}
+
+function parseFetchJsonBody(text: string): unknown {
+    try {
+        return JSON.parse(text) as unknown;
+    } catch {
+        return null;
+    }
+}
+
 function normalizeRoleForUi<T extends Role>(role: T, deptIdToName: Map<string, string> = new Map()): T {
     const isCritical = role.priority?.toString().trim().toLowerCase() === 'critical';
     const priority = isCritical ? 'Critical' : 'Standard';
@@ -146,6 +192,19 @@ function normalizeRoleForUi<T extends Role>(role: T, deptIdToName: Map<string, s
         visible_in_directory: role.visible_in_directory ?? true,
         priority,
     } as T;
+}
+
+function countFilledEscalationLevels(levels: EscalationLevel[], fixedFirstTarget?: string): number {
+    const sorted = clampEscalationLevels(levels).sort((a, b) => a.level - b.level);
+    return sorted.filter((lvl, idx) => {
+        if (idx === 0) {
+            const first = typeof fixedFirstTarget === 'string' && fixedFirstTarget.trim()
+                ? fixedFirstTarget.trim()
+                : String(lvl.target || '').trim();
+            return Boolean(first);
+        }
+        return Boolean(String(lvl.target || '').trim());
+    }).length;
 }
 
 type TemplateRole = {
@@ -455,6 +514,7 @@ export default function RolesBuilderAssignment() {
     const [newRoleMandatory, setNewRoleMandatory] = useState(false);
     const [newRestricted, setNewRestricted] = useState(false);
     const [newRoleExternalMessaging, setNewRoleExternalMessaging] = useState(false);
+    const [newRoleIsTransferRole, setNewRoleIsTransferRole] = useState(false);
     const [newAllowedUserIds, setNewAllowedUserIds] = useState<string[]>([]);
     const [newRouting, setNewRouting] = useState<RoutingRule[]>([]);
     const [newEscLevels, setNewEscLevels] = useState<EscalationLevel[]>([]);
@@ -470,9 +530,12 @@ export default function RolesBuilderAssignment() {
     const [editRestricted, setEditRestricted] = useState(false);
     const [editAllowedUserIds, setEditAllowedUserIds] = useState<string[]>([]);
     const [editEnabled, setEditEnabled] = useState(true);
+    const [editIsTransferRole, setEditIsTransferRole] = useState(false);
     const [editRouting, setEditRouting] = useState<RoutingRule[]>([]);
     const [editEscLevels, setEditEscLevels] = useState<EscalationLevel[]>([]);
     const [editSaving, setEditSaving] = useState(false);
+    /** After user changes Transfer in the edit modal, do not overwrite from late role-detail fetch. */
+    const editTransferRoleTouchedRef = useRef(false);
 
     // Confirm delete state
     const [confirmDelete, setConfirmDelete] = useState<Role | null>(null);
@@ -572,17 +635,28 @@ export default function RolesBuilderAssignment() {
                 const rolesArr = Array.isArray(data) ? data : [];
                 const roleNameMap = new Map(rolesArr.map((r: Role) => [r.id, r.name]));
                 const policyByRole = new Map(policiesArr.map(p => [p.role_id, p]));
-                setRoles(rolesArr.map((r: Role & { department_id?: string; department_name?: string; department?: unknown }) => {
-                    const policy = policyByRole.get(r.id);
-                    const policyLevels = policy ? stepsToLevels(policy.steps || [], roleNameMap) : [];
-                    const deptResolved = resolveRoleDepartment(r as unknown as Record<string, unknown>, deptMap);
-                    return normalizeRoleForUi({
-                        ...r,
-                        department: deptResolved,
-                        escalation_routing: r.escalation_routing || [],
-                        escalation_levels: policyLevels,
-                    }, deptMap);
-                }));
+                setRoles(prev => {
+                    const prevById = new Map(prev.map(x => [x.id, x]));
+                    const mapped = rolesArr.map((r: Role & { department_id?: string; department_name?: string; department?: unknown }) => {
+                        const policy = policyByRole.get(r.id);
+                        const policyLevels = policy ? stepsToLevels(policy.steps || [], roleNameMap) : [];
+                        const deptResolved = resolveRoleDepartment(r as unknown as Record<string, unknown>, deptMap);
+                        const raw = r as unknown as Record<string, unknown>;
+                        const fromApi = readIsTransferRoleFromRaw(raw);
+                        const prevR = prevById.get(r.id);
+                        const isTransferRole = fromApi !== undefined
+                            ? fromApi
+                            : (typeof prevR?.is_transfer_role === 'boolean' ? prevR.is_transfer_role : false);
+                        return normalizeRoleForUi({
+                            ...r,
+                            is_transfer_role: isTransferRole,
+                            department: deptResolved,
+                            escalation_routing: r.escalation_routing || [],
+                            escalation_levels: policyLevels,
+                        }, deptMap);
+                    });
+                    return mapped;
+                });
             }
         },
         [],
@@ -704,17 +778,23 @@ export default function RolesBuilderAssignment() {
                     : null;
             })
             .then((detail) => {
-                if (!detail?.id) return;
-                setRoles(prev => prev.map(r => (r.id === detail.id
+                const flat = unwrapRoleApiPayload(detail);
+                if (!flat || typeof flat.id !== 'string' || !flat.id) return;
+                const rid = flat.id;
+                setRoles(prev => prev.map(r => (r.id === rid
                     ? (() => {
-                        const detailRec = detail as Record<string, unknown>;
+                        const detailRec = flat;
                         const resolvedDept = resolveRoleDepartment(detailRec, departmentIdToName) || (typeof r.department === 'string' ? r.department : '');
+                        const fromDetail = readIsTransferRoleFromRaw(detailRec);
+                        const isTransferRole = fromDetail !== undefined ? fromDetail : Boolean(r.is_transfer_role);
+                        const allow = flat.sign_in_allowed_user_ids;
                         return normalizeRoleForUi({
                             ...r,
-                            ...detail,
+                            ...flat,
+                            is_transfer_role: isTransferRole,
                             department: resolvedDept,
-                            sign_in_allowed_user_ids: Array.isArray(detail.sign_in_allowed_user_ids) ? detail.sign_in_allowed_user_ids : (r.sign_in_allowed_user_ids || []),
-                            sign_in_restricted: Boolean(detail.sign_in_restricted) || (Array.isArray(detail.sign_in_allowed_user_ids) && detail.sign_in_allowed_user_ids.length > 0),
+                            sign_in_allowed_user_ids: Array.isArray(allow) ? allow as string[] : (r.sign_in_allowed_user_ids || []),
+                            sign_in_restricted: Boolean(flat.sign_in_restricted) || (Array.isArray(allow) && allow.length > 0),
                         } as Role, departmentIdToName);
                     })()
                     : r)));
@@ -739,6 +819,7 @@ export default function RolesBuilderAssignment() {
         setNewRoleMandatory(false);
         setNewRestricted(false);
         setNewRoleExternalMessaging(false);
+        setNewRoleIsTransferRole(false);
         setNewAllowedUserIds([]);
         setNewRouting([]);
         setNewEscLevels([]);
@@ -757,6 +838,7 @@ export default function RolesBuilderAssignment() {
         setNewRoleName('');
         setNewRoleDesc('');
         setNewRoleMandatory(false);
+        setNewRoleIsTransferRole(false);
         setNewEscLevels(defaultEscalationLevels.map(l => ({ ...l })));
         setAddStep(2);
     };
@@ -853,21 +935,32 @@ export default function RolesBuilderAssignment() {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    name: fullRoleName,
-                    description: newRoleDesc.trim(),
-                    department_id: deptIdMap.get(newRoleDept) || undefined,
-                    priority: newRoleMandatory ? 'critical' : 'standard',
-                    sign_in_allowed_user_ids: newRestricted ? newAllowedUserIds : undefined,
-                    external_messaging: newRoleExternalMessaging,
+                name: fullRoleName,
+                description: newRoleDesc.trim(),
+                department_id: deptIdMap.get(newRoleDept) || undefined,
+                department: newRoleDept || undefined,
+                priority: newRoleMandatory ? 'critical' : 'standard',
+                mandatory: newRoleMandatory,
+                enabled: true,
+                sign_in_allowed_user_ids: newRestricted ? newAllowedUserIds : undefined,
+                external_messaging: newRoleExternalMessaging,
+                is_transfer_role: newRoleIsTransferRole,
                 }),
             });
+            const addResponseText = await res.text();
+            const addParsed = parseFetchJsonBody(addResponseText);
             if (!res.ok) { showToast('Failed to add role'); return; }
-            const role = await res.json();
+            const role = (addParsed && typeof addParsed === 'object' ? addParsed : {}) as Role;
 
             // Create escalation policy + steps for critical/mandatory roles (max 3 levels)
             const ladderLevels = clampEscalationLevels(newEscLevels);
             let policyLevels = ladderLevels;
             if (withEscalations && newRoleMandatory && ladderLevels.length > 0) {
+                const levelCount = countFilledEscalationLevels(ladderLevels, fullRoleName);
+                if (levelCount < 2) {
+                    showToast('Escalation ladder must have at least 2 levels (max 3).');
+                    return;
+                }
                 const policyRes = await fetch('/api/proxy/escalation-policies', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -913,6 +1006,7 @@ export default function RolesBuilderAssignment() {
                 sign_in_restricted: Boolean(role.sign_in_restricted),
                 sign_in_allowed_user_ids: Array.isArray(role.sign_in_allowed_user_ids) ? role.sign_in_allowed_user_ids : [],
                 external_messaging: Boolean((role as Role).external_messaging ?? newRoleExternalMessaging),
+                is_transfer_role: Boolean((role as Role).is_transfer_role ?? newRoleIsTransferRole),
                 escalation_routing: role.escalation_routing || newRouting,
                 escalation_levels: policyLevels,
             }]);
@@ -961,6 +1055,7 @@ export default function RolesBuilderAssignment() {
     };
 
     const openEditModal = (role: Role) => {
+        editTransferRoleTouchedRef.current = false;
         setEditingRole(role);
         setEditStep(1);
         const { prefix, suffix } = splitRoleName(role.name);
@@ -973,6 +1068,8 @@ export default function RolesBuilderAssignment() {
         setEditRestricted(Boolean(role.sign_in_restricted) || baseAllowed.length > 0);
         setEditAllowedUserIds(baseAllowed);
         setEditEnabled(role.enabled ?? true);
+        const roleRec = role as unknown as Record<string, unknown>;
+        setEditIsTransferRole(readIsTransferRoleFromRaw(roleRec) ?? Boolean(role.is_transfer_role));
         setEditRouting((role.escalation_routing || []).map(r => ({ ...r })));
         // Pre-fill level 1 with the role being edited if no levels exist
         const existing = (role.escalation_levels || []).map(l => ({ ...l }));
@@ -986,13 +1083,23 @@ export default function RolesBuilderAssignment() {
             .then(async (res) => {
                 if (!res.ok) return null;
                 const detail = await res.json();
-                return detail && typeof detail === 'object' ? detail as { sign_in_restricted?: boolean; sign_in_allowed_user_ids?: string[] } : null;
+                return detail && typeof detail === 'object'
+                    ? detail as { sign_in_restricted?: boolean; sign_in_allowed_user_ids?: string[]; is_transfer_role?: boolean }
+                    : null;
             })
             .then((detail) => {
                 if (!detail) return;
-                const ids = Array.isArray(detail.sign_in_allowed_user_ids) ? detail.sign_in_allowed_user_ids : [];
-                setEditRestricted(Boolean(detail.sign_in_restricted) || ids.length > 0);
+                const flat = unwrapRoleApiPayload(detail);
+                if (!flat) return;
+                const ids = Array.isArray(flat.sign_in_allowed_user_ids) ? (flat.sign_in_allowed_user_ids as string[]) : [];
+                setEditRestricted(Boolean(flat.sign_in_restricted) || ids.length > 0);
                 setEditAllowedUserIds(ids);
+                const t = readIsTransferRoleFromRaw(flat);
+                const detailId = typeof flat.id === 'string' && flat.id ? flat.id : role.id;
+                if (!editTransferRoleTouchedRef.current && t !== undefined) {
+                    setEditIsTransferRole(t);
+                    setRoles(prev => prev.map(r => (r.id === detailId ? { ...r, is_transfer_role: t } : r)));
+                }
             })
             .catch(() => {
                 // best effort
@@ -1026,14 +1133,23 @@ export default function RolesBuilderAssignment() {
                     name: nextName,
                     description: editDesc.trim(),
                     department_id: resolvedEditDeptId,
-                    // Match create-role behavior: prefer ID-based department updates.
-                    department: !resolvedEditDeptId && normalizedEditDept ? normalizedEditDept : undefined,
+                    // Send display name whenever selected so upstream can validate alongside department_id.
+                    department: normalizedEditDept || undefined,
                     priority: editMandatory ? 'critical' : 'standard',
+                    mandatory: editMandatory,
                     sign_in_allowed_user_ids: editRestricted ? editAllowedUserIds : [],
+                    enabled: editEnabled,
+                    is_transfer_role: editIsTransferRole,
                 }),
             });
-            if (!res.ok) { showToast('Failed to save changes'); setEditSaving(false); return; }
-            const updated = await res.json();
+            const responseText = await res.text();
+            const parsedBody = parseFetchJsonBody(responseText);
+            if (!res.ok) {
+                showToast('Failed to save changes');
+                setEditSaving(false);
+                return;
+            }
+            const updated = (parsedBody && typeof parsedBody === 'object' ? parsedBody : {}) as Role;
             console.log('[roles-ui][saveEdit] Update response department:', {
                 department: updated?.department,
                 department_id: updated?.department_id,
@@ -1057,6 +1173,12 @@ export default function RolesBuilderAssignment() {
                 }
                 finalLevels = [];
             } else if (withEscalations && ladderLevels.length > 0) {
+                const levelCount = countFilledEscalationLevels(ladderLevels, nextName);
+                if (levelCount < 2) {
+                    showToast('Escalation ladder must have at least 2 levels (max 3).');
+                    setEditSaving(false);
+                    return;
+                }
                 // Check if a policy already exists for this role
                 const existingPolicyRes = await fetch(`/api/proxy/escalation-policies/by-role/${editingRole.id}`);
                 let policyId: string | null = null;
@@ -1147,6 +1269,10 @@ export default function RolesBuilderAssignment() {
                     sign_in_allowed_user_ids: Array.isArray(updated.sign_in_allowed_user_ids) ? updated.sign_in_allowed_user_ids : (editRestricted ? editAllowedUserIds : []),
                     escalation_routing: updated.escalation_routing || editRouting,
                     escalation_levels: finalLevels,
+                    is_transfer_role: typeof (updated as Role).is_transfer_role === 'boolean'
+                        ? (updated as Role).is_transfer_role
+                        : editIsTransferRole,
+                    enabled: typeof (updated as Role).enabled === 'boolean' ? (updated as Role).enabled : editEnabled,
                 };
             }));
             showToast(`"${editName}" updated`);
@@ -1160,6 +1286,35 @@ export default function RolesBuilderAssignment() {
         const names = roles.map(r => r.name).filter(Boolean);
         return names.length > 0 ? Array.from(new Set(names)) : escalationTargetOptions;
     }, [roles]);
+
+    const roleNameToIdLowerForEscalation = useMemo(() => {
+        const m = new Map<string, string>();
+        for (const r of roles) {
+            if (r.name?.trim()) m.set(r.name.trim().toLowerCase(), r.id);
+        }
+        return m;
+    }, [roles]);
+
+    const editEscalationLevelCount = useMemo(() => {
+        if (!editingRole) return 0;
+        const fixedFirst = buildRoleName(editPrefix, editName) || editingRole.name;
+        return countFilledEscalationLevels(editEscLevels, fixedFirst);
+    }, [editingRole, editEscLevels, editPrefix, editName]);
+
+    const newEscalationLevelCount = useMemo(() => {
+        const fixedFirst = buildRoleName('', newRoleName);
+        return countFilledEscalationLevels(newEscLevels, fixedFirst);
+    }, [newEscLevels, newRoleName]);
+
+    // Hydrate Transfer toggle from merged roles[] until the user changes it (list row may omit the flag at open).
+    useEffect(() => {
+        if (!editingRole || editTransferRoleTouchedRef.current) return;
+        const row = roles.find(r => r.id === editingRole.id);
+        if (!row) return;
+        const tr = readIsTransferRoleFromRaw(row as unknown as Record<string, unknown>);
+        if (tr === undefined) return;
+        setEditIsTransferRole(prev => (prev === tr ? prev : tr));
+    }, [editingRole?.id, roles]);
 
     const renderSignInRestriction = (
         restricted: boolean,
@@ -1257,17 +1412,40 @@ export default function RolesBuilderAssignment() {
             setLevels(renumbered);
         };
 
+        const rowHasEscalationTarget = (lvl: EscalationLevel) => {
+            if (lvl.level === 1) {
+                if (fixedFirstTarget?.trim()) return true;
+                return Boolean(lvl.target?.trim());
+            }
+            return Boolean(lvl.target?.trim());
+        };
+        let lastFilledSortedIndex = -1;
+        sorted.forEach((lvl, idx) => {
+            if (rowHasEscalationTarget(lvl)) lastFilledSortedIndex = idx;
+        });
+        const filledRowCount = sorted.filter(rowHasEscalationTarget).length;
+
         return (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 16 }}>
                 <div style={{ marginBottom: 2 }}>
                     <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 2 }}>Escalation Ladder</div>
                     <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-                        Level 1 is always this role (primary receiver). Use <strong style={{ fontWeight: 600, color: 'var(--text-secondary)' }}>Add escalation level</strong> below to add each further target (up to three levels total).
+                        Level 1 is always this role (primary receiver). Use <strong style={{ fontWeight: 600, color: 'var(--text-secondary)' }}>Add escalation level</strong> below to add each further target (up to three levels total). Each role can only appear once in the chain (including the same role under a different facility prefix).
                     </div>
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
                     {sorted.map((lvl, i) => {
-                        const hideDelayRow = sorted.length > 1 && i === sorted.length - 1;
+                        const hideDelayRow = !rowHasEscalationTarget(lvl)
+                            || (filledRowCount > 1 && i === lastFilledSortedIndex);
+                        const primaryLabels = [
+                            fixedFirstTarget?.trim(),
+                            sorted.find(l => l.level === 1)?.target?.trim(),
+                        ].filter((x): x is string => Boolean(x));
+                        const uniqPrimary = Array.from(new Set(primaryLabels));
+                        const occupiedOtherLevels = levels
+                            .filter(l => l.level !== lvl.level && l.target.trim())
+                            .map(l => l.target.trim());
+                        const occupiedForRow = [...uniqPrimary, ...occupiedOtherLevels];
                         return (
                         <div key={lvl.level} style={{ display: 'flex', alignItems: 'stretch', gap: 10 }}>
                             {/* Level number + connector line */}
@@ -1302,7 +1480,10 @@ export default function RolesBuilderAssignment() {
                                     <CustomSelect
                                         value={lvl.target}
                                         onChange={v => { const updated = levels.map(l => l.level === lvl.level ? { ...l, target: v } : l); setLevels(updated); }}
-                                        options={roleTargetOptions.filter(t => t === lvl.target || !levels.some(l => l.target === t)).map(t => ({ label: t, value: t }))}
+                                        options={roleTargetOptions.filter(t => (
+                                            t === lvl.target
+                                            || !escalationTargetsConflict(t, occupiedForRow, roleNameToIdLowerForEscalation)
+                                        )).map(t => ({ label: t, value: t }))}
                                         placeholder="-- Select Role --"
                                         style={{ flex: 1 }}
                                     />
@@ -1514,6 +1695,28 @@ export default function RolesBuilderAssignment() {
                                             <span className="toggle-slider" />
                                         </label>
                                     </div>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', borderRadius: 'var(--radius-md)', background: 'var(--surface-2)', border: '1px solid var(--border-subtle)' }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1, minWidth: 0 }}>
+                                            <span className="material-icons-round" style={{ fontSize: 18, color: editIsTransferRole ? '#7c3aed' : 'var(--text-muted)', flexShrink: 0 }}>swap_horiz</span>
+                                            <div style={{ minWidth: 0 }}>
+                                                <div style={{ fontSize: 13, fontWeight: 600 }}>Transfer role</div>
+                                                <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 1 }}>
+                                                    Marks this role for patient transfer workflows.
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <label className="toggle">
+                                            <input
+                                                type="checkbox"
+                                                checked={editIsTransferRole}
+                                                onChange={() => {
+                                                    editTransferRoleTouchedRef.current = true;
+                                                    setEditIsTransferRole(!editIsTransferRole);
+                                                }}
+                                            />
+                                            <span className="toggle-slider" />
+                                        </label>
+                                    </div>
                                 </div>
 
                                 <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
@@ -1548,13 +1751,18 @@ export default function RolesBuilderAssignment() {
                         {editStep === 2 && (
                             <>
                                 {renderEscalationLadder(editEscLevels, setEditEscLevels, editName || editingRole.name)}
+                                {editEscalationLevelCount < 2 && (
+                                    <div style={{ marginTop: 10, fontSize: 11, color: '#b45309' }}>
+                                        Add at least 2 escalation levels before saving (maximum 3).
+                                    </div>
+                                )}
 
                                 <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginTop: 20 }}>
                                     <button className="btn btn-secondary btn-sm" onClick={() => setEditStep(1)}>
                                         <span className="material-icons-round" style={{ fontSize: 14 }}>arrow_back</span>
                                         Back
                                     </button>
-                                    <button className="btn btn-primary btn-sm" onClick={() => handleSaveEdit()} disabled={editSaving || !editName.trim()} style={{ opacity: editSaving ? 0.7 : 1 }}>
+                                    <button className="btn btn-primary btn-sm" onClick={() => handleSaveEdit()} disabled={editSaving || !editName.trim() || editEscalationLevelCount < 2} style={{ opacity: editSaving ? 0.7 : 1 }}>
                                         {editSaving ? 'Saving...' : 'Save Changes'}
                                     </button>
                                 </div>
@@ -1773,6 +1981,19 @@ export default function RolesBuilderAssignment() {
                                         </span>
                                     </div>
 
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderRadius: 'var(--radius-md)', background: newRoleIsTransferRole ? 'rgba(124,58,237,0.06)' : 'var(--surface-2)', border: `1px solid ${newRoleIsTransferRole ? 'rgba(124,58,237,0.22)' : 'var(--border-subtle)'}`, marginBottom: 14, transition: 'all 0.2s' }}>
+                                        <input type="checkbox" className="checkbox" checked={newRoleIsTransferRole} onChange={() => setNewRoleIsTransferRole(!newRoleIsTransferRole)} />
+                                        <span className="material-icons-round" style={{ fontSize: 18, color: newRoleIsTransferRole ? '#7c3aed' : 'var(--text-muted)', flexShrink: 0 }}>swap_horiz</span>
+                                        <div style={{ flex: 1 }}>
+                                            <div style={{ fontSize: 13, fontWeight: 600 }}>Transfer role</div>
+                                            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 1 }}>
+                                                Marks this role for patient transfer workflows.
+                                            </div>
+                                        </div>
+                                        <span className={`badge ${newRoleIsTransferRole ? 'badge-info' : 'badge-neutral'}`} style={{ fontSize: 10, flexShrink: 0 }}>
+                                            {newRoleIsTransferRole ? 'Yes' : 'No'}
+                                        </span>
+                                    </div>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderRadius: 'var(--radius-md)', background: newRoleMandatory ? 'rgba(239,68,68,0.06)' : 'var(--surface-2)', border: `1px solid ${newRoleMandatory ? 'rgba(239,68,68,0.25)' : 'var(--border-subtle)'}`, marginBottom: 18, transition: 'all 0.2s' }}>
                                         <input type="checkbox" className="checkbox" checked={newRoleMandatory} onChange={() => setNewRoleMandatory(!newRoleMandatory)} />
                                         <div style={{ flex: 1 }}>
@@ -1817,13 +2038,18 @@ export default function RolesBuilderAssignment() {
                             {addStep === 3 && (
                                 <>
                                     {renderEscalationLadder(newEscLevels, setNewEscLevels, newRoleName || 'This role')}
+                                    {newEscalationLevelCount < 2 && (
+                                        <div style={{ marginTop: 10, fontSize: 11, color: '#b45309' }}>
+                                            Add at least 2 escalation levels before creating (maximum 3).
+                                        </div>
+                                    )}
 
                                     <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginTop: 20 }}>
                                         <button className="btn btn-secondary btn-sm" onClick={() => setAddStep(2)}>
                                             <span className="material-icons-round" style={{ fontSize: 14 }}>arrow_back</span>
                                             Back
                                         </button>
-                                        <button className="btn btn-primary btn-sm" onClick={() => handleAddRole()} disabled={!newRoleName.trim()}>
+                                        <button className="btn btn-primary btn-sm" onClick={() => handleAddRole()} disabled={!newRoleName.trim() || newEscalationLevelCount < 2}>
                                             <span className="material-icons-round" style={{ fontSize: 14 }}>check</span>
                                             Create Role
                                         </button>
@@ -2094,6 +2320,11 @@ export default function RolesBuilderAssignment() {
                                                     ? 'Disabled'
                                                     : selectedRole.external_messaging ? 'Enabled' : 'Disabled',
                                                 icon: 'forum',
+                                            },
+                                            {
+                                                label: 'Transfer',
+                                                value: selectedRole.is_transfer_role ? 'Yes' : 'No',
+                                                icon: 'swap_horiz',
                                             },
                                         ].map(row => (
                                             <div key={row.label} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>

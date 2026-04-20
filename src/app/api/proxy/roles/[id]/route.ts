@@ -11,6 +11,7 @@ type RoleUpdateBody = {
     departmentId?: string;
     department?: string;
     sign_in_allowed_user_ids?: string[];
+    enabled?: boolean;
     [key: string]: unknown;
 };
 
@@ -132,7 +133,6 @@ export async function PUT(
         // Mirror create-role payload shape for department updates.
         if (body.department !== undefined) payload.department = departmentName || undefined;
         if (resolvedDepartmentId !== undefined) payload.department_id = resolvedDepartmentId;
-        console.log('[updateRole] Final outbound payload:', payload);
         if (Object.prototype.hasOwnProperty.call(body, 'sign_in_allowed_user_ids')) {
             payload.sign_in_allowed_user_ids = Array.isArray(body.sign_in_allowed_user_ids)
                 ? body.sign_in_allowed_user_ids
@@ -144,6 +144,13 @@ export async function PUT(
         if (Object.prototype.hasOwnProperty.call(body, 'external_messaging')) {
             payload.external_messaging = Boolean(body.external_messaging);
         }
+        if (Object.prototype.hasOwnProperty.call(body, 'enabled')) {
+            payload.enabled = Boolean(body.enabled);
+        }
+        if (Object.prototype.hasOwnProperty.call(body, 'is_transfer_role')) {
+            payload.is_transfer_role = Boolean(body.is_transfer_role);
+        }
+        console.log('[updateRole] Final outbound payload:', payload);
         const url = `${API_BASE_URL}/api/v1/roles/${id}`;
 
         console.log('Proxy update role request to:', url);
@@ -153,9 +160,11 @@ export async function PUT(
             headers: getProxyHeaders(req),
             body: JSON.stringify(payload),
         });
-
         const text = await res.text();
         console.log('Backend response status:', res.status);
+        if (!res.ok) {
+            console.error('[updateRole] Backend error body:', text.slice(0, 800));
+        }
 
         let data;
         try {
