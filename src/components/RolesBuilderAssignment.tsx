@@ -956,11 +956,6 @@ export default function RolesBuilderAssignment() {
             const ladderLevels = clampEscalationLevels(newEscLevels);
             let policyLevels = ladderLevels;
             if (withEscalations && newRoleMandatory && ladderLevels.length > 0) {
-                const levelCount = countFilledEscalationLevels(ladderLevels, fullRoleName);
-                if (levelCount < 2) {
-                    showToast('Escalation ladder must have at least 2 levels (max 3).');
-                    return;
-                }
                 const policyRes = await fetch('/api/proxy/escalation-policies', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -1172,13 +1167,19 @@ export default function RolesBuilderAssignment() {
                     // best effort
                 }
                 finalLevels = [];
+            } else if (withEscalations && ladderLevels.length === 0) {
+                // All ladder levels removed: drop any existing escalation policy.
+                try {
+                    const existingPolicyRes = await fetch(`/api/proxy/escalation-policies/by-role/${editingRole.id}`);
+                    if (existingPolicyRes.ok) {
+                        const existingPolicy = await existingPolicyRes.json();
+                        if (existingPolicy?.id) {
+                            await fetch(`/api/proxy/escalation-policies/${existingPolicy.id}`, { method: 'DELETE' });
+                        }
+                    }
+                } catch { /* best effort */ }
+                finalLevels = [];
             } else if (withEscalations && ladderLevels.length > 0) {
-                const levelCount = countFilledEscalationLevels(ladderLevels, nextName);
-                if (levelCount < 2) {
-                    showToast('Escalation ladder must have at least 2 levels (max 3).');
-                    setEditSaving(false);
-                    return;
-                }
                 // Check if a policy already exists for this role
                 const existingPolicyRes = await fetch(`/api/proxy/escalation-policies/by-role/${editingRole.id}`);
                 let policyId: string | null = null;
@@ -1513,7 +1514,7 @@ export default function RolesBuilderAssignment() {
                                         customPlaceholder="e.g. 45 sec, 2 min, 1 hr"
                                     />
                                 )}
-                                {sorted.length > 1 && lvl.level !== 1 && (
+                                {(
                                     <button
                                         type="button"
                                         onClick={() => handleRemoveLevel(lvl.level)}
@@ -1751,18 +1752,13 @@ export default function RolesBuilderAssignment() {
                         {editStep === 2 && (
                             <>
                                 {renderEscalationLadder(editEscLevels, setEditEscLevels, editName || editingRole.name)}
-                                {editEscalationLevelCount < 2 && (
-                                    <div style={{ marginTop: 10, fontSize: 11, color: '#b45309' }}>
-                                        Add at least 2 escalation levels before saving (maximum 3).
-                                    </div>
-                                )}
 
                                 <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginTop: 20 }}>
                                     <button className="btn btn-secondary btn-sm" onClick={() => setEditStep(1)}>
                                         <span className="material-icons-round" style={{ fontSize: 14 }}>arrow_back</span>
                                         Back
                                     </button>
-                                    <button className="btn btn-primary btn-sm" onClick={() => handleSaveEdit()} disabled={editSaving || !editName.trim() || editEscalationLevelCount < 2} style={{ opacity: editSaving ? 0.7 : 1 }}>
+                                    <button className="btn btn-primary btn-sm" onClick={() => handleSaveEdit()} disabled={editSaving || !editName.trim()} style={{ opacity: editSaving ? 0.7 : 1 }}>
                                         {editSaving ? 'Saving...' : 'Save Changes'}
                                     </button>
                                 </div>
@@ -2038,18 +2034,13 @@ export default function RolesBuilderAssignment() {
                             {addStep === 3 && (
                                 <>
                                     {renderEscalationLadder(newEscLevels, setNewEscLevels, newRoleName || 'This role')}
-                                    {newEscalationLevelCount < 2 && (
-                                        <div style={{ marginTop: 10, fontSize: 11, color: '#b45309' }}>
-                                            Add at least 2 escalation levels before creating (maximum 3).
-                                        </div>
-                                    )}
 
                                     <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginTop: 20 }}>
                                         <button className="btn btn-secondary btn-sm" onClick={() => setAddStep(2)}>
                                             <span className="material-icons-round" style={{ fontSize: 14 }}>arrow_back</span>
                                             Back
                                         </button>
-                                        <button className="btn btn-primary btn-sm" onClick={() => handleAddRole()} disabled={!newRoleName.trim() || newEscalationLevelCount < 2}>
+                                        <button className="btn btn-primary btn-sm" onClick={() => handleAddRole()} disabled={!newRoleName.trim()}>
                                             <span className="material-icons-round" style={{ fontSize: 14 }}>check</span>
                                             Create Role
                                         </button>

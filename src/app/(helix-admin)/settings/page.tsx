@@ -567,55 +567,8 @@ export default function SettingsPage() {
                                 </div>
                             </div>
 
-                            {/* Personal Info */}
-                            <div className="card">
-                                <h3 style={{ marginBottom: 16 }}>Personal Information</h3>
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                                    <div>
-                                        <label className="label">Full Name</label>
-                                        <input className="input" value={fullName} onChange={e => setFullName(e.target.value)} style={{ fontSize: 13 }} />
-                                    </div>
-                                    <div>
-                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, marginBottom: 6 }}>
-                                            <label className="label" htmlFor="settings-job-title" style={{ marginBottom: 0 }}>Job Title</label>
-                                            <span style={{ fontSize: 11, color: 'var(--text-muted)', fontVariantNumeric: 'tabular-nums' }} id="settings-job-title-hint">
-                                                {jobTitle.length}/{JOB_TITLE_MAX_LENGTH}
-                                            </span>
-                                        </div>
-                                        <input
-                                            id="settings-job-title"
-                                            className="input"
-                                            value={jobTitle}
-                                            maxLength={JOB_TITLE_MAX_LENGTH}
-                                            onChange={e => setJobTitle(e.target.value.slice(0, JOB_TITLE_MAX_LENGTH))}
-                                            placeholder="e.g. Medical Officer"
-                                            aria-describedby="settings-job-title-hint"
-                                            style={{ fontSize: 13 }}
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className="label">Email</label>
-                                        <input className="input" value={email} onChange={e => setEmail(e.target.value)} type="email" style={{ fontSize: 13 }} />
-                                    </div>
-                                    <div>
-                                        <label className="label">Phone</label>
-                                        <input className="input" value={phone} onChange={e => setPhone(formatGhanaPhoneInput(e.target.value))} style={{ fontSize: 13 }} />
-                                    </div>
-                                </div>
-                                <button
-                                    type="button"
-                                    className="btn btn-primary btn-sm"
-                                    style={{ marginTop: 16, width: '100%', justifyContent: 'center' }}
-                                    onClick={savePersonalProfile}
-                                    disabled={savingProfile}
-                                >
-                                    <span className="material-icons-round" style={{ fontSize: 14 }}>save</span>
-                                    {savingProfile ? 'Saving…' : 'Save Changes'}
-                                </button>
-                            </div>
-
                             {/* Password */}
-                            <div className="card">
+                            <div className="card" style={{ gridColumn: '1 / -1' }}>
                                 <h3 style={{ marginBottom: 16 }}>Change Password</h3>
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                                     <div>
