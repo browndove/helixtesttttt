@@ -20,6 +20,7 @@ const departmentsAppMainStyle = {
 
 type FloorItem = { id: string; name: string };
 type WardItem = { id: string; name: string };
+type UnitItem = { id: string; name: string; description?: string };
 type Department = {
     id: string;
     name: string;
@@ -68,6 +69,11 @@ export default function DepartmentsManagement() {
     const [newDeptWardLines, setNewDeptWardLines] = useState('');
     const [showAddDept, setShowAddDept] = useState(false);
     const [newWard, setNewWard] = useState('');
+    const [newUnitName, setNewUnitName] = useState('');
+    const [newUnitDescription, setNewUnitDescription] = useState('');
+    const [unitsByDept, setUnitsByDept] = useState<Record<string, UnitItem[]>>({});
+    const [unitsLoading, setUnitsLoading] = useState(false);
+    const [addingUnit, setAddingUnit] = useState(false);
     const [loading, setLoading] = useState(true);
     const [deptSearch, setDeptSearch] = useState('');
     const [detailName, setDetailName] = useState('');
@@ -91,6 +97,19 @@ export default function DepartmentsManagement() {
             || d.wards?.some(w => w.name.toLowerCase().includes(query)),
         );
     }, [departments, deptSearch]);
+
+    const fetchUnits = useCallback(async (deptId: string) => {
+        setUnitsLoading(true);
+        try {
+            const res = await fetch(`/api/proxy/units?department_id=${encodeURIComponent(deptId)}`);
+            if (res.ok) {
+                const data = await res.json();
+                const list = Array.isArray(data) ? data : (Array.isArray((data as { units?: unknown }).units) ? (data as { units: UnitItem[] }).units : []);
+                setUnitsByDept(prev => ({ ...prev, [deptId]: list as UnitItem[] }));
+            }
+        } catch { /* ignore */ }
+        setUnitsLoading(false);
+    }, []);
 
     const fetchData = useCallback(async () => {
         try {
@@ -155,6 +174,9 @@ export default function DepartmentsManagement() {
             setDetailLoading(false);
             return;
         }
+        setNewUnitName('');
+        setNewUnitDescription('');
+        fetchUnits(editingDept);
         const local = departmentsRef.current.find(d => d.id === editingDept);
         if (local) {
             setDetailName(local.name);
@@ -202,7 +224,7 @@ export default function DepartmentsManagement() {
             cancelled = true;
             ac.abort();
         };
-    }, [editingDept, showToast]);
+    }, [editingDept, showToast, fetchUnits]);
 
     const resetNewDepartmentForm = () => {
         setNewDeptName('');
@@ -361,6 +383,46 @@ export default function DepartmentsManagement() {
                 setNewWard('');
             }
         } catch { showToast('Failed to add ward'); }
+    };
+
+    const addUnit = async (deptId: string) => {
+        const name = newUnitName.trim();
+        if (!name) return;
+        setAddingUnit(true);
+        try {
+            const res = await fetch('/api/proxy/units', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    name,
+                    description: newUnitDescription.trim(),
+                    department_id: deptId,
+                    facility_id: hospitalId || '',
+                }),
+            });
+            if (res.ok) {
+                const unit = await res.json() as UnitItem;
+                setUnitsByDept(prev => ({ ...prev, [deptId]: [...(prev[deptId] || []), unit] }));
+                showToast(`Unit "${name}" added`);
+                setNewUnitName('');
+                setNewUnitDescription('');
+            } else {
+                const err = await res.json().catch(() => ({} as { error?: string; detail?: string }));
+                showToast(String(err.error || err.detail || 'Failed to add unit'));
+            }
+        } catch { showToast('Failed to add unit'); }
+        setAddingUnit(false);
+    };
+
+    const removeUnit = async (deptId: string, unitId: string) => {
+        try {
+            const res = await fetch(`/api/proxy/units/${unitId}`, { method: 'DELETE' });
+            if (res.ok) {
+                setUnitsByDept(prev => ({ ...prev, [deptId]: (prev[deptId] || []).filter(u => u.id !== unitId) }));
+            } else {
+                showToast('Failed to remove unit');
+            }
+        } catch { showToast('Failed to remove unit'); }
     };
 
     const removeWard = async (deptId: string, wardId: string) => {
@@ -837,6 +899,61 @@ export default function DepartmentsManagement() {
                                                 <div style={{ display: 'flex', gap: 8 }}>
                                                     <input className="input" placeholder="New ward name" value={newWard} onChange={e => setNewWard(e.target.value)} onKeyDown={e => e.key === 'Enter' && addWard(editDept.id)} style={{ fontSize: 13, flex: 1 }} />
                                                     <button type="button" className="btn btn-secondary btn-sm" onClick={() => addWard(editDept.id)} disabled={!newWard.trim()}>Add</button>
+                                                </div>
+                                            </div>
+
+                                            <div className="card" style={{ padding: '16px 18px', margin: 0, background: 'var(--surface-2)', border: '1px solid var(--border-subtle)', gridColumn: '1 / -1' }}>
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+                                                    <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Care units</div>
+                                                    {unitsLoading ? (
+                                                        <span style={{ fontSize: 11, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                                                            <span className="material-icons-round" style={{ fontSize: 14 }}>hourglass_empty</span>
+                                                            Loading…
+                                                        </span>
+                                                    ) : null}
+                                                </div>
+                                                <p style={{ fontSize: 11, color: 'var(--text-muted)', margin: '0 0 10px', lineHeight: 1.45 }}>
+                                                    Care units (ward / ICU / ED pod, etc.) associated with this department.
+                                                </p>
+                                                <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 12 }}>
+                                                    {(unitsByDept[editDept.id] || []).map(u => (
+                                                        <div key={u.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', background: 'var(--surface-card)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)' }}>
+                                                            <span className="material-icons-round" style={{ fontSize: 16, color: 'var(--helix-primary)', flexShrink: 0 }}>medical_services</span>
+                                                            <div style={{ flex: 1, minWidth: 0 }}>
+                                                                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{u.name}</div>
+                                                                {u.description ? (
+                                                                    <div style={{ fontSize: 11, color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{u.description}</div>
+                                                                ) : null}
+                                                            </div>
+                                                            <button type="button" className="btn btn-ghost btn-sm" onClick={() => removeUnit(editDept.id, u.id)} title="Remove unit" style={{ color: 'var(--danger, #dc2626)' }}>
+                                                                <span className="material-icons-round" style={{ fontSize: 14 }}>delete</span>
+                                                            </button>
+                                                        </div>
+                                                    ))}
+                                                    {!unitsLoading && (unitsByDept[editDept.id] || []).length === 0 && (
+                                                        <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>No units yet</span>
+                                                    )}
+                                                </div>
+                                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+                                                    <input
+                                                        className="input"
+                                                        placeholder="Unit name (e.g. ICU-A)"
+                                                        value={newUnitName}
+                                                        onChange={e => setNewUnitName(e.target.value)}
+                                                        onKeyDown={e => e.key === 'Enter' && !e.shiftKey && addUnit(editDept.id)}
+                                                        style={{ fontSize: 13, flex: '1 1 180px', minWidth: 160 }}
+                                                    />
+                                                    <input
+                                                        className="input"
+                                                        placeholder="Description (optional)"
+                                                        value={newUnitDescription}
+                                                        onChange={e => setNewUnitDescription(e.target.value)}
+                                                        onKeyDown={e => e.key === 'Enter' && !e.shiftKey && addUnit(editDept.id)}
+                                                        style={{ fontSize: 13, flex: '2 1 220px', minWidth: 160 }}
+                                                    />
+                                                    <button type="button" className="btn btn-secondary btn-sm" onClick={() => addUnit(editDept.id)} disabled={!newUnitName.trim() || addingUnit}>
+                                                        {addingUnit ? 'Adding…' : 'Add unit'}
+                                                    </button>
                                                 </div>
                                             </div>
                                         </div>
