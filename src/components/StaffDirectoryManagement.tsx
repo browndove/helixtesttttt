@@ -709,7 +709,6 @@ export default function StaffDirectoryManagement() {
         && Boolean(newLastName.trim())
         && Boolean(newEmail.trim())
         && Boolean(newPhoneLocal.trim())
-        && Boolean(newDob.trim())
         && Boolean(newGender.trim())
         && Boolean(newHighestQualification.trim())
         && Boolean(newDept.trim())
@@ -736,7 +735,6 @@ export default function StaffDirectoryManagement() {
         if (newPhoneLocal.trim() && !isValidPhoneByCountry(formattedNewPhone, newPhoneCountry)) {
             missing.push(`Phone format (${newCountryMeta.dialCode} + ${newCountryMeta.digits} digits)`);
         }
-        if (!newDob.trim()) missing.push('DOB');
         if (!newGender.trim()) missing.push('Gender');
         if (!newHighestQualification.trim()) missing.push('Highest qualification');
         if (!newDept.trim()) missing.push('Department');
@@ -1417,7 +1415,7 @@ export default function StaffDirectoryManagement() {
                                     </div>
                                 </div>
                                 <div>
-                                    <label className="label">DOB *</label>
+                                    <label className="label">DOB</label>
                                     <DatePicker value={newDob} onChange={setNewDob} placeholder="Select DOB" />
                                 </div>
                                 <div>

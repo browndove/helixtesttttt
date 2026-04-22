@@ -218,7 +218,7 @@ function countBeds(nodes: DeptNode[]): number {
 
 export default function HospitalProfileWardSetup() {
     const [tree, setTree] = useState(defaultTree);
-    const [toast, setToast] = useState<string | null>(null);
+    const [toast, setToast] = useState<{ message: string; variant: 'success' | 'error' | 'info' } | null>(null);
     const [editingProfile, setEditingProfile] = useState(false);
     const [hospitalId, setHospitalId] = useState('');
     const [hospitalName, setHospitalName] = useState('');
@@ -230,7 +230,10 @@ export default function HospitalProfileWardSetup() {
     const [showAddDept, setShowAddDept] = useState(false);
     const [treeSearch, setTreeSearch] = useState('');
 
-    const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(null), 2500); };
+    const showToast = (message: string, variant: 'success' | 'error' | 'info' = 'success') => {
+        setToast({ message, variant });
+        setTimeout(() => setToast(null), 2500);
+    };
 
     const fetchHospitalProfile = useCallback(async () => {
         try {
@@ -267,14 +270,15 @@ export default function HospitalProfileWardSetup() {
                 }),
             });
             if (!res.ok) {
-                showToast('Failed to save profile');
+                const err = await res.json().catch(() => ({} as { message?: string; detail?: string; error?: string }));
+                showToast(String(err.message || err.detail || err.error || 'Failed to save profile'), 'error');
                 return;
             }
             showToast('Profile updated');
             setEditingProfile(false);
             fetchHospitalProfile();
         } catch {
-            showToast('Failed to save profile');
+            showToast('Failed to save profile', 'error');
         } finally {
             setSavingProfile(false);
         }
@@ -305,7 +309,7 @@ export default function HospitalProfileWardSetup() {
             {/* Toast */}
             {toast && (
                 <MacVibrancyToastPortal>
-                    <MacVibrancyToast message={toast} variant="success" dismissible={false} />
+                    <MacVibrancyToast message={toast.message} variant={toast.variant} dismissible={false} />
                 </MacVibrancyToastPortal>
             )}
 

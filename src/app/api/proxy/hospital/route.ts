@@ -53,30 +53,46 @@ export async function GET(req: NextRequest) {
 export async function PUT(req: NextRequest) {
     try {
         const body = await req.json();
-        const facilityId = body.id || body.facility_id || await resolveFacilityId(req, API_BASE_URL);
-        const url = facilityId
+        const resolvedId = body.id || body.facility_id || await resolveFacilityId(req, API_BASE_URL);
+        const facilityId = String(resolvedId || '').trim();
+        const hasFacilityId = facilityId.length > 0;
+        const method = hasFacilityId ? 'PUT' : 'POST';
+        const url = hasFacilityId
             ? `${API_BASE_URL}/api/v1/facilities/${facilityId}`
             : `${API_BASE_URL}/api/v1/facilities`;
 
-        console.log('[hospital] PUT request to:', url);
+        console.log(`[hospital] ${method} request to:`, url);
 
         const res = await fetch(url, {
-            method: 'PUT',
+            method,
             headers: getProxyHeaders(req),
             body: JSON.stringify(body),
         });
 
         const text = await res.text();
-        console.log('Backend response status:', res.status);
+        console.log(`[hospital] ${method} response status:`, res.status);
 
-        let data;
+        // Some backends return 204 No Content on successful update/create.
+        if (!text.trim()) {
+            return NextResponse.json(
+                { ok: res.ok, message: res.ok ? 'Facility saved' : 'Facility save failed' },
+                { status: res.status }
+            );
+        }
+
+        let data: unknown = {};
         try {
             data = JSON.parse(text);
         } catch {
-            console.error('Failed to parse backend response as JSON');
+            if (!res.ok) {
+                return NextResponse.json(
+                    { error: 'Facility save failed', details: text.substring(0, 300) },
+                    { status: res.status }
+                );
+            }
             return NextResponse.json(
-                { error: 'Backend returned invalid response', details: text.substring(0, 200) },
-                { status: 502 }
+                { ok: true, message: 'Facility saved' },
+                { status: res.status }
             );
         }
 
