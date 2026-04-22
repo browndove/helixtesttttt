@@ -56,6 +56,22 @@ function extractList(raw: unknown): unknown[] {
     return Array.isArray(r.data) ? r.data : Array.isArray(r.items) ? r.items : [];
 }
 
+function parseApiErrorMessage(raw: string, fallback: string): string {
+    const text = String(raw || '').trim();
+    if (!text) return fallback;
+    try {
+        const parsed = JSON.parse(text) as Record<string, unknown>;
+        const message =
+            (typeof parsed.message === 'string' && parsed.message.trim()) ||
+            (typeof parsed.detail === 'string' && parsed.detail.trim()) ||
+            (typeof parsed.error === 'string' && parsed.error.trim());
+        if (message) return message;
+    } catch {
+        // plain text response body
+    }
+    return text;
+}
+
 function parsePatient(row: unknown, idx: number): Patient | null {
     if (!row || typeof row !== 'object') return null;
     const r = row as Record<string, unknown>;
@@ -288,9 +304,11 @@ export default function PatientsDirectoryManagement() {
             const res = await fetch(`/api/proxy/patients?${params.toString()}`);
             if (!res.ok) {
                 const text = await res.text();
-                setError(text || 'Failed to load patients');
+                showToast(parseApiErrorMessage(text, 'Failed to load patients'), 'error');
+                setError(null);
                 setPatients([]);
                 setTotal(0);
+                setTotalPages(1);
                 return;
             }
             const data = await res.json();
@@ -299,13 +317,15 @@ export default function PatientsDirectoryManagement() {
             setTotal(parsed.total);
             setTotalPages(Math.max(1, parsed.totalPages || Math.ceil(parsed.total / pageSize)));
         } catch {
-            setError('Failed to load patients');
+            showToast('Failed to load patients', 'error');
+            setError(null);
             setPatients([]);
             setTotal(0);
+            setTotalPages(1);
         } finally {
             setLoading(false);
         }
-    }, [departmentId, pageId, pageSize, search, statusFilter]);
+    }, [departmentId, pageId, pageSize, search, showToast, statusFilter]);
 
     useEffect(() => { fetchDepartments(); }, [fetchDepartments]);
     useEffect(() => { fetchPatients(); }, [fetchPatients]);
@@ -435,16 +455,13 @@ export default function PatientsDirectoryManagement() {
                                 Loading patients...
                             </td></tr>
                         )}
-                        {!loading && error && (
-                            <tr><td colSpan={7} style={{ padding: 40, textAlign: 'center', color: 'var(--critical)' }}>{error}</td></tr>
-                        )}
-                        {!loading && !error && patients.length === 0 && (
+                        {!loading && patients.length === 0 && (
                             <tr><td colSpan={7} style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>
                                 <span className="material-icons-round" style={{ fontSize: 28, display: 'block', marginBottom: 8, color: 'var(--text-disabled)' }}>person_off</span>
                                 No patients found
                             </td></tr>
                         )}
-                        {!loading && !error && patients.map((p) => (
+                        {!loading && patients.map((p) => (
                             <tr key={p.id} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
                                 <td style={tdStyle}>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
