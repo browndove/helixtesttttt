@@ -76,10 +76,13 @@ export function clearCachedSidebarUser(): void {
     }
 }
 
+import { clearSettingsPageCache } from '@/lib/settingsPageCache';
+
 /** Clear all admin sidebar session cache (call on logout). */
 export function clearAdminSidebarSession(): void {
     clearFacilityDisplayName();
     clearCachedSidebarUser();
+    clearSettingsPageCache();
 }
 
 export function isLikelyFacilityDisplayName(name: string): boolean {

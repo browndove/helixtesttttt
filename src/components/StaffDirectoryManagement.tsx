@@ -46,8 +46,16 @@ type StaffMember = {
     is_doctor?: boolean;
 };
 
-type SortKey = 'first_name' | 'last_name' | 'employee_id' | 'dept' | 'job_title' | 'status';
+type SortKey = 'first_name' | 'last_name' | 'employee_id' | 'dept' | 'job_title' | 'status' | 'response_order';
+type ColumnSortKey = Exclude<SortKey, 'response_order'>;
 type ImportStatus = 'success' | 'error';
+
+/** Parse `last_name-asc` style values (keys may contain `_`). */
+function parseSortControlValue(v: string): { key: SortKey; dir: 'asc' | 'desc' } {
+    const m = v.match(/^(.*)-(asc|desc)$/);
+    if (!m) return { key: 'response_order', dir: 'asc' };
+    return { key: m[1] as SortKey, dir: m[2] as 'asc' | 'desc' };
+}
 
 type StaffToastVariant = 'success' | 'error' | 'info';
 type StaffToastState = { message: string; variant: StaffToastVariant };
@@ -553,7 +561,7 @@ export default function StaffDirectoryManagement() {
     const [newHighestQualification, setNewHighestQualification] = useState('');
     const [newDept, setNewDept] = useState('');
     const [newPatientAccess, setNewPatientAccess] = useState(true);
-    const [sortKey, setSortKey] = useState<SortKey>('last_name');
+    const [sortKey, setSortKey] = useState<SortKey>('response_order');
     const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
     const [statusFilter, setStatusFilter] = useState('all');
     const [staffPage, setStaffPage] = useState(1);
@@ -851,7 +859,7 @@ export default function StaffDirectoryManagement() {
         setEditDept(selected.dept || '');
     }, [selected]);
 
-    const toggleSort = (key: SortKey) => {
+    const toggleSort = (key: ColumnSortKey) => {
         if (sortKey === key) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
         else { setSortKey(key); setSortDir('asc'); }
     };
@@ -974,17 +982,21 @@ export default function StaffDirectoryManagement() {
         });
     }, [staff, deptIdToName]);
 
-    const filtered = staffForList.filter(s => {
-        const q = search.toLowerCase();
-        const matchSearch = search === '' || s.first_name.toLowerCase().includes(q) || s.last_name.toLowerCase().includes(q) || s.dept.toLowerCase().includes(q) || s.email.toLowerCase().includes(q) || s.employee_id.toLowerCase().includes(q) || s.job_title.toLowerCase().includes(q);
-        const matchDept = deptFilter === 'all' || s.dept === deptFilter;
-        const matchStatus = statusFilter === 'all' || s.status === statusFilter;
-        return matchSearch && matchDept && matchStatus;
-    }).sort((a, b) => {
-        const av = a[sortKey].toLowerCase();
-        const bv = b[sortKey].toLowerCase();
-        return sortDir === 'asc' ? av.localeCompare(bv) : bv.localeCompare(av);
-    });
+    const filtered = useMemo(() => {
+        const f = staffForList.filter(s => {
+            const q = search.toLowerCase();
+            const matchSearch = search === '' || s.first_name.toLowerCase().includes(q) || s.last_name.toLowerCase().includes(q) || s.dept.toLowerCase().includes(q) || s.email.toLowerCase().includes(q) || s.employee_id.toLowerCase().includes(q) || s.job_title.toLowerCase().includes(q);
+            const matchDept = deptFilter === 'all' || s.dept === deptFilter;
+            const matchStatus = statusFilter === 'all' || s.status === statusFilter;
+            return matchSearch && matchDept && matchStatus;
+        });
+        if (sortKey === 'response_order') return f;
+        return [...f].sort((a, b) => {
+            const av = a[sortKey as ColumnSortKey].toLowerCase();
+            const bv = b[sortKey as ColumnSortKey].toLowerCase();
+            return sortDir === 'asc' ? av.localeCompare(bv) : bv.localeCompare(av);
+        });
+    }, [staffForList, search, deptFilter, statusFilter, sortKey, sortDir]);
 
     const staffTotalPages = useMemo(() => Math.max(1, Math.ceil(filtered.length / staffPageSize)), [filtered.length, staffPageSize]);
     const paginatedFiltered = useMemo(
@@ -1505,9 +1517,14 @@ export default function StaffDirectoryManagement() {
                         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-muted)' }}>
                             <span className="material-icons-round" style={{ fontSize: 14 }}>sort</span>
                             <CustomSelect
-                                value={`${sortKey}-${sortDir}`}
-                                onChange={v => { const [k, d] = v.split('-'); setSortKey(k as SortKey); setSortDir(d as 'asc' | 'desc'); }}
+                                value={sortKey === 'response_order' ? 'response_order-asc' : `${sortKey}-${sortDir}`}
+                                onChange={v => {
+                                    const { key, dir } = parseSortControlValue(v);
+                                    setSortKey(key);
+                                    setSortDir(dir);
+                                }}
                                 options={[
+                                    { label: 'Same as API (default)', value: 'response_order-asc' },
                                     { label: 'Last Name A-Z', value: 'last_name-asc' },
                                     { label: 'Last Name Z-A', value: 'last_name-desc' },
                                     { label: 'First Name A-Z', value: 'first_name-asc' },

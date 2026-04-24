@@ -6,7 +6,6 @@ import CustomSelect from '@/components/CustomSelect';
 import {
     parseBulkUploadHistoryResponse,
     type BulkUploadHistoryEntry,
-    type BulkUploadHistoryKind,
 } from '@/lib/bulk-upload-history';
 import { MacVibrancyToast, MacVibrancyToastPortal } from '@/components/MacVibrancyToast';
 import { BulkImportErrorsSheet } from '@/components/BulkImportErrorsSheet';
@@ -251,7 +250,6 @@ export default function PatientsDirectoryManagement() {
     const [bulkResultCreated, setBulkResultCreated] = useState<unknown[]>([]);
     const [bulkResultErrors, setBulkResultErrors] = useState<PatientBulkRowError[]>([]);
     const [bulkHistory, setBulkHistory] = useState<BulkUploadHistoryEntry[]>([]);
-    const [bulkHistoryKind, setBulkHistoryKind] = useState<BulkUploadHistoryKind>('patient');
     const [bulkHistoryLoading, setBulkHistoryLoading] = useState(false);
     const [toast, setToast] = useState<PatientToastState | null>(null);
     const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -342,7 +340,7 @@ export default function PatientsDirectoryManagement() {
         setBulkHistoryLoading(true);
         try {
             const params = new URLSearchParams();
-            params.set('kind', bulkHistoryKind);
+            params.set('kind', 'patient');
             const res = await fetch(`/api/proxy/bulk-upload-history?${params.toString()}`, { credentials: 'include' });
             const data = await res.json().catch(() => ({}));
             if (!res.ok) {
@@ -355,7 +353,7 @@ export default function PatientsDirectoryManagement() {
         } finally {
             setBulkHistoryLoading(false);
         }
-    }, [bulkHistoryKind]);
+    }, []);
 
     const handlePatientBulkImport = async () => {
         if (!uploadedFile) return;
@@ -621,43 +619,13 @@ export default function PatientsDirectoryManagement() {
             )}
 
             <div className="fade-in delay-3 card" style={{ marginTop: 8 }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12, marginBottom: 14 }}>
-                    <h3 style={{ margin: 0 }}>Import history</h3>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                        <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Kind</span>
-                        <div
-                            role="group"
-                            aria-label="Bulk upload kind"
-                            style={{ display: 'inline-flex', borderRadius: 8, border: '1px solid var(--border-subtle)', overflow: 'hidden' }}
-                        >
-                            {(['staff', 'patient'] as const).map(k => (
-                                <button
-                                    key={k}
-                                    type="button"
-                                    onClick={() => setBulkHistoryKind(k)}
-                                    style={{
-                                        padding: '6px 14px',
-                                        fontSize: 12,
-                                        fontWeight: 600,
-                                        border: 'none',
-                                        cursor: 'pointer',
-                                        textTransform: 'capitalize',
-                                        background: bulkHistoryKind === k ? 'var(--helix-primary)' : 'var(--surface-2)',
-                                        color: bulkHistoryKind === k ? '#fff' : 'var(--text-secondary)',
-                                    }}
-                                >
-                                    {k}
-                                </button>
-                            ))}
-                        </div>
-                    </div>
-                </div>
+                <h3 style={{ margin: '0 0 14px' }}>Import history</h3>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                     {bulkHistoryLoading && (
                         <div style={{ padding: 24, textAlign: 'center', color: 'var(--text-muted)', fontSize: 13 }}>Loading history…</div>
                     )}
                     {!bulkHistoryLoading && bulkHistory.length === 0 && (
-                        <div style={{ padding: 20, textAlign: 'center', color: 'var(--text-muted)', fontSize: 13 }}>No imports found for this kind.</div>
+                        <div style={{ padding: 20, textAlign: 'center', color: 'var(--text-muted)', fontSize: 13 }}>No patient bulk imports yet.</div>
                     )}
                     {!bulkHistoryLoading &&
                         bulkHistory.map(h => (

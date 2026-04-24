@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { Montserrat } from 'next/font/google';
 import TopBar from '@/components/TopBar';
 import { parseBulkUploadHistoryResponse, type BulkUploadHistoryEntry } from '@/lib/bulk-upload-history';
+import { API_ENDPOINTS } from '@/lib/config';
 
 type SimpleItem = Record<string, unknown>;
 type ActivityItem = { id: string; title: string; detail: string; time: string; tone?: 'default' | 'critical' | 'info' };
@@ -35,6 +36,52 @@ function readTotal(raw: unknown, fallback: number): number {
         return Number(candidate);
     }
     return fallback;
+}
+
+/** Map GET /presence/online payload to UI rows (supports several backend shapes). */
+function parsePresenceOnlineToSignedIn(raw: unknown, max: number): SignedInStaff[] {
+    const list = getList(raw, ['data', 'items', 'online', 'staff', 'users', 'results', 'presence', 'records']);
+    if (!Array.isArray(list) || list.length === 0) return [];
+    const rows: SignedInStaff[] = [];
+    for (let idx = 0; idx < list.length; idx++) {
+        const item = list[idx];
+        if (!item || typeof item !== 'object') continue;
+        const rec = item as Record<string, unknown>;
+        const first = String(rec.first_name || '').trim();
+        const last = String(rec.last_name || '').trim();
+        const fullName = String(
+            rec.name
+            || rec.display_name
+            || `${first} ${last}`.trim()
+            || rec.email
+            || 'Staff member',
+        );
+        const initials = (first && last
+            ? `${first[0]}${last[0]}`
+            : String(fullName).split(/\s+/).map((p) => p[0] || '').slice(0, 2).join('')
+        ).toUpperCase() || 'S';
+        const roleRaw = String(rec.job_title || rec.title || rec.system_role || rec.role || 'Staff').trim();
+        const role = roleRaw.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+        const whenRaw = String(
+            rec.last_seen_at
+            || rec.last_activity_at
+            || rec.last_login_at
+            || rec.online_since
+            || rec.signed_in_at
+            || rec.updated_at
+            || '',
+        ).trim();
+        const id = String(rec.id || rec.staff_id || rec.user_id || `presence-${idx}`);
+        rows.push({
+            id,
+            name: fullName,
+            initials,
+            role,
+            when: whenRaw ? toWhenLabel(whenRaw) : 'Active now',
+            status: 'online',
+        });
+    }
+    return rows.slice(0, max);
 }
 
 function toWhenLabel(dateLike: string): string {
@@ -88,6 +135,8 @@ export default function HomePage() {
     const [latestAuditAt, setLatestAuditAt] = useState<string>('');
     const [activeSessions, setActiveSessions] = useState(0);
     const [signedInStaff, setSignedInStaff] = useState<SignedInStaff[]>([]);
+    /** Presence API returned 200 with an empty list (not the same as fetch failure). */
+    const [presenceReportedNoOnline, setPresenceReportedNoOnline] = useState(false);
 
     const fetchHomeData = useCallback(async () => {
         setLoading(true);
@@ -104,18 +153,20 @@ export default function HomePage() {
                 historyStaffRes,
                 historyPatientRes,
                 sessionsRes,
+                presenceRes,
             ] = await Promise.all([
-                fetch('/api/proxy/auth/me'),
-                fetch('/api/proxy/hospital'),
-                fetch('/api/proxy/staff?page_size=100&page_id=1'),
-                fetch('/api/proxy/patients?page_size=20&page_id=1'),
-                fetch('/api/proxy/teams'),
-                fetch('/api/proxy/departments'),
-                fetch('/api/proxy/escalation-policies'),
-                fetch('/api/proxy/audit-logs?page_size=5&page_id=1'),
-                fetch('/api/proxy/bulk-upload-history?kind=staff&page_size=20'),
-                fetch('/api/proxy/bulk-upload-history?kind=patient&page_size=20'),
-                fetch('/api/proxy/auth/sessions'),
+                fetch('/api/proxy/auth/me', { credentials: 'include' }),
+                fetch('/api/proxy/hospital', { credentials: 'include' }),
+                fetch('/api/proxy/staff?page_size=100&page_id=1', { credentials: 'include' }),
+                fetch('/api/proxy/patients?page_size=20&page_id=1', { credentials: 'include' }),
+                fetch('/api/proxy/teams', { credentials: 'include' }),
+                fetch('/api/proxy/departments', { credentials: 'include' }),
+                fetch('/api/proxy/escalation-policies', { credentials: 'include' }),
+                fetch('/api/proxy/audit-logs?page_size=5&page_id=1', { credentials: 'include' }),
+                fetch('/api/proxy/bulk-upload-history?kind=staff&page_size=20', { credentials: 'include' }),
+                fetch('/api/proxy/bulk-upload-history?kind=patient&page_size=20', { credentials: 'include' }),
+                fetch('/api/proxy/auth/sessions', { credentials: 'include' }),
+                fetch(API_ENDPOINTS.PRESENCE_ONLINE, { credentials: 'include' }),
             ]);
 
             const [
@@ -130,6 +181,7 @@ export default function HomePage() {
                 historyStaffJson,
                 historyPatientJson,
                 sessionsJson,
+                presenceJson,
             ] = await Promise.all([
                 meRes.ok ? meRes.json() : Promise.resolve(null),
                 hospitalRes.ok ? hospitalRes.json() : Promise.resolve(null),
@@ -142,6 +194,7 @@ export default function HomePage() {
                 historyStaffRes.ok ? historyStaffRes.json() : Promise.resolve(null),
                 historyPatientRes.ok ? historyPatientRes.json() : Promise.resolve(null),
                 sessionsRes.ok ? sessionsRes.json() : Promise.resolve(null),
+                presenceRes.ok ? presenceRes.json() : Promise.resolve(null),
             ]);
 
             if (meJson && typeof meJson === 'object') {
@@ -172,7 +225,7 @@ export default function HomePage() {
             }
             setTwoFactorAdoption({ enabled: twoFactorEnabled, total: staffItems.length });
 
-            // Currently signed-in staff (ranked by most recent last_login)
+            // Currently signed in: prefer GET /presence/online, else staff last_login heuristic
             const nowMs = Date.now();
             const withLogin = staffItems
                 .map((s) => {
@@ -205,7 +258,17 @@ export default function HomePage() {
                 .sort((a, b) => b._ts - a._ts)
                 .slice(0, 5)
                 .map(({ _ts, ...rest }) => { void _ts; return rest; });
-            setSignedInStaff(withLogin);
+
+            const fromPresence = presenceRes.ok && presenceJson
+                ? parsePresenceOnlineToSignedIn(presenceJson, 8)
+                : [];
+            if (fromPresence.length > 0) {
+                setSignedInStaff(fromPresence);
+                setPresenceReportedNoOnline(false);
+            } else {
+                setSignedInStaff(withLogin);
+                setPresenceReportedNoOnline(Boolean(presenceRes.ok) && fromPresence.length === 0);
+            }
             setPatientCount(readTotal(patientJson, patientItems.length));
             setTeamCount(readTotal(teamsJson, teamItems.length));
             setDepartmentCount(readTotal(departmentsJson, departmentItems.length));
@@ -617,7 +680,9 @@ export default function HomePage() {
                                 <div style={{ fontSize: 11.5, color: '#94A3B8', padding: '8px 0' }}>Loading signed-in staff…</div>
                             ) : signedInStaff.length === 0 ? (
                                 <div style={{ fontSize: 11.5, color: '#94A3B8', padding: '8px 0' }}>
-                                    No recent sign-ins recorded.
+                                    {presenceReportedNoOnline
+                                        ? 'No one online right now.'
+                                        : 'No recent sign-ins recorded.'}
                                 </div>
                             ) : (
                                 <div style={{ display: 'grid', gap: 8 }}>

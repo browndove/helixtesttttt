@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import TopBar from '@/components/TopBar';
 import { API_ENDPOINTS } from '@/lib/config';
 import { clearAdminSidebarSession } from '@/lib/facilityDisplayCache';
+import { readSettingsPageSnapshot, writeSettingsPageSnapshot, type SettingsPageSnapshotV1 } from '@/lib/settingsPageCache';
 import CustomSelect from '@/components/CustomSelect';
 import { formatGhanaPhoneInput, isValidGhanaPhone } from '@/lib/phone';
 import { MacVibrancyToast, MacVibrancyToastPortal } from '@/components/MacVibrancyToast';
@@ -175,29 +176,90 @@ function parseStaffLite(raw: unknown): StaffLite[] {
         .filter((staff): staff is StaffLite => staff !== null && staff.email.length > 0);
 }
 
+/** Normalizes GET /facilities/{id} value to a boolean for UI; API uses strict true/false. */
+function readScreenshotsAllowed(raw: unknown): boolean {
+    if (raw == null || typeof raw !== 'object') return false;
+    const v = (raw as Record<string, unknown>).screenshots_allowed;
+    if (v === true) return true;
+    if (v === false) return false;
+    if (v === 1) return true;
+    if (v === 0) return false;
+    if (typeof v === 'string') {
+        const t = v.trim().toLowerCase();
+        if (t === 'true' || t === '1' || t === 'yes' || t === 'on') return true;
+        if (t === 'false' || t === '0' || t === 'no' || t === 'off') return false;
+    }
+    return false;
+}
+
+function tryFacilityIdOnRecord(o: Record<string, unknown> | null | undefined): string {
+    if (!o) return '';
+    const id = [
+        o.facility_id, o.facilityId, o.current_facility_id, o.currentFacilityId, o.hospital_id, o.hospitalId,
+    ].find(v => typeof v === 'string' && v.trim());
+    return typeof id === 'string' ? id.trim() : '';
+}
+
+/** Match Staff/Patients: me root, user, staff, data, nested facility. */
+function extractFacilityIdFromMePayload(raw: unknown): string {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return '';
+    const me = raw as Record<string, unknown>;
+    let out = tryFacilityIdOnRecord(me);
+    if (out) return out;
+    if (me.user && typeof me.user === 'object' && !Array.isArray(me.user)) {
+        out = tryFacilityIdOnRecord(me.user as Record<string, unknown>);
+        if (out) return out;
+    }
+    if (me.staff && typeof me.staff === 'object' && !Array.isArray(me.staff)) {
+        out = tryFacilityIdOnRecord(me.staff as Record<string, unknown>);
+        if (out) return out;
+    }
+    if (me.data && typeof me.data === 'object' && !Array.isArray(me.data)) {
+        out = extractFacilityIdFromMePayload(me.data);
+        if (out) return out;
+    }
+    if (me.facility && typeof me.facility === 'object' && !Array.isArray(me.facility)) {
+        const f = me.facility as Record<string, unknown>;
+        const id = [f.id, f.facility_id, f.facilityId].find(v => typeof v === 'string' && v.trim());
+        if (typeof id === 'string') return id.trim();
+    }
+    return '';
+}
+
+function getFacilityIdFromFacilityPayload(raw: unknown): string {
+    if (Array.isArray(raw)) {
+        return raw.length > 0 ? getFacilityIdFromFacilityPayload(raw[0]) : '';
+    }
+    const rec = raw && typeof raw === 'object' ? raw as Record<string, unknown> : {};
+    const id = [rec.id, rec.facility_id, rec.facilityId].find(v => typeof v === 'string' && v.trim());
+    return typeof id === 'string' ? id.trim() : '';
+}
+
 export default function SettingsPage() {
     const router = useRouter();
-    const [toast, setToast] = useState<string | null>(null);
-    const [loadingSecurity, setLoadingSecurity] = useState(true);
+    const [initialSnapshot] = useState(readSettingsPageSnapshot);
+    const hydratedFromCache = Boolean(initialSnapshot);
+    const [toast, setToast] = useState<{ message: string; variant: 'success' | 'error' | 'info' } | null>(null);
+    const [loadingSecurity, setLoadingSecurity] = useState(!initialSnapshot);
     const [savingSecurity, setSavingSecurity] = useState(false);
-    const [loadingAdmins, setLoadingAdmins] = useState(true);
+    const [loadingAdmins, setLoadingAdmins] = useState(!initialSnapshot);
 
     // Profile
-    const [fullName, setFullName] = useState('');
-    const [email, setEmail] = useState('');
-    const [phone, setPhone] = useState('');
-    const [jobTitle, setJobTitle] = useState('');
-    const [userRole, setUserRole] = useState('Admin');
-    const [currentUserId, setCurrentUserId] = useState('');
+    const [fullName, setFullName] = useState(initialSnapshot?.fullName ?? '');
+    const [email, setEmail] = useState(initialSnapshot?.email ?? '');
+    const [phone, setPhone] = useState(initialSnapshot?.phone ?? '');
+    const [jobTitle, setJobTitle] = useState(initialSnapshot?.jobTitle ?? '');
+    const [userRole, setUserRole] = useState(initialSnapshot?.userRole ?? 'Admin');
+    const [currentUserId, setCurrentUserId] = useState(initialSnapshot?.currentUserId ?? '');
     const [savingProfile, setSavingProfile] = useState(false);
 
     // Security
-    const [twoFactor, setTwoFactor] = useState(false);
-    const [sessionTimeout, setSessionTimeout] = useState('30');
-    const [sessions, setSessions] = useState<SessionEntry[]>([]);
+    const [twoFactor, setTwoFactor] = useState(initialSnapshot?.twoFactor ?? false);
+    const [sessionTimeout, setSessionTimeout] = useState(initialSnapshot?.sessionTimeout ?? '30');
+    const [sessions, setSessions] = useState<SessionEntry[]>(initialSnapshot?.sessions ?? []);
 
     // Admins
-    const [admins, setAdmins] = useState<Admin[]>([]);
+    const [admins, setAdmins] = useState<Admin[]>(initialSnapshot?.admins ?? []);
     const [showInvite, setShowInvite] = useState(false);
     const [inviteFirstName, setInviteFirstName] = useState('');
     const [inviteLastName, setInviteLastName] = useState('');
@@ -206,11 +268,18 @@ export default function SettingsPage() {
     const [inviteJobTitle, setInviteJobTitle] = useState('Administrator');
     const [invitingAdmin, setInvitingAdmin] = useState(false);
 
-    const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(null), 2500); };
+    const [facilityId, setFacilityId] = useState(initialSnapshot?.facilityId ?? '');
+    const [screenshotsAllowed, setScreenshotsAllowed] = useState(initialSnapshot?.screenshotsAllowed ?? false);
+    const [savingScreenshots, setSavingScreenshots] = useState(false);
+
+    const showToast = (message: string, variant: 'success' | 'error' | 'info' = 'success') => {
+        setToast({ message, variant });
+        setTimeout(() => setToast(null), 2500);
+    };
 
     const savePersonalProfile = async () => {
         if (!currentUserId.trim()) {
-            showToast('Could not resolve your account. Try signing in again.');
+            showToast('Could not resolve your account. Try signing in again.', 'error');
             return;
         }
         const trimmedTitle = jobTitle.trim().slice(0, JOB_TITLE_MAX_LENGTH);
@@ -244,90 +313,202 @@ export default function SettingsPage() {
             });
             const errData = await putRes.json().catch(() => ({} as { message?: string; detail?: string; error?: string }));
             if (!putRes.ok) {
-                showToast(String(errData.message || errData.detail || errData.error || 'Failed to save profile'));
+                showToast(String(errData.message || errData.detail || errData.error || 'Failed to save profile'), 'error');
                 return;
             }
             setJobTitle(trimmedTitle);
             showToast('Profile updated');
             await loadSecurityData();
         } catch {
-            showToast('Failed to save profile');
+            showToast('Failed to save profile', 'error');
         } finally {
             setSavingProfile(false);
         }
     };
 
-    const loadSecurityData = useCallback(async () => {
-        setLoadingSecurity(true);
-        setLoadingAdmins(true);
-        setCurrentUserId('');
+    const toggleScreenshotsAllowed = async () => {
+        if (!facilityId.trim()) {
+            showToast('Could not find facility. Try signing in again.', 'error');
+            return;
+        }
+        const next: boolean = !screenshotsAllowed;
+        setScreenshotsAllowed(next);
+        setSavingScreenshots(true);
+        try {
+            // API: JSON booleans only — "screenshots_allowed": true or false (not strings)
+            const payload: { screenshots_allowed: boolean } = { screenshots_allowed: next };
+            const res = await fetch(API_ENDPOINTS.FACILITY(facilityId), {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify(payload),
+            });
+            const data = await res.json().catch(() => ({} as Record<string, unknown>));
+            if (!res.ok) {
+                setScreenshotsAllowed(!next);
+                showToast(String(data?.message || data?.detail || data?.error || 'Failed to update facility'), 'error');
+                return;
+            }
+            if (data && typeof data === 'object' && 'screenshots_allowed' in data) {
+                setScreenshotsAllowed(readScreenshotsAllowed(data));
+            }
+            showToast(next ? 'Screenshots allowed for this facility' : 'Screenshots disabled for this facility');
+        } catch {
+            setScreenshotsAllowed(!next);
+            showToast('Failed to update facility', 'error');
+        } finally {
+            setSavingScreenshots(false);
+        }
+    };
+
+    const loadSecurityData = useCallback(async (opts?: { background?: boolean }) => {
+        const background = Boolean(opts?.background);
+        if (!background) {
+            setLoadingSecurity(true);
+            setLoadingAdmins(true);
+            setCurrentUserId('');
+            setFacilityId('');
+        }
+        let nextCurrentUserId = '';
+        let nextFullName = '';
+        let nextEmail = '';
+        let nextPhone = '';
+        let nextJobTitle = '';
+        let nextUserRole = 'Admin';
+        let nextTwoFactor = false;
+        let nextSessionTimeout = '30';
         try {
             const [meRes, sessionsRes] = await Promise.all([
-                fetch(API_ENDPOINTS.AUTH_ME),
-                fetch(API_ENDPOINTS.AUTH_SESSIONS),
+                fetch(API_ENDPOINTS.AUTH_ME, { credentials: 'include' }),
+                fetch(API_ENDPOINTS.AUTH_SESSIONS, { credentials: 'include' }),
             ]);
+            // Parse session body in parallel with everything that follows (don’t block on it).
+            const sessionsDataPromise: Promise<unknown> = sessionsRes.ok
+                ? sessionsRes.json()
+                : Promise.resolve(null);
+
             let resolvedFacilityId = '';
             let currentUser: Record<string, unknown> | null = null;
 
             if (meRes.ok) {
                 const me = await meRes.json();
+                resolvedFacilityId = extractFacilityIdFromMePayload(me);
                 const user = me?.user && typeof me.user === 'object' ? me.user : me;
                 currentUser = user && typeof user === 'object' ? user as Record<string, unknown> : null;
                 const staffRec = me?.staff && typeof me.staff === 'object' ? me.staff as Record<string, unknown> : null;
                 const staffId = String(staffRec?.id || staffRec?.staff_id || '').trim();
                 const userId = String(user?.id || '').trim();
+                nextCurrentUserId = (staffId || userId).trim();
                 setCurrentUserId(staffId || userId);
                 const first = String(user?.first_name || '').trim();
                 const last = String(user?.last_name || '').trim();
                 const derivedName = String(user?.name || `${first} ${last}`.trim());
-                if (derivedName) setFullName(derivedName);
-                if (user?.email) setEmail(String(user.email));
-                if (user?.phone) setPhone(formatGhanaPhoneInput(String(user.phone)));
-                if (user?.job_title || user?.title) setJobTitle(String(user?.job_title || user?.title));
-                if (user?.role) setUserRole(formatRoleLabel(String(user.role)));
-                resolvedFacilityId = String(
-                    user?.facility_id
-                    || user?.facilityId
-                    || user?.hospital_id
-                    || user?.hospitalId
-                    || ''
-                );
-                setTwoFactor(Boolean(
+                if (derivedName) {
+                    setFullName(derivedName);
+                    nextFullName = derivedName;
+                }
+                if (user?.email) {
+                    setEmail(String(user.email));
+                    nextEmail = String(user.email);
+                }
+                if (user?.phone) {
+                    const f = formatGhanaPhoneInput(String(user.phone));
+                    setPhone(f);
+                    nextPhone = f;
+                }
+                if (user?.job_title || user?.title) {
+                    const jt = String(user?.job_title || user?.title);
+                    setJobTitle(jt);
+                    nextJobTitle = jt;
+                }
+                if (user?.role) {
+                    const rl = formatRoleLabel(String(user.role));
+                    setUserRole(rl);
+                    nextUserRole = rl;
+                }
+                nextTwoFactor = Boolean(
                     me?.otp_enabled
                     ?? me?.two_factor_enabled
                     ?? me?.two_factor
                     ?? me?.twoFactorEnabled
                     ?? false
-                ));
+                );
+                setTwoFactor(nextTwoFactor);
                 const timeoutVal = me?.inactivity_timeout_minutes ?? me?.session_timeout_minutes ?? me?.session_timeout;
-                if (typeof timeoutVal === 'number' && timeoutVal > 0) setSessionTimeout(String(timeoutVal));
-                if (timeoutVal === 'never') setSessionTimeout('never');
+                if (typeof timeoutVal === 'number' && timeoutVal > 0) {
+                    setSessionTimeout(String(timeoutVal));
+                    nextSessionTimeout = String(timeoutVal);
+                }
+                if (timeoutVal === 'never') {
+                    setSessionTimeout('never');
+                    nextSessionTimeout = 'never';
+                }
             }
 
-            if (sessionsRes.ok) {
-                const rawSessions = await sessionsRes.json();
-                setSessions(parseSessions(rawSessions));
+            if (!resolvedFacilityId && typeof document !== 'undefined') {
+                const cookieM = document.cookie.match(/helix-facility=([^;]+)/);
+                if (cookieM?.[1]) resolvedFacilityId = cookieM[1].trim();
             }
+            if (!resolvedFacilityId) {
+                const [hRes, fRes] = await Promise.all([
+                    fetch('/api/proxy/hospital', { credentials: 'include' }),
+                    fetch('/api/proxy/facilities', { credentials: 'include' }),
+                ]);
+                const [hospitalData, facilitiesData] = await Promise.all([
+                    hRes.ok ? hRes.json() : Promise.resolve(null),
+                    fRes.ok ? fRes.json() : Promise.resolve(null),
+                ]);
+                resolvedFacilityId
+                    = getFacilityIdFromFacilityPayload(hospitalData) || getFacilityIdFromFacilityPayload(facilitiesData);
+            }
+
+            setFacilityId(resolvedFacilityId);
 
             const adminParams = new URLSearchParams({
                 page_size: '100',
                 page_id: '1',
             });
             if (resolvedFacilityId) adminParams.set('facility_id', resolvedFacilityId);
-            const adminsRes = await fetch(`/api/proxy/staff?${adminParams.toString()}`);
-            if (adminsRes.ok) {
-                const rawAdmins = await adminsRes.json();
-                const parsedAdmins = parseAdmins(rawAdmins);
+
+            const [facJson, staffRaw, sessionsData] = await Promise.all([
+                resolvedFacilityId
+                    ? fetch(API_ENDPOINTS.FACILITY(resolvedFacilityId), { credentials: 'include' })
+                        .then(r => (r.ok ? r.json() : null))
+                    : Promise.resolve(null),
+                fetch(`/api/proxy/staff?${adminParams.toString()}`, { credentials: 'include' })
+                    .then(r => (r.ok ? r.json() : null)),
+                sessionsDataPromise,
+            ]);
+
+            const screenshotsForSnapshot
+                = resolvedFacilityId && facJson && typeof facJson === 'object' ? readScreenshotsAllowed(facJson) : false;
+            if (resolvedFacilityId && facJson && typeof facJson === 'object') {
+                setScreenshotsAllowed(screenshotsForSnapshot);
+            } else {
+                setScreenshotsAllowed(false);
+            }
+
+            let finalSessions: SessionEntry[] = [];
+            if (sessionsData) {
+                finalSessions = parseSessions(sessionsData);
+                setSessions(finalSessions);
+            } else {
+                finalSessions = (readSettingsPageSnapshot()?.sessions as SessionEntry[] | undefined) ?? [];
+            }
+
+            let finalAdmins: Admin[] = [];
+            if (staffRaw) {
+                const parsedAdmins = parseAdmins(staffRaw);
 
                 if (currentUser) {
-                    const userId = String(currentUser.id || '').trim();
+                    const adminSelfId = String(currentUser.id || '').trim();
                     const userRoleRaw = String(currentUser.role || currentUser.system_role || '').trim();
-                    if (userId && isAdminLikeRole(userRoleRaw) && !parsedAdmins.some(a => a.id === userId)) {
+                    if (adminSelfId && isAdminLikeRole(userRoleRaw) && !parsedAdmins.some(a => a.id === adminSelfId)) {
                         const first = String(currentUser.first_name || '').trim();
                         const last = String(currentUser.last_name || '').trim();
                         const derivedName = String(currentUser.name || `${first} ${last}`.trim() || 'Administrator');
                         parsedAdmins.unshift({
-                            id: userId,
+                            id: adminSelfId,
                             name: derivedName,
                             email: String(currentUser.email || ''),
                             role: normalizeAdminRole(userRoleRaw),
@@ -337,20 +518,45 @@ export default function SettingsPage() {
                     }
                 }
 
+                finalAdmins = parsedAdmins;
                 setAdmins(parsedAdmins);
             } else {
-                setAdmins([]);
+                if (!background) {
+                    setAdmins([]);
+                }
+                finalAdmins = (readSettingsPageSnapshot()?.admins as Admin[] | undefined) ?? [];
+            }
+
+            if (meRes.ok) {
+                const prev = readSettingsPageSnapshot();
+                const shot: SettingsPageSnapshotV1 = {
+                    v: 1,
+                    currentUserId: nextCurrentUserId || (prev?.currentUserId ?? ''),
+                    fullName: nextFullName || (prev?.fullName ?? ''),
+                    email: nextEmail || (prev?.email ?? ''),
+                    phone: nextPhone || (prev?.phone ?? ''),
+                    jobTitle: nextJobTitle || (prev?.jobTitle ?? ''),
+                    userRole: nextUserRole || (prev?.userRole ?? 'Admin'),
+                    twoFactor: nextTwoFactor,
+                    sessionTimeout: nextSessionTimeout,
+                    sessions: finalSessions,
+                    facilityId: resolvedFacilityId,
+                    screenshotsAllowed: screenshotsForSnapshot,
+                    admins: finalAdmins,
+                };
+                writeSettingsPageSnapshot(shot);
             }
         } catch {
-            // Keep existing defaults if backend fetch fails.
-            setAdmins([]);
+            if (!background) {
+                setAdmins([]);
+            }
         } finally {
             setLoadingSecurity(false);
             setLoadingAdmins(false);
         }
     }, []);
 
-    useEffect(() => { loadSecurityData(); }, [loadSecurityData]);
+    useEffect(() => { void loadSecurityData({ background: hydratedFromCache }); }, [loadSecurityData, hydratedFromCache]);
 
     const saveSessionSettings = async () => {
         setSavingSecurity(true);
@@ -366,7 +572,7 @@ export default function SettingsPage() {
             if (!res.ok) throw new Error('Failed');
             showToast('Session settings saved');
         } catch {
-            showToast('Failed to save session settings');
+            showToast('Failed to save session settings', 'error');
         } finally {
             setSavingSecurity(false);
         }
@@ -385,7 +591,7 @@ export default function SettingsPage() {
             showToast(next ? '2FA enabled' : '2FA disabled');
         } catch {
             setTwoFactor(!next);
-            showToast('Failed to update 2FA');
+            showToast('Failed to update 2FA', 'error');
         }
     };
 
@@ -396,7 +602,7 @@ export default function SettingsPage() {
             setSessions(prev => prev.filter(s => s.id !== sessionId));
             showToast('Session revoked');
         } catch {
-            showToast('Failed to revoke session');
+            showToast('Failed to revoke session', 'error');
         }
     };
 
@@ -425,11 +631,11 @@ export default function SettingsPage() {
 
     const handleInviteAdmin = async () => {
         if (!inviteFirstName.trim() || !inviteLastName.trim() || !inviteEmail.trim() || !invitePhone.trim()) {
-            showToast('Please fill first name, last name, email, and phone');
+            showToast('Please fill first name, last name, email, and phone', 'error');
             return;
         }
         if (!isValidGhanaPhone(invitePhone)) {
-            showToast('Phone must be +233 followed by 9 digits');
+            showToast('Phone must be +233 followed by 9 digits', 'error');
             return;
         }
 
@@ -488,7 +694,7 @@ export default function SettingsPage() {
                         });
                         const promoteData = await promoteRes.json().catch(() => ({}));
                         if (!promoteRes.ok) {
-                            showToast(String(promoteData?.message || promoteData?.detail || 'Failed to promote existing staff to admin'));
+                            showToast(String(promoteData?.message || promoteData?.detail || 'Failed to promote existing staff to admin'), 'error');
                             return;
                         }
 
@@ -509,11 +715,11 @@ export default function SettingsPage() {
                     }
                 }
 
-                showToast(String(data?.message || data?.detail || 'Staff with this email already exists'));
+                showToast(String(data?.message || data?.detail || 'Staff with this email already exists'), 'error');
                 return;
             }
             if (!res.ok) {
-                showToast(String(data?.message || data?.detail || 'Failed to invite admin'));
+                showToast(String(data?.message || data?.detail || 'Failed to invite admin'), 'error');
                 return;
             }
 
@@ -526,7 +732,7 @@ export default function SettingsPage() {
             setShowInvite(false);
             await loadSecurityData();
         } catch {
-            showToast('Failed to invite admin');
+            showToast('Failed to invite admin', 'error');
         } finally {
             setInvitingAdmin(false);
         }
@@ -540,7 +746,7 @@ export default function SettingsPage() {
         <>
             {toast && (
                 <MacVibrancyToastPortal>
-                    <MacVibrancyToast message={toast} variant="success" dismissible={false} />
+                    <MacVibrancyToast message={toast.message} variant={toast.variant} dismissible={false} />
                 </MacVibrancyToastPortal>
             )}
 
@@ -565,6 +771,51 @@ export default function SettingsPage() {
                                         <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>{jobTitle || 'No title'} · {userRole}</p>
                                     </div>
                                 </div>
+                            </div>
+
+                            {/* Facility: screenshots (GET/PUT /facilities/{id} screenshots_allowed) */}
+                            <div className="card" style={{ gridColumn: '1 / -1' }}>
+                                <h3 style={{ marginBottom: 8 }}>Facility</h3>
+                                <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 16, lineHeight: 1.5 }}>
+                                    Control whether staff can capture screenshots in apps that respect this facility setting.
+                                </p>
+                                {loadingSecurity ? (
+                                    <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Loading facility…</div>
+                                ) : !facilityId ? (
+                                    <div style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.55 }}>
+                                        Couldn&apos;t resolve your facility from your session. Use the facility switcher if your organization has one, or sign in again. If this persists, contact support.
+                                    </div>
+                                ) : (
+                                    <div style={{
+                                        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                                        padding: '12px 14px', borderRadius: 'var(--radius-md)',
+                                        background: screenshotsAllowed ? 'var(--success-bg)' : 'var(--surface-2)',
+                                        border: `1px solid ${screenshotsAllowed ? '#d5e8dd' : 'var(--border-default)'}`,
+                                        transition: 'all 0.2s',
+                                    }}>
+                                        <div>
+                                            <div style={{ fontWeight: 600, fontSize: 13, color: screenshotsAllowed ? 'var(--success)' : 'var(--text-primary)' }}>
+                                                {screenshotsAllowed ? 'Screenshots allowed' : 'Screenshots not allowed'}
+                                            </div>
+                                            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
+                                                {savingScreenshots
+                                                    ? 'Saving…'
+                                                    : screenshotsAllowed
+                                                        ? 'Screenshot capture is permitted for this facility when supported by the Admin.'
+                                                        : 'Screenshot capture is blocked for this facility when not supported by the Admin.'}
+                                            </div>
+                                        </div>
+                                        <label className="toggle">
+                                            <input
+                                                type="checkbox"
+                                                checked={screenshotsAllowed}
+                                                disabled={savingScreenshots}
+                                                onChange={toggleScreenshotsAllowed}
+                                            />
+                                            <span className="toggle-slider" />
+                                        </label>
+                                    </div>
+                                )}
                             </div>
 
                             {/* Password */}

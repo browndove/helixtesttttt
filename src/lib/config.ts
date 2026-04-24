@@ -31,6 +31,9 @@ export const API_ENDPOINTS = {
   FACILITIES: `/api/proxy/facilities`,
   FACILITY: (id: string) => `/api/proxy/facilities/${id}`,
 
+  // Presence
+  PRESENCE_ONLINE: `/api/proxy/presence/online`,
+
   // Roles
   ROLES: `/api/proxy/roles`,
   ROLE: (id: string) => `/api/proxy/roles/${id}`,

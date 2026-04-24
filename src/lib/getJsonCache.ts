@@ -33,3 +33,13 @@ export function writeCachedJson(url: string, value: unknown): void {
         /* quota or private mode */
     }
 }
+
+export function invalidateCachedJson(url: string): void {
+    memory.delete(url);
+    if (typeof window === 'undefined') return;
+    try {
+        sessionStorage.removeItem(STORAGE_PREFIX + url);
+    } catch {
+        /* ignore */
+    }
+}
