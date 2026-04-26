@@ -309,8 +309,8 @@ export default function SetupAccountForm({
                             }}
                         >
                             {opts.facilityMode
-                                ? 'To set up your facility, open this page from the invitation email you received—the message has a button or link that takes you here with everything ready. If you typed the website address yourself, go back to that email and use the link there instead.'
-                                : 'To finish creating your account, open this page from your invitation email and tap the setup link there. That link is what lets you continue—typing the site address on its own will not work.'}
+                                ? 'Use the link in your facility invitation email to open this page. Typing the site address alone will not work.'
+                                : 'Use the link in your invitation email to open this page. Typing the site address alone will not work.'}
                         </div>
                     )}
                     {!prefillLoading && token && !identityReady && (
