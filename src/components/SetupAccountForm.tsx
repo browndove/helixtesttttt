@@ -210,13 +210,13 @@ export default function SetupAccountForm({
         setSuccess('');
 
         if (!token) {
-            setError('Missing setup token. Use the full link from your email.');
+            setError('Open this page from the setup link in your invitation email, then try again.');
             return;
         }
         if (!identityReady || !phoneReady || !password.trim()) {
             setError(
                 !identityReady
-                    ? 'Your account details could not be loaded. Please use the full setup link from your invitation email.'
+                    ? 'We could not load your invitation details. Open the setup link from your email again, or ask your administrator to resend the invite.'
                     : !phoneReady
                         ? 'If you enter phone, use a valid Ghana phone number.'
                     : 'Please enter and confirm your password.'
@@ -309,8 +309,8 @@ export default function SetupAccountForm({
                             }}
                         >
                             {opts.facilityMode
-                                ? 'This step needs a valid setup link from your email. Open the full facility invitation URL (it should include ?token=… in the address bar).'
-                                : 'This step needs a valid setup link from your email. Open the full URL from your invitation (it should include ?token=… in the address bar).'}
+                                ? 'To set up your facility, open this page from the invitation email you received—the message has a button or link that takes you here with everything ready. If you typed the website address yourself, go back to that email and use the link there instead.'
+                                : 'To finish creating your account, open this page from your invitation email and tap the setup link there. That link is what lets you continue—typing the site address on its own will not work.'}
                         </div>
                     )}
                     {!prefillLoading && token && !identityReady && (
