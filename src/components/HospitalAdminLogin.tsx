@@ -1,10 +1,69 @@
 'use client';
 
-import { useState, useRef, useCallback, useEffect, useLayoutEffect } from 'react';
+import { useState, useRef, useCallback, useEffect, useLayoutEffect, type CSSProperties, type FocusEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import { API_ENDPOINTS } from '@/lib/config';
 import { warmRolesPageCache } from '@/lib/rolesAdminCache';
 import { MacVibrancyToast, MacVibrancyToastPortal } from '@/components/MacVibrancyToast';
+
+/** Helix hospital admin web sign-in — facility code, work email, password, then email OTP. */
+const C_LEFT_BG = '#0B1E3B';
+const C_ACCENT = '#7FB2F0';
+/** Form column — soft blue-grey canvas (reference). */
+const C_RIGHT_BG = '#E8EDF4';
+const C_MUTED_LABEL = '#7A8A9E';
+const C_BODY_MUTED = '#5C6B7E';
+const C_INPUT_BORDER = '#D4DCE8';
+const C_PILL_BG = '#E4ECF6';
+const C_PILL_BORDER = '#C8D4E4';
+
+const labelStyle: CSSProperties = {
+    display: 'block',
+    fontSize: 9,
+    fontWeight: 600,
+    letterSpacing: '0.1em',
+    textTransform: 'uppercase' as const,
+    color: C_MUTED_LABEL,
+    marginBottom: 4,
+};
+const inputBase: CSSProperties = {
+    width: '100%',
+    height: 40,
+    paddingLeft: 38,
+    paddingRight: 12,
+    borderRadius: 8,
+    border: `1px solid ${C_INPUT_BORDER}`,
+    fontSize: 14,
+    background: '#fff',
+    color: C_LEFT_BG,
+    outline: 'none',
+    transition: 'border-color 0.15s ease, box-shadow 0.15s ease',
+};
+const inputWithIcon: CSSProperties = { ...inputBase };
+const inputWithIconAndToggle: CSSProperties = { ...inputBase, paddingRight: 40 };
+
+const inputFocusHandlers = {
+    onFocus: (e: FocusEvent<HTMLInputElement>) => {
+        e.target.style.boxShadow = '0 0 0 3px rgba(11,30,59,0.14)';
+    },
+    onBlur: (e: FocusEvent<HTMLInputElement>) => {
+        e.target.style.boxShadow = 'none';
+    },
+} as const;
+
+const ghostBtnSm: CSSProperties = {
+    border: 'none',
+    background: 'transparent',
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+};
+
+const ghostBtnXs: CSSProperties = {
+    ...ghostBtnSm,
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 4,
+};
 
 function normalizeFacilityCode(raw: string): string {
     return raw.toUpperCase().replace(/[^A-Z0-9]/g, '');
@@ -79,13 +138,13 @@ export default function HospitalAdminLogin() {
         setError('');
         const code = normalizeFacilityCode(facilityCode);
         if (!email || !password) {
-            setError('Please enter your email and password.');
-            showToast('Please enter your email and password.', 'error');
+            setError('Enter the work email and password for your Helix admin account.');
+            showToast('Enter your work email and password.', 'error');
             return;
         }
         if (!code) {
-            setError('Please enter your facility code.');
-            showToast('Please enter your facility code.', 'error');
+            setError('Enter your facility’s Helix code (same code your organization uses in Helix).');
+            showToast('Enter your facility’s Helix code.', 'error');
             return;
         }
         setLoading(true);
@@ -97,8 +156,8 @@ export default function HospitalAdminLogin() {
             });
             const data = await res.json();
             if (!res.ok) {
-                setError(data.message || 'Login failed');
-                showToast(data.message || 'Login failed', 'error');
+                setError(data.message || 'Could not sign you in. Check your facility code, email, and password.');
+                showToast(data.message || 'Could not sign you in.', 'error');
                 setLoading(false);
                 return;
             }
@@ -108,10 +167,10 @@ export default function HospitalAdminLogin() {
             setStep('otp');
             setOtpDigits(['', '', '', '', '', '']);
             setResendTimer(60);
-            showToast('OTP sent to your email', 'success');
+            showToast('Verification code sent to your email.', 'success');
             setTimeout(() => otpRefs.current[0]?.focus(), 100);
         } catch (err) {
-            const errMsg = err instanceof Error ? err.message : 'Network error. Please try again.';
+            const errMsg = err instanceof Error ? err.message : 'Could not reach Helix. Check your connection and try again.';
             setError(errMsg);
             showToast(errMsg, 'error');
         } finally {
@@ -135,13 +194,13 @@ export default function HospitalAdminLogin() {
             if (res.ok) {
                 setOtpDigits(['', '', '', '', '', '']);
                 setResendTimer(60);
-                showToast('New OTP sent to your email', 'success');
+                showToast('A new verification code was sent to your email.', 'success');
                 setTimeout(() => otpRefs.current[0]?.focus(), 100);
             } else {
-                showToast('Failed to resend OTP', 'error');
+                showToast('Could not resend the code. Try again in a moment.', 'error');
             }
         } catch {
-            showToast('Network error', 'error');
+            showToast('Could not reach Helix.', 'error');
         } finally {
             setLoading(false);
         }
@@ -151,8 +210,8 @@ export default function HospitalAdminLogin() {
         setError('');
         const code = otpDigits.join('');
         if (!code || code.length !== 6) {
-            setError('Please enter a valid 6-digit OTP.');
-            showToast('Please enter a valid 6-digit OTP.', 'error');
+            setError('Enter all 6 digits from the email Helix sent you.');
+            showToast('Enter the full 6-digit code.', 'error');
             return;
         }
         setLoading(true);
@@ -172,18 +231,18 @@ export default function HospitalAdminLogin() {
             try {
                 data = text ? (JSON.parse(text) as { message?: string }) : {};
             } catch {
-                setError('Invalid response from server');
-                showToast('Invalid response from server', 'error');
+                setError('Helix returned an unexpected response. Please try again.');
+                showToast('Something went wrong. Try again.', 'error');
                 setLoading(false);
                 return;
             }
             if (!res.ok) {
-                setError(data.message || 'OTP verification failed');
-                showToast(data.message || 'OTP verification failed', 'error');
+                setError(data.message || 'That code did not work. Check the email and try again, or resend a new code.');
+                showToast(data.message || 'Code could not be verified.', 'error');
                 setLoading(false);
                 return;
             }
-            showToast('Signed in', 'success');
+            showToast('Signed in to Helix.', 'success');
             // Do not block navigation on extra auth calls — session cookie is set by verify-otp.
             void fetch(API_ENDPOINTS.AUTH_ME, { credentials: 'include' }).catch(() => null);
             warmRolesPageCache();
@@ -194,7 +253,7 @@ export default function HospitalAdminLogin() {
                 router.replace('/home');
             }
         } catch (err) {
-            const errMsg = err instanceof Error ? err.message : 'Network error. Please try again.';
+            const errMsg = err instanceof Error ? err.message : 'Could not reach Helix. Check your connection and try again.';
             setError(errMsg);
             showToast(errMsg, 'error');
         } finally {
@@ -208,142 +267,420 @@ export default function HospitalAdminLogin() {
         setError('');
     };
 
-    return (
-        <div style={{
-            minHeight: '100vh',
-            background: 'var(--bg-900)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            position: 'relative',
-            overflow: 'hidden',
-        }}>
+    const leftPanelSurface: CSSProperties = {
+        position: 'relative' as const,
+        minWidth: 0,
+        background: C_LEFT_BG,
+        overflow: 'hidden',
+    };
 
-            <div className="fade-in" style={{ width: '100%', maxWidth: 420, padding: '0 20px' }}>
-                {/* Brand */}
-                <div style={{ textAlign: 'center', marginBottom: 36 }}>
-                    <div style={{
-                        width: 52,
-                        height: 52,
-                        borderRadius: 14,
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        margin: '0 auto 16px',
-                        boxShadow: '0 2px 8px rgba(30,58,95,0.18)',
-                        overflow: 'hidden',
-                    }}>
-                        <img
-                            src="/helix-logo.png"
-                            alt="Helix logo"
-                            width={52}
-                            height={52}
-                            style={{ width: '100%', height: '100%', objectFit: 'contain' }}
-                        />
+    const shellRootStyle: CSSProperties = {
+        position: 'relative' as const,
+        height: '100dvh',
+        maxHeight: '100dvh',
+        width: '100%',
+        minHeight: 0,
+        display: 'flex',
+        flexDirection: 'column',
+        overflow: 'hidden',
+        background: '#F0F2F5',
+    };
+
+    const asideStyle: CSSProperties = {
+        ...leftPanelSurface,
+        display: 'flex',
+        minHeight: 160,
+        width: '100%',
+        minWidth: 0,
+        maxHeight: '30vh',
+        flex: '0 0 auto',
+        flexDirection: 'column',
+        justifyContent: 'space-between',
+    };
+
+    const rightColumnStyle: CSSProperties = {
+        display: 'flex',
+        height: '100%',
+        minHeight: 0,
+        width: '100%',
+        minWidth: 0,
+        flex: 1,
+        flexDirection: 'column',
+        overflow: 'hidden',
+        background: C_RIGHT_BG,
+    };
+
+    const formScrollStyle: CSSProperties = {
+        display: 'flex',
+        minHeight: 0,
+        width: '100%',
+        minWidth: 0,
+        flex: 1,
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        overflowX: 'hidden',
+        overflowY: 'hidden',
+        overscrollBehavior: 'none',
+        padding: '24px 40px',
+    };
+
+    const formInnerStyle: CSSProperties = {
+        display: 'flex',
+        width: '100%',
+        minWidth: 0,
+        maxWidth: 'min(100%, 26rem)',
+        flexShrink: 0,
+        flexDirection: 'column',
+        alignItems: 'stretch',
+        paddingLeft: 16,
+        paddingRight: 16,
+        paddingBottom: 4,
+    };
+
+    const leftContentStyle: CSSProperties = {
+        position: 'relative' as const,
+        zIndex: 1,
+        minHeight: 0,
+        maxHeight: '100%',
+        flex: 1,
+        overflow: 'hidden',
+        paddingTop: 32,
+        paddingLeft: 24,
+        paddingRight: 24,
+        paddingBottom: 0,
+    };
+
+    const leftFooterStyle: CSSProperties = {
+        position: 'relative' as const,
+        zIndex: 1,
+        flexShrink: 0,
+        padding: '20px 24px 40px',
+        fontSize: 12,
+        lineHeight: 1.55,
+        color: 'rgba(255,255,255,0.72)',
+        margin: 0,
+        textShadow: '0 1px 1px rgba(0,0,0,0.25)',
+    };
+
+    return (
+        <>
+            <style>
+                {`
+@media (min-width: 768px) {
+  .admin-login-shell { flex-direction: row !important; }
+  .admin-login-aside {
+    max-height: none !important;
+    height: 100% !important;
+    min-height: 0 !important;
+    width: 40% !important;
+    max-width: 28rem !important;
+    flex: 0 0 40% !important;
+  }
+  .admin-login-left-content { padding-top: 48px !important; padding-left: 40px !important; padding-right: 40px !important; }
+  .admin-login-left-footer { padding-left: 40px !important; padding-right: 40px !important; padding-bottom: 40px !important; }
+}
+@media (min-width: 1024px) {
+  .admin-login-aside { max-width: none !important; }
+}
+`}
+            </style>
+        <div className="fade-in admin-login-shell" style={shellRootStyle}>
+            {/* — Left: brand & narrative (dark) — slow gradient motion — */}
+            <aside className="admin-login-aside" style={asideStyle}>
+                <div
+                    aria-hidden
+                    style={{
+                        position: 'absolute',
+                        inset: 0,
+                        backgroundImage: `
+              repeating-linear-gradient(0deg, transparent, transparent 20px, rgba(255,255,255,0.035) 21px),
+              repeating-linear-gradient(90deg, transparent, transparent 20px, rgba(255,255,255,0.035) 21px)
+            `,
+                        pointerEvents: 'none' as const,
+                    }}
+                />
+                <div className="admin-login-aurora-mesh" aria-hidden />
+                <div className="admin-login-aurora-1" aria-hidden />
+                <div className="admin-login-aurora-2" aria-hidden />
+                <div className="admin-login-left-content" style={leftContentStyle}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 40 }}>
+                        <div
+                            style={{
+                                width: 38,
+                                height: 38,
+                                borderRadius: 10,
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                background: 'rgba(0,0,0,0.2)',
+                                boxShadow: '0 1px 0 rgba(255,255,255,0.15) inset',
+                                overflow: 'hidden',
+                            }}
+                        >
+                            <img
+                                src="/helix-logo.png"
+                                alt=""
+                                width={32}
+                                height={32}
+                                style={{ width: 28, height: 28, objectFit: 'contain' }}
+                            />
+                        </div>
+                        <span
+                            style={{
+                                fontSize: 11,
+                                fontWeight: 600,
+                                letterSpacing: '0.16em',
+                                color: 'rgba(255,255,255,0.78)',
+                                textShadow: '0 1px 1px rgba(0,0,0,0.2)',
+                            }}
+                        >
+                            HOSPITAL ADMIN
+                        </span>
                     </div>
-                    <h1 style={{ fontSize: '1.8rem', fontWeight: 700, letterSpacing: '-0.02em', color: 'var(--text-primary)' }}>
+                    <h1
+                        style={{
+                            fontSize: 'clamp(1.35rem, 2.8vw, 1.75rem)',
+                            fontWeight: 800,
+                            lineHeight: 1.12,
+                            color: '#fff',
+                            margin: 0,
+                            letterSpacing: '-0.02em',
+                            textShadow: '0 1px 2px rgba(0,0,0,0.35)',
+                        }}
+                    >
                         Helix
                     </h1>
-                    <p style={{ fontSize: 12.5, color: 'var(--text-muted)', marginTop: 4, letterSpacing: '0.02em' }}>Clinical Workflow OS</p>
-                </div>
-
-                {/* Card */}
-                <div style={{
-                    background: 'var(--surface-card)',
-                    border: '1px solid var(--border-default)',
-                    borderRadius: 'var(--radius-xl)',
-                    padding: '32px 28px',
-                    boxShadow: '0 1px 4px rgba(0,0,0,0.06), 0 0 0 1px rgba(0,0,0,0.02)',
-                }}>
-                    {sessionFacilityCode && step === 'otp' && (
-                        <div style={{
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: 6,
-                            padding: '4px 10px 4px 6px',
-                            borderRadius: 'var(--radius-md)',
-                            background: 'rgba(30,58,95,0.06)',
-                            fontSize: 12,
-                            color: 'var(--helix-primary)',
-                            fontWeight: 600,
-                            marginBottom: 12,
-                        }}>
-                            <span className="material-icons-round" style={{ fontSize: 14 }}>tag</span>
-                            Facility {sessionFacilityCode}
-                        </div>
-                    )}
-                    <h2 style={{ fontSize: '1.3rem', marginBottom: 4 }}>Admin Portal</h2>
-                    <p style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 28 }}>
-                        {step === 'credentials'
-                            ? 'Enter your facility code, email, and password.'
-                            : 'Enter the 6-digit code sent to your email.'}
+                    <p
+                        style={{
+                            margin: '10px 0 0',
+                            fontSize: 'clamp(1.2rem, 2.4vw, 1.55rem)',
+                            fontWeight: 800,
+                            lineHeight: 1.15,
+                            letterSpacing: '-0.02em',
+                            color: C_ACCENT,
+                            textShadow: '0 1px 3px rgba(0,0,0,0.3)',
+                        }}
+                    >
+                        Facility Administration
                     </p>
+                    <p
+                        style={{
+                            marginTop: 28,
+                            fontSize: 13,
+                            lineHeight: 1.65,
+                            color: '#c5d0e3',
+                            maxWidth: 400,
+                            textShadow: '0 1px 1px rgba(0,0,0,0.2)',
+                        }}
+                    >
+                        For facility and hospital staff who manage Helix on the web. Sign in with your work email and
+                        password; Helix will email you a one-time code to confirm it’s you.
+                    </p>
+                </div>
+                <p className="admin-login-left-footer" style={leftFooterStyle}>
+                    This is not the patient app or ward staff mobile sign-in.
+                </p>
+            </aside>
 
-                    {error && (
-                        <div style={{ padding: '10px 14px', borderRadius: 'var(--radius-md)', background: 'var(--critical-bg)', border: '1px solid rgba(140,90,94,0.2)', marginBottom: 16, fontSize: 13, color: 'var(--critical)', fontWeight: 500 }}>
-                            {error}
-                        </div>
-                    )}
+            {/* — Right: centered product form (reference) — */}
+            <div style={rightColumnStyle}>
+                <div style={formScrollStyle} data-admin-login-scroll>
+                    <div style={formInnerStyle}>
+                        <header style={{ textAlign: 'center', marginBottom: 22 }}>
+                            <p
+                                style={{
+                                    fontSize: 9,
+                                    fontWeight: 600,
+                                    letterSpacing: '0.14em',
+                                    color: C_MUTED_LABEL,
+                                    margin: '0 0 4px',
+                                }}
+                            >
+                                ADMIN SIGN IN
+                            </p>
+                            <h2
+                                style={{
+                                    fontSize: 'clamp(1.1rem, 2.8vw + 0.5rem, 1.5rem)',
+                                    fontWeight: 800,
+                                    color: C_LEFT_BG,
+                                    margin: 0,
+                                    letterSpacing: '-0.03em',
+                                    lineHeight: 1.2,
+                                }}
+                            >
+                                Helix Facility Administration
+                            </h2>
+                        </header>
 
-                    {step === 'credentials' ? (
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                        {/* Card */}
+                        <div
+                            style={{
+                                background: '#fff',
+                                border: '1px solid rgba(11, 30, 59, 0.06)',
+                                borderRadius: 12,
+                                padding: '22px 20px 20px',
+                                boxShadow: '0 8px 28px rgba(11, 30, 59, 0.06), 0 1px 4px rgba(11, 30, 59, 0.04)',
+                            }}
+                        >
+                            {sessionFacilityCode && step === 'otp' && (
+                                <div
+                                    style={{
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: 6,
+                                        padding: '4px 10px 4px 6px',
+                                        borderRadius: 999,
+                                        background: C_PILL_BG,
+                                        border: `1px solid ${C_PILL_BORDER}`,
+                                        fontSize: 11,
+                                        color: C_LEFT_BG,
+                                        fontWeight: 600,
+                                        marginBottom: 10,
+                                    }}
+                                >
+                                    <span className="material-icons-round" style={{ fontSize: 15 }}>tag</span>
+                                    Facility · {sessionFacilityCode}
+                                </div>
+                            )}
+                            {step === 'credentials' && (
+                                <>
+                                    <div
+                                        style={{
+                                            display: 'inline-flex',
+                                            alignItems: 'center',
+                                            gap: 6,
+                                            marginBottom: 10,
+                                            padding: '5px 10px',
+                                            borderRadius: 999,
+                                            background: C_PILL_BG,
+                                            border: `1px solid ${C_PILL_BORDER}`,
+                                        }}
+                                    >
+                                        <span className="material-icons-round" style={{ fontSize: 15, color: C_LEFT_BG }}>lock</span>
+                                        <span style={{ fontSize: 11, fontWeight: 600, color: C_LEFT_BG, letterSpacing: '0.01em' }}>
+                                            Facility code & Helix password
+                                        </span>
+                                    </div>
+                                    <p
+                                        style={{
+                                            fontSize: 12,
+                                            color: C_BODY_MUTED,
+                                            margin: '0 0 16px',
+                                            lineHeight: 1.4,
+                                        }}
+                                    >
+                                        Use your facility’s Helix code and the admin email and password your organization gave you. Helix will email you a short code to finish signing in.
+                                    </p>
+                                </>
+                            )}
+
+                            {error && (
+                                <div
+                                    style={{
+                                        padding: '8px 10px',
+                                        borderRadius: 8,
+                                        background: 'var(--critical-bg)',
+                                        border: '1px solid rgba(140,90,94,0.2)',
+                                        marginBottom: 10,
+                                        fontSize: 12,
+                                        color: 'var(--critical)',
+                                        fontWeight: 500,
+                                        lineHeight: 1.4,
+                                    }}
+                                >
+                                    {error}
+                                </div>
+                            )}
+
+                            {step === 'credentials' ? (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
                             <div>
-                                <label className="label">Facility code</label>
+                                <label htmlFor="facility-code" style={labelStyle}>Facility Helix code</label>
                                 <div style={{ position: 'relative' }}>
-                                    <span className="material-icons-round" style={{
-                                        position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)',
-                                        fontSize: 16, color: 'var(--text-muted)',
-                                    }}>apartment</span>
+                                    <span
+                                        className="material-icons-round"
+                                        style={{
+                                            position: 'absolute',
+                                            left: 10,
+                                            top: '50%',
+                                            transform: 'translateY(-50%)',
+                                            fontSize: 17,
+                                            color: C_MUTED_LABEL,
+                                        }}
+                                    >
+                                        apartment
+                                    </span>
                                     <input
                                         id="facility-code"
-                                        className="input"
                                         type="text"
                                         value={facilityCode}
                                         onChange={e => setFacilityCode(normalizeFacilityCode(e.target.value))}
                                         onKeyDown={e => e.key === 'Enter' && handleLogin()}
-                                        style={{ paddingLeft: 36, fontFamily: 'var(--font-mono, ui-monospace, monospace)', letterSpacing: '0.06em' }}
+                                        {...inputFocusHandlers}
+                                        style={{
+                                            ...inputWithIcon,
+                                            fontFamily: 'var(--font-mono, ui-monospace, monospace)',
+                                            letterSpacing: '0.06em',
+                                        }}
                                         autoComplete="off"
                                         spellCheck={false}
                                         maxLength={32}
                                     />
                                 </div>
-                                <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 6, marginBottom: 0 }}>
-                                    Letters and numbers only; typed as capitals.
-                                </p>
+                                <p style={{ fontSize: 10, color: C_MUTED_LABEL, marginTop: 3, marginBottom: 0, lineHeight: 1.3 }}>Letters and numbers only. Shown in capitals.</p>
                             </div>
                             <div>
-                                <label className="label">Email Address</label>
+                                <label htmlFor="email" style={labelStyle}>Work email</label>
                                 <div style={{ position: 'relative' }}>
-                                    <span className="material-icons-round" style={{
-                                        position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)',
-                                        fontSize: 16, color: 'var(--text-muted)',
-                                    }}>mail</span>
+                                    <span
+                                        className="material-icons-round"
+                                        style={{
+                                            position: 'absolute',
+                                            left: 10,
+                                            top: '50%',
+                                            transform: 'translateY(-50%)',
+                                            fontSize: 17,
+                                            color: C_MUTED_LABEL,
+                                        }}
+                                    >
+                                        mail
+                                    </span>
                                     <input
                                         id="email"
-                                        className="input"
                                         type="email"
                                         value={email}
                                         onChange={e => setEmail(e.target.value)}
                                         onKeyDown={e => e.key === 'Enter' && handleLogin()}
-                                        style={{ paddingLeft: 36 }}
+                                        {...inputFocusHandlers}
+                                        style={inputWithIcon}
                                     />
                                 </div>
                             </div>
                             <div>
-                                <label className="label">Password</label>
+                                <label htmlFor="password" style={labelStyle}>Helix password</label>
                                 <div style={{ position: 'relative' }}>
-                                    <span className="material-icons-round" style={{
-                                        position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)',
-                                        fontSize: 16, color: 'var(--text-muted)',
-                                    }}>lock</span>
+                                    <span
+                                        className="material-icons-round"
+                                        style={{
+                                            position: 'absolute',
+                                            left: 10,
+                                            top: '50%',
+                                            transform: 'translateY(-50%)',
+                                            fontSize: 17,
+                                            color: C_MUTED_LABEL,
+                                        }}
+                                    >
+                                        vpn_key
+                                    </span>
                                     <input
                                         id="password"
-                                        className="input"
                                         type={showPassword ? 'text' : 'password'}
                                         value={password}
                                         onChange={e => setPassword(e.target.value)}
                                         onKeyDown={e => e.key === 'Enter' && handleLogin()}
-                                        style={{ paddingLeft: 36, paddingRight: 42 }}
+                                        {...inputFocusHandlers}
+                                        style={inputWithIconAndToggle}
                                         autoComplete="current-password"
                                     />
                                     <button
@@ -357,7 +694,7 @@ export default function HospitalAdminLogin() {
                                             transform: 'translateY(-50%)',
                                             border: 'none',
                                             background: 'transparent',
-                                            color: 'var(--text-muted)',
+                                            color: C_MUTED_LABEL,
                                             cursor: 'pointer',
                                             display: 'flex',
                                             alignItems: 'center',
@@ -371,46 +708,85 @@ export default function HospitalAdminLogin() {
                                 </div>
                             </div>
 
-                            <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center' }}>
-                                <button type="button" className="btn btn-ghost btn-sm" style={{ padding: '2px 0', fontSize: 12 }}>
-                                    Recovery?
+                            <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', marginTop: -4 }}>
+                                <button
+                                    type="button"
+                                    style={{
+                                        ...ghostBtnSm,
+                                        padding: '2px 0',
+                                        fontSize: 12,
+                                        fontWeight: 600,
+                                        color: '#1d4ed8',
+                                    }}
+                                >
+                                    Forgot password?
                                 </button>
                             </div>
 
                             <button
                                 id="sign-in-btn"
-                                className="btn btn-primary"
-                                style={{ width: '100%', justifyContent: 'center', padding: '11px', fontSize: 14, marginTop: 4, opacity: loading ? 0.7 : 1 }}
+                                type="button"
+                                style={{
+                                    width: '100%',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    gap: 6,
+                                    marginTop: 2,
+                                    padding: '10px 14px',
+                                    fontSize: 14,
+                                    fontWeight: 600,
+                                    color: '#fff',
+                                    background: C_LEFT_BG,
+                                    border: 'none',
+                                    borderRadius: 8,
+                                    cursor: loading ? 'wait' : 'pointer',
+                                    opacity: loading ? 0.85 : 1,
+                                    boxShadow: '0 2px 10px rgba(11, 30, 59, 0.22)',
+                                }}
                                 onClick={handleLogin}
                                 disabled={loading}
                             >
-                                {loading ? 'Signing in...' : 'Sign In'}
-                                {!loading && <span className="material-icons-round" style={{ fontSize: 16 }}>arrow_forward</span>}
+                                {loading ? 'Signing in…' : 'Continue to Helix'}
+                                {!loading && <span className="material-icons-round" style={{ fontSize: 18 }}>arrow_forward</span>}
                             </button>
                         </div>
                     ) : (
                         // OTP Verification Step
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 20, alignItems: 'center' }}>
-                            {/* Shield icon */}
-                            <div style={{
-                                width: 56, height: 56,
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, alignItems: 'center', paddingTop: 0 }}>
+                            <div
+                                style={{
+                                width: 44,
+                                height: 44,
                                 borderRadius: '50%',
-                                background: 'linear-gradient(135deg, rgba(30,58,95,0.08), rgba(30,58,95,0.15))',
-                                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                            }}>
-                                <span className="material-icons-round" style={{ fontSize: 28, color: 'var(--helix-primary)' }}>verified_user</span>
+                                background: 'linear-gradient(135deg, rgba(11,30,59,0.08), rgba(11,30,59,0.14))',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                }}
+                            >
+                                <span className="material-icons-round" style={{ fontSize: 22, color: C_LEFT_BG }}>verified_user</span>
                             </div>
 
                             <div style={{ textAlign: 'center' }}>
-                                <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>Two-Factor Authentication</div>
-                                <div style={{ fontSize: 12.5, color: 'var(--text-muted)', lineHeight: 1.5 }}>
-                                    Enter the 6-digit code sent to<br />
-                                    <strong style={{ color: 'var(--text-secondary)' }}>{sessionEmail}</strong>
+                                <div style={{ fontSize: 13, fontWeight: 700, color: C_LEFT_BG, marginBottom: 2 }}>Check your email</div>
+                                <div style={{ fontSize: 11, color: C_BODY_MUTED, lineHeight: 1.35 }}>
+                                    Enter the 6-digit code Helix sent to<br />
+                                    <strong style={{ color: '#334155' }}>{sessionEmail}</strong>
                                 </div>
                             </div>
 
-                            {/* 6 digit boxes */}
-                            <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
+                            {/* 6 digit boxes — compact */}
+                            <div
+                                style={{
+                                    display: 'flex',
+                                    width: '100%',
+                                    maxWidth: '100%',
+                                    flexWrap: 'wrap',
+                                    justifyContent: 'center',
+                                    gap: 6,
+                                }}
+                            >
                                 {otpDigits.map((digit, i) => (
                                     <input
                                         key={i}
@@ -424,17 +800,21 @@ export default function HospitalAdminLogin() {
                                         onFocus={e => e.target.select()}
                                         maxLength={6}
                                         style={{
-                                            width: 46, height: 52,
+                                            width: 34,
+                                            minWidth: 34,
+                                            height: 40,
+                                            flex: '0 0 auto',
                                             textAlign: 'center',
-                                            fontSize: 22, fontWeight: 700,
+                                            fontSize: 18,
+                                            fontWeight: 700,
                                             letterSpacing: 0,
-                                            borderRadius: 'var(--radius-md)',
-                                            border: `1.5px solid ${digit ? 'var(--helix-primary)' : 'var(--border-default)'}`,
-                                            background: digit ? 'rgba(30,58,95,0.03)' : 'var(--surface-card)',
-                                            color: 'var(--text-primary)',
+                                            borderRadius: 8,
+                                            border: `1.5px solid ${digit ? C_LEFT_BG : '#e2e8f0'}`,
+                                            background: digit ? 'rgba(11,30,59,0.04)' : '#fff',
+                                            color: C_LEFT_BG,
                                             outline: 'none',
                                             transition: 'border-color 0.15s, background 0.15s, box-shadow 0.15s',
-                                            caretColor: 'var(--helix-primary)',
+                                            caretColor: C_LEFT_BG,
                                             fontFamily: "'Montserrat', sans-serif",
                                         }}
                                         onBlur={e => { e.target.style.boxShadow = 'none'; }}
@@ -443,72 +823,107 @@ export default function HospitalAdminLogin() {
                             </div>
 
                             {/* Filled indicator dots */}
-                            <div style={{ display: 'flex', gap: 6, justifyContent: 'center' }}>
+                            <div style={{ display: 'flex', gap: 4, justifyContent: 'center', marginTop: -4 }}>
                                 {otpDigits.map((d, i) => (
-                                    <div key={i} style={{
-                                        width: 6, height: 6, borderRadius: '50%',
-                                        background: d ? 'var(--helix-primary)' : 'var(--border-default)',
+                                    <div
+                                        key={i}
+                                        style={{
+                                        width: 6,
+                                        height: 6,
+                                        borderRadius: '50%',
+                                        background: d ? C_LEFT_BG : '#e2e8f0',
                                         transition: 'background 0.15s',
-                                    }} />
+                                        }}
+                                    />
                                 ))}
                             </div>
 
                             <button
                                 id="verify-otp-btn"
-                                className="btn btn-primary"
-                                style={{ width: '100%', justifyContent: 'center', padding: '12px', fontSize: 14, opacity: loading || otp.length !== 6 ? 0.6 : 1, transition: 'opacity 0.15s' }}
+                                type="button"
+                                style={{
+                                width: '100%',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                gap: 6,
+                                padding: '10px 12px',
+                                fontSize: 13,
+                                fontWeight: 600,
+                                color: '#fff',
+                                background: C_LEFT_BG,
+                                border: 'none',
+                                borderRadius: 8,
+                                cursor: loading || otp.length !== 6 ? 'not-allowed' : 'pointer',
+                                opacity: loading || otp.length !== 6 ? 0.5 : 1,
+                                transition: 'opacity 0.15s',
+                                boxShadow: '0 2px 8px rgba(11, 30, 59, 0.2)',
+                                }}
                                 onClick={handleVerifyOtp}
                                 disabled={loading || otp.length !== 6}
                             >
                                 {loading ? (
-                                    <>Verifying...</>
+                                    <>Signing you in…</>
                                 ) : (
-                                    <>Verify & Continue <span className="material-icons-round" style={{ fontSize: 16 }}>arrow_forward</span></>
+                                    <>Continue to Helix <span className="material-icons-round" style={{ fontSize: 16 }}>arrow_forward</span></>
                                 )}
                             </button>
 
-                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 16, width: '100%' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12, width: '100%', marginTop: -2 }}>
                                 <button
-                                    className="btn btn-ghost btn-sm"
-                                    style={{ fontSize: 12, color: 'var(--text-muted)', padding: '4px 0' }}
+                                    type="button"
+                                    style={{ ...ghostBtnSm, fontSize: 13, color: C_BODY_MUTED, padding: '4px 0', fontWeight: 500 }}
                                     onClick={handleBackToCredentials}
                                     disabled={loading}
                                 >
                                     <span className="material-icons-round" style={{ fontSize: 14 }}>arrow_back</span>
-                                    Back
+                                    Edit sign-in details
                                 </button>
 
                                 <div style={{ width: 1, height: 14, background: 'var(--border-default)' }} />
 
                                 <button
-                                    className="btn btn-ghost btn-sm"
-                                    style={{ fontSize: 12, color: resendTimer > 0 ? 'var(--text-disabled)' : 'var(--helix-primary)', padding: '4px 0' }}
+                                    type="button"
+                                    style={{
+                                        ...ghostBtnSm,
+                                        fontSize: 13,
+                                        fontWeight: 600,
+                                        color: resendTimer > 0 ? C_MUTED_LABEL : '#1d4ed8',
+                                        padding: '4px 0',
+                                    }}
                                     onClick={handleResendOtp}
                                     disabled={loading || resendTimer > 0}
                                 >
                                     <span className="material-icons-round" style={{ fontSize: 14 }}>refresh</span>
-                                    {resendTimer > 0 ? `Resend in ${resendTimer}s` : 'Resend Code'}
+                                    {resendTimer > 0 ? `Resend in ${resendTimer}s` : 'Send new code'}
                                 </button>
                             </div>
                         </div>
                     )}
-                </div>
+                        </div>
 
-                {/* Footer */}
-                <div style={{ display: 'flex', justifyContent: 'center', gap: 20, marginTop: 24 }}>
-                    {[
-                        { icon: 'help', label: 'Help Desk' },
-                        { icon: 'policy', label: 'Privacy Policy' },
-                    ].map(item => (
-                        <button key={item.label} className="btn btn-ghost btn-xs" style={{ color: 'var(--text-muted)' }}>
-                            <span className="material-icons-round" style={{ fontSize: 14 }}>{item.icon}</span>
-                            {item.label}
-                        </button>
-                    ))}
+                        <footer style={{ marginTop: 22, textAlign: 'center' }}>
+                            <div style={{ display: 'flex', flexWrap: 'wrap' as const, justifyContent: 'center', gap: 20, marginBottom: 8 }}>
+                                {[
+                                    { icon: 'help', label: 'Help & support' },
+                                    { icon: 'policy', label: 'Privacy' },
+                                ].map(item => (
+                                    <button
+                                        key={item.label}
+                                        type="button"
+                                        style={{ ...ghostBtnXs, color: C_BODY_MUTED, fontWeight: 500, fontSize: 12 }}
+                                    >
+                                        <span className="material-icons-round" style={{ fontSize: 14, verticalAlign: 'middle', marginRight: 3 }}>{item.icon}</span>
+                                        {item.label}
+                                    </button>
+                                ))}
+                            </div>
+                            <p style={{ fontSize: 10, color: C_MUTED_LABEL, margin: 0, lineHeight: 1.35 }}>
+                                &copy; {new Date().getFullYear()} Blvcksapphire Company Ltd
+                            </p>
+                        </footer>
+                    </div>
                 </div>
-                <p style={{ textAlign: 'center', fontSize: 10.5, color: 'var(--text-disabled)', marginTop: 12 }}>
-                    &copy; {new Date().getFullYear()} Blvcksapphire Company Ltd
-                </p>
             </div>
 
             {toast && (
@@ -521,5 +936,6 @@ export default function HospitalAdminLogin() {
                 </MacVibrancyToastPortal>
             )}
         </div>
+        </>
     );
 }

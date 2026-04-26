@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 
 const COOKIE_NAME = 'helix-session';
 
-const PUBLIC_PATHS = ['/', '/login', '/setup-account', '/setup'];
+const PUBLIC_PATHS = ['/', '/login', '/setup-account', '/setup-facility', '/setup'];
 const PUBLIC_PREFIXES = ['/api/auth', '/api/proxy', '/_next', '/favicon.ico', '/assets'];
 const PUBLIC_FILE_EXTENSIONS = /\.(png|jpg|jpeg|gif|webp|svg|ico)$/i;
 

@@ -13,6 +13,13 @@ export default async function SetupAliasPage({
         else if (typeof value === 'string') sp.set(key, value);
     });
 
+    const setupKind = String(sp.get('setup_kind') || '').toLowerCase();
+    const facilityRouting = sp.get('facility') === '1' || sp.get('facility') === 'true' || setupKind === 'facility' || setupKind === 'organization';
+    if (facilityRouting) {
+        sp.delete('facility');
+        sp.delete('setup_kind');
+    }
+    const target = facilityRouting ? '/setup-facility' : '/setup-account';
     const query = sp.toString();
-    redirect(query ? `/setup-account?${query}` : '/setup-account');
+    redirect(query ? `${target}?${query}` : target);
 }

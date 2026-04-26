@@ -8,6 +8,9 @@ export default async function SetupAccountPage({
     const params = await searchParams;
     const rawToken = params.token;
     const token = Array.isArray(rawToken) ? (rawToken[0] || '') : (rawToken || '');
+    const rawFacility = params.facility;
+    const facilityParam = Array.isArray(rawFacility) ? (rawFacility[0] || '') : (rawFacility || '');
+    const variant = facilityParam === '1' || facilityParam === 'true' ? 'facility' : 'account';
 
-    return <SetupAccountForm token={token.trim()} />;
+    return <SetupAccountForm token={token.trim()} variant={variant} />;
 }

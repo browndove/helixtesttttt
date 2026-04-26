@@ -1810,3 +1810,99 @@ select.input {
   animation: ripple 2s ease-out infinite;
   background: inherit;
 }
+
+/* Admin login — slow gradient motion (left panel) */
+.admin-login-aurora-1 {
+  position: absolute;
+  width: 160%;
+  height: 160%;
+  left: -30%;
+  top: -30%;
+  background: radial-gradient(
+    ellipse 55% 45% at 35% 45%,
+    rgba(127, 178, 240, 0.28) 0%,
+    rgba(11, 30, 59, 0) 60%
+  );
+  animation: adminLoginAurora1 32s ease-in-out infinite;
+  pointer-events: none;
+  will-change: transform, opacity;
+}
+.admin-login-aurora-2 {
+  position: absolute;
+  width: 150%;
+  height: 150%;
+  right: -35%;
+  bottom: -40%;
+  background: radial-gradient(
+    ellipse 50% 40% at 65% 60%,
+    rgba(100, 149, 237, 0.2) 0%,
+    rgba(20, 60, 120, 0) 55%
+  );
+  animation: adminLoginAurora2 44s ease-in-out infinite;
+  pointer-events: none;
+  will-change: transform, opacity;
+}
+.admin-login-aurora-mesh {
+  position: absolute;
+  inset: -1px;
+  background: linear-gradient(
+    125deg,
+    rgba(127, 178, 240, 0.04) 0%,
+    transparent 40%,
+    rgba(11, 45, 90, 0.12) 70%,
+    transparent 100%
+  );
+  background-size: 200% 200%;
+  animation: adminLoginAuroraMesh 48s ease-in-out infinite;
+  pointer-events: none;
+}
+
+@keyframes adminLoginAurora1 {
+  0%,
+  100% {
+    transform: translate(0, 0) scale(1);
+    opacity: 0.75;
+  }
+  50% {
+    transform: translate(5%, -7%) scale(1.1);
+    opacity: 0.95;
+  }
+}
+@keyframes adminLoginAurora2 {
+  0%,
+  100% {
+    transform: translate(0, 0) scale(1.05) rotate(0.001deg);
+    opacity: 0.55;
+  }
+  33% {
+    transform: translate(-8%, 4%) scale(0.95) rotate(0.001deg);
+    opacity: 0.8;
+  }
+  66% {
+    transform: translate(4%, 6%) scale(1.08) rotate(0.001deg);
+    opacity: 0.65;
+  }
+}
+@keyframes adminLoginAuroraMesh {
+  0%,
+  100% {
+    background-position: 0% 30%;
+  }
+  50% {
+    background-position: 100% 70%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .admin-login-aurora-1,
+  .admin-login-aurora-2,
+  .admin-login-aurora-mesh {
+    animation: none;
+  }
+  .admin-login-aurora-2 {
+    opacity: 0.5;
+  }
+  .admin-login-aurora-mesh {
+    background-position: 50% 50%;
+  }
+}
