@@ -1,6 +1,26 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { API_BASE_URL } from '@/lib/config';
 
+/** Unwrap undici/node fetch failure chains for logs and API responses */
+function describeFetchError(err: unknown): string {
+    if (!(err instanceof Error)) return String(err);
+    const parts: string[] = [err.message];
+    let c: unknown = err.cause;
+    for (let i = 0; i < 6 && c; i++) {
+        if (c instanceof Error) {
+            parts.push(`${c.name}: ${c.message}`);
+            c = c.cause;
+        } else if (typeof c === 'object' && c !== null && 'code' in c) {
+            parts.push(`code=${String((c as { code?: unknown }).code)}`);
+            break;
+        } else {
+            parts.push(String(c));
+            break;
+        }
+    }
+    return parts.join(' → ');
+}
+
 export async function POST(req: NextRequest) {
     const url = `${API_BASE_URL}/api/v1/auth/admin/login`;
     console.log('[proxy admin/login] Forwarding to:', url);
@@ -39,14 +59,17 @@ export async function POST(req: NextRequest) {
 
         return NextResponse.json(data, { status: res.status });
     } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        const isTimeout = message.includes('abort') || message.includes('timeout');
-        console.error('[proxy admin/login] Request failed:', message);
+        const detail = describeFetchError(err);
+        const isTimeout =
+            detail.toLowerCase().includes('abort') ||
+            detail.toLowerCase().includes('timeout') ||
+            detail.includes('UND_ERR_CONNECT_TIMEOUT');
+        console.error('[proxy admin/login] Request failed:', detail);
         return NextResponse.json(
             {
                 error: isTimeout ? 'Backend request timed out' : 'Backend unreachable',
-                details: message,
-                hint: 'Ensure NEXT_PUBLIC_API_BASE_URL is set in .env.local and restart the dev server (npm run dev).',
+                details: detail,
+                hint: 'No HTTP response from the API host. Check VPN/firewall, DNS (try curl from this machine), that api.helixhealth.app is up, and NEXT_PUBLIC_API_BASE_URL in .env.local. Node IPv6 hangs: try NODE_OPTIONS=--dns-result-order=ipv4first.',
             },
             { status: 502 }
         );
