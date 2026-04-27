@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { Montserrat } from 'next/font/google';
 import TopBar from '@/components/TopBar';
 import { parseBulkUploadHistoryResponse, type BulkUploadHistoryEntry } from '@/lib/bulk-upload-history';
-import { API_ENDPOINTS } from '@/lib/config';
+import { fetchMergedFacilityPresenceOnline } from '@/lib/presence-online';
 
 type SimpleItem = Record<string, unknown>;
 type ActivityItem = { id: string; title: string; detail: string; time: string; tone?: 'default' | 'critical' | 'info' };
@@ -153,7 +153,6 @@ export default function HomePage() {
                 historyStaffRes,
                 historyPatientRes,
                 sessionsRes,
-                presenceRes,
             ] = await Promise.all([
                 fetch('/api/proxy/auth/me', { credentials: 'include' }),
                 fetch('/api/proxy/hospital', { credentials: 'include' }),
@@ -166,7 +165,6 @@ export default function HomePage() {
                 fetch('/api/proxy/bulk-upload-history?kind=staff&page_size=20', { credentials: 'include' }),
                 fetch('/api/proxy/bulk-upload-history?kind=patient&page_size=20', { credentials: 'include' }),
                 fetch('/api/proxy/auth/sessions', { credentials: 'include' }),
-                fetch(API_ENDPOINTS.PRESENCE_ONLINE, { credentials: 'include' }),
             ]);
 
             const [
@@ -181,7 +179,6 @@ export default function HomePage() {
                 historyStaffJson,
                 historyPatientJson,
                 sessionsJson,
-                presenceJson,
             ] = await Promise.all([
                 meRes.ok ? meRes.json() : Promise.resolve(null),
                 hospitalRes.ok ? hospitalRes.json() : Promise.resolve(null),
@@ -194,8 +191,11 @@ export default function HomePage() {
                 historyStaffRes.ok ? historyStaffRes.json() : Promise.resolve(null),
                 historyPatientRes.ok ? historyPatientRes.json() : Promise.resolve(null),
                 sessionsRes.ok ? sessionsRes.json() : Promise.resolve(null),
-                presenceRes.ok ? presenceRes.json() : Promise.resolve(null),
             ]);
+
+            const presenceBundle = await fetchMergedFacilityPresenceOnline();
+            const presenceReallyOk = presenceBundle.ok;
+            const presenceMergedPayload = presenceBundle.items.length > 0 ? { data: presenceBundle.items } : null;
 
             if (meJson && typeof meJson === 'object') {
                 const root = meJson as Record<string, unknown>;
@@ -259,15 +259,15 @@ export default function HomePage() {
                 .slice(0, 5)
                 .map(({ _ts, ...rest }) => { void _ts; return rest; });
 
-            const fromPresence = presenceRes.ok && presenceJson
-                ? parsePresenceOnlineToSignedIn(presenceJson, 8)
+            const fromPresence = presenceReallyOk && presenceMergedPayload
+                ? parsePresenceOnlineToSignedIn(presenceMergedPayload, 8)
                 : [];
             if (fromPresence.length > 0) {
                 setSignedInStaff(fromPresence);
                 setPresenceReportedNoOnline(false);
             } else {
                 setSignedInStaff(withLogin);
-                setPresenceReportedNoOnline(Boolean(presenceRes.ok) && fromPresence.length === 0);
+                setPresenceReportedNoOnline(Boolean(presenceReallyOk) && presenceBundle.items.length === 0);
             }
             setPatientCount(readTotal(patientJson, patientItems.length));
             setTeamCount(readTotal(teamsJson, teamItems.length));

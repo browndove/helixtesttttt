@@ -32,6 +32,7 @@ export const API_ENDPOINTS = {
   FACILITY: (id: string) => `/api/proxy/facilities/${id}`,
 
   // Presence
+  /** Proxies GET /api/v1/presence/online — pass ?client=admin|app (see `fetchMergedFacilityPresenceOnline`). */
   PRESENCE_ONLINE: `/api/proxy/presence/online`,
 
   // Roles

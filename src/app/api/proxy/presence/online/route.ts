@@ -11,6 +11,10 @@ export async function GET(req: NextRequest) {
         searchParams.forEach((value, key) => {
             url.searchParams.set(key, value);
         });
+        // REST defaults to app-sourced presence; admin Next.js must pass client=admin (see fetchMergedFacilityPresenceOnline).
+        if (!url.searchParams.has('client')) {
+            url.searchParams.set('client', 'admin');
+        }
 
         const res = await fetch(url.toString(), {
             method: 'GET',

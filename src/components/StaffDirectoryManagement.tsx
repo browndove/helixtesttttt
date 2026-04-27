@@ -16,6 +16,7 @@ import { parseBulkUploadHistoryResponse, type BulkUploadHistoryEntry } from '@/l
 import { MacVibrancyToast, MacVibrancyToastPortal } from '@/components/MacVibrancyToast';
 import { BulkImportErrorsSheet } from '@/components/BulkImportErrorsSheet';
 import { readCachedJson, writeCachedJson } from '@/lib/getJsonCache';
+import { extractOnlineStaffIdSet, fetchMergedFacilityPresenceOnline } from '@/lib/presence-online';
 
 const STAFF_PAGE_CACHE_TTL_MS = 120_000;
 const STAFF_CACHE_LIST = '/api/proxy/staff?page_size=100&page_id=1';
@@ -25,6 +26,8 @@ const STAFF_CREATE_TITLE_MAX_LEN = 20;
 
 type StaffMember = {
     id: string;
+    /** Auth / directory user id when different from staff row `id` (used for presence matching). */
+    user_id?: string;
     first_name: string;
     middle_name?: string;
     last_name: string;
@@ -249,6 +252,16 @@ function parseStaffList(raw: unknown): StaffMember[] {
             const firstName = first || fullFirst || 'Unknown';
             const lastName = last || fullLast || 'Staff';
             const id = String(r.id || r.staff_id || `staff-${idx}`);
+            const userRec = asRecord(r.user);
+            const userIdRaw = String(
+                r.user_id
+                || r.auth_user_id
+                || r.account_user_id
+                || r.helix_user_id
+                || userRec?.id
+                || userRec?.user_id
+                || ''
+            ).trim();
             const statusRaw = String(r.status || r.account_status || 'active').toLowerCase();
             const normalizedStatus = statusRaw.includes('disable') || statusRaw.includes('inactive') || statusRaw.includes('suspend')
                 ? 'disabled'
@@ -257,6 +270,7 @@ function parseStaffList(raw: unknown): StaffMember[] {
             const { id: department_id, name: deptFromApi } = findDepartmentIdAndName(deptSources);
             return {
                 id,
+                user_id: userIdRaw || undefined,
                 first_name: firstName,
                 middle_name: String(r.middle_name || '').trim(),
                 last_name: lastName,
@@ -278,6 +292,11 @@ function parseStaffList(raw: unknown): StaffMember[] {
             };
         })
         .filter((s): s is StaffMember => Boolean(s));
+}
+
+function isStaffOnline(s: StaffMember, online: Set<string>): boolean {
+    const candidates = [s.id, s.email, s.employee_id, s.user_id].filter(Boolean) as string[];
+    return candidates.some(c => online.has(c.trim().toLowerCase()));
 }
 
 /** Clinical / professional rank presets (optional field); custom values allowed via CustomSelect. */
@@ -526,6 +545,8 @@ const staffBodyCell: CSSProperties = {
 
 export default function StaffDirectoryManagement() {
     const [staff, setStaff] = useState<StaffMember[]>([]);
+    /** Lowercase staff id / email keys from GET /presence/online */
+    const [onlineIdSet, setOnlineIdSet] = useState<Set<string>>(() => new Set());
     const [loading, setLoading] = useState(true);
     const [fetchError, setFetchError] = useState(false);
     const [search, setSearch] = useState('');
@@ -769,6 +790,16 @@ export default function StaffDirectoryManagement() {
         return rest > 0 ? `Missing: ${head} (+${rest} more)` : `Missing: ${head}`;
     }, []);
 
+    const fetchOnlinePresence = useCallback(async () => {
+        try {
+            const { ok, items } = await fetchMergedFacilityPresenceOnline();
+            if (!ok) return;
+            setOnlineIdSet(extractOnlineStaffIdSet({ data: items }));
+        } catch {
+            /* keep last known presence on transient errors */
+        }
+    }, []);
+
     const fetchStaff = useCallback(async () => {
         setFetchError(false);
         try {
@@ -778,6 +809,7 @@ export default function StaffDirectoryManagement() {
                 writeCachedJson(STAFF_CACHE_LIST, data);
                 const parsed = parseStaffList(data);
                 setStaff(parsed);
+                void fetchOnlinePresence();
             } else {
                 setFetchError(true);
             }
@@ -785,7 +817,7 @@ export default function StaffDirectoryManagement() {
             setFetchError(true);
         }
         setLoading(false);
-    }, []);
+    }, [fetchOnlinePresence]);
 
     const fetchDepartments = useCallback(async () => {
         try {
@@ -837,6 +869,15 @@ export default function StaffDirectoryManagement() {
 
     useEffect(() => { fetchStaff(); }, [fetchStaff]);
     useEffect(() => { fetchDepartments(); }, [fetchDepartments]);
+
+    useEffect(() => {
+        if (activeTab !== 'directory') return;
+        void fetchOnlinePresence();
+        const id = window.setInterval(() => {
+            void fetchOnlinePresence();
+        }, 45_000);
+        return () => window.clearInterval(id);
+    }, [activeTab, fetchOnlinePresence]);
     useEffect(() => {
         if (!newDept && departmentOptions.length > 0) setNewDept(departmentOptions[0]);
     }, [newDept, departmentOptions]);
@@ -1002,6 +1043,11 @@ export default function StaffDirectoryManagement() {
     const paginatedFiltered = useMemo(
         () => filtered.slice((staffPage - 1) * staffPageSize, staffPage * staffPageSize),
         [filtered, staffPage, staffPageSize]
+    );
+
+    const onlineInFiltered = useMemo(
+        () => filtered.filter(s => isStaffOnline(s, onlineIdSet)).length,
+        [filtered, onlineIdSet]
     );
 
     useEffect(() => {
@@ -1402,7 +1448,7 @@ export default function StaffDirectoryManagement() {
                                 <div><label className="label">Middle Name (Optional)</label><input className="input" value={newMiddleName} onChange={e => setNewMiddleName(e.target.value)} placeholder="Middle name" style={{ fontSize: 12 }} /></div>
                                 <div><label className="label">Last Name *</label><input className="input" value={newLastName} onChange={e => setNewLastName(e.target.value)} placeholder="Last name" style={{ fontSize: 12 }} /></div>
                                 <div><label className="label">Email *</label><input className="input" value={newEmail} onChange={e => setNewEmail(e.target.value)} placeholder="Email address" style={{ fontSize: 12 }} /></div>
-                                <div>
+                                <div style={{ gridColumn: 'span 2' }}>
                                     <label className="label">Phone *</label>
                                     <div style={{ display: 'flex', gap: 8 }}>
                                         <div style={{ minWidth: 170 }}>
@@ -1506,6 +1552,35 @@ export default function StaffDirectoryManagement() {
                             />
                         </div>
                         <div style={{ width: 1, height: 20, background: 'var(--border-subtle)' }} />
+                        {!loading && onlineInFiltered > 0 && (
+                            <div
+                                style={{
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: 6,
+                                    fontSize: 12,
+                                    fontWeight: 600,
+                                    color: '#166534',
+                                    background: 'rgba(34, 197, 94, 0.12)',
+                                    border: '1px solid rgba(34, 197, 94, 0.28)',
+                                    borderRadius: 8,
+                                    padding: '4px 10px',
+                                }}
+                                title="From live sign-in activity for this facility"
+                            >
+                                <span
+                                    style={{
+                                        width: 7,
+                                        height: 7,
+                                        borderRadius: '50%',
+                                        background: '#22c55e',
+                                        flexShrink: 0,
+                                    }}
+                                    aria-hidden
+                                />
+                                {onlineInFiltered} online now
+                            </div>
+                        )}
                         <div style={{ display: 'flex', gap: 5 }}>
                             {['all', 'active', 'disabled'].map(s => (
                                 <button key={s} className="btn btn-secondary btn-xs" onClick={() => setStatusFilter(s)}
@@ -1618,13 +1693,14 @@ export default function StaffDirectoryManagement() {
                                             <th style={{ ...staffHeadCell, minWidth: 160, whiteSpace: 'nowrap', cursor: 'pointer', background: '#fafbfc', borderBottom: '1px solid var(--border-default)' }} onClick={() => toggleSort('dept')}>Department {sortKey === 'dept' && (sortDir === 'asc' ? '↑' : '↓')}</th>
                                             <th style={{ ...staffHeadCell, minWidth: 140, whiteSpace: 'nowrap', background: '#fafbfc', borderBottom: '1px solid var(--border-default)' }}>Patient Access</th>
                                             <th style={{ ...staffHeadCell, minWidth: 88, whiteSpace: 'nowrap', cursor: 'pointer', background: '#fafbfc', borderBottom: '1px solid var(--border-default)' }} onClick={() => toggleSort('status')}>Status {sortKey === 'status' && (sortDir === 'asc' ? '↑' : '↓')}</th>
+                                            <th style={{ ...staffHeadCell, minWidth: 76, whiteSpace: 'nowrap', background: '#fafbfc', borderBottom: '1px solid var(--border-default)' }}>Online</th>
                                             <th style={{ ...staffHeadCell, width: 44, minWidth: 44, background: '#fafbfc', borderBottom: '1px solid var(--border-default)' }} />
                                         </tr>
                                     </thead>
                                     <tbody>
                                         {loading && filtered.length === 0 && (
                                             <tr>
-                                                <td colSpan={9} style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--text-muted)', fontSize: 13 }}>
+                                                <td colSpan={10} style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--text-muted)', fontSize: 13 }}>
                                                     <span className="material-icons-round" style={{ fontSize: 24, display: 'block', marginBottom: 8, opacity: 0.4 }}>hourglass_empty</span>
                                                     Loading staff from server...
                                                 </td>
@@ -1632,7 +1708,7 @@ export default function StaffDirectoryManagement() {
                                         )}
                                         {!loading && fetchError && filtered.length === 0 && (
                                             <tr>
-                                                <td colSpan={9} style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--text-muted)', fontSize: 13 }}>
+                                                <td colSpan={10} style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--text-muted)', fontSize: 13 }}>
                                                     <span className="material-icons-round" style={{ fontSize: 24, display: 'block', marginBottom: 8, color: 'var(--critical)' }}>cloud_off</span>
                                                     <div style={{ fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>Could not load staff</div>
                                                     <div style={{ marginBottom: 12 }}>The server is unreachable. Check your connection and try again.</div>
@@ -1644,7 +1720,7 @@ export default function StaffDirectoryManagement() {
                                         )}
                                         {!loading && !fetchError && filtered.length === 0 && (
                                             <tr>
-                                                <td colSpan={9} style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--text-muted)', fontSize: 13 }}>
+                                                <td colSpan={10} style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--text-muted)', fontSize: 13 }}>
                                                     <span className="material-icons-round" style={{ fontSize: 24, display: 'block', marginBottom: 8, opacity: 0.4 }}>person_off</span>
                                                     {search || deptFilter !== 'all' || statusFilter !== 'all' ? 'No staff match your filters.' : 'No staff members yet. Add staff above to get started.'}
                                                 </td>
@@ -1654,6 +1730,7 @@ export default function StaffDirectoryManagement() {
                                             const st = statusColors[s.status] || statusColors.active;
                                             const isSelected = selected?.id === s.id;
                                             const rowBg = isSelected ? '#edf1f7' : '#ffffff';
+                                            const online = isStaffOnline(s, onlineIdSet);
                                             return (
                                                 <tr
                                                     key={s.id}
@@ -1739,6 +1816,36 @@ export default function StaffDirectoryManagement() {
                                                     <td style={{ ...staffBodyCell, minWidth: 88, background: rowBg, borderBottom: '1px solid var(--border-subtle)' }}>
                                                         <span className="badge" style={{ background: st.bg, color: st.color }}>{st.label}</span>
                                                     </td>
+                                                    <td style={{ ...staffBodyCell, minWidth: 76, background: rowBg, borderBottom: '1px solid var(--border-subtle)' }}>
+                                                        {online ? (
+                                                            <span
+                                                                style={{
+                                                                    display: 'inline-flex',
+                                                                    alignItems: 'center',
+                                                                    gap: 5,
+                                                                    fontSize: 11,
+                                                                    fontWeight: 600,
+                                                                    color: '#166534',
+                                                                }}
+                                                                title="Signed in now"
+                                                            >
+                                                                <span
+                                                                    style={{
+                                                                        width: 8,
+                                                                        height: 8,
+                                                                        borderRadius: '50%',
+                                                                        background: '#22c55e',
+                                                                        boxShadow: '0 0 0 2px rgba(34, 197, 94, 0.2)',
+                                                                        flexShrink: 0,
+                                                                    }}
+                                                                    aria-hidden
+                                                                />
+                                                                Online
+                                                            </span>
+                                                        ) : (
+                                                            <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>Offline</span>
+                                                        )}
+                                                    </td>
                                                     <td style={{ ...staffBodyCell, width: 44, minWidth: 44, textAlign: 'center', background: rowBg, borderBottom: '1px solid var(--border-subtle)' }}>
                                                         <button className="btn btn-ghost btn-xs" onClick={e => { e.stopPropagation(); handleRemove(s.id); }}>
                                                             <span className="material-icons-round" style={{ fontSize: 14, color: 'var(--text-muted)' }}>delete</span>
@@ -1780,6 +1887,12 @@ export default function StaffDirectoryManagement() {
                                         <div style={{ minWidth: 0, flex: 1 }}>
                                             <h3 style={{ fontSize: 15, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{selected.first_name} {selected.last_name}</h3>
                                             <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{selected.job_title} · {selected.dept}</div>
+                                            {isStaffOnline(selected, onlineIdSet) && (
+                                                <div style={{ marginTop: 8, fontSize: 11, fontWeight: 600, color: '#166534', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                                                    <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#22c55e' }} aria-hidden />
+                                                    Online now
+                                                </div>
+                                            )}
                                         </div>
                                         <button className="btn btn-ghost btn-xs" style={{ flexShrink: 0 }} onClick={() => { setEditingSelected(false); setSelected(null); }}>
                                             <span className="material-icons-round" style={{ fontSize: 16 }}>close</span>
