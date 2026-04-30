@@ -699,6 +699,28 @@ export default function SetupAccountForm({
         </>
     );
 
+    const accountShellStyle: CSSProperties = {
+        height: '100vh',
+        maxHeight: '100vh',
+        background: 'linear-gradient(180deg, #f6f8fb 0%, #eef3f8 100%)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: '16px 12px',
+        position: 'relative',
+        overflow: 'hidden',
+        isolation: 'isolate',
+    };
+
+    const accountWatermarkBase: CSSProperties = {
+        position: 'absolute',
+        pointerEvents: 'none',
+        borderRadius: '999px',
+        filter: 'blur(1px)',
+        opacity: 1,
+        zIndex: 0,
+    };
+
     if (isFacilitySetup) {
         const gridPattern: CSSProperties = {
             height: '100dvh',
@@ -846,21 +868,75 @@ export default function SetupAccountForm({
     }
 
     return (
-        <div style={{
-            minHeight: '100vh',
-            background: 'var(--bg-900)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            padding: '16px 12px',
-        }}>
-            <div style={{ width: '100%', maxWidth: 400 }}>
+        <div style={accountShellStyle}>
+            <style>
+                {`
+@keyframes staffSetupFloatA {
+  0%, 100% { transform: translate3d(0,0,0) scale(1); opacity: 0.28; }
+  50% { transform: translate3d(14px,-10px,0) scale(1.05); opacity: 0.4; }
+}
+@keyframes staffSetupFloatB {
+  0%, 100% { transform: translate3d(0,0,0) scale(1.02); opacity: 0.22; }
+  50% { transform: translate3d(-12px,8px,0) scale(0.98); opacity: 0.34; }
+}
+@keyframes staffSetupMeshDrift {
+  0%, 100% { background-position: 0% 0%, 0% 0%; opacity: 0.3; }
+  50% { background-position: 42px 30px, -28px -24px; opacity: 0.42; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .staff-setup-watermark-a,
+  .staff-setup-watermark-b,
+  .staff-setup-watermark-mesh { animation: none !important; opacity: 0.24 !important; }
+}
+`}
+            </style>
+            <div
+                aria-hidden
+                className="staff-setup-watermark-mesh"
+                style={{
+                    position: 'absolute',
+                    inset: 0,
+                    pointerEvents: 'none',
+                    zIndex: 0,
+                    backgroundImage: 'repeating-linear-gradient(0deg, transparent, transparent 21px, rgba(30,64,175,0.09) 22px), repeating-linear-gradient(90deg, transparent, transparent 21px, rgba(14,116,144,0.08) 22px)',
+                    animation: 'staffSetupMeshDrift 20s ease-in-out infinite',
+                }}
+            />
+            <div
+                aria-hidden
+                className="staff-setup-watermark-a"
+                style={{
+                    ...accountWatermarkBase,
+                    width: 420,
+                    height: 420,
+                    top: -120,
+                    right: -80,
+                    background: 'radial-gradient(ellipse at center, rgba(37,99,235,0.36) 0%, rgba(37,99,235,0.12) 58%, rgba(37,99,235,0) 100%)',
+                    animation: 'staffSetupFloatA 18s ease-in-out infinite',
+                }}
+            />
+            <div
+                aria-hidden
+                className="staff-setup-watermark-b"
+                style={{
+                    ...accountWatermarkBase,
+                    width: 420,
+                    height: 420,
+                    left: -95,
+                    bottom: -120,
+                    background: 'radial-gradient(ellipse at center, rgba(37,99,235,0.34) 0%, rgba(37,99,235,0.11) 58%, rgba(37,99,235,0) 100%)',
+                    animation: 'staffSetupFloatB 22s ease-in-out infinite',
+                }}
+            />
+            <div style={{ width: '100%', maxWidth: 400, position: 'relative', zIndex: 1, maxHeight: '100%' }}>
                 <div style={{
                     background: 'var(--surface-card)',
                     border: '1px solid var(--border-default)',
                     borderRadius: 'var(--radius-lg)',
                     padding: '18px 16px',
-                    boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
+                    boxShadow: '0 14px 34px rgba(15, 23, 42, 0.08), 0 1px 3px rgba(0,0,0,0.05)',
+                    maxHeight: 'calc(100vh - 32px)',
+                    overflowY: 'auto',
                 }}>
                     <div style={{ textAlign: 'center', marginBottom: 12 }}>
                         <h1 style={{ fontSize: 20, fontWeight: 700, margin: '0 0 4px' }}>Set up account</h1>

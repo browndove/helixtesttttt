@@ -117,6 +117,31 @@ function summarizeImport(entry: BulkUploadHistoryEntry): ActivityItem {
     };
 }
 
+function CardWatermark({ icon }: { icon: string }) {
+    return (
+        <div
+            aria-hidden
+            style={{
+                position: 'absolute',
+                right: -18,
+                bottom: -24,
+                width: 140,
+                height: 140,
+                borderRadius: '50%',
+                background: 'radial-gradient(circle at center, rgba(51,65,85,0.12) 0%, rgba(51,65,85,0.05) 58%, rgba(51,65,85,0) 100%)',
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                pointerEvents: 'none',
+            }}
+        >
+            <span className="material-icons-round" style={{ fontSize: 78, color: 'rgba(51,65,85,0.12)' }}>
+                {icon}
+            </span>
+        </div>
+    );
+}
+
 export default function HomePage() {
     const router = useRouter();
     const [loading, setLoading] = useState(true);
@@ -132,6 +157,8 @@ export default function HomePage() {
     const [facilityName, setFacilityName] = useState('');
     const [lastFailedImport, setLastFailedImport] = useState<BulkUploadHistoryEntry | null>(null);
     const [twoFactorAdoption, setTwoFactorAdoption] = useState<{ enabled: number; total: number }>({ enabled: 0, total: 0 });
+    const [criticalRoleFill, setCriticalRoleFill] = useState<{ filled: number; total: number; percent: number }>({ filled: 0, total: 0, percent: 0 });
+    const [avgCriticalAckMinutes, setAvgCriticalAckMinutes] = useState(0);
     const [latestAuditAt, setLatestAuditAt] = useState<string>('');
     const [activeSessions, setActiveSessions] = useState(0);
     const [signedInStaff, setSignedInStaff] = useState<SignedInStaff[]>([]);
@@ -153,6 +180,7 @@ export default function HomePage() {
                 historyStaffRes,
                 historyPatientRes,
                 sessionsRes,
+                analyticsRes,
             ] = await Promise.all([
                 fetch('/api/proxy/auth/me', { credentials: 'include' }),
                 fetch('/api/proxy/hospital', { credentials: 'include' }),
@@ -165,6 +193,7 @@ export default function HomePage() {
                 fetch('/api/proxy/bulk-upload-history?kind=staff&page_size=20', { credentials: 'include' }),
                 fetch('/api/proxy/bulk-upload-history?kind=patient&page_size=20', { credentials: 'include' }),
                 fetch('/api/proxy/auth/sessions', { credentials: 'include' }),
+                fetch('/api/proxy/analytics?days=30', { credentials: 'include' }),
             ]);
 
             const [
@@ -179,6 +208,7 @@ export default function HomePage() {
                 historyStaffJson,
                 historyPatientJson,
                 sessionsJson,
+                analyticsJson,
             ] = await Promise.all([
                 meRes.ok ? meRes.json() : Promise.resolve(null),
                 hospitalRes.ok ? hospitalRes.json() : Promise.resolve(null),
@@ -191,7 +221,22 @@ export default function HomePage() {
                 historyStaffRes.ok ? historyStaffRes.json() : Promise.resolve(null),
                 historyPatientRes.ok ? historyPatientRes.json() : Promise.resolve(null),
                 sessionsRes.ok ? sessionsRes.json() : Promise.resolve(null),
+                analyticsRes.ok ? analyticsRes.json() : Promise.resolve(null),
             ]);
+
+            if (analyticsJson && typeof analyticsJson === 'object') {
+                const a = analyticsJson as Record<string, unknown>;
+                const filled = Number(a.critical_filled_roles ?? 0);
+                const total = Number(a.critical_total_roles ?? 0);
+                const percent = Number(a.critical_role_fill_rate_percent ?? 0);
+                setCriticalRoleFill({
+                    filled: Number.isFinite(filled) ? filled : 0,
+                    total: Number.isFinite(total) ? total : 0,
+                    percent: Number.isFinite(percent) ? Math.round(percent) : 0,
+                });
+                const ack = Number(a.avg_critical_ack_minutes ?? 0);
+                setAvgCriticalAckMinutes(Number.isFinite(ack) ? ack : 0);
+            }
 
             const presenceBundle = await fetchMergedFacilityPresenceOnline();
             const presenceReallyOk = presenceBundle.ok;
@@ -335,7 +380,7 @@ export default function HomePage() {
             subLabel: 'Currently enrolled',
             value: patientCount,
             icon: 'groups',
-            iconBg: '#DBEAFE', iconFg: '#1D4ED8',
+            iconBg: '#EEF2F7', iconFg: '#334155',
             footerLabel: 'Facility',
             footerValue: facilityShort,
             tone: 'default' as const,
@@ -345,38 +390,39 @@ export default function HomePage() {
             subLabel: 'All roles',
             value: staffCount,
             icon: 'badge',
-            iconBg: '#CCFBF1', iconFg: '#0D9488',
+            iconBg: '#EEF2F7', iconFg: '#334155',
             footerLabel: 'Across',
             footerValue: facilityShort,
             tone: 'default' as const,
         },
         {
-            label: 'Provider Teams',
-            subLabel: 'Care teams',
-            value: teamCount,
-            icon: 'workspaces',
-            iconBg: '#E0E7FF', iconFg: '#4F46E5',
-            footerLabel: 'Departments',
-            footerValue: departmentCount.toLocaleString(),
-            tone: 'default' as const,
+            label: 'Critical Role Fill',
+            subLabel: 'On-call coverage',
+            value: criticalRoleFill.percent,
+            valueSuffix: '%',
+            icon: 'medical_services',
+            iconBg: '#EEF2F7', iconFg: '#334155',
+            footerLabel: 'Filled',
+            footerValue: `${criticalRoleFill.filled.toLocaleString()} / ${criticalRoleFill.total.toLocaleString()} roles`,
+            tone: criticalRoleFill.total > 0 && criticalRoleFill.percent < 80 ? 'critical' as const : 'default' as const,
         },
         {
             label: 'Active Escalations',
             subLabel: 'Last 24h',
             value: escalationCount,
             icon: 'priority_high',
-            iconBg: '#FEE2E2', iconFg: '#B91C1C',
+            iconBg: '#F3F4F6', iconFg: '#475569',
             footerLabel: 'Status',
             footerValue: escalationCount > 0 ? 'Requires attention' : 'All clear',
             tone: 'critical' as const,
         },
-    ]), [patientCount, staffCount, teamCount, departmentCount, escalationCount, facilityShort]);
+    ]), [patientCount, staffCount, criticalRoleFill, escalationCount, facilityShort]);
 
     const quickActions = [
-        { label: 'Add role', sub: 'Roles', icon: 'badge', iconBg: '#DBEAFE', iconFg: '#1D4ED8', href: '/roles' },
-        { label: 'Add Staff Member', sub: 'Staff', icon: 'person_add', iconBg: '#CCFBF1', iconFg: '#0D9488', href: '/staff' },
-        { label: 'Create Provider Team', sub: 'Teams', icon: 'groups', iconBg: '#E0E7FF', iconFg: '#4F46E5', href: '/provider-teams' },
-        { label: 'Escalation Config', sub: 'Escalation', icon: 'notifications_active', iconBg: '#FEF3C7', iconFg: '#D97706', href: '/escalation' },
+        { label: 'Add role', sub: 'Roles', icon: 'badge', iconBg: '#EEF2F7', iconFg: '#334155', href: '/roles' },
+        { label: 'Add Staff Member', sub: 'Staff', icon: 'person_add', iconBg: '#EEF2F7', iconFg: '#334155', href: '/staff' },
+        { label: 'Create Provider Team', sub: 'Teams', icon: 'groups', iconBg: '#EEF2F7', iconFg: '#334155', href: '/provider-teams' },
+        { label: 'Escalation Config', sub: 'Escalation', icon: 'notifications_active', iconBg: '#EEF2F7', iconFg: '#334155', href: '/escalation' },
     ];
 
     const openAlerts = (failedImports24h > 0 ? 1 : 0) + (setupTasks > 0 ? 1 : 0);
@@ -386,31 +432,47 @@ export default function HomePage() {
             <TopBar title="Home" subtitle="Overview" />
             <main
                 style={{
+                    position: 'relative',
                     flex: 1,
                     minWidth: 0,
                     overflow: 'auto',
-                    padding: '28px 32px 40px',
-                    background: '#F5F6F8',
+                    padding: '32px 36px 48px',
+                    background: '#F8F9FB',
                 }}
             >
-                {/* Greeting */}
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
+                {/* Ambient animated orbs */}
+                <div className="home-bg-layer" aria-hidden>
+                    <div className="home-orb home-orb-1" />
+                    <div className="home-orb home-orb-2" />
+                    <div className="home-orb home-orb-3" />
+                </div>
+
+                {/* Greeting header */}
+                <div className="home-fade-in" style={{ position: 'relative', zIndex: 1, animationDelay: '0ms', display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: 28 }}>
                     <div>
-                        <h2 style={{ margin: 0, fontSize: 26, color: '#0F172A', fontWeight: 800, letterSpacing: '-0.01em' }}>
+                        <p style={{ margin: 0, fontSize: 12, fontWeight: 600, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>
+                            {todayLabel()}
+                        </p>
+                        <h2 style={{ margin: 0, fontSize: 24, color: '#0F172A', fontWeight: 800, letterSpacing: '-0.02em', lineHeight: 1.2 }}>
                             {greetingByTime()}{firstName ? `, ${firstName}` : ''}
                         </h2>
-                        <p style={{ marginTop: 6, fontSize: 13, color: '#64748B' }}>
-                            {facilityName ? `Operational overview for ${facilityName}.` : 'Operational overview for your facility.'}
+                        <p style={{ marginTop: 4, fontSize: 13, color: '#64748B', fontWeight: 500, lineHeight: 1.4 }}>
+                            {facilityName ? `Operational overview for ${facilityName}` : 'Operational overview for your facility'}
                         </p>
                     </div>
-                    <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '8px 14px', background: '#FFFFFF', border: '1px solid #EEF1F5', borderRadius: 999, fontSize: 12, fontWeight: 700, color: '#334155' }}>
-                        <span className="material-icons-round" style={{ fontSize: 16, fontWeight: 900, color: '#0F172A' }}>event</span>
-                        {todayLabel()}
-                    </div>
+                    <button
+                        onClick={fetchHomeData}
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 16px', background: '#FFFFFF', border: '1px solid #E2E8F0', borderRadius: 8, fontSize: 12, fontWeight: 600, color: '#475569', cursor: 'pointer', transition: 'all 0.15s' }}
+                        onMouseEnter={e => { e.currentTarget.style.borderColor = '#CBD5E1'; e.currentTarget.style.background = '#F8FAFC'; }}
+                        onMouseLeave={e => { e.currentTarget.style.borderColor = '#E2E8F0'; e.currentTarget.style.background = '#FFFFFF'; }}
+                    >
+                        <span className="material-icons-round" style={{ fontSize: 15 }}>refresh</span>
+                        Refresh
+                    </button>
                 </div>
 
                 {/* KPI row */}
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 16, marginBottom: 20 }}>
+                <div className="home-fade-in" style={{ position: 'relative', zIndex: 1, animationDelay: '60ms', display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 16, marginBottom: 20 }}>
                     {kpis.map((kpi) => {
                         const isCritical = kpi.tone === 'critical';
                         return (
@@ -419,18 +481,20 @@ export default function HomePage() {
                                 style={{
                                     position: 'relative',
                                     padding: 20,
-                                    background: '#FFFFFF',
-                                    border: '1px solid #EEF1F5',
+                                    background: 'rgba(255,255,255,0.9)',
+                                    border: '1px solid #E3E8EE',
                                     borderRadius: 16,
-                                    boxShadow: '0 1px 2px rgba(15,23,42,0.03)',
+                                    boxShadow: '0 8px 24px rgba(15,23,42,0.05)',
                                     display: 'flex',
                                     flexDirection: 'column',
                                     gap: 14,
                                     minHeight: 172,
+                                    overflow: 'hidden',
                                 }}
                             >
+                                <CardWatermark icon={kpi.icon} />
                                 {/* Header: icon + title + sub-pill */}
-                                <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 }}>
+                                <div style={{ position: 'relative', zIndex: 1, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 }}>
                                     <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, minWidth: 0 }}>
                                         <div
                                             style={{
@@ -477,6 +541,8 @@ export default function HomePage() {
                                 {/* Big value */}
                                 <div
                                     style={{
+                                        position: 'relative',
+                                        zIndex: 1,
                                         fontSize: 38,
                                         fontWeight: 800,
                                         color: isCritical ? '#DC2626' : '#0F172A',
@@ -485,12 +551,12 @@ export default function HomePage() {
                                         fontVariantNumeric: 'tabular-nums',
                                     }}
                                 >
-                                    {loading ? '—' : kpi.value.toLocaleString()}
+                                    {loading ? '—' : `${kpi.value.toLocaleString()}${kpi.valueSuffix ?? ''}`}
                                 </div>
 
                                 {/* Dashed footer */}
-                                <div style={{ borderTop: '1px dashed #E2E8F0', marginTop: 'auto' }} />
-                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                                <div style={{ position: 'relative', zIndex: 1, borderTop: '1px dashed #E2E8F0', marginTop: 'auto' }} />
+                                <div style={{ position: 'relative', zIndex: 1, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
                                     <span style={{ fontSize: 11.5, color: '#94A3B8' }}>{kpi.footerLabel}</span>
                                     <span style={{ fontSize: 11.5, fontWeight: 700, color: isCritical ? '#B91C1C' : '#0F172A', textAlign: 'right', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '70%' }}>
                                         {kpi.footerValue}
@@ -501,517 +567,256 @@ export default function HomePage() {
                     })}
                 </div>
 
-                <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 20, alignItems: 'start' }}>
-                    {/* Left column: Needs Attention + signed-in staff */}
-                    <div style={{ minWidth: 0, display: 'flex', flexDirection: 'column', gap: 20 }}>
-                        <div style={{ background: '#FFFFFF', border: '1px solid #EEF1F5', borderRadius: 16, boxShadow: '0 1px 2px rgba(15,23,42,0.03)', overflow: 'hidden' }}>
-                            {/* Section header */}
-                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '18px 20px', borderBottom: '1px solid #EEF1F5' }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                                    <div style={{ width: 40, height: 40, borderRadius: 12, background: '#FEE2E2', color: '#B91C1C', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
-                                        <span className="material-icons-round" style={{ fontSize: 20, fontWeight: 900 }}>warning_amber</span>
-                                    </div>
-                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                                        <div style={{ fontSize: 14, fontWeight: 700, color: '#0F172A', lineHeight: 1.25 }}>Needs Attention</div>
-                                        <span style={{ alignSelf: 'flex-start', fontSize: 11, fontWeight: 600, color: openAlerts > 0 ? '#B91C1C' : '#059669', background: openAlerts > 0 ? '#FEE2E2' : '#D1FAE5', padding: '3px 10px', borderRadius: 999 }}>
-                                            {loading ? 'Checking…' : openAlerts > 0 ? `${openAlerts} open` : 'All clear'}
-                                        </span>
-                                    </div>
+                {/* Attention strip */}
+                {!loading && openAlerts > 0 && (
+                    <div className="home-fade-in" style={{ position: 'relative', zIndex: 1, animationDelay: '120ms', overflow: 'hidden', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 0, background: '#FFFFFF', border: '1px solid #E2E8F0', borderRadius: 14, marginBottom: 20, boxShadow: '0 1px 3px rgba(15,23,42,0.04)' }}>
+                        <CardWatermark icon="monitor_heart" />
+                        <div style={{ position: 'relative', zIndex: 1, display: 'flex', alignItems: 'center', gap: 14, padding: '16px 20px', borderRight: '1px solid #F1F3F7' }}>
+                            <span style={{ width: 36, height: 36, borderRadius: 10, background: failedImports24h > 0 ? '#FEF2F2' : '#F0FDF4', color: failedImports24h > 0 ? '#991B1B' : '#166534', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                                <span className="material-icons-round" style={{ fontSize: 18 }}>{failedImports24h > 0 ? 'error_outline' : 'check_circle_outline'}</span>
+                            </span>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                                <div style={{ fontSize: 13, fontWeight: 700, color: '#0F172A', lineHeight: 1.3 }}>
+                                    {failedImports24h > 0 ? `${failedImports24h} failed import${failedImports24h === 1 ? '' : 's'}` : 'Imports healthy'}
                                 </div>
-                                <button
-                                    onClick={() => router.push('/audit-log')}
-                                    style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11, fontWeight: 700, color: '#334155', background: '#F1F5F9', border: 'none', borderRadius: 999, padding: '7px 14px', cursor: 'pointer' }}
-                                >
-                                    View all
-                                    <span className="material-icons-round" style={{ fontSize: 14, fontWeight: 900 }}>arrow_forward</span>
-                                </button>
-                            </div>
-
-                            {/* Alert row 1 */}
-                            <div style={{ display: 'flex', gap: 14, padding: '18px 20px', borderBottom: '1px solid #F1F3F7' }}>
-                                <span
-                                    style={{
-                                        width: 40,
-                                        height: 40,
-                                        borderRadius: 12,
-                                        background: failedImports24h > 0 ? '#FEE2E2' : '#D1FAE5',
-                                        color: failedImports24h > 0 ? '#B91C1C' : '#047857',
-                                        display: 'inline-flex',
-                                        alignItems: 'center',
-                                        justifyContent: 'center',
-                                        flexShrink: 0,
-                                    }}
-                                >
-                                    <span className="material-icons-round" style={{ fontSize: 20, fontWeight: 900 }}>
-                                        {failedImports24h > 0 ? 'block' : 'check_circle'}
-                                    </span>
-                                </span>
-                                <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 8 }}>
-                                    <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
-                                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 0 }}>
-                                            <div style={{ fontSize: 14, fontWeight: 700, color: '#0F172A' }}>
-                                                {failedImports24h > 0 ? 'Failed bulk imports' : 'Bulk imports healthy'}
-                                            </div>
-                                            <span style={{ alignSelf: 'flex-start', fontSize: 11, fontWeight: 600, color: failedImports24h > 0 ? '#B91C1C' : '#047857', background: failedImports24h > 0 ? '#FEE2E2' : '#D1FAE5', padding: '3px 10px', borderRadius: 999 }}>
-                                                {failedImports24h > 0 ? 'Import error' : 'Healthy'}
-                                            </span>
-                                        </div>
-                                        <span style={{ fontSize: 11, fontWeight: 600, color: '#64748B', background: '#F1F5F9', padding: '4px 10px', borderRadius: 999, flexShrink: 0, whiteSpace: 'nowrap' }}>
-                                            {loading ? '—' : lastFailedImport ? toWhenLabel(lastFailedImport.date) : 'Last 24h'}
-                                        </span>
-                                    </div>
-                                    <div style={{ fontSize: 12.5, color: '#475569', lineHeight: 1.55 }}>
-                                        {loading
-                                            ? 'Checking recent import activity…'
-                                            : failedImports24h > 0
-                                                ? `${failedImports24h.toLocaleString()} import ${failedImports24h === 1 ? 'job' : 'jobs'} failed in the last 24 hours${lastFailedImport ? ` — latest: ${lastFailedImport.file}` : ''}. Review the logs to re-run or resolve row-level errors.`
-                                                : 'No failed imports in the last 24 hours. Uploads are running cleanly.'}
-                                    </div>
-                                    <div style={{ borderTop: '1px dashed #E2E8F0', marginTop: 4 }} />
-                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-                                        <span style={{ fontSize: 11.5, color: '#94A3B8' }}>Action</span>
-                                        <button
-                                            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: '#0F172A', color: '#FFFFFF', borderRadius: 999, padding: '7px 14px', fontWeight: 700, fontSize: 11, border: 'none', cursor: 'pointer' }}
-                                            onClick={() => router.push('/staff')}
-                                        >
-                                            Review Import History
-                                            <span className="material-icons-round" style={{ fontSize: 14, fontWeight: 900 }}>arrow_forward</span>
-                                        </button>
-                                    </div>
+                                <div style={{ fontSize: 11.5, color: '#64748B', marginTop: 2 }}>
+                                    {failedImports24h > 0
+                                        ? `Last 24h${lastFailedImport ? ` — ${lastFailedImport.file}` : ''}`
+                                        : 'No failures in the last 24 hours'}
                                 </div>
                             </div>
-
-                            {/* Alert row 2 */}
-                            <div style={{ display: 'flex', gap: 14, padding: '18px 20px' }}>
-                                <span
-                                    style={{
-                                        width: 40,
-                                        height: 40,
-                                        borderRadius: 12,
-                                        background: setupTasks > 0 ? '#FEF3C7' : '#D1FAE5',
-                                        color: setupTasks > 0 ? '#B45309' : '#047857',
-                                        display: 'inline-flex',
-                                        alignItems: 'center',
-                                        justifyContent: 'center',
-                                        flexShrink: 0,
-                                    }}
-                                >
-                                    <span className="material-icons-round" style={{ fontSize: 20, fontWeight: 900 }}>
-                                        {setupTasks > 0 ? 'assignment' : 'task_alt'}
-                                    </span>
-                                </span>
-                                <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 8 }}>
-                                    <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
-                                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 0 }}>
-                                            <div style={{ fontSize: 14, fontWeight: 700, color: '#0F172A' }}>
-                                                {setupTasks > 0 ? 'Configuration incomplete' : 'Configuration complete'}
-                                            </div>
-                                            <span style={{ alignSelf: 'flex-start', fontSize: 11, fontWeight: 600, color: setupTasks > 0 ? '#B45309' : '#047857', background: setupTasks > 0 ? '#FEF3C7' : '#D1FAE5', padding: '3px 10px', borderRadius: 999 }}>
-                                                {setupTasks > 0 ? 'Setup' : 'Complete'}
-                                            </span>
-                                        </div>
-                                        <span style={{ fontSize: 11, fontWeight: 600, color: '#64748B', background: '#F1F5F9', padding: '4px 10px', borderRadius: 999, flexShrink: 0, whiteSpace: 'nowrap' }}>
-                                            {loading ? '—' : setupTasks > 0 ? `${setupTasks} open` : 'All set'}
-                                        </span>
-                                    </div>
-                                    <div style={{ fontSize: 12.5, color: '#475569', lineHeight: 1.55 }}>
-                                        {loading
-                                            ? 'Reviewing setup checklist…'
-                                            : setupTasks > 0
-                                                ? `${setupTasks.toLocaleString()} setup ${setupTasks === 1 ? 'item needs' : 'items need'} attention across teams, escalation chains, and departments.`
-                                                : 'All teams, escalation chains, and departments are fully configured.'}
-                                    </div>
-                                    {setupTasks > 0 ? (
-                                        <>
-                                            <div style={{ borderTop: '1px dashed #E2E8F0', marginTop: 4 }} />
-                                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-                                                <span style={{ fontSize: 11.5, color: '#94A3B8' }}>Action</span>
-                                                <button
-                                                    style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: '#0F172A', color: '#FFFFFF', borderRadius: 999, padding: '7px 14px', fontWeight: 700, fontSize: 11, border: 'none', cursor: 'pointer' }}
-                                                    onClick={() => router.push('/provider-teams')}
-                                                >
-                                                    Resolve Setup Tasks
-                                                    <span className="material-icons-round" style={{ fontSize: 14, fontWeight: 900 }}>arrow_forward</span>
-                                                </button>
-                                            </div>
-                                        </>
-                                    ) : null}
-                                </div>
-                            </div>
+                            <button
+                                onClick={() => router.push('/staff')}
+                                style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11, fontWeight: 700, color: '#475569', background: '#F1F5F9', border: 'none', borderRadius: 8, padding: '6px 12px', cursor: 'pointer', flexShrink: 0 }}
+                            >
+                                Review
+                                <span className="material-icons-round" style={{ fontSize: 13 }}>arrow_forward</span>
+                            </button>
                         </div>
-
-                        {/* Currently signed in */}
-                        <div style={{ background: '#FFFFFF', border: '1px solid #EEF1F5', borderRadius: 16, padding: 20, boxShadow: '0 1px 2px rgba(15,23,42,0.03)' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, gap: 12 }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
-                                    <div style={{ width: 40, height: 40, borderRadius: 12, background: '#CCFBF1', color: '#0D9488', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                                        <span className="material-icons-round" style={{ fontSize: 20, fontWeight: 900 }}>groups_2</span>
-                                    </div>
-                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, minWidth: 0 }}>
-                                        <div style={{ fontSize: 14, fontWeight: 700, color: '#0F172A', lineHeight: 1.25 }}>Currently signed in</div>
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11, fontWeight: 600, color: '#059669', background: '#D1FAE5', padding: '3px 10px', borderRadius: 999 }}>
-                                                <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#059669' }} />
-                                                Live
-                                            </span>
-                                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11, fontWeight: 600, color: '#047857', background: '#D1FAE5', padding: '3px 10px', borderRadius: 999 }}>
-                                                <span style={{ width: 5, height: 5, borderRadius: '50%', background: '#059669' }} />
-                                                {loading ? '—' : `${signedInStaff.filter((s) => s.status === 'online').length} online`}
-                                            </span>
-                                            {!loading && signedInStaff.length > 0 ? (
-                                                <span style={{ fontSize: 10.5, fontWeight: 600, color: '#64748B' }}>
-                                                    {signedInStaff.length} recent
-                                                </span>
-                                            ) : null}
-                                        </div>
-                                    </div>
+                        <div style={{ position: 'relative', zIndex: 1, display: 'flex', alignItems: 'center', gap: 14, padding: '16px 20px' }}>
+                            <span style={{ width: 36, height: 36, borderRadius: 10, background: setupTasks > 0 ? '#FFFBEB' : '#F0FDF4', color: setupTasks > 0 ? '#92400E' : '#166534', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                                <span className="material-icons-round" style={{ fontSize: 18 }}>{setupTasks > 0 ? 'tune' : 'task_alt'}</span>
+                            </span>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                                <div style={{ fontSize: 13, fontWeight: 700, color: '#0F172A', lineHeight: 1.3 }}>
+                                    {setupTasks > 0 ? `${setupTasks} setup task${setupTasks === 1 ? '' : 's'} pending` : 'Configuration complete'}
                                 </div>
-                                <button
-                                    type="button"
-                                    onClick={() => router.push('/staff')}
-                                    style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11, fontWeight: 700, color: '#334155', background: '#F1F5F9', border: 'none', borderRadius: 999, padding: '7px 14px', cursor: 'pointer', flexShrink: 0 }}
-                                >
-                                    View directory
-                                    <span className="material-icons-round" style={{ fontSize: 14, fontWeight: 900 }}>arrow_forward</span>
-                                </button>
+                                <div style={{ fontSize: 11.5, color: '#64748B', marginTop: 2 }}>
+                                    {setupTasks > 0 ? 'Teams, escalations & departments' : 'All systems fully configured'}
+                                </div>
                             </div>
-
-                            {loading ? (
-                                <div style={{ fontSize: 11.5, color: '#94A3B8', padding: '8px 0' }}>Loading signed-in staff…</div>
-                            ) : signedInStaff.length === 0 ? (
-                                <div style={{ fontSize: 11.5, color: '#94A3B8', padding: '8px 0' }}>
-                                    {presenceReportedNoOnline
-                                        ? 'No one online right now.'
-                                        : 'No recent sign-ins recorded.'}
-                                </div>
-                            ) : (
-                                <div style={{ display: 'grid', gap: 8 }}>
-                                    {signedInStaff.map((s) => {
-                                        const statusBg = s.status === 'online' ? '#D1FAE5' : s.status === 'recent' ? '#FEF3C7' : '#F1F5F9';
-                                        const statusFg = s.status === 'online' ? '#047857' : s.status === 'recent' ? '#B45309' : '#475569';
-                                        const dot = s.status === 'online' ? '#059669' : s.status === 'recent' ? '#F59E0B' : '#94A3B8';
-                                        const statusLabel = s.status === 'online' ? 'Online' : s.status === 'recent' ? 'Recent' : 'Away';
-                                        const avatarBg = s.status === 'online' ? '#D1FAE5' : s.status === 'recent' ? '#FEF3C7' : '#F1F5F9';
-                                        const avatarFg = s.status === 'online' ? '#047857' : s.status === 'recent' ? '#B45309' : '#475569';
-                                        return (
-                                            <div
-                                                key={s.id}
-                                                style={{
-                                                    display: 'flex',
-                                                    alignItems: 'center',
-                                                    gap: 12,
-                                                    padding: '10px 12px',
-                                                    background: '#F8FAFC',
-                                                    border: '1px solid #EEF1F5',
-                                                    borderRadius: 12,
-                                                }}
-                                            >
-                                                <div style={{ position: 'relative', flexShrink: 0 }}>
-                                                    <span style={{ width: 34, height: 34, borderRadius: '50%', background: avatarBg, color: avatarFg, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 800, letterSpacing: '0.02em' }}>
-                                                        {s.initials}
-                                                    </span>
-                                                    <span
-                                                        aria-hidden
-                                                        style={{
-                                                            position: 'absolute',
-                                                            right: -2,
-                                                            bottom: -2,
-                                                            width: 11,
-                                                            height: 11,
-                                                            borderRadius: '50%',
-                                                            background: dot,
-                                                            border: '2px solid #F8FAFC',
-                                                        }}
-                                                    />
-                                                </div>
-                                                <div style={{ flex: 1, minWidth: 0 }}>
-                                                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                                                        <span style={{ fontSize: 12.5, fontWeight: 700, color: '#0F172A', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 160 }}>
-                                                            {s.name}
-                                                        </span>
-                                                        <span style={{ fontSize: 9.5, fontWeight: 600, color: statusFg, background: statusBg, padding: '2px 7px', borderRadius: 999 }}>
-                                                            {statusLabel}
-                                                        </span>
-                                                    </div>
-                                                    <span style={{ fontSize: 10.5, color: '#64748B', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'block' }}>
-                                                        {s.role}
-                                                    </span>
-                                                </div>
-                                                <span style={{ fontSize: 10.5, fontWeight: 600, color: '#64748B', background: '#F1F5F9', padding: '3px 8px', borderRadius: 999, flexShrink: 0, whiteSpace: 'nowrap' }}>
-                                                    {s.when}
-                                                </span>
-                                            </div>
-                                        );
-                                    })}
-                                </div>
+                            {setupTasks > 0 && (
+                                <button
+                                    onClick={() => router.push('/provider-teams')}
+                                    style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11, fontWeight: 700, color: '#475569', background: '#F1F5F9', border: 'none', borderRadius: 8, padding: '6px 12px', cursor: 'pointer', flexShrink: 0 }}
+                                >
+                                    Resolve
+                                    <span className="material-icons-round" style={{ fontSize: 13 }}>arrow_forward</span>
+                                </button>
                             )}
                         </div>
                     </div>
+                )}
 
-                    {/* Right: Quick Actions + Recent Activity */}
-                    <div style={{ minWidth: 0, display: 'grid', gap: 16 }}>
-                        {/* Quick Actions */}
-                        <div style={{ background: '#FFFFFF', border: '1px solid #EEF1F5', borderRadius: 16, padding: 20, boxShadow: '0 1px 2px rgba(15,23,42,0.03)' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                                    <div style={{ width: 40, height: 40, borderRadius: 12, background: '#F1F5F9', color: '#0F172A', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
-                                        <span className="material-icons-round" style={{ fontSize: 20, fontWeight: 900 }}>bolt</span>
-                                    </div>
-                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                                        <div style={{ fontSize: 14, fontWeight: 700, color: '#0F172A', lineHeight: 1.25 }}>Quick Actions</div>
-                                        <span style={{ alignSelf: 'flex-start', fontSize: 11, fontWeight: 600, color: '#475569', background: '#EEF2F7', padding: '3px 10px', borderRadius: 999 }}>
-                                            {quickActions.length} shortcuts
+                {/* Quick Actions — horizontal row */}
+                <div className="home-fade-in" style={{ position: 'relative', zIndex: 1, animationDelay: '180ms', display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 20 }}>
+                    {quickActions.map((action) => (
+                        <button
+                            key={action.label}
+                            onClick={() => router.push(action.href)}
+                            style={{
+                                position: 'relative',
+                                overflow: 'hidden',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 12,
+                                padding: '14px 16px',
+                                background: '#FFFFFF',
+                                border: '1px solid #E2E8F0',
+                                borderRadius: 12,
+                                cursor: 'pointer',
+                                textAlign: 'left',
+                                transition: 'border-color 0.15s, box-shadow 0.15s',
+                                boxShadow: '0 1px 3px rgba(15,23,42,0.04)',
+                            }}
+                            onMouseEnter={(e) => { e.currentTarget.style.borderColor = '#CBD5E1'; e.currentTarget.style.boxShadow = '0 4px 12px rgba(15,23,42,0.08)'; }}
+                            onMouseLeave={(e) => { e.currentTarget.style.borderColor = '#E2E8F0'; e.currentTarget.style.boxShadow = '0 1px 3px rgba(15,23,42,0.04)'; }}
+                        >
+                            <span style={{ width: 36, height: 36, borderRadius: 10, background: '#F1F5F9', color: '#334155', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                                <span className="material-icons-round" style={{ fontSize: 18 }}>{action.icon}</span>
+                            </span>
+                            <span style={{ flex: 1, minWidth: 0 }}>
+                                <span style={{ display: 'block', fontSize: 12.5, fontWeight: 700, color: '#0F172A', lineHeight: 1.3 }}>{action.label}</span>
+                                <span style={{ display: 'block', fontSize: 11, color: '#94A3B8', marginTop: 1 }}>{action.sub}</span>
+                            </span>
+                            <span className="material-icons-round" style={{ fontSize: 16, color: '#CBD5E1', flexShrink: 0 }}>chevron_right</span>
+                        </button>
+                    ))}
+                </div>
+
+                {/* Main content — two columns */}
+                <div className="home-fade-in" style={{ position: 'relative', zIndex: 1, animationDelay: '240ms', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, alignItems: 'start' }}>
+
+                    {/* Left: Currently signed in */}
+                    <div style={{ position: 'relative', overflow: 'hidden', background: '#FFFFFF', border: '1px solid #E2E8F0', borderRadius: 14, boxShadow: '0 1px 3px rgba(15,23,42,0.04)' }}>
+                        <CardWatermark icon="groups_2" />
+                        <div style={{ position: 'relative', zIndex: 1, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid #F1F3F7' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                                <span style={{ width: 34, height: 34, borderRadius: 9, background: '#F1F5F9', color: '#334155', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                                    <span className="material-icons-round" style={{ fontSize: 17 }}>groups_2</span>
+                                </span>
+                                <div>
+                                    <div style={{ fontSize: 13, fontWeight: 700, color: '#0F172A', lineHeight: 1.2 }}>Currently Signed In</div>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 3 }}>
+                                        <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#22C55E' }} />
+                                        <span style={{ fontSize: 11, fontWeight: 600, color: '#64748B' }}>
+                                            {loading ? '—' : `${signedInStaff.filter((s) => s.status === 'online').length} online`}
                                         </span>
+                                        {!loading && signedInStaff.length > 0 && (
+                                            <span style={{ fontSize: 11, color: '#94A3B8' }}>&middot; {signedInStaff.length} total</span>
+                                        )}
                                     </div>
                                 </div>
                             </div>
-                            <div style={{ display: 'grid', gap: 10 }}>
-                                {quickActions.map((action) => (
-                                    <button
-                                        key={action.label}
+                            <button
+                                type="button"
+                                onClick={() => router.push('/staff')}
+                                style={{ fontSize: 11, fontWeight: 600, color: '#475569', background: 'none', border: 'none', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 3 }}
+                            >
+                                View all
+                                <span className="material-icons-round" style={{ fontSize: 14 }}>chevron_right</span>
+                            </button>
+                        </div>
+                        <div style={{ position: 'relative', zIndex: 1, padding: '8px 12px' }}>
+                            {loading ? (
+                                <div style={{ fontSize: 12, color: '#94A3B8', padding: '16px 8px' }}>Loading…</div>
+                            ) : signedInStaff.length === 0 ? (
+                                <div style={{ fontSize: 12, color: '#94A3B8', padding: '16px 8px' }}>
+                                    {presenceReportedNoOnline ? 'No one online right now.' : 'No recent sign-ins recorded.'}
+                                </div>
+                            ) : signedInStaff.map((s) => {
+                                const dot = s.status === 'online' ? '#22C55E' : s.status === 'recent' ? '#94A3B8' : '#CBD5E1';
+                                return (
+                                    <div
+                                        key={s.id}
                                         style={{
                                             display: 'flex',
                                             alignItems: 'center',
-                                            justifyContent: 'space-between',
-                                            gap: 12,
-                                            width: '100%',
-                                            padding: 12,
-                                            borderRadius: 12,
-                                            border: '1px solid #EEF1F5',
-                                            background: '#FFFFFF',
-                                            color: '#0F172A',
-                                            cursor: 'pointer',
-                                            textAlign: 'left',
-                                            transition: 'background 0.15s ease, transform 0.15s ease',
+                                            gap: 10,
+                                            padding: '10px 8px',
+                                            borderBottom: '1px solid #F8F9FB',
                                         }}
-                                        onMouseEnter={(e) => { e.currentTarget.style.background = '#F8FAFC'; }}
-                                        onMouseLeave={(e) => { e.currentTarget.style.background = '#FFFFFF'; }}
-                                        onClick={() => router.push(action.href)}
                                     >
-                                        <span style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
+                                        <div style={{ position: 'relative', flexShrink: 0 }}>
+                                            <span style={{
+                                                width: 32, height: 32, borderRadius: '50%',
+                                                background: '#F1F5F9', color: '#475569',
+                                                display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                                                fontSize: 11, fontWeight: 800, letterSpacing: '0.02em',
+                                            }}>
+                                                {s.initials}
+                                            </span>
                                             <span
+                                                aria-hidden
                                                 style={{
-                                                    width: 36,
-                                                    height: 36,
-                                                    borderRadius: 10,
-                                                    background: action.iconBg,
-                                                    color: action.iconFg,
-                                                    display: 'inline-flex',
-                                                    alignItems: 'center',
-                                                    justifyContent: 'center',
-                                                    flexShrink: 0,
+                                                    position: 'absolute', right: -1, bottom: -1,
+                                                    width: 10, height: 10, borderRadius: '50%',
+                                                    background: dot, border: '2px solid #FFFFFF',
                                                 }}
-                                            >
-                                                <span className="material-icons-round" style={{ fontSize: 18, fontWeight: 900 }}>{action.icon}</span>
+                                            />
+                                        </div>
+                                        <div style={{ flex: 1, minWidth: 0 }}>
+                                            <span style={{ display: 'block', fontSize: 12.5, fontWeight: 700, color: '#0F172A', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                                {s.name}
                                             </span>
-                                            <span style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 0 }}>
-                                                <span style={{ fontSize: 13, fontWeight: 700, color: '#0F172A' }}>{action.label}</span>
-                                                <span style={{ alignSelf: 'flex-start', fontSize: 10, fontWeight: 600, color: '#475569', background: '#F1F5F9', padding: '2px 8px', borderRadius: 999 }}>
-                                                    {action.sub}
-                                                </span>
-                                            </span>
-                                        </span>
-                                        <span
-                                            style={{
-                                                width: 28,
-                                                height: 28,
-                                                borderRadius: 999,
-                                                background: '#F1F5F9',
-                                                color: '#0F172A',
-                                                display: 'inline-flex',
-                                                alignItems: 'center',
-                                                justifyContent: 'center',
-                                                flexShrink: 0,
-                                            }}
-                                        >
-                                            <span className="material-icons-round" style={{ fontSize: 16, fontWeight: 900 }}>arrow_forward</span>
-                                        </span>
-                                    </button>
-                                ))}
-                            </div>
-                        </div>
-
-                        {/* Recent Activity */}
-                        <div style={{ background: '#FFFFFF', border: '1px solid #EEF1F5', borderRadius: 16, padding: 20, boxShadow: '0 1px 2px rgba(15,23,42,0.03)' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                                    <div style={{ width: 40, height: 40, borderRadius: 12, background: '#E0E7FF', color: '#4F46E5', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
-                                        <span className="material-icons-round" style={{ fontSize: 20, fontWeight: 900 }}>history</span>
-                                    </div>
-                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                                        <div style={{ fontSize: 14, fontWeight: 700, color: '#0F172A', lineHeight: 1.25 }}>Recent Activity</div>
-                                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, alignSelf: 'flex-start', fontSize: 11, fontWeight: 600, color: '#059669', background: '#D1FAE5', padding: '3px 10px', borderRadius: 999 }}>
-                                            <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#059669' }} />
-                                            Live
-                                        </span>
-                                    </div>
-                                </div>
-                            </div>
-                            <div style={{ position: 'relative', paddingLeft: 24 }}>
-                                <div
-                                    aria-hidden
-                                    style={{
-                                        position: 'absolute',
-                                        left: 13,
-                                        top: 14,
-                                        bottom: 14,
-                                        width: 2,
-                                        background: '#E6EBF2',
-                                        borderRadius: 2,
-                                    }}
-                                />
-                                {recent.length === 0 ? (
-                                    <div style={{ padding: '12px 0', color: '#94A3B8', fontSize: 12 }}>
-                                        {loading ? 'Loading activity…' : 'No recent activity'}
-                                    </div>
-                                ) : recent.map((item) => {
-                                    const iconName = item.tone === 'critical' ? 'warning' : item.tone === 'info' ? 'shield' : 'edit';
-                                    const dotBg = item.tone === 'critical' ? '#DC2626' : item.tone === 'info' ? '#2484C7' : '#64748B';
-                                    const pillBg = item.tone === 'critical' ? '#FEE2E2' : item.tone === 'info' ? '#DBEAFE' : '#F1F5F9';
-                                    const pillFg = item.tone === 'critical' ? '#B91C1C' : item.tone === 'info' ? '#1D4ED8' : '#475569';
-                                    const pillLabel = item.tone === 'critical' ? 'Critical' : item.tone === 'info' ? 'Info' : 'Update';
-                                    return (
-                                        <div key={item.id} style={{ display: 'flex', gap: 12, alignItems: 'flex-start', padding: '12px 0', position: 'relative' }}>
-                                            <span
-                                                style={{
-                                                    marginLeft: -24,
-                                                    width: 28,
-                                                    height: 28,
-                                                    borderRadius: '50%',
-                                                    flexShrink: 0,
-                                                    border: '3px solid #fff',
-                                                    background: dotBg,
-                                                    color: '#FFFFFF',
-                                                    display: 'inline-flex',
-                                                    alignItems: 'center',
-                                                    justifyContent: 'center',
-                                                    zIndex: 1,
-                                                    boxShadow: '0 0 0 1px #E6EBF2',
-                                                }}
-                                            >
-                                                <span className="material-icons-round" style={{ fontSize: 14, fontWeight: 900 }}>{iconName}</span>
-                                            </span>
-                                            <div style={{ minWidth: 0, flex: 1, paddingTop: 2, display: 'flex', flexDirection: 'column', gap: 4 }}>
-                                                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                                                    <span style={{ fontSize: 13, fontWeight: 700, color: '#0F172A', lineHeight: 1.3 }}>{item.title}</span>
-                                                    <span style={{ fontSize: 10, fontWeight: 600, color: pillFg, background: pillBg, padding: '2px 8px', borderRadius: 999 }}>
-                                                        {pillLabel}
-                                                    </span>
-                                                </div>
-                                                <div style={{ fontSize: 11.5, color: '#64748B', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.detail}</div>
-                                            </div>
-                                            <span style={{ fontSize: 10.5, fontWeight: 600, color: '#64748B', background: '#F1F5F9', padding: '3px 8px', borderRadius: 999, flexShrink: 0, whiteSpace: 'nowrap', marginTop: 3 }}>
-                                                {item.time}
+                                            <span style={{ display: 'block', fontSize: 11, color: '#94A3B8', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                                {s.role}
                                             </span>
                                         </div>
-                                    );
-                                })}
-                            </div>
-                        </div>
-
-                        {/* System Health & Compliance */}
-                        <div style={{ background: '#FFFFFF', border: '1px solid #EEF1F5', borderRadius: 16, padding: 20, boxShadow: '0 1px 2px rgba(15,23,42,0.03)' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                                    <div style={{ width: 40, height: 40, borderRadius: 12, background: '#D1FAE5', color: '#047857', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
-                                        <span className="material-icons-round" style={{ fontSize: 20, fontWeight: 900 }}>verified_user</span>
-                                    </div>
-                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                                        <div style={{ fontSize: 14, fontWeight: 700, color: '#0F172A', lineHeight: 1.25 }}>System Health</div>
-                                        <span style={{ alignSelf: 'flex-start', fontSize: 11, fontWeight: 600, color: failedImports24h > 0 ? '#B45309' : '#047857', background: failedImports24h > 0 ? '#FEF3C7' : '#D1FAE5', padding: '3px 10px', borderRadius: 999 }}>
-                                            {failedImports24h > 0 ? 'Attention needed' : 'All healthy'}
+                                        <span style={{ fontSize: 10.5, fontWeight: 600, color: '#94A3B8', flexShrink: 0, whiteSpace: 'nowrap' }}>
+                                            {s.when}
                                         </span>
                                     </div>
+                                );
+                            })}
+                        </div>
+                    </div>
+
+                    {/* Right column: System Health + Recent Activity */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+
+                        {/* System Health */}
+                        <div style={{ position: 'relative', overflow: 'hidden', background: '#FFFFFF', border: '1px solid #E2E8F0', borderRadius: 14, boxShadow: '0 1px 3px rgba(15,23,42,0.04)' }}>
+                            <CardWatermark icon="verified_user" />
+                            <div style={{ position: 'relative', zIndex: 1, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid #F1F3F7' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                                    <span style={{ width: 34, height: 34, borderRadius: 9, background: '#F1F5F9', color: '#334155', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                                        <span className="material-icons-round" style={{ fontSize: 17 }}>shield</span>
+                                    </span>
+                                    <div style={{ fontSize: 13, fontWeight: 700, color: '#0F172A', lineHeight: 1.2 }}>System Health</div>
                                 </div>
-                                <button
-                                    onClick={() => router.push('/audit-log')}
-                                    style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11, fontWeight: 700, color: '#334155', background: '#F1F5F9', border: 'none', borderRadius: 999, padding: '7px 14px', cursor: 'pointer' }}
-                                >
-                                    Audit
-                                    <span className="material-icons-round" style={{ fontSize: 14, fontWeight: 900 }}>arrow_forward</span>
-                                </button>
+                                <span style={{ fontSize: 11, fontWeight: 600, color: failedImports24h > 0 ? '#B91C1C' : '#059669', background: failedImports24h > 0 ? '#FEF2F2' : '#F0FDF4', padding: '3px 10px', borderRadius: 999 }}>
+                                    {failedImports24h > 0 ? 'Attention' : 'Healthy'}
+                                </span>
                             </div>
 
                             {(() => {
                                 const twoFactorPct = twoFactorAdoption.total > 0 ? Math.round((twoFactorAdoption.enabled / twoFactorAdoption.total) * 100) : 0;
-                                const twoFactorStatus = twoFactorPct >= 80 ? 'Healthy' : twoFactorPct >= 50 ? 'Improving' : 'Action';
-                                const twoFactorPillBg = twoFactorPct >= 80 ? '#D1FAE5' : twoFactorPct >= 50 ? '#FEF3C7' : '#FEE2E2';
-                                const twoFactorPillFg = twoFactorPct >= 80 ? '#047857' : twoFactorPct >= 50 ? '#B45309' : '#B91C1C';
+                                const ackMin = avgCriticalAckMinutes;
+                                const ackLabel = ackMin <= 0 ? '—' : ackMin < 1 ? '<1 min' : ackMin < 60 ? `${Math.round(ackMin)} min` : `${(ackMin / 60).toFixed(1)} hr`;
 
-                                const importPillBg = failedImports24h > 0 ? '#FEE2E2' : '#D1FAE5';
-                                const importPillFg = failedImports24h > 0 ? '#B91C1C' : '#047857';
-
-                                const rows = [
+                                const healthRows = [
+                                    {
+                                        icon: 'bolt',
+                                        label: 'Critical Ack Time',
+                                        value: loading ? '—' : ackLabel,
+                                        sub: 'Avg, last 30d',
+                                        color: ackMin > 0 && ackMin > 15 ? '#DC2626' : ackMin > 0 ? '#059669' : '#475569',
+                                    },
                                     {
                                         icon: 'lock',
-                                        iconBg: '#DBEAFE', iconFg: '#1D4ED8',
-                                        label: '2FA adoption',
-                                        detail: `${twoFactorAdoption.enabled}/${twoFactorAdoption.total} enrolled`,
+                                        label: '2FA Adoption',
                                         value: loading ? '—' : `${twoFactorPct}%`,
-                                        pillLabel: twoFactorStatus,
-                                        pillBg: twoFactorPillBg,
-                                        pillFg: twoFactorPillFg,
+                                        sub: `${twoFactorAdoption.enabled}/${twoFactorAdoption.total}`,
+                                        color: twoFactorPct >= 80 ? '#059669' : twoFactorPct >= 50 ? '#D97706' : '#DC2626',
                                     },
                                     {
                                         icon: 'sync',
-                                        iconBg: failedImports24h > 0 ? '#FEE2E2' : '#D1FAE5', iconFg: failedImports24h > 0 ? '#B91C1C' : '#047857',
-                                        label: 'Data sync',
-                                        detail: failedImports24h > 0 ? `${failedImports24h} failed in 24h` : 'Imports clean',
-                                        value: failedImports24h > 0 ? `${failedImports24h}` : 'OK',
-                                        pillLabel: failedImports24h > 0 ? 'Degraded' : 'Healthy',
-                                        pillBg: importPillBg,
-                                        pillFg: importPillFg,
+                                        label: 'Data Sync',
+                                        value: failedImports24h > 0 ? `${failedImports24h} failed` : 'Clean',
+                                        sub: 'Last 24h',
+                                        color: failedImports24h > 0 ? '#DC2626' : '#059669',
                                     },
                                     {
                                         icon: 'devices',
-                                        iconBg: '#E0E7FF', iconFg: '#4F46E5',
-                                        label: 'Active sessions',
-                                        detail: activeSessions === 1 ? 'Your session' : `${activeSessions} signed in`,
+                                        label: 'Active Sessions',
                                         value: loading ? '—' : activeSessions.toLocaleString(),
-                                        pillLabel: 'Live',
-                                        pillBg: '#E0E7FF',
-                                        pillFg: '#4338CA',
-                                    },
-                                    {
-                                        icon: 'fact_check',
-                                        iconBg: '#FEF3C7', iconFg: '#D97706',
-                                        label: 'Last audit',
-                                        detail: latestAuditAt ? `Recorded ${toWhenLabel(latestAuditAt)}` : 'No recent events',
-                                        value: latestAuditAt ? toWhenLabel(latestAuditAt) : '—',
-                                        pillLabel: latestAuditAt ? 'Tracked' : 'Idle',
-                                        pillBg: latestAuditAt ? '#FEF3C7' : '#F1F5F9',
-                                        pillFg: latestAuditAt ? '#B45309' : '#475569',
+                                        sub: activeSessions === 1 ? 'Your session' : 'Signed in',
+                                        color: '#475569',
                                     },
                                 ];
 
                                 return (
-                                    <div style={{ display: 'grid', gap: 8 }}>
-                                        {rows.map((r) => (
+                                    <div style={{ position: 'relative', zIndex: 1, padding: '4px 12px' }}>
+                                        {healthRows.map((r, idx) => (
                                             <div
                                                 key={r.label}
                                                 style={{
                                                     display: 'flex',
                                                     alignItems: 'center',
                                                     gap: 10,
-                                                    padding: '10px 12px',
-                                                    background: '#F8FAFC',
-                                                    border: '1px solid #EEF1F5',
-                                                    borderRadius: 12,
+                                                    padding: '12px 8px',
+                                                    borderBottom: idx < healthRows.length - 1 ? '1px solid #F8F9FB' : 'none',
                                                 }}
                                             >
-                                                <span style={{ width: 32, height: 32, borderRadius: 10, background: r.iconBg, color: r.iconFg, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                                                    <span className="material-icons-round" style={{ fontSize: 16, fontWeight: 900 }}>{r.icon}</span>
+                                                <span style={{ width: 30, height: 30, borderRadius: 8, background: '#F8F9FB', color: '#64748B', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                                                    <span className="material-icons-round" style={{ fontSize: 15 }}>{r.icon}</span>
                                                 </span>
-                                                <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>
-                                                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                                                        <span style={{ fontSize: 12, fontWeight: 700, color: '#0F172A' }}>{r.label}</span>
-                                                        <span style={{ fontSize: 9.5, fontWeight: 600, color: r.pillFg, background: r.pillBg, padding: '2px 7px', borderRadius: 999 }}>
-                                                            {r.pillLabel}
-                                                        </span>
-                                                    </div>
-                                                    <span style={{ fontSize: 11, color: '#64748B', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.detail}</span>
+                                                <div style={{ flex: 1, minWidth: 0 }}>
+                                                    <span style={{ fontSize: 12, fontWeight: 600, color: '#334155' }}>{r.label}</span>
+                                                    <span style={{ fontSize: 11, color: '#94A3B8', marginLeft: 6 }}>{r.sub}</span>
                                                 </div>
-                                                <span style={{ fontSize: 13, fontWeight: 800, color: '#0F172A', flexShrink: 0, fontVariantNumeric: 'tabular-nums' }}>
+                                                <span style={{ fontSize: 12.5, fontWeight: 800, color: r.color, flexShrink: 0, fontVariantNumeric: 'tabular-nums' }}>
                                                     {r.value}
                                                 </span>
                                             </div>
@@ -1019,6 +824,78 @@ export default function HomePage() {
                                     </div>
                                 );
                             })()}
+                        </div>
+
+                        {/* Recent Activity */}
+                        <div style={{ position: 'relative', overflow: 'hidden', background: '#FFFFFF', border: '1px solid #E2E8F0', borderRadius: 14, boxShadow: '0 1px 3px rgba(15,23,42,0.04)' }}>
+                            <CardWatermark icon="history" />
+                            <div style={{ position: 'relative', zIndex: 1, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid #F1F3F7' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                                    <span style={{ width: 34, height: 34, borderRadius: 9, background: '#F1F5F9', color: '#334155', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                                        <span className="material-icons-round" style={{ fontSize: 17 }}>history</span>
+                                    </span>
+                                    <div style={{ fontSize: 13, fontWeight: 700, color: '#0F172A', lineHeight: 1.2 }}>Recent Activity</div>
+                                </div>
+                                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11, fontWeight: 600, color: '#64748B' }}>
+                                    <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#22C55E' }} />
+                                    Live
+                                </span>
+                            </div>
+                            <div style={{ position: 'relative', zIndex: 1, padding: '4px 20px 12px' }}>
+                                {recent.length === 0 ? (
+                                    <div style={{ padding: '16px 0', color: '#94A3B8', fontSize: 12 }}>
+                                        {loading ? 'Loading…' : 'No recent activity'}
+                                    </div>
+                                ) : (
+                                    <div style={{ position: 'relative', paddingLeft: 20 }}>
+                                        <div
+                                            aria-hidden
+                                            style={{
+                                                position: 'absolute',
+                                                left: 8,
+                                                top: 20,
+                                                bottom: 20,
+                                                width: 1.5,
+                                                background: '#E6EBF2',
+                                                borderRadius: 2,
+                                            }}
+                                        />
+                                        {recent.map((item, idx) => {
+                                            const iconName = item.tone === 'critical' ? 'warning' : item.tone === 'info' ? 'shield' : 'edit';
+                                            return (
+                                                <div key={item.id} style={{ display: 'flex', gap: 10, alignItems: 'flex-start', padding: '12px 0', position: 'relative', borderBottom: idx < recent.length - 1 ? '1px solid #F8F9FB' : 'none' }}>
+                                                    <span
+                                                        style={{
+                                                            marginLeft: -20,
+                                                            width: 18,
+                                                            height: 18,
+                                                            borderRadius: '50%',
+                                                            flexShrink: 0,
+                                                            border: '2px solid #FFFFFF',
+                                                            background: '#64748B',
+                                                            color: '#FFFFFF',
+                                                            display: 'inline-flex',
+                                                            alignItems: 'center',
+                                                            justifyContent: 'center',
+                                                            zIndex: 1,
+                                                            marginTop: 2,
+                                                        }}
+                                                    >
+                                                        <span className="material-icons-round" style={{ fontSize: 10 }}>{iconName}</span>
+                                                    </span>
+                                                    <div style={{ minWidth: 0, flex: 1, display: 'flex', flexDirection: 'column', gap: 2 }}>
+                                                        <span style={{ fontSize: 12.5, fontWeight: 700, color: '#0F172A', lineHeight: 1.3 }}>{item.title}</span>
+                                                        <span style={{ fontSize: 11, color: '#94A3B8', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.detail}</span>
+                                                    </div>
+                                                    <span style={{ fontSize: 10.5, fontWeight: 600, color: '#94A3B8', flexShrink: 0, whiteSpace: 'nowrap', marginTop: 2 }}>
+                                                        {item.time}
+                                                    </span>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                )}
+                            </div>
                         </div>
                     </div>
                 </div>

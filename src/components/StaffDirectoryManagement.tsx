@@ -593,6 +593,7 @@ export default function StaffDirectoryManagement() {
     const [bulkHistoryLoading, setBulkHistoryLoading] = useState(false);
     const [bulkResultCreated, setBulkResultCreated] = useState<unknown[]>([]);
     const [bulkResultErrors, setBulkResultErrors] = useState<StaffBulkImportRowError[]>([]);
+    const [pendingDelete, setPendingDelete] = useState<StaffMember | null>(null);
     const [processing, setProcessing] = useState(false);
     const [adding, setAdding] = useState(false);
     const [departmentOptions, setDepartmentOptions] = useState<string[]>([]);
@@ -628,7 +629,9 @@ export default function StaffDirectoryManagement() {
     useEffect(() => {
         const onKey = (e: KeyboardEvent) => {
             if (e.key !== 'Escape') return;
-            if (bulkResultErrors.length > 0) {
+            if (pendingDelete) {
+                setPendingDelete(null);
+            } else if (bulkResultErrors.length > 0) {
                 dismissBulkErrors();
             } else if (toast) {
                 dismissToast();
@@ -636,7 +639,7 @@ export default function StaffDirectoryManagement() {
         };
         window.addEventListener('keydown', onKey);
         return () => window.removeEventListener('keydown', onKey);
-    }, [toast, dismissToast, bulkResultErrors.length, dismissBulkErrors]);
+    }, [toast, dismissToast, bulkResultErrors.length, dismissBulkErrors, pendingDelete]);
 
     const departments = useMemo(() => ['all', ...departmentOptions], [departmentOptions]);
     const deptNameToId = useMemo(() => {
@@ -1152,10 +1155,19 @@ export default function StaffDirectoryManagement() {
         }
     };
 
-    const handleRemove = async (id: string) => {
+    const requestRemove = (id: string) => {
         const member = staff.find(s => s.id === id);
+        if (!member) return;
+        setPendingDelete(member);
+    };
+
+    const handleRemove = async () => {
+        if (!pendingDelete) return;
+        const member = pendingDelete;
+        const id = member.id;
         setStaff(prev => prev.filter(s => s.id !== id));
         if (selected?.id === id) setSelected(null);
+        setPendingDelete(null);
         showToast(`${member?.first_name} ${member?.last_name} removed`, 'success');
         try {
             await fetch(`/api/proxy/staff/${id}`, { method: 'DELETE' });
@@ -1847,7 +1859,7 @@ export default function StaffDirectoryManagement() {
                                                         )}
                                                     </td>
                                                     <td style={{ ...staffBodyCell, width: 44, minWidth: 44, textAlign: 'center', background: rowBg, borderBottom: '1px solid var(--border-subtle)' }}>
-                                                        <button className="btn btn-ghost btn-xs" onClick={e => { e.stopPropagation(); handleRemove(s.id); }}>
+                                                        <button className="btn btn-ghost btn-xs" onClick={e => { e.stopPropagation(); requestRemove(s.id); }}>
                                                             <span className="material-icons-round" style={{ fontSize: 14, color: 'var(--text-muted)' }}>delete</span>
                                                         </button>
                                                     </td>
@@ -2110,7 +2122,7 @@ export default function StaffDirectoryManagement() {
                                             <span className="material-icons-round" style={{ fontSize: 15 }}>{selected.status === 'active' ? 'block' : 'check_circle'}</span>
                                             {selected.status === 'active' ? 'Disable Account' : 'Enable Account'}
                                         </button>
-                                        <button className="btn btn-secondary btn-sm" style={{ justifyContent: 'flex-start' }} onClick={() => { handleRemove(selected.id); }}>
+                                        <button className="btn btn-secondary btn-sm" style={{ justifyContent: 'flex-start' }} onClick={() => { requestRemove(selected.id); }}>
                                             <span className="material-icons-round" style={{ fontSize: 15 }}>delete</span>Remove Staff
                                         </button>
                                     </div>
@@ -2322,6 +2334,82 @@ export default function StaffDirectoryManagement() {
                 </main>
                 )}
             </div>
+            {pendingDelete && (
+                <div
+                    role="dialog"
+                    aria-modal="true"
+                    onClick={() => setPendingDelete(null)}
+                    style={{
+                        position: 'fixed',
+                        inset: 0,
+                        background: 'rgba(8, 12, 20, 0.45)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        zIndex: 1200,
+                        padding: 16,
+                    }}
+                >
+                    <div
+                        onClick={e => e.stopPropagation()}
+                        style={{
+                            width: '100%',
+                            maxWidth: 440,
+                            background: 'var(--surface-card)',
+                            border: '1px solid var(--border-default)',
+                            borderRadius: 'var(--radius-lg)',
+                            boxShadow: '0 24px 64px rgba(0,0,0,0.25)',
+                            padding: '18px 18px 14px',
+                        }}
+                    >
+                        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+                            <div
+                                style={{
+                                    width: 32,
+                                    height: 32,
+                                    borderRadius: 10,
+                                    background: 'rgba(198, 40, 40, 0.12)',
+                                    color: '#c62828',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    flexShrink: 0,
+                                }}
+                            >
+                                <span className="material-icons-round" style={{ fontSize: 18 }}>warning</span>
+                            </div>
+                            <div style={{ minWidth: 0 }}>
+                                <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)' }}>
+                                    Confirm delete action
+                                </div>
+                                <div style={{ marginTop: 6, fontSize: 12.5, color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+                                    Are you sure you want to delete{' '}
+                                    <strong>
+                                        {[pendingDelete.first_name, pendingDelete.last_name].filter(Boolean).join(' ').trim() || 'this staff member'}
+                                    </strong>
+                                    ?
+                                </div>
+                            </div>
+                        </div>
+                        <div style={{ marginTop: 14, display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+                            <button
+                                type="button"
+                                className="btn btn-secondary btn-sm"
+                                onClick={() => setPendingDelete(null)}
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                type="button"
+                                className="btn btn-danger btn-sm"
+                                onClick={handleRemove}
+                            >
+                                Confirm Delete
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </>
     );
 }

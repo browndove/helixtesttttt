@@ -21,6 +21,7 @@ const departmentsAppMainStyle = {
 type FloorItem = { id: string; name: string };
 type WardItem = { id: string; name: string };
 type UnitItem = { id: string; name: string; description?: string };
+type BuildingItem = { id: string; name: string; description?: string };
 type Department = {
     id: string;
     name: string;
@@ -74,6 +75,9 @@ export default function DepartmentsManagement() {
     const [unitsByDept, setUnitsByDept] = useState<Record<string, UnitItem[]>>({});
     const [unitsLoading, setUnitsLoading] = useState(false);
     const [addingUnit, setAddingUnit] = useState(false);
+    const [buildingsByDept, setBuildingsByDept] = useState<Record<string, BuildingItem[]>>({});
+    const [newBuildingName, setNewBuildingName] = useState('');
+    const [newBuildingDescription, setNewBuildingDescription] = useState('');
     const [loading, setLoading] = useState(true);
     const [deptSearch, setDeptSearch] = useState('');
     const [detailName, setDetailName] = useState('');
@@ -176,6 +180,8 @@ export default function DepartmentsManagement() {
         }
         setNewUnitName('');
         setNewUnitDescription('');
+        setNewBuildingName('');
+        setNewBuildingDescription('');
         fetchUnits(editingDept);
         const local = departmentsRef.current.find(d => d.id === editingDept);
         if (local) {
@@ -412,6 +418,27 @@ export default function DepartmentsManagement() {
             }
         } catch { showToast('Failed to add unit'); }
         setAddingUnit(false);
+    };
+
+    /** Local-only — UI scaffolding for buildings (API integration pending). */
+    const addBuilding = (deptId: string) => {
+        const name = newBuildingName.trim();
+        if (!name) return;
+        const description = newBuildingDescription.trim();
+        const newItem: BuildingItem = {
+            id: `local-bldg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            name,
+            description: description || undefined,
+        };
+        setBuildingsByDept(prev => ({ ...prev, [deptId]: [...(prev[deptId] || []), newItem] }));
+        setNewBuildingName('');
+        setNewBuildingDescription('');
+        showToast(`Building "${name}" added`);
+    };
+
+    /** Local-only — UI scaffolding for buildings (API integration pending). */
+    const removeBuilding = (deptId: string, buildingId: string) => {
+        setBuildingsByDept(prev => ({ ...prev, [deptId]: (prev[deptId] || []).filter(b => b.id !== buildingId) }));
     };
 
     const removeUnit = async (deptId: string, unitId: string) => {
@@ -953,6 +980,58 @@ export default function DepartmentsManagement() {
                                                     />
                                                     <button type="button" className="btn btn-secondary btn-sm" onClick={() => addUnit(editDept.id)} disabled={!newUnitName.trim() || addingUnit}>
                                                         {addingUnit ? 'Adding…' : 'Add unit'}
+                                                    </button>
+                                                </div>
+                                            </div>
+
+                                            <div className="card" style={{ padding: '16px 18px', margin: 0, background: 'var(--surface-2)', border: '1px solid var(--border-subtle)', gridColumn: '1 / -1' }}>
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+                                                    <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Buildings</div>
+                                                    <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--text-muted)', background: 'var(--surface-card)', border: '1px solid var(--border-subtle)', padding: '2px 8px', borderRadius: 999 }}>
+                                                        UI preview
+                                                    </span>
+                                                </div>
+                                                <p style={{ fontSize: 11, color: 'var(--text-muted)', margin: '0 0 10px', lineHeight: 1.45 }}>
+                                                    Physical buildings or wings associated with this department (e.g. Main Tower, North Wing).
+                                                </p>
+                                                <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 12 }}>
+                                                    {(buildingsByDept[editDept.id] || []).map(b => (
+                                                        <div key={b.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', background: 'var(--surface-card)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)' }}>
+                                                            <span className="material-icons-round" style={{ fontSize: 16, color: 'var(--helix-primary)', flexShrink: 0 }}>apartment</span>
+                                                            <div style={{ flex: 1, minWidth: 0 }}>
+                                                                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{b.name}</div>
+                                                                {b.description ? (
+                                                                    <div style={{ fontSize: 11, color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{b.description}</div>
+                                                                ) : null}
+                                                            </div>
+                                                            <button type="button" className="btn btn-ghost btn-sm" onClick={() => removeBuilding(editDept.id, b.id)} title="Remove building" style={{ color: 'var(--danger, #dc2626)' }}>
+                                                                <span className="material-icons-round" style={{ fontSize: 14 }}>delete</span>
+                                                            </button>
+                                                        </div>
+                                                    ))}
+                                                    {(buildingsByDept[editDept.id] || []).length === 0 && (
+                                                        <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>No buildings yet</span>
+                                                    )}
+                                                </div>
+                                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+                                                    <input
+                                                        className="input"
+                                                        placeholder="Building name (e.g. Main Tower)"
+                                                        value={newBuildingName}
+                                                        onChange={e => setNewBuildingName(e.target.value)}
+                                                        onKeyDown={e => e.key === 'Enter' && !e.shiftKey && addBuilding(editDept.id)}
+                                                        style={{ fontSize: 13, flex: '1 1 180px', minWidth: 160 }}
+                                                    />
+                                                    <input
+                                                        className="input"
+                                                        placeholder="Description (optional)"
+                                                        value={newBuildingDescription}
+                                                        onChange={e => setNewBuildingDescription(e.target.value)}
+                                                        onKeyDown={e => e.key === 'Enter' && !e.shiftKey && addBuilding(editDept.id)}
+                                                        style={{ fontSize: 13, flex: '2 1 220px', minWidth: 160 }}
+                                                    />
+                                                    <button type="button" className="btn btn-secondary btn-sm" onClick={() => addBuilding(editDept.id)} disabled={!newBuildingName.trim()}>
+                                                        Add building
                                                     </button>
                                                 </div>
                                             </div>

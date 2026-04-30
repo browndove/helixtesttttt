@@ -918,9 +918,6 @@ export default function HospitalAdminLogin() {
                                     </button>
                                 ))}
                             </div>
-                            <p style={{ fontSize: 10, color: C_MUTED_LABEL, margin: 0, lineHeight: 1.35 }}>
-                                &copy; {new Date().getFullYear()} Blvcksapphire Company Ltd
-                            </p>
                         </footer>
                     </div>
                 </div>
