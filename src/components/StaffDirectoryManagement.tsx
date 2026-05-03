@@ -572,8 +572,6 @@ export default function StaffDirectoryManagement() {
     const [newMiddleName, setNewMiddleName] = useState('');
     const [newLastName, setNewLastName] = useState('');
     const [newEmail, setNewEmail] = useState('');
-    const [newPhoneCountry, setNewPhoneCountry] = useState('GH');
-    const [newPhoneLocal, setNewPhoneLocal] = useState('');
     const [newDob, setNewDob] = useState('');
     const [newGender, setNewGender] = useState('');
     /** Display-only on create form; not persisted to the backend. */
@@ -603,12 +601,7 @@ export default function StaffDirectoryManagement() {
         () => PHONE_COUNTRIES.map(c => ({ label: c.label, value: c.code })),
         []
     );
-    const newCountryMeta = useMemo(() => getPhoneCountryByCode(newPhoneCountry), [newPhoneCountry]);
     const editCountryMeta = useMemo(() => getPhoneCountryByCode(editPhoneCountry), [editPhoneCountry]);
-    const formattedNewPhone = useMemo(
-        () => formatPhoneByCountry(newPhoneLocal, newPhoneCountry),
-        [newPhoneLocal, newPhoneCountry]
-    );
     const formattedEditPhone = useMemo(
         () => formatPhoneByCountry(editPhoneLocal, editPhoneCountry),
         [editPhoneLocal, editPhoneCountry]
@@ -740,18 +733,13 @@ export default function StaffDirectoryManagement() {
         Boolean(newFirstName.trim())
         && Boolean(newLastName.trim())
         && Boolean(newEmail.trim())
-        && Boolean(newPhoneLocal.trim())
         && Boolean(newGender.trim())
         && Boolean(newHighestQualification.trim())
         && Boolean(newDept.trim())
-        && isValidPhoneByCountry(formattedNewPhone, newPhoneCountry)
     ), [
         newFirstName,
         newLastName,
         newEmail,
-        newPhoneLocal,
-        formattedNewPhone,
-        newPhoneCountry,
         newDob,
         newGender,
         newHighestQualification,
@@ -763,10 +751,6 @@ export default function StaffDirectoryManagement() {
         if (!newFirstName.trim()) missing.push('First name');
         if (!newLastName.trim()) missing.push('Last name');
         if (!newEmail.trim()) missing.push('Email');
-        if (!newPhoneLocal.trim()) missing.push('Phone');
-        if (newPhoneLocal.trim() && !isValidPhoneByCountry(formattedNewPhone, newPhoneCountry)) {
-            missing.push(`Phone format (${newCountryMeta.dialCode} + ${newCountryMeta.digits} digits)`);
-        }
         if (!newGender.trim()) missing.push('Gender');
         if (!newHighestQualification.trim()) missing.push('Highest qualification');
         if (!newDept.trim()) missing.push('Department');
@@ -775,11 +759,6 @@ export default function StaffDirectoryManagement() {
         newFirstName,
         newLastName,
         newEmail,
-        newPhoneLocal,
-        formattedNewPhone,
-        newPhoneCountry,
-        newCountryMeta.dialCode,
-        newCountryMeta.digits,
         newDob,
         newGender,
         newHighestQualification,
@@ -1077,7 +1056,6 @@ export default function StaffDirectoryManagement() {
                     middle_name: newMiddleName.trim() || undefined,
                     last_name: newLastName.trim(),
                     email: newEmail.trim(),
-                    phone: newPhoneLocal.trim() ? formattedNewPhone : '',
                     dob: newDob.trim() || undefined,
                     gender: newGender.trim() || undefined,
                     title: newRole.trim() || undefined,
@@ -1114,7 +1092,7 @@ export default function StaffDirectoryManagement() {
                 employee_id: '',
                 patient_access: newPatientAccess,
                 role: 'staff',
-                phone: newPhoneLocal.trim() ? formattedNewPhone : '',
+                phone: '',
                 dob: newDob.trim(),
                 gender: newGender.trim(),
             };
@@ -1139,8 +1117,6 @@ export default function StaffDirectoryManagement() {
             setNewMiddleName('');
             setNewLastName('');
             setNewEmail('');
-            setNewPhoneCountry('GH');
-            setNewPhoneLocal('');
             setNewDob('');
             setNewGender('');
             setNewCreationTitle('');
@@ -1460,30 +1436,6 @@ export default function StaffDirectoryManagement() {
                                 <div><label className="label">Middle Name (Optional)</label><input className="input" value={newMiddleName} onChange={e => setNewMiddleName(e.target.value)} placeholder="Middle name" style={{ fontSize: 12 }} /></div>
                                 <div><label className="label">Last Name *</label><input className="input" value={newLastName} onChange={e => setNewLastName(e.target.value)} placeholder="Last name" style={{ fontSize: 12 }} /></div>
                                 <div><label className="label">Email *</label><input className="input" value={newEmail} onChange={e => setNewEmail(e.target.value)} placeholder="Email address" style={{ fontSize: 12 }} /></div>
-                                <div style={{ gridColumn: 'span 2' }}>
-                                    <label className="label">Phone *</label>
-                                    <div style={{ display: 'flex', gap: 8 }}>
-                                        <div style={{ minWidth: 170 }}>
-                                            <CustomSelect
-                                                value={newPhoneCountry}
-                                                onChange={v => setNewPhoneCountry(v)}
-                                                options={countryOptions}
-                                                placeholder="Country code"
-                                            />
-                                        </div>
-                                        <input
-                                            className="input"
-                                            value={newPhoneLocal}
-                                            onChange={e => setNewPhoneLocal(e.target.value.replace(/\D/g, '').slice(0, newCountryMeta.digits))}
-                                            placeholder={`${newCountryMeta.digits} digits`}
-                                            maxLength={newCountryMeta.digits}
-                                            style={{ fontSize: 12, flex: 1 }}
-                                        />
-                                    </div>
-                                    <div style={{ marginTop: 4, fontSize: 10.5, color: 'var(--text-muted)' }}>
-                                        {`Stored as ${newCountryMeta.dialCode} + ${newCountryMeta.digits} digits`}
-                                    </div>
-                                </div>
                                 <div>
                                     <label className="label">DOB</label>
                                     <DatePicker value={newDob} onChange={setNewDob} placeholder="Select DOB" />
@@ -1645,7 +1597,7 @@ export default function StaffDirectoryManagement() {
                                 className="table-wrapper staff-table-scroll"
                                 style={{ minWidth: 0, overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}
                             >
-                                <table style={{ width: 'max-content', minWidth: '100%', borderCollapse: 'separate', borderSpacing: 0, tableLayout: 'auto' }}>
+                                <table className="staff-table" style={{ width: 'max-content', minWidth: '100%', borderCollapse: 'separate', borderSpacing: 0, tableLayout: 'auto' }}>
                                     <thead>
                                         <tr>
                                             <th
@@ -1893,8 +1845,8 @@ export default function StaffDirectoryManagement() {
 
                         {/* Detail Panel */}
                         {selected && (
-                            <div className="slide-in-right" style={{ display: 'flex', flexDirection: 'column', gap: 14, minWidth: 0, alignSelf: 'start' }}>
-                                <div className="card" style={{ padding: '20px 22px', overflow: 'hidden' }}>
+                            <div className="slide-in-right" style={{ display: 'flex', flexDirection: 'column', gap: 14, minWidth: 0, alignSelf: 'start', position: 'sticky', top: 16, maxHeight: 'calc(100vh - 88px)', overflowY: 'auto', overflowX: 'hidden' }}>
+                                <div className="card" style={{ padding: '20px 22px' }}>
                                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14, gap: 8 }}>
                                         <div style={{ minWidth: 0, flex: 1 }}>
                                             <h3 style={{ fontSize: 15, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{selected.first_name} {selected.last_name}</h3>
@@ -1910,8 +1862,8 @@ export default function StaffDirectoryManagement() {
                                             <span className="material-icons-round" style={{ fontSize: 16 }}>close</span>
                                         </button>
                                     </div>
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-                                        <div style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+                                        <div style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
                                             Profile Details
                                         </div>
                                         <button
@@ -1923,44 +1875,23 @@ export default function StaffDirectoryManagement() {
                                             {editingSelected ? 'Cancel Edit' : 'Edit'}
                                         </button>
                                     </div>
-                                    <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: '12px 14px' }}>
+
+                                    {/* === Section: Personal === */}
+                                    <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 10, paddingBottom: 6, borderBottom: '1px solid var(--border-subtle)' }}>
+                                        Personal
+                                    </div>
+                                    <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: '12px 14px', marginBottom: 18 }}>
                                         <div style={{ minWidth: 0 }}>
                                             <label className="label">First Name</label>
                                             <input className="input" value={editFirstName} onChange={e => setEditFirstName(e.target.value)} disabled={!editingSelected || savingEdit} style={{ fontSize: 12, width: '100%', boxSizing: 'border-box' }} />
-                                        </div>
-                                        <div style={{ minWidth: 0 }}>
-                                            <label className="label">Middle Name (Optional)</label>
-                                            <input className="input" value={editMiddleName} onChange={e => setEditMiddleName(e.target.value)} disabled={!editingSelected || savingEdit} style={{ fontSize: 12, width: '100%', boxSizing: 'border-box' }} />
                                         </div>
                                         <div style={{ minWidth: 0 }}>
                                             <label className="label">Last Name</label>
                                             <input className="input" value={editLastName} onChange={e => setEditLastName(e.target.value)} disabled={!editingSelected || savingEdit} style={{ fontSize: 12, width: '100%', boxSizing: 'border-box' }} />
                                         </div>
                                         <div style={{ gridColumn: '1 / -1', minWidth: 0 }}>
-                                            <label className="label">Email</label>
-                                            <input className="input" value={editEmail} onChange={e => setEditEmail(e.target.value)} disabled={true} style={{ fontSize: 12, width: '100%', boxSizing: 'border-box', textOverflow: 'ellipsis' }} />
-                                        </div>
-                                        <div style={{ minWidth: 0 }}>
-                                            <label className="label">Phone</label>
-                                            <div style={{ display: 'flex', gap: 8 }}>
-                                                <div style={{ minWidth: 170, opacity: !editingSelected || savingEdit ? 0.65 : 1, pointerEvents: !editingSelected || savingEdit ? 'none' : 'auto' }}>
-                                                    <CustomSelect
-                                                        value={editPhoneCountry}
-                                                        onChange={v => setEditPhoneCountry(v)}
-                                                        options={countryOptions}
-                                                        placeholder="Country code"
-                                                    />
-                                                </div>
-                                                <input
-                                                    className="input"
-                                                    value={editPhoneLocal}
-                                                    onChange={e => setEditPhoneLocal(e.target.value.replace(/\D/g, '').slice(0, editCountryMeta.digits))}
-                                                    disabled={!editingSelected || savingEdit}
-                                                    placeholder={`${editCountryMeta.digits} digits`}
-                                                    maxLength={editCountryMeta.digits}
-                                                    style={{ fontSize: 12, width: '100%', boxSizing: 'border-box', textOverflow: 'ellipsis' }}
-                                                />
-                                            </div>
+                                            <label className="label">Middle Name <span style={{ fontWeight: 400, color: 'var(--text-muted)', textTransform: 'none', letterSpacing: 0 }}>(optional)</span></label>
+                                            <input className="input" value={editMiddleName} onChange={e => setEditMiddleName(e.target.value)} disabled={!editingSelected || savingEdit} style={{ fontSize: 12, width: '100%', boxSizing: 'border-box' }} />
                                         </div>
                                         <div style={{ minWidth: 0 }}>
                                             <label className="label">DOB</label>
@@ -1986,6 +1917,77 @@ export default function StaffDirectoryManagement() {
                                                 />
                                             </div>
                                         </div>
+                                    </div>
+
+                                    {/* === Section: Contact === */}
+                                    <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 10, paddingBottom: 6, borderBottom: '1px solid var(--border-subtle)' }}>
+                                        Contact
+                                    </div>
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 18 }}>
+                                        <div style={{ minWidth: 0 }}>
+                                            <label className="label">Email</label>
+                                            <input className="input" value={editEmail} onChange={e => setEditEmail(e.target.value)} disabled={true} style={{ fontSize: 12, width: '100%', boxSizing: 'border-box', textOverflow: 'ellipsis' }} />
+                                        </div>
+                                        <div style={{ minWidth: 0 }}>
+                                            <label className="label">Phone</label>
+                                            <div style={{ display: 'flex', gap: 8, alignItems: 'stretch', width: '100%' }}>
+                                                <div
+                                                    style={{
+                                                        width: 170,
+                                                        minWidth: 150,
+                                                        maxWidth: '45%',
+                                                        flexShrink: 0,
+                                                        opacity: !editingSelected || savingEdit ? 0.65 : 1,
+                                                        pointerEvents: !editingSelected || savingEdit ? 'none' : 'auto',
+                                                    }}
+                                                >
+                                                    <CustomSelect
+                                                        value={editPhoneCountry}
+                                                        onChange={v => setEditPhoneCountry(v)}
+                                                        options={countryOptions}
+                                                        placeholder="Country code"
+                                                    />
+                                                </div>
+                                                <input
+                                                    className="input"
+                                                    value={editPhoneLocal}
+                                                    onChange={e => setEditPhoneLocal(e.target.value.replace(/\D/g, '').slice(0, editCountryMeta.digits))}
+                                                    disabled={!editingSelected || savingEdit}
+                                                    placeholder={`${editCountryMeta.digits} digits`}
+                                                    maxLength={editCountryMeta.digits}
+                                                    aria-label="Phone number local digits"
+                                                    style={{
+                                                        fontSize: 12,
+                                                        flex: 1,
+                                                        minWidth: 0,
+                                                        width: '100%',
+                                                        boxSizing: 'border-box',
+                                                    }}
+                                                />
+                                            </div>
+                                            <div style={{ marginTop: 6, fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.35 }}>
+                                                <span style={{ fontWeight: 600, color: 'var(--text-muted)', marginRight: 6 }}>Full number</span>
+                                                <span style={{ fontWeight: 600, color: 'var(--text-primary)', wordBreak: 'break-all' }}>
+                                                    {(() => {
+                                                        const saved = (selected.phone || '').trim();
+                                                        const valid = editPhoneLocal.trim() && isValidPhoneByCountry(formattedEditPhone, editPhoneCountry);
+                                                        if (valid) return formattedEditPhone;
+                                                        if (saved) return saved;
+                                                        if (formattedEditPhone.replace(/\D/g, '').length > String(editCountryMeta.dialCode).replace(/\D/g, '').length) {
+                                                            return formattedEditPhone;
+                                                        }
+                                                        return '—';
+                                                    })()}
+                                                </span>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* === Section: Employment === */}
+                                    <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 10, paddingBottom: 6, borderBottom: '1px solid var(--border-subtle)' }}>
+                                        Employment
+                                    </div>
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 14 }}>
                                         <div style={{ minWidth: 0 }}>
                                             <label className="label">Department</label>
                                             <div style={{ opacity: !editingSelected || savingEdit ? 0.65 : 1, pointerEvents: !editingSelected || savingEdit ? 'none' : 'auto' }}>
@@ -2024,21 +2026,23 @@ export default function StaffDirectoryManagement() {
                                                 />
                                             </div>
                                         </div>
-                                        <div style={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 6, gap: 8 }}>
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
-                                                <span className="material-icons-round" style={{ fontSize: 16, color: 'var(--text-disabled)', flexShrink: 0 }}>fingerprint</span>
-                                                <div style={{ minWidth: 0 }}>
-                                                    <div style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 500 }}>Employee ID</div>
-                                                    <div style={{ fontSize: 12, color: 'var(--text-primary)', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{selected.employee_id}</div>
-                                                </div>
+                                    </div>
+
+                                    {/* === Footer: Employee ID + Save === */}
+                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, paddingTop: 14, marginTop: 4, borderTop: '1px solid var(--border-subtle)' }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+                                            <span className="material-icons-round" style={{ fontSize: 16, color: 'var(--text-disabled)', flexShrink: 0 }}>fingerprint</span>
+                                            <div style={{ minWidth: 0 }}>
+                                                <div style={{ fontSize: 10, color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Employee ID</div>
+                                                <div style={{ fontSize: 12, color: 'var(--text-primary)', fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>{selected.employee_id}</div>
                                             </div>
-                                            {editingSelected && (
-                                                <button className="btn btn-primary btn-sm" style={{ flexShrink: 0 }} onClick={handleSaveSelected} disabled={savingEdit}>
-                                                    <span className="material-icons-round" style={{ fontSize: 14 }}>{savingEdit ? 'hourglass_empty' : 'save'}</span>
-                                                    {savingEdit ? 'Saving...' : 'Save Changes'}
-                                                </button>
-                                            )}
                                         </div>
+                                        {editingSelected && (
+                                            <button className="btn btn-primary btn-sm" style={{ flexShrink: 0 }} onClick={handleSaveSelected} disabled={savingEdit}>
+                                                <span className="material-icons-round" style={{ fontSize: 14 }}>{savingEdit ? 'hourglass_empty' : 'save'}</span>
+                                                {savingEdit ? 'Saving...' : 'Save Changes'}
+                                            </button>
+                                        )}
                                     </div>
 
                                     {/* Patient Access - toggleable */}
@@ -2410,6 +2414,20 @@ export default function StaffDirectoryManagement() {
                     </div>
                 </div>
             )}
+            <style>{`
+                @media (max-width: 1024px) {
+                    .staff-table-scroll {
+                        overflow-x: auto !important;
+                        overflow-y: hidden !important;
+                        scrollbar-width: thin;
+                    }
+                    .staff-table {
+                        width: max-content !important;
+                        min-width: 1220px !important;
+                        table-layout: auto !important;
+                    }
+                }
+            `}</style>
         </>
     );
 }

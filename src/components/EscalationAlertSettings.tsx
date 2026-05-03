@@ -1115,7 +1115,7 @@ export default function EscalationAlertSettings() {
                 </div>
             )}
 
-            <div className="app-main">
+            <div className="app-main" style={{ height: '100vh', maxHeight: '100vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
                 <TopBar
                     title="Escalation Config"
                     subtitle="Manage escalation chains for Critical roles"
@@ -1128,10 +1128,68 @@ export default function EscalationAlertSettings() {
                     }
                 />
 
-                <main style={{ flex: 1, minWidth: 0, overflow: 'auto', padding: '24px 28px', background: 'var(--bg-900)' }}>
+                <main style={{
+                    flex: 1,
+                    minWidth: 0,
+                    minHeight: 0,
+                    overflow: 'hidden',
+                    padding: '24px 28px',
+                    background: 'var(--bg-900)',
+                    position: 'relative',
+                    isolation: 'isolate',
+                    display: 'flex',
+                    flexDirection: 'column',
+                }}>
+                    <div
+                        aria-hidden
+                        className="escalation-watermark-a"
+                        style={{
+                            position: 'absolute',
+                            top: -120,
+                            right: -120,
+                            width: 380,
+                            height: 380,
+                            borderRadius: '50%',
+                            background: 'radial-gradient(circle at 50% 50%, rgba(30,58,95,0.18) 0%, rgba(30,58,95,0.08) 42%, rgba(30,58,95,0) 72%)',
+                            filter: 'blur(3px)',
+                            zIndex: 0,
+                            pointerEvents: 'none',
+                        }}
+                    />
+                    <div
+                        aria-hidden
+                        className="escalation-watermark-b"
+                        style={{
+                            position: 'absolute',
+                            left: -130,
+                            bottom: -120,
+                            width: 350,
+                            height: 350,
+                            borderRadius: '50%',
+                            background: 'radial-gradient(circle at 50% 50%, rgba(45,138,78,0.16) 0%, rgba(45,138,78,0.07) 42%, rgba(45,138,78,0) 72%)',
+                            filter: 'blur(4px)',
+                            zIndex: 0,
+                            pointerEvents: 'none',
+                        }}
+                    />
+                    <div
+                        aria-hidden
+                        className="escalation-mesh"
+                        style={{
+                            position: 'absolute',
+                            inset: 0,
+                            backgroundImage: 'linear-gradient(rgba(15,23,42,0.04) 1px, transparent 1px), linear-gradient(90deg, rgba(15,23,42,0.04) 1px, transparent 1px)',
+                            backgroundSize: '38px 38px',
+                            opacity: 0.26,
+                            zIndex: 0,
+                            pointerEvents: 'none',
+                            maskImage: 'linear-gradient(to bottom, rgba(0,0,0,0.25), rgba(0,0,0,0))',
+                        }}
+                    />
+                    <div style={{ position: 'relative', zIndex: 1, flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
                     {/* Info banner */}
-                    <div className="fade-in" style={{ marginBottom: 18 }}>
-                        <p style={{ fontSize: 13, color: 'var(--text-muted)', maxWidth: 600 }}>
+                    <div className="fade-in escalation-surface" style={{ flexShrink: 0, marginBottom: 18, padding: '14px 16px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-subtle)', background: 'rgba(255,255,255,0.7)' }}>
+                        <p style={{ fontSize: 13, color: 'var(--text-muted)', maxWidth: 740, margin: 0, lineHeight: 1.5 }}>
                             Escalation chains are configured for <strong style={{ color: 'var(--text-secondary)' }}>Critical (Mandatory)</strong> roles only.
                             When a message goes unacknowledged, it escalates through the role chain below.
                         </p>
@@ -1139,7 +1197,8 @@ export default function EscalationAlertSettings() {
 
                     {/* Create Form */}
                     {showCreate && (
-                        <div className="fade-in card" style={{ marginBottom: 18, padding: '22px 24px', maxWidth: 580 }}>
+                        <div style={{ flexShrink: 0, marginBottom: 18, maxHeight: 'min(70vh, 720px)', overflowY: 'auto', WebkitOverflowScrolling: 'touch' }}>
+                        <div className="fade-in card escalation-surface" style={{ padding: '22px 24px', maxWidth: 760 }}>
                             <h4 style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>Create Escalation</h4>
                             <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 16 }}>Choose an existing Critical role as the primary level, then set escalation targets and delays.</p>
 
@@ -1241,11 +1300,12 @@ export default function EscalationAlertSettings() {
                                 </>
                             )}
                         </div>
+                        </div>
                     )}
 
                     {/* Loading */}
                     {loading && (
-                        <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-muted)', fontSize: 13 }}>Loading escalation data...</div>
+                        <div style={{ flex: 1, minHeight: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 40, color: 'var(--text-muted)', fontSize: 13 }}>Loading escalation data...</div>
                     )}
 
                     {/* Main Content: Table + Detail */}
@@ -1255,43 +1315,51 @@ export default function EscalationAlertSettings() {
                                 display: 'grid',
                                 gridTemplateColumns: selectedChain ? 'minmax(0, 1fr) minmax(300px, 380px)' : '1fr',
                                 gap: 20,
-                                alignItems: 'start',
+                                alignItems: 'stretch',
                                 width: '100%',
                                 minWidth: 0,
+                                flex: 1,
+                                minHeight: 0,
+                                overflow: 'hidden',
                             }}
                         >
-                            {/* Escalations Table — scroll horizontally when detail panel narrows the list */}
+                            {/* Escalations Table — horizontal + vertical scroll contained here (page shell does not scroll) */}
                             <div
-                                className="fade-in delay-1 card"
+                                className="card"
                                 style={{
                                     padding: 0,
                                     minWidth: 0,
                                     maxWidth: '100%',
+                                    minHeight: 0,
+                                    height: '100%',
                                     overflow: 'hidden',
                                     display: 'flex',
                                     flexDirection: 'column',
+                                    border: '1px solid var(--border-default)',
+                                    boxShadow: '0 8px 26px rgba(15, 23, 42, 0.06)',
                                 }}
                             >
                                 <div
+                                    className="escalation-table-scroll table-wrapper"
                                     style={{
-                                        flex: '1 1 auto',
+                                        flex: 1,
+                                        minHeight: 0,
                                         overflowX: 'auto',
-                                        overflowY: 'hidden',
+                                        overflowY: 'auto',
                                         WebkitOverflowScrolling: 'touch',
                                         width: '100%',
                                         maxWidth: '100%',
-                                        minWidth: 0,
                                     }}
                                 >
-                                    <table style={{ width: 'max-content', minWidth: 760, borderCollapse: 'collapse', tableLayout: 'auto' }}>
+                                    <table className="escalation-table" style={{ width: '100%', minWidth: 960, borderCollapse: 'collapse', tableLayout: 'fixed' }}>
                                     <thead>
-                                        <tr style={{ borderBottom: '1px solid var(--border-default)' }}>
-                                            <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Role</th>
-                                            <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Department</th>
-                                            <th style={{ padding: '12px 16px', textAlign: 'center', fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Priority</th>
-                                            <th style={{ padding: '12px 16px', textAlign: 'center', fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Levels</th>
-                                            <th style={{ padding: '12px 16px', textAlign: 'center', fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Roles</th>
-                                            <th style={{ padding: '12px 16px', textAlign: 'right', fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Actions</th>
+                                        <tr style={{ borderBottom: '1px solid var(--border-default)', position: 'sticky', top: 0, zIndex: 4, background: 'rgba(248,250,252,0.96)', backdropFilter: 'blur(4px)' }}>
+                                            <th style={{ width: '33%', padding: '12px 16px', textAlign: 'left', fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Role</th>
+                                            <th style={{ width: '27%', padding: '12px 16px', textAlign: 'left', fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Department</th>
+                                            <th style={{ width: '10%', padding: '12px 16px', textAlign: 'center', fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Priority</th>
+                                            <th style={{ width: '10%', padding: '12px 16px', textAlign: 'center', fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Levels</th>
+                                            <th style={{ width: '10%', padding: '12px 16px', textAlign: 'center', fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Roles</th>
+                                            <th style={{ width: '10%', padding: '12px 16px', textAlign: 'right', fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Actions</th>
                                         </tr>
                                     </thead>
                                     <tbody>
@@ -1303,8 +1371,8 @@ export default function EscalationAlertSettings() {
                                             </tr>
                                         ) : (
                                             filtered.map(chain => (
-                                                <tr key={chain.key} onClick={() => setSelectedChainKey(chain.key)} style={{ cursor: 'pointer', background: selectedChainKey === chain.key ? '#edf1f7' : undefined, borderBottom: '1px solid var(--border-subtle)', transition: 'background 0.1s' }}
-                                                    onMouseEnter={e => { if (selectedChainKey !== chain.key) e.currentTarget.style.background = '#fafbfc'; }}
+                                                <tr key={chain.key} onClick={() => setSelectedChainKey(chain.key)} style={{ cursor: 'pointer', background: selectedChainKey === chain.key ? '#eaf1fb' : undefined, borderBottom: '1px solid var(--border-subtle)', transition: 'background 0.16s ease' }}
+                                                    onMouseEnter={e => { if (selectedChainKey !== chain.key) e.currentTarget.style.background = '#f7f9fc'; }}
                                                     onMouseLeave={e => { if (selectedChainKey !== chain.key) e.currentTarget.style.background = 'transparent'; }}
                                                 >
                                                     <td style={{ padding: '12px 16px' }}>
@@ -1348,7 +1416,7 @@ export default function EscalationAlertSettings() {
 
                             {/* Detail Panel */}
                             {selectedChain && (
-                                <div className="fade-in" style={{ display: 'flex', flexDirection: 'column', gap: 16, minWidth: 0, alignSelf: 'start' }}>
+                                <div className="fade-in" style={{ display: 'flex', flexDirection: 'column', gap: 16, minWidth: 0, minHeight: 0, maxHeight: '100%', overflowY: 'auto', WebkitOverflowScrolling: 'touch' }}>
                                     {/* Header */}
                                     <div className="card" style={{ padding: '18px 20px' }}>
                                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10, marginBottom: 14 }}>
@@ -1410,8 +1478,55 @@ export default function EscalationAlertSettings() {
                             )}
                         </div>
                     )}
+                    </div>
                 </main>
             </div>
+            <style>{`
+                @keyframes escalationDriftA {
+                    0% { transform: translate3d(0, 0, 0); }
+                    50% { transform: translate3d(-12px, 8px, 0); }
+                    100% { transform: translate3d(0, 0, 0); }
+                }
+                @keyframes escalationDriftB {
+                    0% { transform: translate3d(0, 0, 0); }
+                    50% { transform: translate3d(10px, -10px, 0); }
+                    100% { transform: translate3d(0, 0, 0); }
+                }
+                @keyframes escalationMeshDrift {
+                    0% { transform: translate3d(0, 0, 0); }
+                    50% { transform: translate3d(8px, 8px, 0); }
+                    100% { transform: translate3d(0, 0, 0); }
+                }
+                .escalation-watermark-a { animation: escalationDriftA 18s ease-in-out infinite; }
+                .escalation-watermark-b { animation: escalationDriftB 20s ease-in-out infinite; }
+                .escalation-mesh { animation: escalationMeshDrift 28s linear infinite; }
+                .escalation-surface { transition: box-shadow 0.18s ease, border-color 0.18s ease; }
+                .escalation-surface:hover {
+                    border-color: rgba(100, 116, 139, 0.28);
+                    box-shadow: 0 10px 28px rgba(15, 23, 42, 0.08);
+                }
+                @media (max-width: 1024px) {
+                    .escalation-table-scroll {
+                        overflow-x: auto !important;
+                        overflow-y: hidden !important;
+                        scrollbar-width: thin;
+                    }
+                    .escalation-table {
+                        width: max-content !important;
+                        min-width: 980px !important;
+                        table-layout: auto !important;
+                    }
+                }
+                @media (prefers-reduced-motion: reduce) {
+                    .escalation-watermark-a,
+                    .escalation-watermark-b,
+                    .escalation-mesh,
+                    .escalation-surface {
+                        animation: none !important;
+                        transition: none !important;
+                    }
+                }
+            `}</style>
         </>
     );
 }

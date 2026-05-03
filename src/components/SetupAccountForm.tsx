@@ -3,7 +3,14 @@
 import Link from 'next/link';
 import { useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { API_ENDPOINTS } from '@/lib/config';
-import { formatGhanaPhoneInput, isValidGhanaPhone } from '@/lib/phone';
+import {
+    PHONE_COUNTRIES,
+    formatPhoneByCountry,
+    getPhoneCountryByCode,
+    isValidPhoneByCountry,
+    splitPhoneForCountryInput,
+} from '@/lib/phone';
+import CustomSelect from '@/components/CustomSelect';
 
 export type SetupAccountFormVariant = 'account' | 'facility';
 
@@ -102,15 +109,6 @@ const readOnlyDisplayStyle: CSSProperties = {
     wordBreak: 'break-word',
 };
 
-/** True when user entered more than the Ghana country code (optional field). */
-function ghanaPhoneHasLocalDigits(phone: string): boolean {
-    const d = String(phone || '').replace(/\D/g, '');
-    if (!d) return false;
-    if (d.startsWith('233')) return d.length > 3;
-    if (d.startsWith('0')) return d.length > 1;
-    return d.length > 0;
-}
-
 export default function SetupAccountForm({
     token,
     variant = 'account',
@@ -121,7 +119,8 @@ export default function SetupAccountForm({
     const [firstName, setFirstName] = useState('');
     const [lastName, setLastName] = useState('');
     const [email, setEmail] = useState('');
-    const [phone, setPhone] = useState('');
+    const [phoneCountry, setPhoneCountry] = useState('GH');
+    const [phoneLocal, setPhoneLocal] = useState('');
     const [password, setPassword] = useState('');
     const [confirmPassword, setConfirmPassword] = useState('');
     const [showPassword, setShowPassword] = useState(false);
@@ -151,19 +150,25 @@ export default function SetupAccountForm({
         () => Boolean(firstName.trim()) && Boolean(lastName.trim()),
         [firstName, lastName]
     );
-    const phoneReady = useMemo(
-        () => !ghanaPhoneHasLocalDigits(phone) || isValidGhanaPhone(phone),
-        [phone]
+    const countryOptions = useMemo(
+        () => PHONE_COUNTRIES.map(c => ({ label: c.label, value: c.code })),
+        []
     );
+    const accountCountryMeta = useMemo(() => getPhoneCountryByCode(phoneCountry), [phoneCountry]);
+    const formattedAccountPhone = useMemo(
+        () => formatPhoneByCountry(phoneLocal, phoneCountry),
+        [phoneLocal, phoneCountry]
+    );
+    /** Staff account setup requires a verified number; facility setup does not collect phone here. */
+    const phoneReady = useMemo(() => {
+        if (isFacilitySetup) return true;
+        if (!phoneLocal.trim()) return false;
+        return isValidPhoneByCountry(formattedAccountPhone, phoneCountry);
+    }, [isFacilitySetup, phoneLocal, phoneCountry, formattedAccountPhone]);
     const profileReady = useMemo(
         () => identityReady && phoneReady,
         [identityReady, phoneReady]
     );
-    const phoneMissingFromInvite = useMemo(
-        () => !ghanaPhoneHasLocalDigits(phone),
-        [phone]
-    );
-
     useEffect(() => {
         if (!token) return;
         const fromToken = extractFacilityNameFromClaims(decodeJwtPayload(token));
@@ -190,9 +195,10 @@ export default function SetupAccountForm({
                 }
                 const nameFromApi = extractFacilityNameFromPrefill(rec);
                 if (nameFromApi) setFacilityName(nameFromApi);
-                if (typeof data.phone === 'string') {
-                    const formatted = formatGhanaPhoneInput(data.phone);
-                    setPhone(isValidGhanaPhone(formatted) ? formatted : '');
+                if (typeof data.phone === 'string' && data.phone.trim()) {
+                    const split = splitPhoneForCountryInput(String(data.phone));
+                    setPhoneCountry(split.countryCode);
+                    setPhoneLocal(split.local);
                 }
             } catch {
                 // Prefill is best-effort. Form still works without it.
@@ -213,14 +219,20 @@ export default function SetupAccountForm({
             setError('Open this page from the setup link in your invitation email, then try again.');
             return;
         }
-        if (!identityReady || !phoneReady || !password.trim()) {
+        if (!identityReady) {
+            setError('We could not load your invitation details. Open the setup link from your email again, or ask your administrator to resend the invite.');
+            return;
+        }
+        if (!isFacilitySetup && !phoneReady) {
             setError(
-                !identityReady
-                    ? 'We could not load your invitation details. Open the setup link from your email again, or ask your administrator to resend the invite.'
-                    : !phoneReady
-                        ? 'If you enter phone, use a valid Ghana phone number.'
-                    : 'Please enter and confirm your password.'
+                !phoneLocal.trim()
+                    ? 'Please enter your phone number with country code.'
+                    : `Please enter a valid phone number for ${accountCountryMeta.label} (${accountCountryMeta.dialCode} + ${accountCountryMeta.digits} digits).`
             );
+            return;
+        }
+        if (!password.trim()) {
+            setError('Please enter and confirm your password.');
             return;
         }
         if (!passwordIsValid) {
@@ -240,7 +252,7 @@ export default function SetupAccountForm({
                 body: JSON.stringify({
                     first_name: firstName.trim(),
                     last_name: lastName.trim(),
-                    phone: ghanaPhoneHasLocalDigits(phone) ? formatGhanaPhoneInput(phone) : '',
+                    phone: isFacilitySetup ? '' : formattedAccountPhone,
                     password,
                     token,
                 }),
@@ -320,15 +332,15 @@ export default function SetupAccountForm({
                                 : 'Your account details could not be loaded. Open the setup link from your invitation email, or contact your administrator.'}
                         </div>
                     )}
-                    {!opts.facilityMode && !prefillLoading && token && identityReady && !phoneReady && ghanaPhoneHasLocalDigits(phone) && (
+                    {!opts.facilityMode && !prefillLoading && token && identityReady && phoneLocal.trim() && !phoneReady && (
                         <div style={{ ...alertBox, background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.25)', color: '#b45309' }}>
-                            Phone is optional. If provided, it must be a valid Ghana number.
+                            {`This number does not match ${accountCountryMeta.label} (${accountCountryMeta.dialCode} + ${accountCountryMeta.digits} digits).`}
                         </div>
                     )}
 
                     {!opts.facilityMode && (
                         <p style={{ fontSize: 11, color: 'var(--text-muted)', margin: '0 0 8px', lineHeight: 1.4 }}>
-                            Name and email are from your invite. Phone optional.
+                            Name and email come from your invite. Enter a verified phone number (country + local digits).
                         </p>
                     )}
 
@@ -372,25 +384,32 @@ export default function SetupAccountForm({
                                     style={readOnlyFieldStyle}
                                 />
                             </div>
-                        </div>
-                    )}
-
-                    {!opts.facilityMode && (
-                        <div style={{ marginTop: 8 }}>
-                            <label className="label" style={{ fontSize: 11, marginBottom: 4 }}>Phone <span style={{ color: 'var(--text-disabled)', fontWeight: 400 }}>(optional)</span></label>
-                            <input
-                                className="input"
-                                value={phone}
-                                onChange={e => {
-                                    const next = formatGhanaPhoneInput(e.target.value);
-                                    setPhone(isValidGhanaPhone(next) || ghanaPhoneHasLocalDigits(next) ? next : '');
-                                }}
-                                readOnly={!phoneMissingFromInvite}
-                                tabIndex={phoneMissingFromInvite ? 0 : -1}
-                                aria-readonly={phoneMissingFromInvite ? 'false' : 'true'}
-                                placeholder={phoneMissingFromInvite ? '+233…' : '—'}
-                                style={phoneMissingFromInvite ? undefined : readOnlyFieldStyle}
-                            />
+                            <div style={{ gridColumn: '1 / -1' }}>
+                                <label className="label" style={{ fontSize: 11, marginBottom: 4 }}>Phone *</label>
+                                <div style={{ display: 'flex', gap: 8, alignItems: 'stretch' }}>
+                                    <div style={{ minWidth: 170, flexShrink: 0 }}>
+                                        <CustomSelect
+                                            value={phoneCountry}
+                                            onChange={v => setPhoneCountry(v)}
+                                            options={countryOptions}
+                                            placeholder="Country"
+                                        />
+                                    </div>
+                                    <input
+                                        className="input"
+                                        value={phoneLocal}
+                                        onChange={e => setPhoneLocal(e.target.value.replace(/\D/g, '').slice(0, accountCountryMeta.digits))}
+                                        placeholder={`${accountCountryMeta.digits} digits`}
+                                        maxLength={accountCountryMeta.digits}
+                                        autoComplete="tel-national"
+                                        aria-label="Phone number (local digits)"
+                                        style={{ flex: 1 }}
+                                    />
+                                </div>
+                                <div style={{ marginTop: 4, fontSize: 10.5, color: 'var(--text-muted)' }}>
+                                    {`Format: ${accountCountryMeta.dialCode} + ${accountCountryMeta.digits} digits`}
+                                </div>
+                            </div>
                         </div>
                     )}
 
@@ -518,7 +537,7 @@ export default function SetupAccountForm({
                                     fontWeight: 600,
                                 }}
                                 onClick={handleSubmit}
-                                disabled={loading}
+                                disabled={loading || !profileReady}
                             >
                                 {loading ? 'Activating…' : 'Activate facility'}
                                 {!loading && <span className="material-icons-round" style={{ fontSize: 16 }}>arrow_forward</span>}
@@ -644,7 +663,7 @@ export default function SetupAccountForm({
                                 className="btn btn-primary btn-sm"
                                 style={{ width: '100%', justifyContent: 'center', marginTop: 12, padding: '8px 14px' }}
                                 onClick={handleSubmit}
-                                disabled={loading}
+                                disabled={loading || !profileReady}
                             >
                                 {loading ? 'Setting up...' : 'Set up account'}
                             </button>
