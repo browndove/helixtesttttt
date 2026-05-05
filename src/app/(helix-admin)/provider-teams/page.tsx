@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import TopBar from '@/components/TopBar';
 import CustomSelect from '@/components/CustomSelect';
-import { MacVibrancyToast, MacVibrancyToastPortal } from '@/components/MacVibrancyToast';
+import { MacVibrancyToast, MacVibrancyToastPortal, type MacVibrancyToastVariant } from '@/components/MacVibrancyToast';
 
 type Member = {
     id: string;
@@ -13,6 +13,35 @@ type Member = {
     status: string;
 };
 
+type TeamLinkedRole = {
+    id: string;
+    name: string;
+    /** Display name of the staff currently signed-in to (covering) this role, when known. */
+    coveredByName?: string;
+    /** Backend user id of the current coverer. */
+    coveredById?: string;
+};
+
+/** Pull a coverer's display name out of a role payload's signed_in_user / signed_in_by fields. */
+function extractRoleCoverer(o: Record<string, unknown>): { coveredByName?: string; coveredById?: string } {
+    const su = o.signed_in_user;
+    if (su && typeof su === 'object' && !Array.isArray(su)) {
+        const r = su as Record<string, unknown>;
+        const first = typeof r.first_name === 'string' ? r.first_name.trim() : '';
+        const last = typeof r.last_name === 'string' ? r.last_name.trim() : '';
+        const name = typeof r.name === 'string' ? r.name.trim() : '';
+        const email = typeof r.email === 'string' ? r.email.trim() : '';
+        const id = typeof r.id === 'string' ? r.id.trim() : '';
+        const display = name || `${first} ${last}`.trim() || email;
+        if (display) return { coveredByName: display, coveredById: id || undefined };
+    }
+    const sb = o.signed_in_by;
+    if (typeof sb === 'string' && sb.trim()) {
+        return { coveredById: sb.trim() };
+    }
+    return {};
+}
+
 type Team = {
     id: string;
     name: string;
@@ -21,9 +50,15 @@ type Team = {
     description: string;
     lead: string;
     leadId?: string;
+    /** From API `lead.username` — shown under lead name in detail */
+    leadUsername?: string;
     memberCount: number;
     members: Member[];
     createdAt: string;
+    isResuscitationTeam: boolean;
+    linkedRoles: TeamLinkedRole[];
+    /** From API `code_blue_message_template` when present */
+    codeBlueMessageTemplate?: string;
 };
 
 const roleOptions = ['Team Lead', 'Charge Nurse', 'Nurse', 'Resident', 'Surgeon', 'Intensivist', 'ICU Nurse', 'Anesthesiologist', 'Scrub Nurse', 'Pediatrician', 'Physician'];
@@ -92,6 +127,102 @@ function parseStaff(raw: unknown): StaffEntry[] {
         .filter((s): s is StaffEntry => Boolean(s));
 }
 
+function parseEmbeddedTeamRoles(rec: Record<string, unknown>): TeamLinkedRole[] {
+    // GET /teams/{id} returns roles under `assigned_roles` where each entry's top-level `id`
+    // is the assignment id and `role_id` is the actual facility-role id we need.
+    const raw = rec.assigned_roles ?? rec.roles ?? rec.linked_roles ?? rec.team_roles;
+    if (!Array.isArray(raw)) return [];
+    return raw
+        .map((r: unknown, i: number) => {
+            if (!r || typeof r !== 'object') return null;
+            const o = r as Record<string, unknown>;
+            const id = String(o.role_id ?? o.id ?? `role-${i}`);
+            const name = String(o.name ?? o.role_name ?? 'Role');
+            return id ? { id, name, ...extractRoleCoverer(o) } : null;
+        })
+        .filter((x): x is TeamLinkedRole => Boolean(x));
+}
+
+/** Strip OpenAPI-style placeholders like literal `"string"` */
+function cleanApiString(v: unknown): string {
+    const s = typeof v === 'string' ? v.trim() : '';
+    if (!s || s === 'string') return '';
+    return s;
+}
+
+function formatTeamCreatedAt(raw: unknown): string {
+    const s = cleanApiString(raw);
+    if (!s) return '';
+    const d = new Date(s);
+    if (Number.isNaN(d.getTime())) return s.length >= 10 ? s.slice(0, 10) : s;
+    return d.toISOString().slice(0, 10);
+}
+
+function formatLeadFromLeadObject(leadObj: Record<string, unknown>): {
+    leadDisplay: string;
+    leadId: string;
+    leadUsername: string;
+} {
+    const first = cleanApiString(leadObj.first_name);
+    const last = cleanApiString(leadObj.last_name);
+    const name = `${first} ${last}`.trim();
+    const job = cleanApiString(leadObj.job_title);
+    let leadDisplay = name;
+    if (name && job) leadDisplay = `${name} · ${job}`;
+    else if (!name && job) leadDisplay = job;
+    else if (!name) leadDisplay = 'Unassigned';
+    const leadUsername = cleanApiString(leadObj.username);
+    const idRaw = leadObj.id != null ? String(leadObj.id).trim() : '';
+    return {
+        leadDisplay,
+        leadId: idRaw,
+        leadUsername,
+    };
+}
+
+function parseFacilityRolesList(raw: unknown): TeamLinkedRole[] {
+    const list = Array.isArray(raw)
+        ? raw
+        : (raw && typeof raw === 'object'
+            ? ((raw as { items?: unknown; data?: unknown; roles?: unknown }).items
+                || (raw as { items?: unknown; data?: unknown; roles?: unknown }).data
+                || (raw as { items?: unknown; data?: unknown; roles?: unknown }).roles)
+            : []);
+    if (!Array.isArray(list)) return [];
+
+    return list
+        .map((r: unknown, i: number) => {
+            if (!r || typeof r !== 'object') return null;
+            const o = r as Record<string, unknown>;
+            const id = String(o.id ?? `r-${i}`);
+            const name = String(o.name ?? 'Unnamed role');
+            return id ? { id, name, ...extractRoleCoverer(o) } : null;
+        })
+        .filter((x): x is TeamLinkedRole => Boolean(x))
+        .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function parseTeamRolesPayload(data: unknown): TeamLinkedRole[] {
+    const list = Array.isArray(data)
+        ? data
+        : (data && typeof data === 'object'
+            ? ((data as Record<string, unknown>).items
+                || (data as Record<string, unknown>).data
+                || (data as Record<string, unknown>).roles)
+            : []);
+    if (!Array.isArray(list)) return [];
+
+    return list
+        .map((r: unknown, i: number) => {
+            if (!r || typeof r !== 'object') return null;
+            const o = r as Record<string, unknown>;
+            const id = String(o.id ?? o.role_id ?? `tr-${i}`);
+            const name = String(o.name ?? o.role_name ?? 'Role');
+            return id ? { id, name, ...extractRoleCoverer(o) } : null;
+        })
+        .filter((x): x is TeamLinkedRole => Boolean(x));
+}
+
 function parseTeams(raw: unknown, departments: DepartmentEntry[]): Team[] {
     const list = Array.isArray(raw)
         ? raw
@@ -108,20 +239,49 @@ function parseTeams(raw: unknown, departments: DepartmentEntry[]): Team[] {
         .map((t: unknown, idx): Team | null => {
             if (!t || typeof t !== 'object') return null;
             const rec = t as Record<string, unknown>;
-            const depId = String(rec.department_id || '');
-            const leadObj = (rec.lead && typeof rec.lead === 'object') ? rec.lead as Record<string, unknown> : {};
-            const membersRaw = Array.isArray(rec.members) ? rec.members as Record<string, unknown>[] : [];
+            const depId = String(rec.department_id ?? '').trim();
+            const leadObj = (rec.lead && typeof rec.lead === 'object' && !Array.isArray(rec.lead))
+                ? rec.lead as Record<string, unknown>
+                : {};
+            const { leadDisplay, leadId: parsedLeadId, leadUsername } = formatLeadFromLeadObject(leadObj);
+
+            // /teams/{id} returns members as { kind: 'user', user: {...} }; older shapes are flat
+            // {first_name, last_name, ...}. Normalize to the inner user record either way.
+            const membersRawSource = Array.isArray(rec.members)
+                ? (rec.members as unknown[])
+                : Array.isArray(rec.team_members)
+                    ? (rec.team_members as unknown[])
+                    : Array.isArray(rec.staff_members)
+                        ? (rec.staff_members as unknown[])
+                        : [];
+            const membersRaw = membersRawSource
+                .map((m): Record<string, unknown> | null => {
+                    if (!m || typeof m !== 'object') return null;
+                    const o = m as Record<string, unknown>;
+                    if (o.user && typeof o.user === 'object' && !Array.isArray(o.user)) {
+                        return o.user as Record<string, unknown>;
+                    }
+                    return o;
+                })
+                .filter((m): m is Record<string, unknown> => Boolean(m));
+
+            const desc = cleanApiString(rec.description);
+            const codeBlueTpl = cleanApiString(rec.code_blue_message_template);
 
             return {
                 id: String(rec.id || `t-${idx}`),
-                name: String(rec.name || 'Unnamed Team'),
+                name: cleanApiString(rec.name) || 'Unnamed Team',
                 departmentId: depId || undefined,
-                department: String(rec.department_name || deptNameById.get(depId) || 'Unassigned'),
-                description: String(rec.description || ''),
-                lead: `${String(leadObj.first_name || '').trim()} ${String(leadObj.last_name || '').trim()}`.trim() || 'Unassigned',
-                leadId: String(leadObj.id || rec.lead_id || ''),
-                memberCount: Number(rec.member_count || membersRaw.length || 0),
-                createdAt: String(rec.created_at || '').slice(0, 10),
+                department: cleanApiString(rec.department_name) || String(deptNameById.get(depId) || '') || 'Unassigned',
+                description: desc,
+                lead: leadDisplay,
+                leadId: parsedLeadId || cleanApiString(rec.lead_id),
+                leadUsername: leadUsername || undefined,
+                memberCount: Number(rec.member_count ?? membersRaw.length ?? 0),
+                createdAt: formatTeamCreatedAt(rec.created_at),
+                isResuscitationTeam: Boolean(rec.is_resuscitation_team),
+                codeBlueMessageTemplate: codeBlueTpl || undefined,
+                linkedRoles: parseEmbeddedTeamRoles(rec),
                 members: membersRaw.map((m, mIdx) => ({
                     id: String(m.id || `m-${mIdx}`),
                     firstName: String(m.first_name || ''),
@@ -137,12 +297,15 @@ function parseTeams(raw: unknown, departments: DepartmentEntry[]): Team[] {
 export default function ProviderTeamsPage() {
     const [teams, setTeams] = useState<Team[]>([]);
     const [allStaff, setAllStaff] = useState<StaffEntry[]>([]);
+    const [allRoles, setAllRoles] = useState<TeamLinkedRole[]>([]);
     const [departments, setDepartments] = useState<DepartmentEntry[]>([]);
     const [loading, setLoading] = useState(true);
     const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null);
     const [search, setSearch] = useState('');
     const [deptFilter, setDeptFilter] = useState('All');
-    const [toast, setToast] = useState<string | null>(null);
+    /** Selected-team panel: whether GET /teams/:id/members succeeded (detail vs list can disagree until this loads). */
+    const [membersListLoadStatus, setMembersListLoadStatus] = useState<'idle' | 'ok' | 'error'>('idle');
+    const [toast, setToast] = useState<{ message: string; variant: MacVibrancyToastVariant } | null>(null);
 
     // Create team
     const [showCreate, setShowCreate] = useState(false);
@@ -151,9 +314,12 @@ export default function ProviderTeamsPage() {
     const [newLeadId, setNewLeadId] = useState('');
     const [newDesc, setNewDesc] = useState('');
     const [newMembers, setNewMembers] = useState<{ id: string; name: string; jobTitle: string }[]>([]);
+    const [newTeamRoleIds, setNewTeamRoleIds] = useState<string[]>([]);
+    const [newIsResuscitation, setNewIsResuscitation] = useState(false);
 
-    // Add member
+    // Add member / role
     const [showAddMember, setShowAddMember] = useState(false);
+    const [showAddRole, setShowAddRole] = useState(false);
     const [staffSearch, setStaffSearch] = useState('');
     const [staffDeptFilter, setStaffDeptFilter] = useState('All');
     const [selectedStaffId, setSelectedStaffId] = useState<string | null>(null);
@@ -164,15 +330,20 @@ export default function ProviderTeamsPage() {
     const [editName, setEditName] = useState('');
     const [editDesc, setEditDesc] = useState('');
     const [editDept, setEditDept] = useState('');
+    const [editIsResuscitation, setEditIsResuscitation] = useState(false);
 
-    const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(null), 2500); };
+    const showToast = (msg: string, variant: MacVibrancyToastVariant = 'success') => {
+        setToast({ message: msg, variant });
+        setTimeout(() => setToast(null), 2500);
+    };
 
     const fetchData = useCallback(async () => {
         try {
-            const [teamRes, deptRes, staffRes] = await Promise.all([
+            const [teamRes, deptRes, staffRes, rolesRes] = await Promise.all([
                 fetch('/api/proxy/teams'),
                 fetch('/api/proxy/departments'),
                 fetch('/api/proxy/staff?page_size=100&page_id=1'),
+                fetch('/api/proxy/roles'),
             ]);
             const deptData = deptRes.ok ? parseDepartments(await deptRes.json()) : [];
             setDepartments(deptData);
@@ -180,13 +351,16 @@ export default function ProviderTeamsPage() {
                 const staffData = parseStaff(await staffRes.json());
                 setAllStaff(staffData);
             }
+            if (rolesRes.ok) {
+                setAllRoles(parseFacilityRolesList(await rolesRes.json()));
+            }
             if (teamRes.ok) {
                 const teamData = parseTeams(await teamRes.json(), deptData);
                 setTeams(teamData);
             }
             if (deptData.length > 0 && !newDeptId) setNewDeptId(deptData[0].id);
         } catch {
-            showToast('Failed to load provider teams');
+            showToast('Failed to load provider teams', 'error');
         }
         setLoading(false);
     }, [newDeptId]);
@@ -197,21 +371,74 @@ export default function ProviderTeamsPage() {
     const staffDepartments = useMemo(() => ['All', ...Array.from(new Set(allStaff.map(s => s.dept)))], [allStaff]);
 
     const selectedTeam = teams.find(t => t.id === selectedTeamId) || null;
+    const existingResuscitationTeam = useMemo(
+        () => teams.find(t => t.isResuscitationTeam) || null,
+        [teams],
+    );
+
+    /** Member count in detail: after members GET succeeds, length is authoritative; if members GET fails, use count from GET /teams/:id when merged. */
+    const selectedMemberDisplayCount = useMemo(() => {
+        if (!selectedTeam) return 0;
+        if (membersListLoadStatus === 'ok') {
+            return selectedTeam.members.length > 0 ? selectedTeam.members.length : selectedTeam.memberCount;
+        }
+        if (membersListLoadStatus === 'error') {
+            return selectedTeam.memberCount;
+        }
+        return selectedTeam.memberCount || selectedTeam.members.length;
+    }, [selectedTeam, membersListLoadStatus]);
 
     const parseMembersPayload = useCallback((data: unknown): Member[] => {
         const membersList = Array.isArray(data) ? data : (data && typeof data === 'object'
             ? ((data as Record<string, unknown>).items
                 || (data as Record<string, unknown>).data
-                || (data as Record<string, unknown>).members)
+                || (data as Record<string, unknown>).members
+                || (data as Record<string, unknown>).team_members
+                || (data as Record<string, unknown>).staff_members
+                || (data as Record<string, unknown>).staff)
             : []);
         if (!Array.isArray(membersList)) return [];
         return membersList.map((m: unknown, i: number) => {
             const rec = m && typeof m === 'object' ? (m as Record<string, unknown>) : {};
+            const staffObj = rec.staff && typeof rec.staff === 'object' && !Array.isArray(rec.staff)
+                ? rec.staff as Record<string, unknown>
+                : {};
+            const userObj = rec.user && typeof rec.user === 'object' && !Array.isArray(rec.user)
+                ? rec.user as Record<string, unknown>
+                : {};
+            const source = Object.keys(staffObj).length > 0 ? staffObj : userObj;
+            const roleObj = rec.role && typeof rec.role === 'object' && !Array.isArray(rec.role)
+                ? rec.role as Record<string, unknown>
+                : {};
+
+            const firstName = String(
+                rec.first_name
+                || source.first_name
+                || rec.firstName
+                || source.firstName
+                || ''
+            ).trim();
+            const lastName = String(
+                rec.last_name
+                || source.last_name
+                || rec.lastName
+                || source.lastName
+                || ''
+            ).trim();
+            const jobTitle = String(
+                rec.job_title
+                || source.job_title
+                || rec.role_name
+                || roleObj.name
+                || rec.role
+                || 'Staff'
+            ).trim();
+
             return {
-                id: String(rec.id || rec.staff_id || `m-${i}`),
-                firstName: String(rec.first_name || ''),
-                lastName: String(rec.last_name || ''),
-                jobTitle: String(rec.job_title || rec.role || 'Staff'),
+                id: String(rec.id || rec.member_id || rec.staff_id || source.id || source.staff_id || `m-${i}`),
+                firstName,
+                lastName,
+                jobTitle,
                 status: toStatusLabel(String(rec.status || 'active')),
             };
         });
@@ -226,28 +453,113 @@ export default function ProviderTeamsPage() {
             setTeams(prev => prev.map(t =>
                 t.id === teamId ? { ...t, members: parsed, memberCount: parsed.length } : t
             ));
+            if (teamId === selectedTeamId) setMembersListLoadStatus('ok');
         } catch { /* silent */ }
-    }, [parseMembersPayload]);
+    }, [parseMembersPayload, selectedTeamId]);
 
-    // Fetch members when a team is selected
+    const syncTeamRolesFromServer = useCallback(async (teamId: string) => {
+        try {
+            const res = await fetch(`/api/proxy/teams/${teamId}/roles`);
+            if (!res.ok) return;
+            const data = await res.json();
+            const parsed = parseTeamRolesPayload(data);
+            setTeams(prev => prev.map(t => {
+                if (t.id !== teamId) return t;
+                // Defensive: if the server returns an empty list but we already have local roles
+                // (just added optimistically, or previously synced), don't wipe them out.
+                // Some backend deployments return [] from GET /teams/{id}/roles even when roles
+                // are linked — keeping local state avoids the role "disappearing" after a save.
+                if (parsed.length === 0 && t.linkedRoles.length > 0) return t;
+                return { ...t, linkedRoles: parsed };
+            }));
+        } catch { /* silent */ }
+    }, []);
+
+    // Refresh single team + members + roles when a team is selected (GET /teams/:id is source of truth for lead, name, counts vs list row)
     useEffect(() => {
-        if (!selectedTeamId) return;
+        if (!selectedTeamId) {
+            setMembersListLoadStatus('idle');
+            return;
+        }
         let cancelled = false;
+        setMembersListLoadStatus('idle');
         (async () => {
             try {
-                const res = await fetch(`/api/proxy/teams/${selectedTeamId}/members`);
-                if (!res.ok || cancelled) return;
-                const data = await res.json();
+                const [teamRes, memRes, roleRes] = await Promise.all([
+                    fetch(`/api/proxy/teams/${selectedTeamId}`),
+                    fetch(`/api/proxy/teams/${selectedTeamId}/members`),
+                    fetch(`/api/proxy/teams/${selectedTeamId}/roles`),
+                ]);
                 if (cancelled) return;
-                const parsed = parseMembersPayload(data);
+
+                const teamData = teamRes.ok ? await teamRes.json() : null;
+                const membersData = memRes.ok ? await memRes.json() : null;
+                const rolesData = roleRes.ok ? await roleRes.json() : null;
                 if (cancelled) return;
-                setTeams(prev => prev.map(t =>
-                    t.id === selectedTeamId ? { ...t, members: parsed, memberCount: parsed.length } : t
-                ));
-            } catch { /* silent */ }
+
+                const parsedTeam = teamData ? parseTeams([teamData], departments)[0] : null;
+                const parsedMembers = membersData != null ? parseMembersPayload(membersData) : undefined;
+                const parsedRoles = rolesData != null ? parseTeamRolesPayload(rolesData) : undefined;
+
+                // Prefer dedicated endpoints; fall back to data embedded in GET /teams/{id} when those
+                // endpoints fail or return empty. This works around a backend bug where /teams/{id}/members
+                // returns 500 ("can't scan NULL into *bool" on is_lead) — the single-team response often
+                // still includes embedded members/roles we can use.
+                const embeddedMembers = parsedTeam?.members ?? [];
+                const embeddedRoles = parsedTeam?.linkedRoles ?? [];
+                const finalMembers: Member[] | null =
+                    memRes.ok && parsedMembers !== undefined && parsedMembers.length > 0
+                        ? parsedMembers
+                        : embeddedMembers.length > 0
+                            ? embeddedMembers
+                            : memRes.ok && parsedMembers !== undefined
+                                ? parsedMembers
+                                : null;
+                const finalRoles: TeamLinkedRole[] | null =
+                    roleRes.ok && parsedRoles !== undefined && parsedRoles.length > 0
+                        ? parsedRoles
+                        : embeddedRoles.length > 0
+                            ? embeddedRoles
+                            : roleRes.ok && parsedRoles !== undefined
+                                ? parsedRoles
+                                : null;
+
+                // Treat as "ok" when we have members from any source — even if dedicated endpoint failed,
+                // the embedded list is good enough to render and avoid the warning UI.
+                if (!cancelled) {
+                    const haveMembers = (finalMembers && finalMembers.length > 0) || memRes.ok;
+                    setMembersListLoadStatus(haveMembers ? 'ok' : 'error');
+                }
+
+                setTeams(prev => prev.map(t => {
+                    if (t.id !== selectedTeamId) return t;
+                    let next: Team = { ...t };
+                    if (parsedTeam) {
+                        next = {
+                            ...parsedTeam,
+                            members: t.members,
+                            linkedRoles: t.linkedRoles,
+                        };
+                    }
+                    if (finalMembers !== null) {
+                        next.members = finalMembers;
+                        next.memberCount = finalMembers.length || next.memberCount;
+                    }
+                    // Defensive: if the server returns no roles but we already have local roles
+                    // (e.g. user just linked one optimistically), keep the local list rather than
+                    // wiping it. Some backend deployments return [] for GET /teams/{id}/roles even
+                    // when roles are linked.
+                    if (finalRoles !== null && !(finalRoles.length === 0 && t.linkedRoles.length > 0)) {
+                        next.linkedRoles = finalRoles;
+                    }
+                    return next;
+                }));
+            } catch {
+                if (!cancelled) setMembersListLoadStatus('error');
+            }
         })();
         return () => { cancelled = true; };
-    }, [selectedTeamId, parseMembersPayload]);
+    }, [selectedTeamId, parseMembersPayload, departments]);
 
     const filtered = teams.filter(t => {
         if (deptFilter !== 'All' && t.department !== deptFilter) return false;
@@ -256,19 +568,28 @@ export default function ProviderTeamsPage() {
             return t.name.toLowerCase().includes(q) ||
                 t.department.toLowerCase().includes(q) ||
                 t.lead.toLowerCase().includes(q) ||
-                t.members.some(m => `${m.firstName} ${m.lastName}`.toLowerCase().includes(q));
+                (t.leadUsername && t.leadUsername.toLowerCase().includes(q)) ||
+                t.members.some(m => `${m.firstName} ${m.lastName}`.toLowerCase().includes(q)) ||
+                t.linkedRoles.some(r => r.name.toLowerCase().includes(q));
         }
         return true;
     });
 
     const handleCreateTeam = async () => {
-        if (!newName.trim()) return;
+        if (!newName.trim()) {
+            showToast('Enter a team name first.', 'error');
+            return;
+        }
+        if (newIsResuscitation && existingResuscitationTeam) {
+            showToast(`Only one resuscitation team is allowed per facility. Current: "${existingResuscitationTeam.name}".`, 'error');
+            return;
+        }
         const existing = teams.find(t =>
             t.name.trim().toLowerCase() === newName.trim().toLowerCase() &&
             (newDeptId ? t.departmentId === newDeptId : true)
         );
         if (existing) {
-            showToast(`Team "${newName.trim()}" already exists in this department`);
+            showToast(`Team "${newName.trim()}" already exists in this department`, 'error');
             return;
         }
         try {
@@ -280,6 +601,7 @@ export default function ProviderTeamsPage() {
                     description: newDesc.trim(),
                     department_id: newDeptId || undefined,
                     lead_id: newLeadId || undefined,
+                    is_resuscitation_team: newIsResuscitation,
                 }),
             });
             if (!res.ok) {
@@ -295,7 +617,7 @@ export default function ProviderTeamsPage() {
                         errorMsg = details;
                     }
                 } catch {}
-                showToast(errorMsg);
+                showToast(errorMsg, 'error');
                 return;
             }
 
@@ -317,12 +639,28 @@ export default function ProviderTeamsPage() {
                 } catch (e) { console.error('Error adding members:', e); }
             }
 
-            // Re-fetch team + members separately (GET /teams/{id} doesn't embed members)
+            if (newTeamRoleIds.length > 0 && teamId) {
+                try {
+                    const rRes = await fetch(`/api/proxy/teams/${teamId}/roles`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ role_ids: newTeamRoleIds }),
+                    });
+                    if (!rRes.ok) {
+                        const errBody = await rRes.json().catch(() => ({}));
+                        console.error('Failed to link roles:', rRes.status, JSON.stringify(errBody));
+                        showToast('Team created, but linking roles failed — check API or try adding roles from the team panel', 'error');
+                    }
+                } catch (e) { console.error('Error linking roles:', e); }
+            }
+
+            // Re-fetch team + members + roles (GET /teams/{id} may not embed members or roles)
             let finalTeam: Team | null = null;
             try {
-                const [refetchRes, membersRes] = await Promise.all([
+                const [refetchRes, membersRes, rolesRes] = await Promise.all([
                     fetch(`/api/proxy/teams/${teamId}`),
                     fetch(`/api/proxy/teams/${teamId}/members`),
+                    fetch(`/api/proxy/teams/${teamId}/roles`),
                 ]);
                 if (refetchRes.ok) {
                     const refetched = await refetchRes.json();
@@ -345,6 +683,13 @@ export default function ProviderTeamsPage() {
                         };
                     }
                 }
+                if (finalTeam && rolesRes.ok) {
+                    const rolesData = await rolesRes.json();
+                    finalTeam = {
+                        ...finalTeam,
+                        linkedRoles: parseTeamRolesPayload(rolesData),
+                    };
+                }
             } catch { /* fall back to local data */ }
 
             // Fallback: build from local data if re-fetch failed
@@ -354,6 +699,11 @@ export default function ProviderTeamsPage() {
                     const leadStaff = allStaff.find(s => s.id === newLeadId);
                     finalTeam = {
                         ...parsed,
+                        isResuscitationTeam: newIsResuscitation,
+                        linkedRoles: newTeamRoleIds.map(id => {
+                            const r = allRoles.find(x => x.id === id);
+                            return r ?? { id, name: 'Role' };
+                        }),
                         lead: leadStaff ? `${leadStaff.first_name} ${leadStaff.last_name}` : parsed.lead,
                         members: newMembers.map(m => ({
                             id: m.id,
@@ -376,9 +726,11 @@ export default function ProviderTeamsPage() {
             setNewDesc('');
             setNewLeadId('');
             setNewMembers([]);
+            setNewTeamRoleIds([]);
+            setNewIsResuscitation(false);
             showToast(`Team "${finalTeam?.name || newName.trim()}" created${newMembers.length > 0 ? ` with ${newMembers.length} member${newMembers.length > 1 ? 's' : ''}` : ''}`);
         } catch {
-            showToast('Failed to create team');
+            showToast('Failed to create team', 'error');
         }
     };
 
@@ -387,14 +739,14 @@ export default function ProviderTeamsPage() {
         try {
             const res = await fetch(`/api/proxy/teams/${id}`, { method: 'DELETE' });
             if (!res.ok) {
-                showToast('Failed to delete team');
+                showToast('Failed to delete team', 'error');
                 return;
             }
             setTeams(prev => prev.filter(t => t.id !== id));
             if (selectedTeamId === id) setSelectedTeamId(null);
             showToast(`Team "${team?.name}" deleted`);
         } catch {
-            showToast('Failed to delete team');
+            showToast('Failed to delete team', 'error');
         }
     };
 
@@ -415,22 +767,36 @@ export default function ProviderTeamsPage() {
 
     const handleAddMember = async () => {
         if (!selectedStaff || !selectedTeam) return;
+        const teamId = selectedTeam.id;
+        const optimisticMember: Member = {
+            id: selectedStaff.id,
+            firstName: selectedStaff.first_name,
+            lastName: selectedStaff.last_name,
+            jobTitle: selectedStaff.job_title,
+            status: 'Active',
+        };
+        setTeams(prev => prev.map(t =>
+            t.id === teamId
+                ? { ...t, members: [...t.members, optimisticMember], memberCount: t.members.length + 1 }
+                : t
+        ));
         try {
-            const res = await fetch(`/api/proxy/teams/${selectedTeam.id}/members`, {
+            const res = await fetch(`/api/proxy/teams/${teamId}/members`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ staff_ids: [selectedStaff.id] }),
             });
             if (!res.ok) {
+                await syncMembersFromServer(teamId);
                 let msg = 'Failed to add member';
                 try {
                     const err = await res.json() as { message?: string; detail?: string; error?: string };
                     msg = String(err.detail || err.message || err.error || msg);
                 } catch { /* ignore */ }
-                showToast(msg);
+                showToast(msg, 'error');
                 return;
             }
-            await syncMembersFromServer(selectedTeam.id);
+            await syncMembersFromServer(teamId);
             setShowAddMember(false);
             setStaffSearch('');
             setStaffDeptFilter('All');
@@ -438,31 +804,49 @@ export default function ProviderTeamsPage() {
             setMemberRole(roleOptions[0]);
             showToast(`${selectedStaff.first_name} ${selectedStaff.last_name} added`);
         } catch {
-            showToast('Failed to add member');
+            await syncMembersFromServer(teamId);
+            showToast('Failed to add member', 'error');
         }
     };
 
     const handleRemoveMember = async (memberId: string) => {
         if (!selectedTeam) return;
+        const teamId = selectedTeam.id;
         const member = selectedTeam.members.find(m => m.id === memberId);
+        setTeams(prev => prev.map(t => {
+            if (t.id !== teamId) return t;
+            const nextMembers = t.members.filter(m => m.id !== memberId);
+            return { ...t, members: nextMembers, memberCount: nextMembers.length };
+        }));
         try {
             const res = await fetch(
-                `/api/proxy/teams/${selectedTeam.id}/members/${encodeURIComponent(memberId)}`,
+                `/api/proxy/teams/${teamId}/members/${encodeURIComponent(memberId)}`,
                 { method: 'DELETE' },
             );
             if (!res.ok) {
-                showToast('Failed to remove member');
+                await syncMembersFromServer(teamId);
+                showToast('Failed to remove member', 'error');
                 return;
             }
-            await syncMembersFromServer(selectedTeam.id);
+            await syncMembersFromServer(teamId);
             showToast(`${member?.firstName || ''} ${member?.lastName || ''} removed`.trim() || 'Member removed');
         } catch {
-            showToast('Failed to remove member');
+            await syncMembersFromServer(teamId);
+            showToast('Failed to remove member', 'error');
         }
     };
 
     const handleSaveEdit = async () => {
         if (!selectedTeam || !editName.trim()) return;
+        if (editIsResuscitation) {
+            const otherResuscitation = teams.find(
+                t => t.id !== selectedTeam.id && t.isResuscitationTeam,
+            );
+            if (otherResuscitation) {
+                showToast(`Only one resuscitation team is allowed per facility. Current: "${otherResuscitation.name}".`, 'error');
+                return;
+            }
+        }
         try {
             const dep = departments.find(d => d.name === editDept);
             const res = await fetch(`/api/proxy/teams/${selectedTeam.id}`, {
@@ -473,10 +857,11 @@ export default function ProviderTeamsPage() {
                     description: editDesc.trim(),
                     department_id: dep?.id || selectedTeam.departmentId,
                     lead_id: selectedTeam.leadId || undefined,
+                    is_resuscitation_team: editIsResuscitation,
                 }),
             });
             if (!res.ok) {
-                showToast('Failed to update team');
+                showToast('Failed to update team', 'error');
                 return;
             }
             const updated = await res.json();
@@ -485,7 +870,7 @@ export default function ProviderTeamsPage() {
             setEditingTeam(false);
             showToast('Team updated');
         } catch {
-            showToast('Failed to update team');
+            showToast('Failed to update team', 'error');
         }
     };
 
@@ -494,7 +879,72 @@ export default function ProviderTeamsPage() {
         setEditName(selectedTeam.name);
         setEditDesc(selectedTeam.description);
         setEditDept(selectedTeam.department);
+        setEditIsResuscitation(selectedTeam.isResuscitationTeam);
         setEditingTeam(true);
+    };
+
+    const handleAddTeamRole = async (roleId: string) => {
+        if (!selectedTeam || !roleId) return;
+        const teamId = selectedTeam.id;
+        if (selectedTeam.linkedRoles.some(r => r.id === roleId)) {
+            showToast('This role is already linked to the team', 'info');
+            return;
+        }
+        const roleMeta = allRoles.find(r => r.id === roleId) ?? { id: roleId, name: 'Role' };
+        setTeams(prev => prev.map(t =>
+            t.id === teamId ? { ...t, linkedRoles: [...t.linkedRoles, roleMeta] } : t
+        ));
+        try {
+            const res = await fetch(`/api/proxy/teams/${teamId}/roles`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ role_ids: [roleId] }),
+            });
+            if (!res.ok) {
+                // Roll back the optimistic add only on actual failure.
+                await syncTeamRolesFromServer(teamId);
+                let msg = 'Failed to add role';
+                try {
+                    const err = await res.json() as { detail?: string; message?: string; error?: string };
+                    const d = err.detail;
+                    msg = typeof d === 'string' ? d : String(err.message || err.error || msg);
+                } catch { /* ignore */ }
+                showToast(msg, 'error');
+                return;
+            }
+            // POST succeeded — keep the optimistic state. Do NOT re-sync from GET /teams/{id}/roles
+            // because if that endpoint is unhealthy or returns a stale/empty list it will wipe out
+            // the role the user just added. The role is already persisted on the server.
+            setShowAddRole(false);
+            showToast('Role linked to team');
+        } catch {
+            await syncTeamRolesFromServer(teamId);
+            showToast('Failed to add role', 'error');
+        }
+    };
+
+    const handleRemoveTeamRole = async (roleId: string) => {
+        if (!selectedTeam) return;
+        const teamId = selectedTeam.id;
+        setTeams(prev => prev.map(t =>
+            t.id === teamId ? { ...t, linkedRoles: t.linkedRoles.filter(r => r.id !== roleId) } : t
+        ));
+        try {
+            const res = await fetch(
+                `/api/proxy/teams/${teamId}/roles/${encodeURIComponent(roleId)}`,
+                { method: 'DELETE' },
+            );
+            if (!res.ok) {
+                await syncTeamRolesFromServer(teamId);
+                showToast('Failed to remove role from team', 'error');
+                return;
+            }
+            await syncTeamRolesFromServer(teamId);
+            showToast('Role removed from team');
+        } catch {
+            await syncTeamRolesFromServer(teamId);
+            showToast('Failed to remove role from team', 'error');
+        }
     };
 
     const detailOpen = selectedTeam || showCreate;
@@ -503,7 +953,7 @@ export default function ProviderTeamsPage() {
         <>
             {toast && (
                 <MacVibrancyToastPortal>
-                    <MacVibrancyToast message={toast} variant="success" dismissible={false} />
+                    <MacVibrancyToast message={toast.message} variant={toast.variant} dismissible={false} />
                 </MacVibrancyToastPortal>
             )}
 
@@ -534,7 +984,13 @@ export default function ProviderTeamsPage() {
 
                         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
                             <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{filtered.length} team{filtered.length !== 1 ? 's' : ''}</span>
-                            <button className="btn btn-primary btn-sm" onClick={() => { setShowCreate(!showCreate); setSelectedTeamId(null); setEditingTeam(false); }}>
+                            <button className="btn btn-primary btn-sm" onClick={() => {
+                                setShowCreate(!showCreate);
+                                setSelectedTeamId(null);
+                                setEditingTeam(false);
+                                setShowAddMember(false);
+                                setShowAddRole(false);
+                            }}>
                                 <span className="material-icons-round" style={{ fontSize: 14 }}>{showCreate ? 'close' : 'add'}</span>
                                 {showCreate ? 'Cancel' : 'New Team'}
                             </button>
@@ -568,7 +1024,7 @@ export default function ProviderTeamsPage() {
                                             return (
                                                 <tr
                                                     key={team.id}
-                                                    onClick={() => { setSelectedTeamId(isSelected ? null : team.id); setShowCreate(false); setEditingTeam(false); setShowAddMember(false); }}
+                                                    onClick={() => { setSelectedTeamId(isSelected ? null : team.id); setShowCreate(false); setEditingTeam(false); setShowAddMember(false); setShowAddRole(false); }}
                                                     style={{
                                                         cursor: 'pointer', transition: 'background 0.12s',
                                                         background: isSelected ? 'rgba(59,130,246,0.04)' : undefined,
@@ -586,13 +1042,18 @@ export default function ProviderTeamsPage() {
                                                                 <span className="material-icons-round" style={{ fontSize: 16 }}>groups</span>
                                                             </div>
                                                             <div>
-                                                                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>{team.name}</div>
+                                                                <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                                                                    <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>{team.name}</span>
+                                                                    {team.isResuscitationTeam && (
+                                                                        <span title="Resuscitation (Code Blue) team" style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', padding: '2px 6px', borderRadius: 4, background: 'rgba(37,99,235,0.12)', color: '#2563eb', border: '1px solid rgba(37,99,235,0.28)' }}>Code blue</span>
+                                                                    )}
+                                                                </div>
                                                                 {team.description && <div style={{ fontSize: 11, color: 'var(--text-muted)', maxWidth: 220, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{team.description}</div>}
                                                             </div>
                                                         </div>
                                                     </td>
                                                     <td><span className="badge badge-neutral" style={{ fontSize: 10 }}>{team.department}</span></td>
-                                                    <td style={{ fontSize: 12.5, color: 'var(--text-secondary)' }}>{team.lead}</td>
+                                                    <td style={{ fontSize: 12.5, color: 'var(--text-secondary)', maxWidth: 200, whiteSpace: 'normal', lineHeight: 1.35 }}>{team.lead}</td>
                                                     <td style={{ textAlign: 'center', fontSize: 12.5, fontWeight: 600 }}>{totalMembers}</td>
                                                     <td style={{ fontSize: 12, color: 'var(--text-muted)' }}>{team.createdAt || '—'}</td>
                                                     <td style={{ textAlign: 'center' }}>
@@ -650,6 +1111,62 @@ export default function ProviderTeamsPage() {
                                         <textarea className="input" value={newDesc} onChange={e => setNewDesc(e.target.value)} placeholder="Brief description of the team" style={{ fontSize: 13, minHeight: 60, resize: 'vertical' }} />
                                     </div>
 
+                                    <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, cursor: 'pointer', fontSize: 12.5, color: 'var(--text-secondary)', lineHeight: 1.4 }}>
+                                        <input
+                                            type="checkbox"
+                                            checked={newIsResuscitation}
+                                            onChange={e => setNewIsResuscitation(e.target.checked)}
+                                            style={{ marginTop: 2 }}
+                                        />
+                                        <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>Resuscitation team (Code Blue).</span>
+                                    </label>
+                                    {existingResuscitationTeam && !newIsResuscitation ? (
+                                        <div style={{ fontSize: 11.5, color: 'var(--warning, #ca8a04)', marginTop: -6 }}>
+                                            A resuscitation team already exists for this facility: {existingResuscitationTeam.name}.
+                                        </div>
+                                    ) : null}
+
+                                    {/* Roles linked to this team */}
+                                    <div>
+                                        <label className="label">Roles{newTeamRoleIds.length > 0 && <span style={{ fontWeight: 400, color: 'var(--text-muted)' }}> ({newTeamRoleIds.length})</span>}</label>
+                                        <CustomSelect
+                                            value=""
+                                            onChange={v => {
+                                                if (!v) return;
+                                                if (!newName.trim()) {
+                                                    showToast('Enter a team name first.', 'error');
+                                                    return;
+                                                }
+                                                if (!newTeamRoleIds.includes(v)) setNewTeamRoleIds(prev => [...prev, v]);
+                                            }}
+                                            options={allRoles
+                                                .filter(r => !newTeamRoleIds.includes(r.id))
+                                                .map(r => ({ label: r.name, value: r.id }))}
+                                            placeholder={allRoles.length ? 'Add facility role…' : 'No roles loaded'}
+                                        />
+                                        {newTeamRoleIds.length > 0 && (
+                                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
+                                                {newTeamRoleIds.map(id => {
+                                                    const r = allRoles.find(x => x.id === id);
+                                                    return (
+                                                        <span key={id} style={{
+                                                            display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 6px 3px 8px',
+                                                            borderRadius: 14, fontSize: 11, fontWeight: 600,
+                                                            background: 'rgba(34,197,94,0.08)', color: 'var(--success, #16a34a)',
+                                                            border: '1px solid rgba(34,197,94,0.2)',
+                                                        }}>
+                                                            {r?.name || id}
+                                                            <button type="button" onClick={() => setNewTeamRoleIds(prev => prev.filter(x => x !== id))}
+                                                                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'inherit', padding: 0, display: 'inline-flex', marginLeft: 2 }}>
+                                                                <span className="material-icons-round" style={{ fontSize: 13 }}>close</span>
+                                                            </button>
+                                                        </span>
+                                                    );
+                                                })}
+                                            </div>
+                                        )}
+                                    </div>
+
                                     {/* Members picker */}
                                     <div>
                                         <label className="label">Members{newMembers.length > 0 && <span style={{ fontWeight: 400, color: 'var(--text-muted)' }}> ({newMembers.length})</span>}</label>
@@ -657,6 +1174,10 @@ export default function ProviderTeamsPage() {
                                             value=""
                                             onChange={v => {
                                                 if (!v) return;
+                                                if (!newName.trim()) {
+                                                    showToast('Enter a team name first.', 'error');
+                                                    return;
+                                                }
                                                 const s = allStaff.find(x => x.id === v);
                                                 if (s && !newMembers.some(m => m.id === v)) {
                                                     setNewMembers(prev => [...prev, { id: s.id, name: `${s.first_name} ${s.last_name}`, jobTitle: s.job_title }]);
@@ -687,7 +1208,7 @@ export default function ProviderTeamsPage() {
                                         )}
                                     </div>
                                 </div>
-                                <button className="btn btn-primary btn-sm" style={{ marginTop: 16, width: '100%', justifyContent: 'center' }} onClick={handleCreateTeam} disabled={!newName.trim()}>
+                                <button type="button" className="btn btn-primary btn-sm" style={{ marginTop: 16, width: '100%', justifyContent: 'center' }} onClick={() => void handleCreateTeam()}>
                                     <span className="material-icons-round" style={{ fontSize: 14 }}>add</span>
                                     Create Team{newMembers.length > 0 ? ` with ${newMembers.length} member${newMembers.length > 1 ? 's' : ''}` : ''}
                                 </button>
@@ -722,6 +1243,20 @@ export default function ProviderTeamsPage() {
                                                 <label className="label">Description</label>
                                                 <textarea className="input" value={editDesc} onChange={e => setEditDesc(e.target.value)} style={{ fontSize: 13, minHeight: 60, resize: 'vertical' }} />
                                             </div>
+                                            <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, cursor: 'pointer', fontSize: 12.5, color: 'var(--text-secondary)', lineHeight: 1.4 }}>
+                                                <input
+                                                    type="checkbox"
+                                                    checked={editIsResuscitation}
+                                                    onChange={e => setEditIsResuscitation(e.target.checked)}
+                                                    style={{ marginTop: 2 }}
+                                                />
+                                                <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>Resuscitation team (Code Blue).</span>
+                                            </label>
+                                            {editIsResuscitation && teams.some(t => t.id !== selectedTeam.id && t.isResuscitationTeam) ? (
+                                                <div style={{ fontSize: 11.5, color: 'var(--warning, #ca8a04)', marginTop: -6 }}>
+                                                    Another team is already marked as resuscitation in this facility.
+                                                </div>
+                                            ) : null}
                                         </div>
                                         <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
                                             <button className="btn btn-primary btn-sm" style={{ flex: 1, justifyContent: 'center' }} onClick={handleSaveEdit} disabled={!editName.trim()}>Save Changes</button>
@@ -734,9 +1269,12 @@ export default function ProviderTeamsPage() {
                                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
                                             <div style={{ flex: 1, minWidth: 0 }}>
                                                 <h3 style={{ fontSize: 17, fontWeight: 700, letterSpacing: '-0.01em', marginBottom: 3 }}>{selectedTeam.name}</h3>
-                                                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                                                     <span style={{ fontSize: 10, fontWeight: 600, padding: '2px 8px', borderRadius: 10, background: 'rgba(99,102,241,0.08)', color: 'var(--helix-primary)', letterSpacing: '0.02em' }}>{selectedTeam.department}</span>
-                                                    {selectedTeam.createdAt && <span style={{ fontSize: 10, color: 'var(--text-disabled)' }}>{selectedTeam.createdAt}</span>}
+                                                    {selectedTeam.isResuscitationTeam && (
+                                                        <span style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', padding: '2px 8px', borderRadius: 10, background: 'rgba(37,99,235,0.1)', color: '#2563eb', border: '1px solid rgba(37,99,235,0.25)' }}>Code blue</span>
+                                                    )}
+                                                    {selectedTeam.createdAt ? <span style={{ fontSize: 10, color: 'var(--text-disabled)' }}>{selectedTeam.createdAt}</span> : null}
                                                 </div>
                                             </div>
                                             <div style={{ display: 'flex', gap: 2 }}>
@@ -753,23 +1291,97 @@ export default function ProviderTeamsPage() {
                                             </div>
                                         </div>
 
-                                        {selectedTeam.description && (
+                                        {selectedTeam.description ? (
                                             <p style={{ fontSize: 12.5, color: 'var(--text-secondary)', marginBottom: 14, lineHeight: 1.5 }}>{selectedTeam.description}</p>
-                                        )}
+                                        ) : null}
 
                                         {/* Info row */}
                                         <div style={{ display: 'flex', gap: 8, marginBottom: 18 }}>
                                             <div style={{ flex: 1, minWidth: 0, padding: '10px 12px', borderRadius: 8, background: 'var(--surface-2)', border: '1px solid var(--border-subtle)' }}>
                                                 <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--text-disabled)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 4 }}>Lead</div>
-                                                <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                                                    <span className="material-icons-round" style={{ fontSize: 13, color: '#eab308', flexShrink: 0 }}>star</span>
-                                                    <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{selectedTeam.lead}</span>
+                                                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 5 }}>
+                                                    <span className="material-icons-round" style={{ fontSize: 13, color: '#eab308', flexShrink: 0, marginTop: 2 }}>star</span>
+                                                    <div style={{ minWidth: 0, flex: 1 }}>
+                                                        <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-primary)', display: 'block', lineHeight: 1.35 }}>{selectedTeam.lead}</span>
+                                                        {selectedTeam.leadUsername ? (
+                                                            <span style={{ fontSize: 10.5, color: 'var(--text-muted)', display: 'block', marginTop: 3 }}>@{selectedTeam.leadUsername}</span>
+                                                        ) : null}
+                                                    </div>
                                                 </div>
                                             </div>
                                             <div style={{ flexShrink: 0, width: 64, padding: '10px 8px', borderRadius: 8, background: 'var(--surface-2)', border: '1px solid var(--border-subtle)', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
-                                                <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--helix-primary)', lineHeight: 1 }}>{selectedTeam.members.length}</div>
+                                                <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--helix-primary)', lineHeight: 1 }}>{selectedMemberDisplayCount}</div>
                                                 <div style={{ fontSize: 9, fontWeight: 600, color: 'var(--text-disabled)', textTransform: 'uppercase', letterSpacing: '0.04em', marginTop: 3 }}>Members</div>
                                             </div>
+                                        </div>
+
+                                        {/* Linked roles */}
+                                        <div style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: 14, marginBottom: 10 }}>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                                <span style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)' }}>Linked roles</span>
+                                                <button type="button" onClick={() => setShowAddRole(!showAddRole)}
+                                                    style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 10px', borderRadius: 6, fontSize: 11, fontWeight: 600, border: 'none', cursor: 'pointer', background: showAddRole ? 'var(--surface-2)' : 'rgba(34,197,94,0.12)', color: showAddRole ? 'var(--text-secondary)' : 'var(--success, #15803d)', transition: 'all 0.15s' }}>
+                                                    <span className="material-icons-round" style={{ fontSize: 13 }}>{showAddRole ? 'close' : 'badge'}</span>
+                                                    {showAddRole ? 'Cancel' : 'Add role'}
+                                                </button>
+                                            </div>
+                                            {showAddRole && (
+                                                <div style={{ marginTop: 10, padding: 10, background: 'var(--surface-2)', borderRadius: 8, border: '1px solid var(--border-subtle)' }}>
+                                                    <CustomSelect
+                                                        value=""
+                                                        onChange={v => { if (v) void handleAddTeamRole(v); }}
+                                                        options={allRoles
+                                                            .filter(r => !selectedTeam.linkedRoles.some(l => l.id === r.id))
+                                                            .map(r => ({
+                                                                label: r.coveredByName
+                                                                    ? `${r.name} — covered by ${r.coveredByName}`
+                                                                    : `${r.name} — uncovered`,
+                                                                value: r.id,
+                                                            }))}
+                                                        placeholder={allRoles.length ? 'Choose a facility role…' : 'No roles loaded'}
+                                                    />
+                                                    <div style={{ marginTop: 6, fontSize: 10.5, color: 'var(--text-muted)', lineHeight: 1.4 }}>
+                                                        Each option shows who is currently signed in to (covering) the role.
+                                                    </div>
+                                                </div>
+                                            )}
+                                            {selectedTeam.linkedRoles.length === 0 && !showAddRole ? (
+                                                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 8 }}>No roles linked. Roles grant access by assignment; add staff separately below.</div>
+                                            ) : selectedTeam.linkedRoles.length > 0 ? (
+                                                <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 10 }}>
+                                                    {selectedTeam.linkedRoles.map(r => {
+                                                        // Prefer freshest coverage from allRoles (kept in sync with /roles GET).
+                                                        const live = allRoles.find(x => x.id === r.id);
+                                                        const coveredByName = live?.coveredByName ?? r.coveredByName;
+                                                        return (
+                                                            <div key={r.id} style={{
+                                                                display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px 6px 10px',
+                                                                borderRadius: 8,
+                                                                background: 'var(--surface-2)',
+                                                                border: '1px solid var(--border-subtle)',
+                                                            }}>
+                                                                <span className="material-icons-round" style={{ fontSize: 14, color: coveredByName ? 'var(--success, #16a34a)' : 'var(--text-disabled)', flexShrink: 0 }}>
+                                                                    {coveredByName ? 'badge' : 'badge_outline'}
+                                                                </span>
+                                                                <div style={{ flex: 1, minWidth: 0 }}>
+                                                                    <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.name}</div>
+                                                                    <div style={{ fontSize: 10.5, color: 'var(--text-muted)', marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                                                        {coveredByName ? (
+                                                                            <>Covered by <span style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>{coveredByName}</span></>
+                                                                        ) : (
+                                                                            <span style={{ fontStyle: 'italic' }}>No one signed in</span>
+                                                                        )}
+                                                                    </div>
+                                                                </div>
+                                                                <button type="button" title="Remove role from team" onClick={() => void handleRemoveTeamRole(r.id)}
+                                                                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-disabled)', padding: 2, display: 'inline-flex', flexShrink: 0 }}>
+                                                                    <span className="material-icons-round" style={{ fontSize: 14 }}>close</span>
+                                                                </button>
+                                                            </div>
+                                                        );
+                                                    })}
+                                                </div>
+                                            ) : null}
                                         </div>
 
                                         {/* Divider + Members header */}
@@ -819,10 +1431,19 @@ export default function ProviderTeamsPage() {
                                             </div>
                                         )}
 
-                                        {selectedTeam.members.length === 0 ? (
+                                        {membersListLoadStatus === 'error' ? (
+                                            <div style={{ padding: '24px 0', textAlign: 'center' }}>
+                                                <span className="material-icons-round" style={{ fontSize: 28, color: 'var(--warning, #ca8a04)', marginBottom: 6, display: 'block' }}>warning</span>
+                                                <div style={{ fontSize: 12, color: 'var(--text-muted)', maxWidth: 280, margin: '0 auto', lineHeight: 1.5 }}>
+                                                    Could not load team members — the server returned an error. Lead, member count, and other fields above are refreshed from the single-team request when that succeeds.
+                                                </div>
+                                            </div>
+                                        ) : selectedTeam.members.length === 0 ? (
                                             <div style={{ padding: '24px 0', textAlign: 'center' }}>
                                                 <span className="material-icons-round" style={{ fontSize: 28, color: 'var(--border-default)', marginBottom: 6, display: 'block' }}>group_off</span>
-                                                <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>No members yet</div>
+                                                <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                                                    {membersListLoadStatus === 'idle' ? 'Loading members…' : 'No members yet'}
+                                                </div>
                                             </div>
                                         ) : (
                                             <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
@@ -841,7 +1462,8 @@ export default function ProviderTeamsPage() {
                                                             color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center',
                                                             fontSize: 10, fontWeight: 700, flexShrink: 0,
                                                         }}>
-                                                            {member.firstName[0]}{member.lastName[0]}
+                                                            {(member.firstName[0] || member.jobTitle[0] || 'M').toUpperCase()}
+                                                            {(member.lastName[0] || '').toUpperCase()}
                                                         </div>
                                                         <div style={{ flex: 1, minWidth: 0 }}>
                                                             <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--text-primary)' }}>{member.firstName} {member.lastName}</div>

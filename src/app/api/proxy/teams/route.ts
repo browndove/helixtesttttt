@@ -14,6 +14,8 @@ type IncomingTeamBody = {
     department?: string;
     lead_id?: string;
     leadId?: string;
+    is_resuscitation_team?: boolean;
+    isResuscitationTeam?: boolean;
 };
 
 async function resolveDepartmentIdByName(req: NextRequest, facilityId: string, departmentName?: string): Promise<string | undefined> {
@@ -102,12 +104,19 @@ export async function POST(req: NextRequest) {
         const departmentId = facilityId
             ? (departmentIdFromBody || await resolveDepartmentIdByName(req, facilityId, body.department))
             : departmentIdFromBody;
+        const isResuscitation =
+            typeof body.is_resuscitation_team === 'boolean'
+                ? body.is_resuscitation_team
+                : typeof body.isResuscitationTeam === 'boolean'
+                    ? body.isResuscitationTeam
+                    : false;
         const payload = {
             name: body.name,
             description: body.description || '',
             facility_id: facilityId,
             department_id: departmentId,
             lead_id: body.lead_id || body.leadId,
+            is_resuscitation_team: isResuscitation,
         };
         const url = `${API_BASE_URL}/api/v1/teams`;
 

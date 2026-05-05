@@ -29,6 +29,33 @@ type IncomingStaffBody = {
     role?: string;
 };
 
+function mapUpstreamNetworkError(err: unknown) {
+    const cause = (err && typeof err === 'object' && 'cause' in err)
+        ? (err as { cause?: { code?: string; hostname?: string } }).cause
+        : undefined;
+    const code = cause?.code;
+    if (code === 'ENOTFOUND') {
+        const host = cause?.hostname || 'upstream host';
+        return {
+            status: 502,
+            body: {
+                error: 'Upstream API host could not be resolved',
+                details: `DNS lookup failed for ${host}`,
+            },
+        };
+    }
+    if (code === 'ECONNREFUSED' || code === 'ETIMEDOUT') {
+        return {
+            status: 502,
+            body: {
+                error: 'Upstream API is unreachable',
+                details: code,
+            },
+        };
+    }
+    return null;
+}
+
 // GET /staff - List staff members (paginated, with filters)
 export async function GET(req: NextRequest) {
     try {
@@ -82,6 +109,8 @@ export async function GET(req: NextRequest) {
         return NextResponse.json(data, { status: res.status });
     } catch (err) {
         console.error('Proxy error:', err);
+        const mapped = mapUpstreamNetworkError(err);
+        if (mapped) return NextResponse.json(mapped.body, { status: mapped.status });
         const message = err instanceof Error ? err.message : 'Unknown error';
         return NextResponse.json({ error: 'Proxy error', details: message }, { status: 500 });
     }
