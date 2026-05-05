@@ -419,7 +419,7 @@ export default function HospitalAdminLogin() {
                             }}
                         >
                             <img
-                                src="/helix-logo.png"
+                                src="/brand-logo.svg"
                                 alt=""
                                 width={32}
                                 height={32}

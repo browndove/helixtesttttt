@@ -235,7 +235,7 @@ export default function Sidebar({
                         overflow: 'hidden',
                     }}>
                         <img
-                            src="/helix-logo.png"
+                            src="/brand-logo.svg"
                             alt="Helix logo"
                             width={34}
                             height={34}

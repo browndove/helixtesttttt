@@ -782,7 +782,7 @@ export default function SetupAccountForm({
                             }}
                         >
                             <img
-                                src="/helix-logo.png"
+                                src="/brand-logo.svg"
                                 alt="Helix logo"
                                 width={28}
                                 height={28}
