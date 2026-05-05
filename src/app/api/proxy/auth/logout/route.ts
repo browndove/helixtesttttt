@@ -5,7 +5,11 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3
 function jsonWithSessionCleared(body: unknown, init: { status: number }) {
     const response = NextResponse.json(body, init);
     response.cookies.delete('helix-session');
+    response.cookies.delete('helix-internal-session');
     response.cookies.delete('helix-facility');
+    response.cookies.delete('helix-support-mode');
+    response.cookies.delete('helix-support-facility');
+    response.cookies.delete('helix-support-facility-name');
     return response;
 }
 

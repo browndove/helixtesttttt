@@ -91,6 +91,9 @@ export default function Sidebar({
     const [facilityName, setFacilityName] = useState<string | null>(null);
     const [profileMenuOpen, setProfileMenuOpen] = useState(false);
     const [loggingOut, setLoggingOut] = useState(false);
+    const [supportMode, setSupportMode] = useState(false);
+    const [supportFacilityName, setSupportFacilityName] = useState<string | null>(null);
+    const [endingSupportMode, setEndingSupportMode] = useState(false);
     const { logout } = useAuth();
 
     // After SSR/hydration, apply session cache before paint (avoids "Facility" / "User" flashes).
@@ -105,6 +108,22 @@ export default function Sidebar({
                 role: cachedUser.role,
             });
         }
+
+        // Support-mode context comes from internal act-as proxy (reads secure cookies server-side).
+        void fetch(API_ENDPOINTS.INTERNAL_ACT_AS, { credentials: 'include' })
+            .then(async (res) => {
+                if (!res.ok) return null;
+                return res.json() as Promise<{ support_mode?: boolean; facility_name?: string }>;
+            })
+            .then((ctx) => {
+                if (!ctx) return;
+                setSupportMode(Boolean(ctx.support_mode));
+                setSupportFacilityName(ctx.facility_name || null);
+            })
+            .catch(() => {
+                setSupportMode(false);
+                setSupportFacilityName(null);
+            });
     }, []);
 
     useEffect(() => {
@@ -210,6 +229,24 @@ export default function Sidebar({
         }
     };
 
+    const handleExitSupportMode = async () => {
+        if (endingSupportMode) return;
+        setEndingSupportMode(true);
+        try {
+            await fetch(API_ENDPOINTS.INTERNAL_EXIT_ACT_AS, {
+                method: 'POST',
+                credentials: 'include',
+            });
+        } finally {
+            if (typeof window !== 'undefined') {
+                window.location.assign('/internal/dashboard');
+            } else {
+                router.replace('/internal/dashboard');
+            }
+            setEndingSupportMode(false);
+        }
+    };
+
     return (
         <aside className="app-sidebar" style={{
             background: '#ffffff',
@@ -251,6 +288,57 @@ export default function Sidebar({
                         </div>
                     </div>
                 </div>
+                {supportMode && (
+                    <div style={{
+                        marginTop: 10,
+                        padding: '8px 9px',
+                        borderRadius: 8,
+                        background: 'rgba(37,99,235,0.08)',
+                        border: '1px solid rgba(37,99,235,0.18)',
+                    }}>
+                        <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#1d4ed8' }}>
+                            Support mode
+                        </div>
+                        <div style={{ fontSize: 11.5, color: 'var(--text-secondary)', marginTop: 2, lineHeight: 1.35 }}>
+                            Viewing as {supportFacilityName || facilityName || 'selected facility'}.
+                        </div>
+                        <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+                            <button
+                                type="button"
+                                onClick={() => router.push('/internal/dashboard')}
+                                style={{
+                                    border: '1px solid rgba(37,99,235,0.3)',
+                                    background: '#fff',
+                                    color: '#1d4ed8',
+                                    borderRadius: 6,
+                                    fontSize: 10.5,
+                                    fontWeight: 600,
+                                    padding: '4px 7px',
+                                    cursor: 'pointer',
+                                }}
+                            >
+                                Switch
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => { void handleExitSupportMode(); }}
+                                disabled={endingSupportMode}
+                                style={{
+                                    border: 'none',
+                                    background: '#1d4ed8',
+                                    color: '#fff',
+                                    borderRadius: 6,
+                                    fontSize: 10.5,
+                                    fontWeight: 600,
+                                    padding: '4px 7px',
+                                    cursor: endingSupportMode ? 'not-allowed' : 'pointer',
+                                }}
+                            >
+                                {endingSupportMode ? 'Exiting…' : 'Exit'}
+                            </button>
+                        </div>
+                    </div>
+                )}
             </div>
 
             {/* Nav */}

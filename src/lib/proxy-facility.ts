@@ -81,14 +81,22 @@ export async function resolveFacilityId(req: NextRequest, apiBaseUrl: string): P
     const token = getTokenFromCookie(req);
     if (!token) return undefined;
 
-    // 0. Check explicit facility cookie (set during OTP verification)
+    // 0. Support mode facility context (internal admin acting as tenant)
+    const supportMode = req.cookies.get('helix-support-mode')?.value === '1';
+    const supportFacilityId = req.cookies.get('helix-support-facility')?.value;
+    if (supportMode && supportFacilityId) {
+        setCachedFacilityId(token, supportFacilityId);
+        return supportFacilityId;
+    }
+
+    // 1. Check explicit facility cookie (set during OTP verification)
     const cookieFacilityId = req.cookies.get('helix-facility')?.value;
     if (cookieFacilityId) {
         setCachedFacilityId(token, cookieFacilityId);
         return cookieFacilityId;
     }
 
-    // 0.5 Try short-lived in-memory cache to avoid repeated auth/me calls.
+    // 1.5 Try short-lived in-memory cache to avoid repeated auth/me calls.
     const cachedFacilityId = getCachedFacilityId(token);
     if (cachedFacilityId) {
         return cachedFacilityId;
@@ -99,7 +107,7 @@ export async function resolveFacilityId(req: NextRequest, apiBaseUrl: string): P
         'Content-Type': 'application/json',
     };
 
-    // 1. Try to get facility_id from the authenticated user's profile
+    // 2. Try to get facility_id from the authenticated user's profile
     try {
         const meRes = await fetch(`${apiBaseUrl}/api/v1/auth/me`, {
             method: 'GET',

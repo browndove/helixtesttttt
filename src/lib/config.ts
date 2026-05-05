@@ -4,6 +4,7 @@ export const API_ENDPOINTS = {
   // Auth endpoints - use local proxy to avoid CORS
   LOGIN: `/api/proxy/auth/login`,
   ADMIN_LOGIN: `/api/proxy/auth/admin/login`,
+  INTERNAL_LOGIN: `/api/proxy/auth/internal/login`,
   LOGOUT: `/api/proxy/auth/logout`,
   CHANGE_PASSWORD: `/api/proxy/auth/change-password`,
   RENEW: `/api/proxy/auth/renew`,
@@ -20,6 +21,10 @@ export const API_ENDPOINTS = {
   AUTH_SETTINGS: `/api/proxy/auth/settings`,
   AUTH_SESSIONS: `/api/proxy/auth/sessions`,
   AUTH_SESSION: (sessionId: string) => `/api/proxy/auth/sessions/${sessionId}`,
+  INTERNAL_FACILITIES: `/api/proxy/internal/facilities`,
+  INTERNAL_ACT_AS: `/api/proxy/internal/act-as`,
+  INTERNAL_EXIT_ACT_AS: `/api/proxy/internal/exit-act-as`,
+  INTERNAL_AUDIT: `/api/proxy/internal/audit`,
 
   // Departments
   DEPARTMENTS: `/api/proxy/departments`,
