@@ -402,7 +402,7 @@ export default function ProviderTeamsPage() {
                 || (data as Record<string, unknown>).staff)
             : []);
         if (!Array.isArray(membersList)) return [];
-        return membersList.map((m: unknown, i: number) => {
+        return membersList.reduce<Member[]>((acc, m: unknown, i: number) => {
             const rec = m && typeof m === 'object' ? (m as Record<string, unknown>) : {};
             const staffObj = rec.staff && typeof rec.staff === 'object' && !Array.isArray(rec.staff)
                 ? rec.staff as Record<string, unknown>
@@ -440,16 +440,17 @@ export default function ProviderTeamsPage() {
             ).trim();
             const resolvedFirst = firstName || (fullName ? fullName.split(/\s+/)[0] : '');
             const resolvedLast = lastName || (fullName ? fullName.split(/\s+/).slice(1).join(' ') : '');
-            if (!resolvedFirst && !resolvedLast) return null;
+            if (!resolvedFirst && !resolvedLast) return acc;
 
-            return {
+            acc.push({
                 id: String(rec.id || rec.member_id || rec.staff_id || source.id || source.staff_id || `m-${i}`),
                 firstName: resolvedFirst,
                 lastName: resolvedLast,
                 jobTitle,
                 status: toStatusLabel(String(rec.status || 'active')),
-            };
-        }).filter((m): m is Member => Boolean(m));
+            });
+            return acc;
+        }, []);
     }, []);
 
     const syncMembersFromServer = useCallback(async (teamId: string) => {
