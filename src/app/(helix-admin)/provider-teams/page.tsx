@@ -60,6 +60,9 @@ type Team = {
     /** From API `code_blue_message_template` when present */
     codeBlueMessageTemplate?: string;
 };
+type PendingRemoval =
+    | { type: 'member'; id: string; label: string }
+    | { type: 'role'; id: string; label: string };
 
 const roleOptions = ['Team Lead', 'Charge Nurse', 'Nurse', 'Resident', 'Surgeon', 'Intensivist', 'ICU Nurse', 'Anesthesiologist', 'Scrub Nurse', 'Pediatrician', 'Physician'];
 
@@ -286,7 +289,7 @@ function parseTeams(raw: unknown, departments: DepartmentEntry[]): Team[] {
                     id: String(m.id || `m-${mIdx}`),
                     firstName: String(m.first_name || ''),
                     lastName: String(m.last_name || ''),
-                    jobTitle: String(m.job_title || 'Staff'),
+                    jobTitle: String(m.job_title || m.title || '').trim(),
                     status: toStatusLabel(String(m.status || 'active')),
                 })),
             };
@@ -320,6 +323,7 @@ export default function ProviderTeamsPage() {
     // Add member / role
     const [showAddMember, setShowAddMember] = useState(false);
     const [showAddRole, setShowAddRole] = useState(false);
+    const [pendingRemoval, setPendingRemoval] = useState<PendingRemoval | null>(null);
     const [staffSearch, setStaffSearch] = useState('');
     const [staffDeptFilter, setStaffDeptFilter] = useState('All');
     const [selectedStaffId, setSelectedStaffId] = useState<string | null>(null);
@@ -407,9 +411,6 @@ export default function ProviderTeamsPage() {
                 ? rec.user as Record<string, unknown>
                 : {};
             const source = Object.keys(staffObj).length > 0 ? staffObj : userObj;
-            const roleObj = rec.role && typeof rec.role === 'object' && !Array.isArray(rec.role)
-                ? rec.role as Record<string, unknown>
-                : {};
 
             const firstName = String(
                 rec.first_name
@@ -425,23 +426,30 @@ export default function ProviderTeamsPage() {
                 || source.lastName
                 || ''
             ).trim();
+            const fullName = String(
+                rec.full_name
+                || source.full_name
+                || rec.name
+                || source.name
+                || ''
+            ).trim();
             const jobTitle = String(
                 rec.job_title
                 || source.job_title
-                || rec.role_name
-                || roleObj.name
-                || rec.role
-                || 'Staff'
+                || ''
             ).trim();
+            const resolvedFirst = firstName || (fullName ? fullName.split(/\s+/)[0] : '');
+            const resolvedLast = lastName || (fullName ? fullName.split(/\s+/).slice(1).join(' ') : '');
+            if (!resolvedFirst && !resolvedLast) return null;
 
             return {
                 id: String(rec.id || rec.member_id || rec.staff_id || source.id || source.staff_id || `m-${i}`),
-                firstName,
-                lastName,
+                firstName: resolvedFirst,
+                lastName: resolvedLast,
                 jobTitle,
                 status: toStatusLabel(String(rec.status || 'active')),
             };
-        });
+        }).filter((m): m is Member => Boolean(m));
     }, []);
 
     const syncMembersFromServer = useCallback(async (teamId: string) => {
@@ -676,7 +684,7 @@ export default function ProviderTeamsPage() {
                                 id: String(m.id || m.staff_id || `m-${i}`),
                                 firstName: String(m.first_name || ''),
                                 lastName: String(m.last_name || ''),
-                                jobTitle: String(m.job_title || m.role || 'Staff'),
+                                jobTitle: String(m.job_title || m.title || '').trim(),
                                 status: toStatusLabel(String(m.status || 'active')),
                             })),
                             memberCount: membersList.length,
@@ -811,6 +819,13 @@ export default function ProviderTeamsPage() {
 
     const handleRemoveMember = async (memberId: string) => {
         if (!selectedTeam) return;
+        const member = selectedTeam.members.find(m => m.id === memberId);
+        const memberLabel = `${member?.firstName || ''} ${member?.lastName || ''}`.trim() || 'this member';
+        setPendingRemoval({ type: 'member', id: memberId, label: memberLabel });
+    };
+
+    const performRemoveMember = async (memberId: string) => {
+        if (!selectedTeam) return;
         const teamId = selectedTeam.id;
         const member = selectedTeam.members.find(m => m.id === memberId);
         setTeams(prev => prev.map(t => {
@@ -925,6 +940,13 @@ export default function ProviderTeamsPage() {
 
     const handleRemoveTeamRole = async (roleId: string) => {
         if (!selectedTeam) return;
+        const role = selectedTeam.linkedRoles.find(r => r.id === roleId);
+        const roleLabel = role?.name || 'this role';
+        setPendingRemoval({ type: 'role', id: roleId, label: roleLabel });
+    };
+
+    const performRemoveTeamRole = async (roleId: string) => {
+        if (!selectedTeam) return;
         const teamId = selectedTeam.id;
         setTeams(prev => prev.map(t =>
             t.id === teamId ? { ...t, linkedRoles: t.linkedRoles.filter(r => r.id !== roleId) } : t
@@ -955,6 +977,88 @@ export default function ProviderTeamsPage() {
                 <MacVibrancyToastPortal>
                     <MacVibrancyToast message={toast.message} variant={toast.variant} dismissible={false} />
                 </MacVibrancyToastPortal>
+            )}
+            {pendingRemoval && selectedTeam && (
+                <div
+                    role="dialog"
+                    aria-modal="true"
+                    onClick={() => setPendingRemoval(null)}
+                    style={{
+                        position: 'fixed',
+                        inset: 0,
+                        background: 'rgba(8, 12, 20, 0.45)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        zIndex: 1200,
+                        padding: 16,
+                    }}
+                >
+                    <div
+                        onClick={e => e.stopPropagation()}
+                        style={{
+                            width: '100%',
+                            maxWidth: 440,
+                            background: 'var(--surface-card)',
+                            border: '1px solid var(--border-default)',
+                            borderRadius: 'var(--radius-lg)',
+                            boxShadow: '0 24px 64px rgba(0,0,0,0.25)',
+                            padding: '18px 18px 14px',
+                        }}
+                    >
+                        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+                            <div
+                                style={{
+                                    width: 32,
+                                    height: 32,
+                                    borderRadius: 10,
+                                    background: 'rgba(198, 40, 40, 0.12)',
+                                    color: '#c62828',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    flexShrink: 0,
+                                }}
+                            >
+                                <span className="material-icons-round" style={{ fontSize: 18 }}>warning</span>
+                            </div>
+                            <div style={{ minWidth: 0 }}>
+                                <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)' }}>
+                                    Confirm remove action
+                                </div>
+                                <div style={{ marginTop: 6, fontSize: 12.5, color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+                                    Are you sure you want to remove{' '}
+                                    <strong>{pendingRemoval.label}</strong>{' '}
+                                    from <strong>{selectedTeam.name}</strong>?
+                                </div>
+                            </div>
+                        </div>
+                        <div style={{ marginTop: 14, display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+                            <button
+                                type="button"
+                                className="btn btn-secondary btn-sm"
+                                onClick={() => setPendingRemoval(null)}
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                type="button"
+                                className="btn btn-danger btn-sm"
+                                onClick={() => {
+                                    const pending = pendingRemoval;
+                                    setPendingRemoval(null);
+                                    if (pending.type === 'member') {
+                                        void performRemoveMember(pending.id);
+                                    } else {
+                                        void performRemoveTeamRole(pending.id);
+                                    }
+                                }}
+                            >
+                                Confirm Remove
+                            </button>
+                        </div>
+                    </div>
+                </div>
             )}
 
             <div className="app-main">
@@ -1467,11 +1571,13 @@ export default function ProviderTeamsPage() {
                                                         </div>
                                                         <div style={{ flex: 1, minWidth: 0 }}>
                                                             <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--text-primary)' }}>{member.firstName} {member.lastName}</div>
-                                                            <div style={{ fontSize: 10.5, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 6 }}>
-                                                                {member.jobTitle}
-                                                                <span style={{ width: 4, height: 4, borderRadius: '50%', background: statusColor[member.status] || 'var(--text-muted)', flexShrink: 0 }} />
-                                                                <span style={{ color: statusColor[member.status], fontWeight: 600, fontSize: 10 }}>{member.status}</span>
-                                                            </div>
+                                                            {member.jobTitle ? (
+                                                                <div style={{ fontSize: 10.5, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                                                                    <span>{member.jobTitle}</span>
+                                                                    <span style={{ width: 4, height: 4, borderRadius: '50%', background: statusColor[member.status] || 'var(--text-muted)', flexShrink: 0 }} />
+                                                                    <span style={{ color: statusColor[member.status], fontWeight: 600, fontSize: 10 }}>{member.status}</span>
+                                                                </div>
+                                                            ) : null}
                                                         </div>
                                                         <button
                                                             onClick={() => handleRemoveMember(member.id)}

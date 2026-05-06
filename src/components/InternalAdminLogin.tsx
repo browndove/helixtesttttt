@@ -73,14 +73,16 @@ export default function InternalAdminLogin() {
                     <MacVibrancyToast message={toast.message} variant={toast.type} dismissible={false} />
                 </MacVibrancyToastPortal>
             )}
-            <div style={{ minHeight: '100vh', display: 'grid', gridTemplateColumns: '260px 1fr', background: '#eef2f7' }}>
-                <aside style={{ background: 'linear-gradient(180deg, #091a36, #0f2a4f)', color: '#e6efff', padding: '26px 22px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 18 }}>
+            <div style={{ minHeight: '100vh', display: 'grid', gridTemplateColumns: '300px 1fr', background: '#eef2f7' }}>
+                <aside style={{ background: 'linear-gradient(180deg, #071733, #102c55)', color: '#f5f9ff', padding: '30px 24px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 22 }}>
                         <img src="/brand-logo.svg" alt="Brand" width={22} height={22} />
-                        <span style={{ fontSize: 10, letterSpacing: '0.2em', opacity: 0.8 }}>PLATFORM</span>
+                        <span style={{ fontSize: 10, letterSpacing: '0.2em', color: 'rgba(231,240,255,0.92)', fontWeight: 600 }}>PLATFORM</span>
                     </div>
-                    <h1 style={{ fontSize: 34, lineHeight: 1.05, fontWeight: 700, marginBottom: 10 }}>Helix Internal Admin</h1>
-                    <p style={{ fontSize: 12, lineHeight: 1.5, opacity: 0.9 }}>
+                    <h1 style={{ fontSize: 42, lineHeight: 1.02, fontWeight: 800, marginBottom: 12, color: '#ffffff', letterSpacing: '-0.02em', textShadow: '0 1px 1px rgba(0,0,0,0.24)' }}>
+                        Helix Internal Admin
+                    </h1>
+                    <p style={{ fontSize: 12.5, lineHeight: 1.6, color: 'rgba(233,242,255,0.95)', maxWidth: 220, textShadow: '0 1px 1px rgba(0,0,0,0.2)' }}>
                         Internal-only environment for support and platform operations.
                     </p>
                 </aside>

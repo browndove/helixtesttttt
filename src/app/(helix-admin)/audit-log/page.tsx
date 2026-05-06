@@ -17,7 +17,6 @@ type LogEntry = {
     ip: string;
     actionRaw: string;
     entityTypeRaw: string;
-    userId: string;
     targetId: string;
 };
 
@@ -204,7 +203,6 @@ function parseAuditPayload(raw: unknown): { logs: LogEntry[]; total: number } {
             .map(asCleanString)
             .find(Boolean) || '';
         const ip = String(rec.ip || rec.ip_address || '-');
-        const userId = String(rec.user_id || actor.id || '');
         const targetInfo = resolveTargetLabel(rec, entityRaw);
 
         return {
@@ -219,7 +217,6 @@ function parseAuditPayload(raw: unknown): { logs: LogEntry[]; total: number } {
             ip,
             actionRaw,
             entityTypeRaw: entityRaw,
-            userId,
             targetId: targetInfo.targetId,
         };
     });
@@ -267,7 +264,6 @@ export default function AuditLogPage() {
     const [search, setSearch] = useState('');
     const [entityTypeFilter, setEntityTypeFilter] = useState('All');
     const [actionFilter, setActionFilter] = useState('All');
-    const [userIdFilter, setUserIdFilter] = useState('');
     const [sortField, setSortField] = useState<SortField>('time');
     const [sortDir, setSortDir] = useState<SortDir>('desc');
     const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -281,7 +277,6 @@ export default function AuditLogPage() {
                 page_size: String(pageSize),
                 page_id: String(pageId),
             });
-            if (userIdFilter.trim()) params.set('user_id', userIdFilter.trim());
             if (entityTypeFilter !== 'All') params.set('entity_type', entityTypeFilter);
             if (actionFilter !== 'All') params.set('action', actionFilter);
 
@@ -300,11 +295,11 @@ export default function AuditLogPage() {
             setTotalCount(0);
         }
         setLoading(false);
-    }, [pageSize, pageId, userIdFilter, entityTypeFilter, actionFilter]);
+    }, [pageSize, pageId, entityTypeFilter, actionFilter]);
 
     useEffect(() => { fetchLogs(); }, [fetchLogs]);
 
-    useEffect(() => { setPageId(1); }, [userIdFilter, entityTypeFilter, actionFilter, pageSize]);
+    useEffect(() => { setPageId(1); }, [entityTypeFilter, actionFilter, pageSize]);
 
     const handleSort = (field: SortField) => {
         if (sortField === field) {
@@ -412,14 +407,6 @@ export default function AuditLogPage() {
                             style={{ minWidth: 150 }}
                         />
 
-                        <input
-                            className="input"
-                            placeholder="User ID"
-                            value={userIdFilter}
-                            onChange={e => setUserIdFilter(e.target.value)}
-                            style={{ fontSize: 12, height: 36, width: 160 }}
-                        />
-
                         <CustomSelect
                             value={String(pageSize)}
                             onChange={v => setPageSize(Number(v))}
@@ -460,7 +447,6 @@ export default function AuditLogPage() {
                                         </div>
                                     </th>
                                     <th style={{ padding: '10px 12px', fontSize: 10, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', textAlign: 'left' }}>Category</th>
-                                    <th style={{ padding: '10px 12px', fontSize: 10, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', textAlign: 'left' }}>User ID</th>
                                     <th style={{ padding: '10px 12px', fontSize: 10, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', textAlign: 'left' }}>Target</th>
                                     <th
                                         onClick={() => handleSort('time')}
@@ -477,7 +463,7 @@ export default function AuditLogPage() {
                             <tbody>
                                 {filtered.length === 0 ? (
                                     <tr>
-                                        <td colSpan={8} style={{ padding: '40px 16px', textAlign: 'center' }}>
+                                        <td colSpan={7} style={{ padding: '40px 16px', textAlign: 'center' }}>
                                             <span className="material-icons-round" style={{ fontSize: 32, color: 'var(--text-disabled)', display: 'block', marginBottom: 8 }}>search_off</span>
                                             <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)' }}>No log entries found</div>
                                             <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>Try adjusting your search or filters</div>
@@ -504,9 +490,6 @@ export default function AuditLogPage() {
                                                         <div style={{ fontSize: 11.5, color: 'var(--text-secondary)' }}>{log.category}</div>
                                                     </td>
                                                     <td style={{ padding: '10px 12px', verticalAlign: 'top' }}>
-                                                        <code style={{ fontSize: 10.5, color: 'var(--text-muted)' }}>{log.userId || '—'}</code>
-                                                    </td>
-                                                    <td style={{ padding: '10px 12px', verticalAlign: 'top' }}>
                                                         <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{log.target}</div>
                                                         {log.targetId && log.targetId !== log.target && (
                                                             <div style={{ fontSize: 10, color: 'var(--text-disabled)', marginTop: 2 }}>ID: {log.targetId}</div>
@@ -524,7 +507,7 @@ export default function AuditLogPage() {
                                                 </tr>
                                                 {isExpanded && (
                                                     <tr style={{ borderBottom: '1px solid var(--border-subtle)', background: 'var(--surface-2)' }}>
-                                                        <td colSpan={8} style={{ padding: '10px 16px 12px' }}>
+                                                        <td colSpan={7} style={{ padding: '10px 16px 12px' }}>
                                                             <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>
                                                                 Full details
                                                             </div>
@@ -534,7 +517,6 @@ export default function AuditLogPage() {
                                                             <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginTop: 8, fontSize: 10.5, color: 'var(--text-disabled)' }}>
                                                                 <span>Action key: {log.actionRaw}</span>
                                                                 <span>Entity key: {log.entityTypeRaw}</span>
-                                                                <span>User ID: {log.userId || '—'}</span>
                                                                 <span>IP: {log.ip}</span>
                                                                 <span>Timestamp: {formatFullTime(log.timestamp)}</span>
                                                             </div>
