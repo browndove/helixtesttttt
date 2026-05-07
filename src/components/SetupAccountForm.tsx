@@ -93,6 +93,31 @@ function extractFacilityNameFromPrefill(data: Record<string, unknown>): string {
     return '';
 }
 
+function extractFacilityCode(value: unknown): string {
+    if (!value || typeof value !== 'object') return '';
+    const data = value as Record<string, unknown>;
+    const direct: unknown[] = [
+        data.facility_code,
+        data.facilityCode,
+        data.code,
+        data.organization_code,
+        data.org_code,
+    ];
+    for (const item of direct) {
+        const s = pickString(item);
+        if (s) return s;
+    }
+    for (const key of ['facility', 'organization', 'org', 'hospital']) {
+        const nested = data[key];
+        if (nested && typeof nested === 'object' && !Array.isArray(nested)) {
+            const obj = nested as Record<string, unknown>;
+            const s = pickString(obj.facility_code) || pickString(obj.facilityCode) || pickString(obj.code);
+            if (s) return s;
+        }
+    }
+    return '';
+}
+
 const readOnlyFieldStyle: CSSProperties = {
     background: 'var(--surface-2)',
     color: 'var(--text-secondary)',
@@ -134,6 +159,7 @@ export default function SetupAccountForm({
     const [prefillFacility, setPrefillFacility] = useState(false);
     /** Display name for facility flow — from JWT and/or prefill, never from first/last name fields. */
     const [facilityName, setFacilityName] = useState('');
+    const [facilityCode, setFacilityCode] = useState('');
 
     const isFacilitySetup = variant === 'facility' || prefillFacility;
 
@@ -173,6 +199,8 @@ export default function SetupAccountForm({
         if (!token) return;
         const fromToken = extractFacilityNameFromClaims(decodeJwtPayload(token));
         if (fromToken) setFacilityName(fromToken);
+        const codeFromToken = extractFacilityCode(decodeJwtPayload(token));
+        if (codeFromToken) setFacilityCode(prev => prev || codeFromToken);
     }, [token]);
 
     useEffect(() => {
@@ -195,6 +223,8 @@ export default function SetupAccountForm({
                 }
                 const nameFromApi = extractFacilityNameFromPrefill(rec);
                 if (nameFromApi) setFacilityName(nameFromApi);
+                const codeFromApi = extractFacilityCode(rec);
+                if (codeFromApi) setFacilityCode(prev => prev || codeFromApi);
                 if (typeof data.phone === 'string' && data.phone.trim()) {
                     const split = splitPhoneForCountryInput(String(data.phone));
                     setPhoneCountry(split.countryCode);
@@ -214,6 +244,7 @@ export default function SetupAccountForm({
     const handleSubmit = async () => {
         setError('');
         setSuccess('');
+        setFacilityCode('');
 
         if (!token) {
             setError('Open this page from the setup link in your invitation email, then try again.');
@@ -270,6 +301,8 @@ export default function SetupAccountForm({
                 data?.message
                 || (isFacilitySetup ? 'Facility admin access is ready' : 'Account activated successfully')
             );
+            const responseFacilityCode = extractFacilityCode(data);
+            if (responseFacilityCode) setFacilityCode(responseFacilityCode);
             setCompleted(true);
         } catch {
             setError('Network error. Please try again.');
@@ -286,6 +319,7 @@ export default function SetupAccountForm({
     };
 
     const displayFacilityTitle = facilityName.trim() || 'Your organization';
+    const displayFacilityCode = facilityCode.trim() || 'Unavailable';
 
     const passwordHintBullets = [
         { key: 'len', text: '8 or more characters', met: password.length >= 8 },
@@ -689,6 +723,19 @@ export default function SetupAccountForm({
                     <p style={{ fontSize: 10, color: 'var(--text-secondary)', lineHeight: 1.4, margin: '0 0 6px' }}>
                         Open the Helix Admin Portal and sign in with the email above and your new password.
                     </p>
+                    <div
+                        style={{
+                            marginBottom: 6,
+                            padding: '6px 8px',
+                            borderRadius: 'var(--radius-sm)',
+                            border: '1px solid rgba(11,74,163,0.2)',
+                            background: 'rgba(11,74,163,0.08)',
+                            fontSize: 10.5,
+                            color: '#0b3a6e',
+                        }}
+                    >
+                        Your facility code is <strong>{displayFacilityCode}</strong>.
+                    </div>
                     <Link
                         href="/login"
                         className="btn btn-primary btn-sm"
@@ -712,6 +759,9 @@ export default function SetupAccountForm({
                     </div>
                     <p style={{ fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.45, margin: 0 }}>
                         Open the Helix app and sign in with your email and new password.
+                    </p>
+                    <p style={{ fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.45, margin: '6px 0 0' }}>
+                        Your facility code is <strong>{displayFacilityCode}</strong>.
                     </p>
                 </div>
             )}

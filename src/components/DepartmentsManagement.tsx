@@ -20,8 +20,7 @@ const departmentsAppMainStyle = {
 
 type FloorItem = { id: string; name: string };
 type WardItem = { id: string; name: string };
-type UnitItem = { id: string; name: string; description?: string };
-type BuildingItem = { id: string; name: string; description?: string };
+type UnitItem = { id: string; name: string; description?: string; department_id?: string; department_name?: string };
 type Department = {
     id: string;
     name: string;
@@ -66,18 +65,15 @@ export default function DepartmentsManagement() {
     const [editingDept, setEditingDept] = useState<string | null>(null);
     const [newDeptName, setNewDeptName] = useState('');
     const [newDeptDescription, setNewDeptDescription] = useState('');
-    const [newDeptFloorsInput, setNewDeptFloorsInput] = useState('');
-    const [newDeptWardLines, setNewDeptWardLines] = useState('');
     const [showAddDept, setShowAddDept] = useState(false);
-    const [newWard, setNewWard] = useState('');
+    const [activeTab, setActiveTab] = useState<'departments' | 'units'>('departments');
     const [newUnitName, setNewUnitName] = useState('');
     const [newUnitDescription, setNewUnitDescription] = useState('');
-    const [unitsByDept, setUnitsByDept] = useState<Record<string, UnitItem[]>>({});
+    const [newUnitDeptId, setNewUnitDeptId] = useState('');
+    const [units, setUnits] = useState<UnitItem[]>([]);
     const [unitsLoading, setUnitsLoading] = useState(false);
     const [addingUnit, setAddingUnit] = useState(false);
-    const [buildingsByDept, setBuildingsByDept] = useState<Record<string, BuildingItem[]>>({});
-    const [newBuildingName, setNewBuildingName] = useState('');
-    const [newBuildingDescription, setNewBuildingDescription] = useState('');
+    const [unitsSearch, setUnitsSearch] = useState('');
     const [loading, setLoading] = useState(true);
     const [deptSearch, setDeptSearch] = useState('');
     const [detailName, setDetailName] = useState('');
@@ -96,20 +92,38 @@ export default function DepartmentsManagement() {
         const query = deptSearch.toLowerCase().trim();
         if (!query) return departments;
         return departments.filter(d =>
-            d.name.toLowerCase().includes(query)
-            || d.floors?.some(f => f.name.toLowerCase().includes(query))
-            || d.wards?.some(w => w.name.toLowerCase().includes(query)),
+            d.name.toLowerCase().includes(query),
         );
     }, [departments, deptSearch]);
 
-    const fetchUnits = useCallback(async (deptId: string) => {
+    const filteredUnits = useMemo(() => {
+        const q = unitsSearch.toLowerCase().trim();
+        if (!q) return units;
+        return units.filter(u =>
+            u.name.toLowerCase().includes(q)
+            || (u.description || '').toLowerCase().includes(q)
+            || (u.department_name || '').toLowerCase().includes(q),
+        );
+    }, [units, unitsSearch]);
+    const selectedDepartmentUnits = useMemo(() => {
+        if (!editingDept) return [];
+        return units.filter(u => String(u.department_id || '') === editingDept);
+    }, [units, editingDept]);
+    const departmentNameById = useMemo(() => {
+        return departments.reduce<Record<string, string>>((acc, d) => {
+            acc[d.id] = d.name;
+            return acc;
+        }, {});
+    }, [departments]);
+
+    const fetchUnits = useCallback(async () => {
         setUnitsLoading(true);
         try {
-            const res = await fetch(`/api/proxy/units?department_id=${encodeURIComponent(deptId)}`);
+            const res = await fetch('/api/proxy/units');
             if (res.ok) {
                 const data = await res.json();
                 const list = Array.isArray(data) ? data : (Array.isArray((data as { units?: unknown }).units) ? (data as { units: UnitItem[] }).units : []);
-                setUnitsByDept(prev => ({ ...prev, [deptId]: list as UnitItem[] }));
+                setUnits(list as UnitItem[]);
             }
         } catch { /* ignore */ }
         setUnitsLoading(false);
@@ -136,9 +150,10 @@ export default function DepartmentsManagement() {
                 writeCachedJson(deptUrl, d);
                 setDepartments(Array.isArray(d) ? d.map(normalizeDepartment) : []);
             }
+            await fetchUnits();
         } catch { showToast('Failed to load departments'); }
         setLoading(false);
-    }, [showToast]);
+    }, [showToast, fetchUnits]);
 
     useLayoutEffect(() => {
         const hospitalJ = readCachedJson(DEPTS_CACHE_HOSPITAL, DEPTS_PAGE_CACHE_TTL_MS);
@@ -180,9 +195,6 @@ export default function DepartmentsManagement() {
         }
         setNewUnitName('');
         setNewUnitDescription('');
-        setNewBuildingName('');
-        setNewBuildingDescription('');
-        fetchUnits(editingDept);
         const local = departmentsRef.current.find(d => d.id === editingDept);
         if (local) {
             setDetailName(local.name);
@@ -235,8 +247,6 @@ export default function DepartmentsManagement() {
     const resetNewDepartmentForm = () => {
         setNewDeptName('');
         setNewDeptDescription('');
-        setNewDeptFloorsInput('');
-        setNewDeptWardLines('');
     };
 
     const addDepartment = async () => {
@@ -250,35 +260,12 @@ export default function DepartmentsManagement() {
             showToast(`Description must be ${DEPARTMENT_DESCRIPTION_MAX_LENGTH} characters or fewer`);
             return;
         }
-        let number_of_floors: number | undefined;
-        const floorsRaw = newDeptFloorsInput.trim();
-        if (floorsRaw !== '') {
-            const n = Number.parseInt(floorsRaw, 10);
-            if (!Number.isFinite(n) || n < 0) {
-                showToast('Number of floors must be zero or a positive whole number');
-                return;
-            }
-            number_of_floors = n;
-        }
-        const wardNames = newDeptWardLines
-            .split(/\r?\n/)
-            .map(line => line.trim())
-            .filter(Boolean);
-        for (const w of wardNames) {
-            if (w.length > DEPARTMENT_NAME_MAX_LENGTH) {
-                showToast(`Each ward name must be ${DEPARTMENT_NAME_MAX_LENGTH} characters or fewer`);
-                return;
-            }
-        }
-        const wards = wardNames.map(name => ({ name, description: '' }));
         try {
             const body: Record<string, unknown> = {
                 name: trimmed,
                 description: newDeptDescription.trim(),
                 facility_id: hospitalId || '',
             };
-            if (number_of_floors !== undefined) body.number_of_floors = number_of_floors;
-            if (wards.length > 0) body.wards = wards;
 
             const res = await fetch('/api/proxy/departments', {
                 method: 'POST',
@@ -374,44 +361,29 @@ export default function DepartmentsManagement() {
         } catch { showToast('Failed to remove department'); }
     };
 
-    const addWard = async (deptId: string) => {
-        if (!newWard.trim()) return;
-        try {
-            const res = await fetch(`/api/proxy/departments/${deptId}/wards`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ name: newWard.trim() }),
-            });
-            if (res.ok) {
-                const ward = await res.json();
-                setDepartments(prev => prev.map(d => d.id === deptId ? { ...d, wards: [...(d.wards || []), ward] } : d));
-                showToast(`Ward "${newWard}" added`);
-                setNewWard('');
-            }
-        } catch { showToast('Failed to add ward'); }
-    };
-
-    const addUnit = async (deptId: string) => {
+    const addUnit = async () => {
         const name = newUnitName.trim();
         if (!name) return;
         setAddingUnit(true);
         try {
+            const department_id = newUnitDeptId.trim();
             const res = await fetch('/api/proxy/units', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     name,
                     description: newUnitDescription.trim(),
-                    department_id: deptId,
+                    department_id: department_id || undefined,
                     facility_id: hospitalId || '',
                 }),
             });
             if (res.ok) {
                 const unit = await res.json() as UnitItem;
-                setUnitsByDept(prev => ({ ...prev, [deptId]: [...(prev[deptId] || []), unit] }));
+                setUnits(prev => [...prev, unit]);
                 showToast(`Unit "${name}" added`);
                 setNewUnitName('');
                 setNewUnitDescription('');
+                setNewUnitDeptId('');
             } else {
                 const err = await res.json().catch(() => ({} as { error?: string; detail?: string }));
                 showToast(String(err.error || err.detail || 'Failed to add unit'));
@@ -420,45 +392,15 @@ export default function DepartmentsManagement() {
         setAddingUnit(false);
     };
 
-    /** Local-only — UI scaffolding for buildings (API integration pending). */
-    const addBuilding = (deptId: string) => {
-        const name = newBuildingName.trim();
-        if (!name) return;
-        const description = newBuildingDescription.trim();
-        const newItem: BuildingItem = {
-            id: `local-bldg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-            name,
-            description: description || undefined,
-        };
-        setBuildingsByDept(prev => ({ ...prev, [deptId]: [...(prev[deptId] || []), newItem] }));
-        setNewBuildingName('');
-        setNewBuildingDescription('');
-        showToast(`Building "${name}" added`);
-    };
-
-    /** Local-only — UI scaffolding for buildings (API integration pending). */
-    const removeBuilding = (deptId: string, buildingId: string) => {
-        setBuildingsByDept(prev => ({ ...prev, [deptId]: (prev[deptId] || []).filter(b => b.id !== buildingId) }));
-    };
-
-    const removeUnit = async (deptId: string, unitId: string) => {
+    const removeUnit = async (unitId: string) => {
         try {
             const res = await fetch(`/api/proxy/units/${unitId}`, { method: 'DELETE' });
             if (res.ok) {
-                setUnitsByDept(prev => ({ ...prev, [deptId]: (prev[deptId] || []).filter(u => u.id !== unitId) }));
+                setUnits(prev => prev.filter(u => u.id !== unitId));
             } else {
                 showToast('Failed to remove unit');
             }
         } catch { showToast('Failed to remove unit'); }
-    };
-
-    const removeWard = async (deptId: string, wardId: string) => {
-        try {
-            const res = await fetch(`/api/proxy/departments/${deptId}/wards/${wardId}`, { method: 'DELETE' });
-            if (res.ok) {
-                setDepartments(prev => prev.map(d => d.id === deptId ? { ...d, wards: (d.wards || []).filter(w => w.id !== wardId) } : d));
-            }
-        } catch { showToast('Failed to remove ward'); }
     };
 
     /** Helix API has no POST /departments/{id}/floors — floor count is updated incrementally on the department (PUT). */
@@ -596,7 +538,7 @@ export default function DepartmentsManagement() {
             )}
 
             <div className="app-main" style={departmentsAppMainStyle}>
-                <TopBar title="Departments" subtitle="Manage departments, floors, and wards for this facility" />
+                <TopBar title="Departments" subtitle="Manage departments for this facility" />
 
                 <main style={{
                     flex: 1,
@@ -624,30 +566,39 @@ export default function DepartmentsManagement() {
                         <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border-subtle)', flexShrink: 0 }}>
                             <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
                                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-                                    <div style={{ fontSize: 13, color: 'var(--text-muted)', minWidth: 0 }}>
-                                        <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{departments.length}</span>
-                                        {' '}department{departments.length !== 1 ? 's' : ''}
-                                        {deptSearch.trim() ? (
-                                            <span style={{ marginLeft: 8 }}>
-                                                · <span style={{ fontWeight: 600, color: 'var(--text-secondary)' }}>{filteredDepartments.length}</span> shown
-                                            </span>
-                                        ) : null}
-                                    </div>
-                                    <button
-                                        type="button"
-                                        className="btn btn-primary btn-sm"
-                                        onClick={() => {
-                                            if (showAddDept) resetNewDepartmentForm();
-                                            setShowAddDept(!showAddDept);
-                                        }}
-                                        style={{ flexShrink: 0 }}
-                                    >
-                                        <span className="material-icons-round" style={{ fontSize: 14 }}>{showAddDept ? 'close' : 'add'}</span>
-                                        {showAddDept ? 'Cancel' : 'Add Department'}
-                                    </button>
+                                    {activeTab === 'departments' ? (
+                                        <>
+                                            <div style={{ fontSize: 13, color: 'var(--text-muted)', minWidth: 0 }}>
+                                                <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{departments.length}</span>
+                                                {' '}department{departments.length !== 1 ? 's' : ''}
+                                                {deptSearch.trim() ? (
+                                                    <span style={{ marginLeft: 8 }}>
+                                                        · <span style={{ fontWeight: 600, color: 'var(--text-secondary)' }}>{filteredDepartments.length}</span> shown
+                                                    </span>
+                                                ) : null}
+                                            </div>
+                                            <button
+                                                type="button"
+                                                className="btn btn-primary btn-sm"
+                                                onClick={() => {
+                                                    if (showAddDept) resetNewDepartmentForm();
+                                                    setShowAddDept(!showAddDept);
+                                                }}
+                                                style={{ flexShrink: 0 }}
+                                            >
+                                                <span className="material-icons-round" style={{ fontSize: 14 }}>{showAddDept ? 'close' : 'add'}</span>
+                                                {showAddDept ? 'Cancel' : 'Add Department'}
+                                            </button>
+                                        </>
+                                    ) : (
+                                        <div style={{ fontSize: 13, color: 'var(--text-muted)', minWidth: 0 }}>
+                                            <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{units.length}</span>
+                                            {' '}unit{units.length !== 1 ? 's' : ''}
+                                        </div>
+                                    )}
                                 </div>
 
-                                {showAddDept && (
+                                {activeTab === 'departments' && showAddDept && (
                                     <div style={{ display: 'flex', flexDirection: 'column', gap: 12, alignSelf: 'stretch', maxWidth: 640 }}>
                                         <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
                                             <input
@@ -681,42 +632,18 @@ export default function DepartmentsManagement() {
                                                 style={{ fontSize: 13, minHeight: 52, resize: 'vertical', boxSizing: 'border-box', width: '100%' }}
                                             />
                                         </div>
-                                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'flex-end' }}>
-                                            <div style={{ flex: '1 1 140px', minWidth: 120 }}>
-                                                <label className="label" htmlFor="new-dept-floors" style={{ marginBottom: 6 }}>Number of floors</label>
-                                                <input
-                                                    id="new-dept-floors"
-                                                    className="input"
-                                                    type="number"
-                                                    min={0}
-                                                    step={1}
-                                                    placeholder="Optional"
-                                                    value={newDeptFloorsInput}
-                                                    onChange={e => {
-                                                        const v = e.target.value;
-                                                        if (v === '' || /^\d+$/.test(v)) setNewDeptFloorsInput(v);
-                                                    }}
-                                                    style={{ fontSize: 13, boxSizing: 'border-box', width: '100%' }}
-                                                />
-                                            </div>
-                                        </div>
-                                        <div>
-                                            <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 6 }}>Wards (optional)</div>
-                                            <p style={{ fontSize: 11, color: 'var(--text-muted)', margin: '0 0 6px', lineHeight: 1.4 }}>
-                                                One ward name per line. Sent with the create request; the API can create wards and maintain ward count.
-                                            </p>
-                                            <textarea
-                                                className="input"
-                                                value={newDeptWardLines}
-                                                onChange={e => setNewDeptWardLines(e.target.value)}
-                                                placeholder={'e.g.\nICU A\nICU B'}
-                                                rows={4}
-                                                style={{ fontSize: 13, minHeight: 88, resize: 'vertical', boxSizing: 'border-box', width: '100%' }}
-                                            />
-                                        </div>
                                     </div>
                                 )}
 
+                                <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                                    <button type="button" className={`btn btn-sm ${activeTab === 'departments' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setActiveTab('departments')}>
+                                        Departments
+                                    </button>
+                                    <button type="button" className={`btn btn-sm ${activeTab === 'units' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setActiveTab('units')}>
+                                        Units
+                                    </button>
+                                </div>
+                                {activeTab === 'departments' ? (
                                 <div style={{ position: 'relative', width: '100%' }}>
                                     <span className="material-icons-round" style={{
                                         position: 'absolute',
@@ -731,7 +658,7 @@ export default function DepartmentsManagement() {
                                     <input
                                         className="input"
                                         type="text"
-                                        placeholder="Search by department, floor, or ward…"
+                                        placeholder="Search by department…"
                                         value={deptSearch}
                                         onChange={e => setDeptSearch(e.target.value)}
                                         style={{ fontSize: 13, paddingLeft: 38, height: 40, width: '100%', boxSizing: 'border-box' }}
@@ -759,6 +686,7 @@ export default function DepartmentsManagement() {
                                         </button>
                                     ) : null}
                                 </div>
+                                ) : null}
                             </div>
                         </div>
 
@@ -767,7 +695,7 @@ export default function DepartmentsManagement() {
                             style={{
                                 flex: 1,
                                 minHeight: 0,
-                                display: 'grid',
+                                display: activeTab === 'departments' ? 'grid' : 'none',
                                 gridTemplateColumns: 'minmax(280px, min(32vw, 380px)) 1fr',
                                 overflow: 'hidden',
                             }}
@@ -785,10 +713,10 @@ export default function DepartmentsManagement() {
                                 }}
                             >
                                 {filteredDepartments.map(d => (
-                                    <button
+                                        <button
                                         key={d.id}
                                         type="button"
-                                        onClick={() => { setEditingDept(d.id); setNewWard(''); }}
+                                            onClick={() => { setEditingDept(d.id); }}
                                         style={{
                                             display: 'flex',
                                             alignItems: 'center',
@@ -807,7 +735,9 @@ export default function DepartmentsManagement() {
                                         <span className="material-icons-round" style={{ fontSize: 18, color: editingDept === d.id ? 'var(--helix-primary)' : 'var(--text-muted)', flexShrink: 0 }}>domain</span>
                                         <div style={{ flex: 1, minWidth: 0 }}>
                                             <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{d.name}</div>
-                                            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>{(d.floors || []).length} floors · {(d.wards || []).length} wards</div>
+                                            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                                {d.description || 'Department'}
+                                            </div>
                                         </div>
                                     </button>
                                 ))}
@@ -828,7 +758,7 @@ export default function DepartmentsManagement() {
                                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, marginBottom: 20, flexWrap: 'wrap' }}>
                                             <div style={{ flex: 1, minWidth: 0 }}>
                                                 <h2 style={{ fontSize: 20, fontWeight: 700, margin: 0, color: 'var(--text-primary)', letterSpacing: '-0.02em' }}>{editDept.name}</h2>
-                                                <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '6px 0 0' }}>Edit details, floors, and wards</p>
+                                                <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '6px 0 0' }}>Edit department details</p>
                                             </div>
                                             <button type="button" className="btn btn-danger btn-sm" onClick={() => removeDepartment(editDept.id)}>
                                                 <span className="material-icons-round" style={{ fontSize: 14 }}>delete</span>
@@ -887,155 +817,32 @@ export default function DepartmentsManagement() {
                                             </div>
                                         </div>
 
-                                        <div
-                                            style={{
-                                                display: 'grid',
-                                                gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 300px), 1fr))',
-                                                gap: 24,
-                                                alignItems: 'start',
-                                            }}
-                                        >
-                                            <div className="card" style={{ padding: '16px 18px', margin: 0, background: 'var(--surface-2)', border: '1px solid var(--border-subtle)' }}>
-                                                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>Floors</div>
-                                                <p style={{ fontSize: 11, color: 'var(--text-muted)', margin: '0 0 10px', lineHeight: 1.45 }}>
-                                                    The API stores a floor count on the department, not separate floor records. Add or remove one floor at a time.
-                                                </p>
-                                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 10, minHeight: 28 }}>
-                                                    {editDept.floors.map(f => (
-                                                        <span key={f.id} className="badge badge-info" style={{ cursor: 'pointer', padding: '6px 10px', fontSize: 12 }} onClick={() => removeFloor(editDept.id)}>
-                                                            {f.name}
-                                                            <span className="material-icons-round" style={{ fontSize: 12, marginLeft: 4, verticalAlign: 'middle' }}>close</span>
-                                                        </span>
-                                                    ))}
-                                                    {editDept.floors.length === 0 && <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>No floors yet</span>}
-                                                </div>
-                                                <button type="button" className="btn btn-secondary btn-sm" onClick={() => addFloor(editDept.id)}>Add floor</button>
+                                        <div className="card" style={{ padding: '16px 18px', margin: 0, background: 'var(--surface-2)', border: '1px solid var(--border-subtle)' }}>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+                                                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Department units</div>
+                                                <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{selectedDepartmentUnits.length}</span>
                                             </div>
-
-                                            <div className="card" style={{ padding: '16px 18px', margin: 0, background: 'var(--surface-2)', border: '1px solid var(--border-subtle)' }}>
-                                                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 10 }}>Wards</div>
-                                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 10, minHeight: 28 }}>
-                                                    {editDept.wards.map(w => (
-                                                        <span key={w.id} className="badge badge-neutral" style={{ cursor: 'pointer', padding: '6px 10px', fontSize: 12 }} onClick={() => removeWard(editDept.id, w.id)}>
-                                                            {w.name}
-                                                            <span className="material-icons-round" style={{ fontSize: 12, marginLeft: 4, verticalAlign: 'middle' }}>close</span>
-                                                        </span>
-                                                    ))}
-                                                    {editDept.wards.length === 0 && <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>No wards yet</span>}
-                                                </div>
-                                                <div style={{ display: 'flex', gap: 8 }}>
-                                                    <input className="input" placeholder="New ward name" value={newWard} onChange={e => setNewWard(e.target.value)} onKeyDown={e => e.key === 'Enter' && addWard(editDept.id)} style={{ fontSize: 13, flex: 1 }} />
-                                                    <button type="button" className="btn btn-secondary btn-sm" onClick={() => addWard(editDept.id)} disabled={!newWard.trim()}>Add</button>
-                                                </div>
-                                            </div>
-
-                                            <div className="card" style={{ padding: '16px 18px', margin: 0, background: 'var(--surface-2)', border: '1px solid var(--border-subtle)', gridColumn: '1 / -1' }}>
-                                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-                                                    <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Care units</div>
-                                                    {unitsLoading ? (
-                                                        <span style={{ fontSize: 11, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 6 }}>
-                                                            <span className="material-icons-round" style={{ fontSize: 14 }}>hourglass_empty</span>
-                                                            Loading…
-                                                        </span>
-                                                    ) : null}
-                                                </div>
-                                                <p style={{ fontSize: 11, color: 'var(--text-muted)', margin: '0 0 10px', lineHeight: 1.45 }}>
-                                                    Care units (ward / ICU / ED pod, etc.) associated with this department.
-                                                </p>
-                                                <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 12 }}>
-                                                    {(unitsByDept[editDept.id] || []).map(u => (
-                                                        <div key={u.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', background: 'var(--surface-card)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)' }}>
-                                                            <span className="material-icons-round" style={{ fontSize: 16, color: 'var(--helix-primary)', flexShrink: 0 }}>medical_services</span>
-                                                            <div style={{ flex: 1, minWidth: 0 }}>
-                                                                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{u.name}</div>
-                                                                {u.description ? (
-                                                                    <div style={{ fontSize: 11, color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{u.description}</div>
-                                                                ) : null}
-                                                            </div>
-                                                            <button type="button" className="btn btn-ghost btn-sm" onClick={() => removeUnit(editDept.id, u.id)} title="Remove unit" style={{ color: 'var(--danger, #dc2626)' }}>
-                                                                <span className="material-icons-round" style={{ fontSize: 14 }}>delete</span>
-                                                            </button>
+                                            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                                                {selectedDepartmentUnits.map(u => (
+                                                    <div key={u.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', background: 'var(--surface-card)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)' }}>
+                                                        <span className="material-icons-round" style={{ fontSize: 16, color: 'var(--helix-primary)', flexShrink: 0 }}>medical_services</span>
+                                                        <div style={{ flex: 1, minWidth: 0 }}>
+                                                            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{u.name}</div>
+                                                            {u.description ? (
+                                                                <div style={{ fontSize: 11, color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{u.description}</div>
+                                                            ) : null}
                                                         </div>
-                                                    ))}
-                                                    {!unitsLoading && (unitsByDept[editDept.id] || []).length === 0 && (
-                                                        <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>No units yet</span>
-                                                    )}
-                                                </div>
-                                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
-                                                    <input
-                                                        className="input"
-                                                        placeholder="Unit name (e.g. ICU-A)"
-                                                        value={newUnitName}
-                                                        onChange={e => setNewUnitName(e.target.value)}
-                                                        onKeyDown={e => e.key === 'Enter' && !e.shiftKey && addUnit(editDept.id)}
-                                                        style={{ fontSize: 13, flex: '1 1 180px', minWidth: 160 }}
-                                                    />
-                                                    <input
-                                                        className="input"
-                                                        placeholder="Description (optional)"
-                                                        value={newUnitDescription}
-                                                        onChange={e => setNewUnitDescription(e.target.value)}
-                                                        onKeyDown={e => e.key === 'Enter' && !e.shiftKey && addUnit(editDept.id)}
-                                                        style={{ fontSize: 13, flex: '2 1 220px', minWidth: 160 }}
-                                                    />
-                                                    <button type="button" className="btn btn-secondary btn-sm" onClick={() => addUnit(editDept.id)} disabled={!newUnitName.trim() || addingUnit}>
-                                                        {addingUnit ? 'Adding…' : 'Add unit'}
-                                                    </button>
-                                                </div>
-                                            </div>
-
-                                            <div className="card" style={{ padding: '16px 18px', margin: 0, background: 'var(--surface-2)', border: '1px solid var(--border-subtle)', gridColumn: '1 / -1' }}>
-                                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-                                                    <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Buildings</div>
-                                                    <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--text-muted)', background: 'var(--surface-card)', border: '1px solid var(--border-subtle)', padding: '2px 8px', borderRadius: 999 }}>
-                                                        UI preview
-                                                    </span>
-                                                </div>
-                                                <p style={{ fontSize: 11, color: 'var(--text-muted)', margin: '0 0 10px', lineHeight: 1.45 }}>
-                                                    Physical buildings or wings associated with this department (e.g. Main Tower, North Wing).
-                                                </p>
-                                                <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 12 }}>
-                                                    {(buildingsByDept[editDept.id] || []).map(b => (
-                                                        <div key={b.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', background: 'var(--surface-card)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)' }}>
-                                                            <span className="material-icons-round" style={{ fontSize: 16, color: 'var(--helix-primary)', flexShrink: 0 }}>apartment</span>
-                                                            <div style={{ flex: 1, minWidth: 0 }}>
-                                                                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{b.name}</div>
-                                                                {b.description ? (
-                                                                    <div style={{ fontSize: 11, color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{b.description}</div>
-                                                                ) : null}
-                                                            </div>
-                                                            <button type="button" className="btn btn-ghost btn-sm" onClick={() => removeBuilding(editDept.id, b.id)} title="Remove building" style={{ color: 'var(--danger, #dc2626)' }}>
-                                                                <span className="material-icons-round" style={{ fontSize: 14 }}>delete</span>
-                                                            </button>
-                                                        </div>
-                                                    ))}
-                                                    {(buildingsByDept[editDept.id] || []).length === 0 && (
-                                                        <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>No buildings yet</span>
-                                                    )}
-                                                </div>
-                                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
-                                                    <input
-                                                        className="input"
-                                                        placeholder="Building name (e.g. Main Tower)"
-                                                        value={newBuildingName}
-                                                        onChange={e => setNewBuildingName(e.target.value)}
-                                                        onKeyDown={e => e.key === 'Enter' && !e.shiftKey && addBuilding(editDept.id)}
-                                                        style={{ fontSize: 13, flex: '1 1 180px', minWidth: 160 }}
-                                                    />
-                                                    <input
-                                                        className="input"
-                                                        placeholder="Description (optional)"
-                                                        value={newBuildingDescription}
-                                                        onChange={e => setNewBuildingDescription(e.target.value)}
-                                                        onKeyDown={e => e.key === 'Enter' && !e.shiftKey && addBuilding(editDept.id)}
-                                                        style={{ fontSize: 13, flex: '2 1 220px', minWidth: 160 }}
-                                                    />
-                                                    <button type="button" className="btn btn-secondary btn-sm" onClick={() => addBuilding(editDept.id)} disabled={!newBuildingName.trim()}>
-                                                        Add building
-                                                    </button>
-                                                </div>
+                                                        <button type="button" className="btn btn-ghost btn-sm" onClick={() => removeUnit(u.id)} title="Remove unit" style={{ color: 'var(--danger, #dc2626)' }}>
+                                                            <span className="material-icons-round" style={{ fontSize: 14 }}>delete</span>
+                                                        </button>
+                                                    </div>
+                                                ))}
+                                                {selectedDepartmentUnits.length === 0 ? (
+                                                    <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>No units linked to this department.</div>
+                                                ) : null}
                                             </div>
                                         </div>
+
                                     </div>
                                 ) : (
                                     <div
@@ -1053,12 +860,259 @@ export default function DepartmentsManagement() {
                                         <div style={{ textAlign: 'center', maxWidth: 360, color: 'var(--text-muted)' }}>
                                             <span className="material-icons-round" style={{ fontSize: 40, color: 'var(--text-disabled)', marginBottom: 12, display: 'block' }}>touch_app</span>
                                             <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 6 }}>Choose a department</div>
-                                            <div style={{ fontSize: 13, lineHeight: 1.5 }}>Select a department on the left to add or remove floors and wards, or adjust your search.</div>
+                                            <div style={{ fontSize: 13, lineHeight: 1.5 }}>Select a department on the left to edit details.</div>
                                         </div>
                                     </div>
                                 )}
                             </section>
                         </div>
+                        {activeTab === 'units' ? (() => {
+                            /* ── Units tab: grouped by department ── */
+                            const unitsDeptFilter = unitsSearch; // reuse search for dept-aware filtering
+                            const _q = unitsDeptFilter.toLowerCase().trim();
+
+                            // Group filtered units by department
+                            const grouped = new Map<string, { deptName: string; items: typeof filteredUnits }>();
+                            for (const u of filteredUnits) {
+                                const deptKey = String(u.department_id || '');
+                                const deptName = u.department_name || (deptKey ? departmentNameById[deptKey] : '') || 'Unassigned';
+                                if (!grouped.has(deptKey)) grouped.set(deptKey, { deptName, items: [] });
+                                grouped.get(deptKey)!.items.push(u);
+                            }
+                            // Sort groups: named departments first (alphabetical), "Unassigned" last
+                            const sortedGroups = Array.from(grouped.entries()).sort(([aKey, aVal], [bKey, bVal]) => {
+                                if (!aKey && bKey) return 1;
+                                if (aKey && !bKey) return -1;
+                                return aVal.deptName.localeCompare(bVal.deptName);
+                            });
+                            const linkedCount = units.filter(u => u.department_id).length;
+                            const unlinkedCount = units.length - linkedCount;
+
+                            return (
+                            <section style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '20px 24px 28px', minWidth: 0, background: 'var(--surface-card)' }}>
+
+                                {/* ── Stats row ── */}
+                                <div className="fade-in" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 20 }}>
+                                    {[
+                                        { icon: 'grid_view', label: 'Total Units', value: units.length, color: 'var(--helix-primary, #1e3a5f)' },
+                                        { icon: 'link', label: 'Linked to Dept', value: linkedCount, color: '#059669' },
+                                        { icon: 'link_off', label: 'Unassigned', value: unlinkedCount, color: unlinkedCount > 0 ? '#D97706' : '#94A3B8' },
+                                    ].map(stat => (
+                                        <div key={stat.label} style={{
+                                            padding: '14px 16px',
+                                            background: 'var(--surface-2)',
+                                            border: '1px solid var(--border-subtle)',
+                                            borderRadius: 'var(--radius-lg, 12px)',
+                                            display: 'flex', alignItems: 'center', gap: 12,
+                                        }}>
+                                            <span style={{
+                                                width: 36, height: 36, borderRadius: 10,
+                                                background: `color-mix(in srgb, ${stat.color} 10%, transparent)`,
+                                                color: stat.color,
+                                                display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+                                            }}>
+                                                <span className="material-icons-round" style={{ fontSize: 18 }}>{stat.icon}</span>
+                                            </span>
+                                            <div>
+                                                <div style={{ fontSize: 20, fontWeight: 800, color: 'var(--text-primary)', lineHeight: 1, letterSpacing: '-0.02em', fontVariantNumeric: 'tabular-nums' }}>{stat.value}</div>
+                                                <div style={{ fontSize: 11, fontWeight: 500, color: 'var(--text-muted)', marginTop: 2 }}>{stat.label}</div>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+
+                                {/* ── Add unit form ── */}
+                                <div className="card fade-in" style={{ padding: '16px 18px', margin: '0 0 16px', background: 'var(--surface-2)', border: '1px solid var(--border-subtle)' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
+                                        <span className="material-icons-round" style={{ fontSize: 16, color: 'var(--helix-primary)' }}>add_circle</span>
+                                        <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Add new unit</span>
+                                    </div>
+                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
+                                        <div>
+                                            <label className="label" style={{ marginBottom: 4, fontSize: 11 }}>Unit Name</label>
+                                            <input
+                                                className="input"
+                                                placeholder="e.g. ICU-A, NICU, CCU"
+                                                value={newUnitName}
+                                                onChange={e => setNewUnitName(e.target.value)}
+                                                onKeyDown={e => e.key === 'Enter' && !e.shiftKey && newUnitName.trim() && addUnit()}
+                                                style={{ fontSize: 13, width: '100%', boxSizing: 'border-box' }}
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="label" style={{ marginBottom: 4, fontSize: 11 }}>Department</label>
+                                            <select className="input" value={newUnitDeptId} onChange={e => setNewUnitDeptId(e.target.value)} style={{ fontSize: 13, width: '100%', boxSizing: 'border-box' }}>
+                                                <option value="">No department</option>
+                                                {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+                                            </select>
+                                        </div>
+                                    </div>
+                                    <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end' }}>
+                                        <div style={{ flex: 1 }}>
+                                            <label className="label" style={{ marginBottom: 4, fontSize: 11 }}>Description <span style={{ fontWeight: 400, color: 'var(--text-disabled)' }}>(optional)</span></label>
+                                            <input
+                                                className="input"
+                                                placeholder="Brief description of this unit"
+                                                value={newUnitDescription}
+                                                onChange={e => setNewUnitDescription(e.target.value)}
+                                                onKeyDown={e => e.key === 'Enter' && !e.shiftKey && newUnitName.trim() && addUnit()}
+                                                style={{ fontSize: 13, width: '100%', boxSizing: 'border-box' }}
+                                            />
+                                        </div>
+                                        <button
+                                            type="button"
+                                            className="btn btn-primary btn-sm"
+                                            onClick={addUnit}
+                                            disabled={!newUnitName.trim() || addingUnit}
+                                            style={{ flexShrink: 0, height: 38 }}
+                                        >
+                                            <span className="material-icons-round" style={{ fontSize: 14 }}>{addingUnit ? 'hourglass_empty' : 'add'}</span>
+                                            {addingUnit ? 'Adding…' : 'Add Unit'}
+                                        </button>
+                                    </div>
+                                </div>
+
+                                {/* ── Search ── */}
+                                <div style={{ position: 'relative', width: '100%', marginBottom: 16 }}>
+                                    <span className="material-icons-round" style={{
+                                        position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)',
+                                        fontSize: 18, color: 'var(--text-muted)', pointerEvents: 'none', zIndex: 1,
+                                    }}>search</span>
+                                    <input
+                                        className="input"
+                                        type="text"
+                                        placeholder="Search units by name, department, or description…"
+                                        value={unitsSearch}
+                                        onChange={e => setUnitsSearch(e.target.value)}
+                                        style={{ fontSize: 13, paddingLeft: 38, height: 40, width: '100%', boxSizing: 'border-box' }}
+                                    />
+                                    {unitsSearch ? (
+                                        <button
+                                            type="button"
+                                            onClick={() => setUnitsSearch('')}
+                                            style={{
+                                                position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)',
+                                                background: 'none', border: 'none', cursor: 'pointer', padding: 4,
+                                                display: 'flex', alignItems: 'center', color: 'var(--text-muted)', zIndex: 1,
+                                            }}
+                                        >
+                                            <span className="material-icons-round" style={{ fontSize: 18 }}>close</span>
+                                        </button>
+                                    ) : null}
+                                </div>
+
+                                {/* ── Loading state ── */}
+                                {unitsLoading ? (
+                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '48px 20px' }}>
+                                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
+                                            <span className="material-icons-round" style={{ fontSize: 28, color: 'var(--text-disabled)', animation: 'spin 1.5s linear infinite' }}>progress_activity</span>
+                                            <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>Loading units…</span>
+                                        </div>
+                                    </div>
+                                ) : filteredUnits.length === 0 ? (
+                                    /* ── Empty state ── */
+                                    <div style={{
+                                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                        minHeight: 260, padding: 32, borderRadius: 'var(--radius-lg, 12px)',
+                                        border: '1px dashed var(--border-default)', background: 'var(--surface-2)',
+                                    }}>
+                                        <div style={{ textAlign: 'center', maxWidth: 360, color: 'var(--text-muted)' }}>
+                                            <span className="material-icons-round" style={{ fontSize: 44, color: 'var(--text-disabled)', marginBottom: 12, display: 'block' }}>
+                                                {unitsSearch ? 'search_off' : 'grid_view'}
+                                            </span>
+                                            <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 6 }}>
+                                                {unitsSearch ? 'No matching units' : 'No units created yet'}
+                                            </div>
+                                            <div style={{ fontSize: 13, lineHeight: 1.5 }}>
+                                                {unitsSearch
+                                                    ? 'Try a different search term or clear the filter.'
+                                                    : 'Units are subdivisions within departments (e.g. ICU-A, NICU). Use the form above to add your first unit.'}
+                                            </div>
+                                        </div>
+                                    </div>
+                                ) : (
+                                    /* ── Grouped unit list ── */
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+                                        {sortedGroups.map(([deptKey, group]) => (
+                                            <div key={deptKey || '__unassigned'} className="fade-in">
+                                                {/* Department group header */}
+                                                <div style={{
+                                                    display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10,
+                                                    padding: '0 2px',
+                                                }}>
+                                                    <span className="material-icons-round" style={{
+                                                        fontSize: 16,
+                                                        color: deptKey ? 'var(--helix-primary)' : 'var(--text-disabled)',
+                                                    }}>{deptKey ? 'domain' : 'link_off'}</span>
+                                                    <span style={{
+                                                        fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)',
+                                                        textTransform: 'uppercase', letterSpacing: '0.04em',
+                                                    }}>{group.deptName}</span>
+                                                    <span style={{
+                                                        fontSize: 11, fontWeight: 600, color: 'var(--text-muted)',
+                                                        background: 'var(--surface-2)', padding: '2px 8px', borderRadius: 999,
+                                                        border: '1px solid var(--border-subtle)',
+                                                    }}>{group.items.length}</span>
+                                                    <div style={{ flex: 1, height: 1, background: 'var(--border-subtle)' }} />
+                                                </div>
+
+                                                {/* Unit cards grid */}
+                                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 10 }}>
+                                                    {group.items.map(u => (
+                                                        <div
+                                                            key={u.id}
+                                                            style={{
+                                                                display: 'flex', alignItems: 'center', gap: 12,
+                                                                padding: '12px 14px',
+                                                                background: 'var(--surface-2)',
+                                                                border: '1px solid var(--border-subtle)',
+                                                                borderRadius: 'var(--radius-md)',
+                                                                transition: 'border-color 0.15s, box-shadow 0.15s',
+                                                            }}
+                                                            onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--helix-primary)'; e.currentTarget.style.boxShadow = '0 2px 8px rgba(30,58,95,0.08)'; }}
+                                                            onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border-subtle)'; e.currentTarget.style.boxShadow = 'none'; }}
+                                                        >
+                                                            <span style={{
+                                                                width: 34, height: 34, borderRadius: 9,
+                                                                background: 'color-mix(in srgb, var(--helix-primary) 8%, transparent)',
+                                                                color: 'var(--helix-primary)',
+                                                                display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+                                                            }}>
+                                                                <span className="material-icons-round" style={{ fontSize: 17 }}>medical_services</span>
+                                                            </span>
+                                                            <div style={{ flex: 1, minWidth: 0 }}>
+                                                                <div style={{
+                                                                    fontSize: 13, fontWeight: 600, color: 'var(--text-primary)',
+                                                                    whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                                                                }}>{u.name}</div>
+                                                                {u.description ? (
+                                                                    <div style={{
+                                                                        fontSize: 11, color: 'var(--text-muted)', marginTop: 2,
+                                                                        whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                                                                    }}>{u.description}</div>
+                                                                ) : null}
+                                                            </div>
+                                                            <button
+                                                                type="button"
+                                                                className="btn btn-ghost btn-sm"
+                                                                onClick={() => removeUnit(u.id)}
+                                                                title="Remove unit"
+                                                                style={{ color: 'var(--text-muted)', flexShrink: 0, opacity: 0.5, transition: 'opacity 0.15s, color 0.15s' }}
+                                                                onMouseEnter={e => { e.currentTarget.style.opacity = '1'; e.currentTarget.style.color = 'var(--danger, #dc2626)'; }}
+                                                                onMouseLeave={e => { e.currentTarget.style.opacity = '0.5'; e.currentTarget.style.color = 'var(--text-muted)'; }}
+                                                            >
+                                                                <span className="material-icons-round" style={{ fontSize: 15 }}>delete_outline</span>
+                                                            </button>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </section>
+                            );
+                        })() : null}
                     </div>
                 </main>
             </div>
