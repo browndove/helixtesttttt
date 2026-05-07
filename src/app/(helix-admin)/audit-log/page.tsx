@@ -91,6 +91,93 @@ function extractNameFromObject(raw: unknown): string {
     return '';
 }
 
+function getNestedRecord(raw: unknown, key: string): Record<string, unknown> | null {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+    const value = (raw as Record<string, unknown>)[key];
+    return value && typeof value === 'object' && !Array.isArray(value)
+        ? value as Record<string, unknown>
+        : null;
+}
+
+function collectDetailCandidates(detailsObj: Record<string, unknown> | null): Record<string, unknown>[] {
+    if (!detailsObj) return [];
+    const candidates: Record<string, unknown>[] = [detailsObj];
+    for (const key of ['payload', 'data', 'attributes', 'new_values', 'after', 'before', 'old_values', 'previous_values', 'deleted', 'body', 'request_body']) {
+        const nested = getNestedRecord(detailsObj, key);
+        if (nested) candidates.push(nested);
+    }
+    return candidates;
+}
+
+function extractPersonLabel(rec: Record<string, unknown>): string {
+    const first = asCleanString(rec.first_name) || asCleanString(rec.firstName);
+    const last = asCleanString(rec.last_name) || asCleanString(rec.lastName);
+    const full = [first, last].filter(Boolean).join(' ').trim()
+        || asCleanString(rec.full_name)
+        || asCleanString(rec.fullName)
+        || asCleanString(rec.staff_name)
+        || asCleanString(rec.name);
+    const email = asCleanString(rec.email);
+    if (full && email) return `${full} (${email})`;
+    if (full) return full;
+    if (email) return email;
+    return '';
+}
+
+function staffLabelFromRecord(rec: Record<string, unknown>, detailsObj: Record<string, unknown> | null): string {
+    const candidates: Record<string, unknown>[] = [
+        rec,
+        ...collectDetailCandidates(detailsObj),
+    ];
+    for (const key of ['target', 'entity', 'resource', 'object', 'staff', 'user']) {
+        const nested = getNestedRecord(rec, key);
+        if (nested) candidates.push(nested);
+    }
+    for (const candidate of candidates) {
+        const label = extractPersonLabel(candidate);
+        if (label) return label;
+    }
+    return '';
+}
+
+function staffLabelFromPayload(detailsObj: Record<string, unknown> | null): string {
+    const candidates = collectDetailCandidates(detailsObj);
+    for (const rec of candidates) {
+        const first = asCleanString(rec.first_name);
+        const last = asCleanString(rec.last_name);
+        const full = [first, last].filter(Boolean).join(' ').trim();
+        const email = asCleanString(rec.email);
+        if (full && email) return `${full} (${email})`;
+        if (full) return full;
+        if (email) return email;
+    }
+    return '';
+}
+
+function staffDetailsFallback(actionRaw: string, detailsObj: Record<string, unknown> | null): string {
+    const candidates = collectDetailCandidates(detailsObj);
+    if (candidates.length === 0) return '';
+    const first = candidates[0];
+    const email = asCleanString(first.email);
+    const updatedRaw = first.updated_fields;
+    const updatedFields = Array.isArray(updatedRaw)
+        ? updatedRaw.map(v => asCleanString(v)).filter(Boolean)
+        : [];
+
+    if (actionRaw === 'update' && updatedFields.length > 0) {
+        const label = updatedFields.map(prettify).join(', ');
+        if (email) return `Updated fields: ${label} (${email})`;
+        return `Updated fields: ${label}`;
+    }
+    if (actionRaw === 'delete') {
+        return email ? `Staff record removed for ${email}` : 'Staff record removed';
+    }
+    if (actionRaw === 'create') {
+        return email ? `Staff record created for ${email}` : 'Staff record created';
+    }
+    return '';
+}
+
 function extractTargetIdFromRecord(rec: Record<string, unknown>, detailsObj: Record<string, unknown> | null): string {
     const targetObj = rec.target && typeof rec.target === 'object' && !Array.isArray(rec.target)
         ? rec.target as Record<string, unknown>
@@ -120,6 +207,15 @@ function extractTargetIdFromRecord(rec: Record<string, unknown>, detailsObj: Rec
         detailsObj?.resource_id,
         detailsObj?.object_id,
         detailsObj?.subject_id,
+        ...collectDetailCandidates(detailsObj).flatMap(obj => [
+            obj.entity_id,
+            obj.target_id,
+            obj.resource_id,
+            obj.object_id,
+            obj.subject_id,
+            obj.staff_id,
+            obj.id,
+        ]),
     ]
         .map(asCleanString)
         .find(Boolean);
@@ -147,7 +243,12 @@ function resolveTargetLabel(rec: Record<string, unknown>, entityRaw: string): { 
         ? rec.object as Record<string, unknown>
         : null;
 
+    const entityKey = String(entityRaw || '').trim().toLowerCase();
+    const isStaffEntity = entityKey === 'staff';
+
     const label = [
+        (isStaffEntity ? staffLabelFromRecord(rec, detailsObj) : ''),
+        (isStaffEntity ? staffLabelFromPayload(detailsObj) : ''),
         getHumanLabel(rec.target_name),
         getHumanLabel(rec.entity_name),
         getHumanLabel(rec.resource_name),
@@ -161,6 +262,7 @@ function resolveTargetLabel(rec: Record<string, unknown>, entityRaw: string): { 
         extractNameFromObject(resourceObj),
         extractNameFromObject(objectObj),
         extractNameFromObject(detailsObj),
+        ...collectDetailCandidates(detailsObj).map(extractNameFromObject),
     ].find(Boolean) || '';
 
     const targetId = extractTargetIdFromRecord(rec, detailsObj);
@@ -199,6 +301,7 @@ function parseAuditPayload(raw: unknown): { logs: LogEntry[]; total: number } {
             rec.details,
             rec.description,
             rec.message,
+            (String(entityRaw || '').trim().toLowerCase() === 'staff' ? staffDetailsFallback(actionRaw, detailsObj) : ''),
         ]
             .map(asCleanString)
             .find(Boolean) || '';
