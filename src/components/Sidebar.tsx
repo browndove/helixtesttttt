@@ -305,22 +305,6 @@ export default function Sidebar({
                         <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
                             <button
                                 type="button"
-                                onClick={() => router.push('/internal/dashboard')}
-                                style={{
-                                    border: '1px solid rgba(37,99,235,0.3)',
-                                    background: '#fff',
-                                    color: '#1d4ed8',
-                                    borderRadius: 6,
-                                    fontSize: 10.5,
-                                    fontWeight: 600,
-                                    padding: '4px 7px',
-                                    cursor: 'pointer',
-                                }}
-                            >
-                                Switch
-                            </button>
-                            <button
-                                type="button"
                                 onClick={() => { void handleExitSupportMode(); }}
                                 disabled={endingSupportMode}
                                 style={{
