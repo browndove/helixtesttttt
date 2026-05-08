@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, type CSSProperties } from 'react';
+import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import { API_ENDPOINTS } from '@/lib/config';
 import { MacVibrancyToast, MacVibrancyToastPortal } from '@/components/MacVibrancyToast';
@@ -19,13 +19,43 @@ export default function InternalAdminLogin() {
     const router = useRouter();
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
+    const [step, setStep] = useState<'credentials' | 'otp'>('credentials');
+    const [otpDigits, setOtpDigits] = useState<string[]>(['', '', '', '', '', '']);
+    const [resendTimer, setResendTimer] = useState(0);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
     const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+    const otpRefs = useRef<(HTMLInputElement | null)[]>([]);
+    const otp = otpDigits.join('');
 
     const showToast = (message: string, type: 'success' | 'error' = 'success') => {
         setToast({ message, type });
         setTimeout(() => setToast(null), 2800);
+    };
+
+    useEffect(() => {
+        if (step !== 'otp' || resendTimer <= 0) return;
+        const t = setInterval(() => {
+            setResendTimer(prev => (prev > 0 ? prev - 1 : 0));
+        }, 1000);
+        return () => clearInterval(t);
+    }, [step, resendTimer]);
+
+    const updateOtpDigit = (index: number, next: string) => {
+        if (!/^\d?$/.test(next)) return;
+        const copied = [...otpDigits];
+        copied[index] = next;
+        setOtpDigits(copied);
+        if (next && index < 5) otpRefs.current[index + 1]?.focus();
+    };
+
+    const handleOtpKeyDown = (index: number, e: KeyboardEvent<HTMLInputElement>) => {
+        if (e.key === 'Backspace' && !otpDigits[index] && index > 0) {
+            const copied = [...otpDigits];
+            copied[index - 1] = '';
+            setOtpDigits(copied);
+            otpRefs.current[index - 1]?.focus();
+        }
     };
 
     const handleLogin = async () => {
@@ -38,25 +68,27 @@ export default function InternalAdminLogin() {
         }
         setLoading(true);
         try {
+            const normalizedEmail = email.trim().toLowerCase();
             const res = await fetch(API_ENDPOINTS.INTERNAL_LOGIN, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ email: email.trim(), password }),
+                body: JSON.stringify({ email: normalizedEmail, password }),
                 credentials: 'include',
             });
             const data = await res.json().catch(() => ({} as Record<string, unknown>));
             if (!res.ok) {
-                const msg = String(data.error || data.message || 'Internal admin login failed');
+                const msg = String(
+                    data.detail || data.error || data.message || 'Internal admin login failed'
+                );
                 setError(msg);
                 showToast(msg, 'error');
                 return;
             }
-            showToast('Signed in to internal admin portal.', 'success');
-            if (typeof window !== 'undefined') {
-                window.location.assign('/internal/dashboard');
-            } else {
-                router.replace('/internal/dashboard');
-            }
+            setStep('otp');
+            setOtpDigits(['', '', '', '', '', '']);
+            setResendTimer(60);
+            showToast('Verification code sent to your email.', 'success');
+            setTimeout(() => otpRefs.current[0]?.focus(), 80);
         } catch (err) {
             const msg = err instanceof Error ? err.message : 'Network error';
             setError(msg);
@@ -64,6 +96,80 @@ export default function InternalAdminLogin() {
         } finally {
             setLoading(false);
         }
+    };
+
+    const handleResendOtp = async () => {
+        if (loading || resendTimer > 0) return;
+        setError('');
+        setLoading(true);
+        try {
+            const normalizedEmail = email.trim().toLowerCase();
+            const res = await fetch(API_ENDPOINTS.INTERNAL_LOGIN, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email: normalizedEmail, password }),
+                credentials: 'include',
+            });
+            const data = await res.json().catch(() => ({} as Record<string, unknown>));
+            if (!res.ok) {
+                const msg = String(data.detail || data.error || data.message || 'Could not resend OTP');
+                setError(msg);
+                showToast(msg, 'error');
+                return;
+            }
+            setOtpDigits(['', '', '', '', '', '']);
+            setResendTimer(60);
+            showToast('A new verification code was sent.', 'success');
+            setTimeout(() => otpRefs.current[0]?.focus(), 80);
+        } catch (err) {
+            const msg = err instanceof Error ? err.message : 'Network error';
+            setError(msg);
+            showToast(msg, 'error');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleVerifyOtp = async () => {
+        setError('');
+        if (otp.length !== 6) {
+            const msg = 'Enter the full 6-digit OTP sent to your email.';
+            setError(msg);
+            showToast(msg, 'error');
+            return;
+        }
+        setLoading(true);
+        try {
+            const normalizedEmail = email.trim().toLowerCase();
+            const res = await fetch(API_ENDPOINTS.INTERNAL_VERIFY_OTP, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email: normalizedEmail, otp }),
+                credentials: 'include',
+            });
+            const data = await res.json().catch(() => ({} as Record<string, unknown>));
+            if (!res.ok) {
+                const msg = String(data.detail || data.error || data.message || 'OTP verification failed');
+                setError(msg);
+                showToast(msg, 'error');
+                return;
+            }
+            showToast('Signed in to internal admin portal.', 'success');
+            if (typeof window !== 'undefined') window.location.assign('/internal/dashboard');
+            else router.replace('/internal/dashboard');
+        } catch (err) {
+            const msg = err instanceof Error ? err.message : 'Network error';
+            setError(msg);
+            showToast(msg, 'error');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleBackToCredentials = () => {
+        setStep('credentials');
+        setOtpDigits(['', '', '', '', '', '']);
+        setError('');
     };
 
     return (
@@ -92,41 +198,100 @@ export default function InternalAdminLogin() {
                         <div style={{ fontSize: 10, letterSpacing: '0.14em', color: '#76839b', marginBottom: 4 }}>SIGN IN</div>
                         <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 14 }}>Internal admin access</h2>
                         <div style={{ fontSize: 11, padding: '5px 10px', borderRadius: 999, border: '1px solid #d6deea', background: '#f5f8fd', color: '#5f6d83', width: 'fit-content', marginBottom: 14 }}>
-                            Password only · no OTP
+                            {step === 'credentials' ? 'Password + email OTP' : 'Enter email OTP'}
                         </div>
 
-                        <div style={{ marginBottom: 10 }}>
-                            <label style={{ display: 'block', fontSize: 10, color: '#7a859a', letterSpacing: '0.12em', marginBottom: 4 }}>EMAIL</label>
-                            <input
-                                className="input"
-                                value={email}
-                                onChange={(e) => setEmail(e.target.value)}
-                                placeholder="internal-admin@helixhealth.app"
-                                style={{ fontSize: 13 }}
-                            />
-                        </div>
-                        <div style={{ marginBottom: 10 }}>
-                            <label style={{ display: 'block', fontSize: 10, color: '#7a859a', letterSpacing: '0.12em', marginBottom: 4 }}>PASSWORD</label>
-                            <input
-                                className="input"
-                                type="password"
-                                value={password}
-                                onChange={(e) => setPassword(e.target.value)}
-                                placeholder="Enter password"
-                                style={{ fontSize: 13 }}
-                            />
-                        </div>
+                        {step === 'credentials' ? (
+                            <>
+                                <div style={{ marginBottom: 10 }}>
+                                    <label style={{ display: 'block', fontSize: 10, color: '#7a859a', letterSpacing: '0.12em', marginBottom: 4 }}>EMAIL</label>
+                                    <input
+                                        className="input"
+                                        value={email}
+                                        onChange={(e) => setEmail(e.target.value)}
+                                        placeholder="internal-admin@helixhealth.app"
+                                        style={{ fontSize: 13 }}
+                                    />
+                                </div>
+                                <div style={{ marginBottom: 10 }}>
+                                    <label style={{ display: 'block', fontSize: 10, color: '#7a859a', letterSpacing: '0.12em', marginBottom: 4 }}>PASSWORD</label>
+                                    <input
+                                        className="input"
+                                        type="password"
+                                        value={password}
+                                        onChange={(e) => setPassword(e.target.value)}
+                                        placeholder="Enter password"
+                                        style={{ fontSize: 13 }}
+                                    />
+                                </div>
+                            </>
+                        ) : (
+                            <>
+                                <div style={{ marginBottom: 8, fontSize: 12, color: '#52607a' }}>
+                                    Enter the 6-digit code sent to <strong>{email.trim().toLowerCase()}</strong>.
+                                </div>
+                                <div style={{ display: 'flex', gap: 8, justifyContent: 'space-between', marginBottom: 10 }}>
+                                    {otpDigits.map((digit, i) => (
+                                        <input
+                                            key={i}
+                                            ref={el => { otpRefs.current[i] = el; }}
+                                            className="input"
+                                            inputMode="numeric"
+                                            maxLength={1}
+                                            value={digit}
+                                            onChange={e => updateOtpDigit(i, e.target.value.replace(/\D/g, '').slice(-1))}
+                                            onKeyDown={e => handleOtpKeyDown(i, e)}
+                                            style={{ width: 48, textAlign: 'center', fontSize: 20, fontWeight: 700, padding: '10px 0' }}
+                                        />
+                                    ))}
+                                </div>
+                                <div style={{ fontSize: 11, color: '#64748b', marginBottom: 10 }}>
+                                    {resendTimer > 0 ? `Resend code in ${resendTimer}s` : 'Didn’t get a code?'}
+                                    <button
+                                        type="button"
+                                        onClick={handleResendOtp}
+                                        disabled={resendTimer > 0 || loading}
+                                        style={{ marginLeft: 6, border: 'none', background: 'none', color: '#1d4ed8', cursor: resendTimer > 0 ? 'default' : 'pointer', fontWeight: 600 }}
+                                    >
+                                        Resend OTP
+                                    </button>
+                                </div>
+                            </>
+                        )}
 
                         {error && <div style={{ color: '#b91c1c', fontSize: 12, marginBottom: 10 }}>{error}</div>}
-                        <button
-                            type="button"
-                            className="btn btn-primary btn-sm"
-                            onClick={handleLogin}
-                            disabled={loading}
-                            style={{ width: '100%', justifyContent: 'center', height: 40 }}
-                        >
-                            {loading ? 'Signing in…' : 'Sign in to dashboard'}
-                        </button>
+                        {step === 'credentials' ? (
+                            <button
+                                type="button"
+                                className="btn btn-primary btn-sm"
+                                onClick={handleLogin}
+                                disabled={loading}
+                                style={{ width: '100%', justifyContent: 'center', height: 40 }}
+                            >
+                                {loading ? 'Signing in…' : 'Continue to OTP'}
+                            </button>
+                        ) : (
+                            <div style={{ display: 'flex', gap: 8 }}>
+                                <button
+                                    type="button"
+                                    className="btn btn-ghost btn-sm"
+                                    onClick={handleBackToCredentials}
+                                    disabled={loading}
+                                    style={{ flex: 1, justifyContent: 'center', height: 40 }}
+                                >
+                                    Back
+                                </button>
+                                <button
+                                    type="button"
+                                    className="btn btn-primary btn-sm"
+                                    onClick={handleVerifyOtp}
+                                    disabled={loading || otp.length !== 6}
+                                    style={{ flex: 2, justifyContent: 'center', height: 40 }}
+                                >
+                                    {loading ? 'Verifying…' : 'Verify OTP'}
+                                </button>
+                            </div>
+                        )}
                     </div>
                 </main>
             </div>

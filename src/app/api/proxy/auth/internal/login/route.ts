@@ -1,8 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { API_BASE_URL } from '@/lib/config';
 
-const INTERNAL_SESSION_COOKIE = 'helix-internal-session';
-
 function describeFetchError(err: unknown): string {
     if (!(err instanceof Error)) return String(err);
     const parts: string[] = [err.message];
@@ -65,13 +63,14 @@ async function emitAuditEvent(token: string | undefined, action: string, metadat
 export async function POST(req: NextRequest) {
     const url = `${API_BASE_URL}/api/v1/auth/internal/login`;
     try {
-        const body = await req.json();
-        const email = String(body?.email || '').trim();
+        const raw = (await req.json()) as Record<string, unknown>;
+        const email = String(raw.email ?? '').trim().toLowerCase();
+        const upstreamBody = { ...raw, email };
 
         const res = await fetch(url, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(body),
+            body: JSON.stringify(upstreamBody),
             signal: AbortSignal.timeout(15000),
         });
 
@@ -94,26 +93,11 @@ export async function POST(req: NextRequest) {
             return NextResponse.json(data, { status: res.status });
         }
 
-        const rec = data && typeof data === 'object' ? data as Record<string, unknown> : {};
-        const token = String(rec.access_token || rec.token || '').trim();
-        if (!token) {
-            return NextResponse.json({ error: 'Internal login succeeded without access token' }, { status: 502 });
-        }
-        if (!isInternalRole(rec)) {
-            return NextResponse.json({ error: 'Account is not authorized for internal admin access' }, { status: 403 });
-        }
-
-        await emitAuditEvent(token, 'internal_login_success', { email });
+        await emitAuditEvent(undefined, 'internal_login_challenge_sent', { email });
 
         const response = NextResponse.json(data, { status: 200 });
-        response.cookies.set(INTERNAL_SESSION_COOKIE, token, {
-            httpOnly: true,
-            secure: process.env.NODE_ENV === 'production',
-            sameSite: 'lax',
-            path: '/',
-            maxAge: 60 * 60 * 8,
-        });
-        // Clear support context from any prior session at login time.
+        // Clear support context from any prior session at OTP challenge time.
+        response.cookies.delete('helix-internal-session');
         response.cookies.delete('helix-support-mode');
         response.cookies.delete('helix-support-facility');
         response.cookies.delete('helix-support-facility-name');
