@@ -40,8 +40,9 @@ function extractFacilityCode(value: unknown): string {
 function buildStepHref(step: SetupStep, token: string): string {
     const query = new URLSearchParams();
     if (token.trim()) query.set('token', token.trim());
+    if (step !== 'info') query.set('step', step);
     const qs = query.toString();
-    return qs ? `/setup-account/${step}?${qs}` : `/setup-account/${step}`;
+    return qs ? `/setup-account?${qs}` : '/setup-account';
 }
 
 export default function SetupAccountStepper({ token, step }: { token: string; step: SetupStep }) {
