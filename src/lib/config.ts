@@ -16,6 +16,8 @@ export const API_ENDPOINTS = {
   ADMIN_VERIFY_OTP: `/api/proxy/auth/admin/verify-otp`,
   SETUP: `/api/proxy/auth/setup`,
   SETUP_PREFILL: `/api/proxy/auth/setup-prefill`,
+  SETUP_PHONE_REQUEST_OTP: `/api/proxy/auth/setup/phone/request-otp`,
+  SETUP_PHONE_VERIFY: `/api/proxy/auth/setup/phone/verify`,
   ADMIN_RESET: (staffId: string) => `/api/proxy/auth/admin-reset/${staffId}`,
   AUTH_ME: `/api/proxy/auth/me`,
   AUTH_USER: `/api/proxy/auth/user`,

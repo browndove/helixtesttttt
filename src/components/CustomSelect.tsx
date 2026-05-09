@@ -10,7 +10,12 @@ interface Props {
     style?: React.CSSProperties;
     maxH?: number;
     allowCustom?: boolean;
+    /** Shown inside the dropdown input (keep short). */
     customPlaceholder?: string;
+    /** Optional heading above the custom/search field when `allowCustom` is true. */
+    customEntryTitle?: string;
+    /** Optional helper line under the title (defaults to clear Enter instruction). */
+    customEntryHint?: string;
 }
 export default function CustomSelect({
     value,
@@ -20,7 +25,9 @@ export default function CustomSelect({
     style,
     maxH = 200,
     allowCustom = false,
-    customPlaceholder = 'Type custom value and press Enter',
+    customPlaceholder = 'Type qualification, then press Enter',
+    customEntryTitle = 'Add your own',
+    customEntryHint = 'Not in the list? Type below, then Enter.',
 }: Props) {
     const [open, setOpen] = useState(false);
     const [q, setQ] = useState('');
@@ -78,7 +85,28 @@ export default function CustomSelect({
             zIndex: 99999, overflow: 'hidden',
         }}>
             {(options.length > 6 || allowCustom) && (
-                <div style={{ padding: '6px 8px', borderBottom: '1px solid var(--border-subtle,#e5e7eb)' }}>
+                <div
+                    style={{
+                        padding: allowCustom ? '10px 10px 10px' : '6px 8px',
+                        borderBottom: '1px solid var(--border-subtle,#e5e7eb)',
+                        background: allowCustom ? 'linear-gradient(180deg, rgba(11,74,163,0.06) 0%, rgba(11,74,163,0.03) 100%)' : undefined,
+                    }}
+                >
+                    {allowCustom && (
+                        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginBottom: 8 }}>
+                            <span className="material-icons-round" style={{ fontSize: 20, color: 'var(--helix-primary,#1e3a5f)', flexShrink: 0, marginTop: 1 }}>
+                                edit_note
+                            </span>
+                            <div style={{ minWidth: 0 }}>
+                                <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-primary,#1a2332)', letterSpacing: '0.02em' }}>
+                                    {customEntryTitle}
+                                </div>
+                                <div style={{ fontSize: 11, fontWeight: 500, color: 'var(--text-secondary,#475569)', marginTop: 3, lineHeight: 1.45 }}>
+                                    {customEntryHint}
+                                </div>
+                            </div>
+                        </div>
+                    )}
                     <input
                         type="text"
                         value={q}
@@ -86,12 +114,26 @@ export default function CustomSelect({
                         onKeyDown={e => {
                             if (e.key === 'Enter') {
                                 e.preventDefault();
-                                commitCustom();
+                                if (allowCustom && q.trim()) commitCustom();
                             }
                         }}
                         placeholder={allowCustom ? customPlaceholder : 'Search...'}
+                        aria-label={allowCustom ? `${customEntryTitle}. ${customPlaceholder}` : 'Search options'}
                         autoFocus
-                        style={{ width: '100%', height: 28, padding: '0 8px', fontSize: 12, border: '1px solid var(--border-subtle,#e5e7eb)', borderRadius: 4, background: 'var(--surface-2,#f9fafb)', outline: 'none', color: 'var(--text-primary,#111)' }} />
+                        style={{
+                            width: '100%',
+                            height: allowCustom ? 34 : 28,
+                            padding: '0 10px',
+                            fontSize: 13,
+                            fontWeight: allowCustom ? 500 : 400,
+                            border: allowCustom ? '1px solid rgba(30, 58, 95, 0.22)' : '1px solid var(--border-subtle,#e5e7eb)',
+                            borderRadius: 8,
+                            background: '#fff',
+                            outline: 'none',
+                            color: 'var(--text-primary,#111)',
+                            boxShadow: allowCustom ? 'inset 0 1px 2px rgba(15,23,42,0.06)' : undefined,
+                        }}
+                    />
                 </div>
             )}
             <div style={{ maxHeight: maxH, overflowY: 'auto' }}>
@@ -131,7 +173,13 @@ export default function CustomSelect({
 
     return (
         <div style={{ position: 'relative', ...style }}>
-            <button ref={btnRef} type="button" onClick={() => { if (!open) updatePos(); setOpen(p => !p); }} style={btnStyle}>
+            <button
+                ref={btnRef}
+                type="button"
+                title={allowCustom ? 'Open to pick from the list or type your own value' : undefined}
+                onClick={() => { if (!open) updatePos(); setOpen(p => !p); }}
+                style={btnStyle}
+            >
                 <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
                     {sel ? sel.label : (value || placeholder)}
                 </span>

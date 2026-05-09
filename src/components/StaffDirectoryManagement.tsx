@@ -1474,7 +1474,9 @@ export default function StaffDirectoryManagement() {
                                         options={STAFF_RANK_OPTIONS.map(t => ({ label: t, value: t }))}
                                         placeholder="-- Select rank --"
                                         allowCustom
-                                        customPlaceholder="Type rank and press Enter"
+                                        customEntryTitle="Custom rank"
+                                        customEntryHint="Not listed? Type here, then Enter."
+                                        customPlaceholder="Type rank — Enter"
                                     />
                                 </div>
                                 <div>
@@ -1485,7 +1487,9 @@ export default function StaffDirectoryManagement() {
                                         options={QUALIFICATION_OPTIONS.map(q => ({ label: q, value: q }))}
                                         placeholder="-- Select Qualification --"
                                         allowCustom
-                                        customPlaceholder="Type qualification and press Enter"
+                                        customEntryTitle="Custom qualification"
+                                        customEntryHint="Not listed below? Type here, then Enter."
+                                        customPlaceholder="e.g. MBChB — Enter"
                                     />
                                 </div>
                                 <div>
@@ -2009,7 +2013,9 @@ export default function StaffDirectoryManagement() {
                                                     options={STAFF_RANK_OPTIONS.map(t => ({ label: t, value: t }))}
                                                     placeholder="-- Select rank --"
                                                     allowCustom
-                                                    customPlaceholder="Type rank and press Enter"
+                                                    customEntryTitle="Custom rank"
+                                                    customEntryHint="Not listed? Type here, then Enter."
+                                                    customPlaceholder="Type rank — Enter"
                                                 />
                                             </div>
                                         </div>
@@ -2022,7 +2028,9 @@ export default function StaffDirectoryManagement() {
                                                     options={QUALIFICATION_OPTIONS.map(q => ({ label: q, value: q }))}
                                                     placeholder="-- Select Qualification --"
                                                     allowCustom
-                                                    customPlaceholder="Type qualification and press Enter"
+                                                    customEntryTitle="Custom qualification"
+                                                    customEntryHint="Not listed below? Type here, then Enter."
+                                                    customPlaceholder="e.g. MBChB — Enter"
                                                 />
                                             </div>
                                         </div>
