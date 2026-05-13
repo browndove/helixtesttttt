@@ -73,10 +73,10 @@ export default function ExternalCommunicationManagement() {
         const q = addedListSearch.trim().toLowerCase();
         if (!q) return addedRoles;
         return addedRoles.filter(r => {
-            const name = r.name.toLowerCase();
-            const dept = (r.department || '').toLowerCase();
-            return name.includes(q) || (!!dept && dept.includes(q));
-        });
+                const name = r.name.toLowerCase();
+                const dept = (r.department || '').toLowerCase();
+                return name.includes(q) || (!!dept && dept.includes(q));
+            });
     }, [addedRoles, addedListSearch]);
 
     const rolesAvailableToAdd = useMemo(
@@ -431,7 +431,7 @@ export default function ExternalCommunicationManagement() {
                                     ))}
                                 </div>
                             )}
-                            </div>
+                        </div>
                         </div>
 
                         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, flexWrap: 'wrap' }}>

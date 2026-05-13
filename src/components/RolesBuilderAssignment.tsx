@@ -638,22 +638,22 @@ export default function RolesBuilderAssignment() {
                 setRoles(prev => {
                     const prevById = new Map(prev.map(x => [x.id, x]));
                     const mapped = rolesArr.map((r: Role & { department_id?: string; department_name?: string; department?: unknown }) => {
-                        const policy = policyByRole.get(r.id);
-                        const policyLevels = policy ? stepsToLevels(policy.steps || [], roleNameMap) : [];
-                        const deptResolved = resolveRoleDepartment(r as unknown as Record<string, unknown>, deptMap);
+                    const policy = policyByRole.get(r.id);
+                    const policyLevels = policy ? stepsToLevels(policy.steps || [], roleNameMap) : [];
+                    const deptResolved = resolveRoleDepartment(r as unknown as Record<string, unknown>, deptMap);
                         const raw = r as unknown as Record<string, unknown>;
                         const fromApi = readIsTransferRoleFromRaw(raw);
                         const prevR = prevById.get(r.id);
                         const isTransferRole = fromApi !== undefined
                             ? fromApi
                             : (typeof prevR?.is_transfer_role === 'boolean' ? prevR.is_transfer_role : false);
-                        return normalizeRoleForUi({
-                            ...r,
+                    return normalizeRoleForUi({
+                        ...r,
                             is_transfer_role: isTransferRole,
-                            department: deptResolved,
-                            escalation_routing: r.escalation_routing || [],
-                            escalation_levels: policyLevels,
-                        }, deptMap);
+                        department: deptResolved,
+                        escalation_routing: r.escalation_routing || [],
+                        escalation_levels: policyLevels,
+                    }, deptMap);
                     });
                     return mapped;
                 });
@@ -935,14 +935,14 @@ export default function RolesBuilderAssignment() {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                name: fullRoleName,
-                description: newRoleDesc.trim(),
-                department_id: deptIdMap.get(newRoleDept) || undefined,
+                    name: fullRoleName,
+                    description: newRoleDesc.trim(),
+                    department_id: deptIdMap.get(newRoleDept) || undefined,
                 department: newRoleDept || undefined,
-                priority: newRoleMandatory ? 'critical' : 'standard',
+                    priority: newRoleMandatory ? 'critical' : 'standard',
                 mandatory: newRoleMandatory,
                 enabled: true,
-                sign_in_allowed_user_ids: newRestricted ? newAllowedUserIds : undefined,
+                    sign_in_allowed_user_ids: newRestricted ? newAllowedUserIds : undefined,
                 external_messaging: newRoleExternalMessaging,
                 is_transfer_role: newRoleIsTransferRole,
                 }),
@@ -1426,7 +1426,7 @@ export default function RolesBuilderAssignment() {
             if (levels.length === 0 && fixedFirstTarget?.trim()) {
                 next = [{ level: 1, target: fixedFirstTarget.trim(), delay: '5 min' }];
             } else {
-                const nextLevel = sorted.length > 0 ? sorted[sorted.length - 1].level + 1 : 1;
+            const nextLevel = sorted.length > 0 ? sorted[sorted.length - 1].level + 1 : 1;
                 next = [...levels, { level: nextLevel, target: '', delay: '5 min' }];
             }
             setLevels(ensurePrimaryFirst(next));
@@ -1520,27 +1520,27 @@ export default function RolesBuilderAssignment() {
                                 {hideDelayRow ? (
                                     <span style={{ fontSize: 10, color: 'var(--text-muted)', width: 100, flexShrink: 0, textAlign: 'center' }} title="No delay after the final target">—</span>
                                 ) : (
-                                    <CustomSelect
-                                        value={lvl.delay}
-                                        onChange={v => {
-                                            const updated = levels.map(l =>
-                                                l.level === lvl.level
-                                                    ? {
-                                                        ...l,
-                                                        delay: v,
-                                                        ...(l.level === 1 && fixedFirstTarget ? { target: fixedFirstTarget } : {}),
-                                                    }
-                                                    : l
-                                            );
-                                            setLevels(updated);
-                                        }}
+                                <CustomSelect
+                                    value={lvl.delay}
+                                    onChange={v => {
+                                        const updated = levels.map(l =>
+                                            l.level === lvl.level
+                                                ? {
+                                                    ...l,
+                                                    delay: v,
+                                                    ...(l.level === 1 && fixedFirstTarget ? { target: fixedFirstTarget } : {}),
+                                                }
+                                                : l
+                                        );
+                                        setLevels(updated);
+                                    }}
                                         options={ESCALATION_DELAY_OPTIONS.map(d => ({ label: d, value: d }))}
-                                        placeholder="Delay"
-                                        style={{ width: 100 }}
-                                        maxH={160}
-                                        allowCustom
-                                        customPlaceholder="e.g. 45 sec, 2 min, 1 hr"
-                                    />
+                                    placeholder="Delay"
+                                    style={{ width: 100 }}
+                                    maxH={160}
+                                    allowCustom
+                                    customPlaceholder="e.g. 45 sec, 2 min, 1 hr"
+                                />
                                 )}
                                 {(
                                     <button
@@ -1750,14 +1750,14 @@ export default function RolesBuilderAssignment() {
 
                                 <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
                                     <button className="btn btn-secondary btn-sm" onClick={() => setEditingRole(null)}>Cancel</button>
-                                    <>
-                                        <button
-                                            className="btn btn-secondary btn-sm"
-                                            onClick={() => handleSaveEdit(false)}
-                                            disabled={editSaving || !editName.trim()}
-                                        >
-                                            {editSaving ? 'Saving...' : 'Save Changes'}
-                                        </button>
+                                        <>
+                                            <button
+                                                className="btn btn-secondary btn-sm"
+                                                onClick={() => handleSaveEdit(false)}
+                                                disabled={editSaving || !editName.trim()}
+                                            >
+                                                {editSaving ? 'Saving...' : 'Save Changes'}
+                                            </button>
                                         <button
                                             className="btn btn-primary btn-sm"
                                             onClick={() => {
@@ -1769,10 +1769,10 @@ export default function RolesBuilderAssignment() {
                                             }}
                                             disabled={!editName.trim()}
                                         >
-                                            Next: Escalation Settings
-                                            <span className="material-icons-round" style={{ fontSize: 14 }}>arrow_forward</span>
-                                        </button>
-                                    </>
+                                                Next: Escalation Settings
+                                                <span className="material-icons-round" style={{ fontSize: 14 }}>arrow_forward</span>
+                                            </button>
+                                        </>
                                 </div>
                             </>
                         )}
@@ -2034,11 +2034,11 @@ export default function RolesBuilderAssignment() {
                                             <span className="material-icons-round" style={{ fontSize: 14 }}>arrow_back</span>
                                             Cancel
                                         </button>
-                                        <div style={{ display: 'flex', gap: 8 }}>
-                                            <button className="btn btn-secondary btn-sm" onClick={() => handleAddRole(false)} disabled={!newRoleName.trim()}>
-                                                <span className="material-icons-round" style={{ fontSize: 14 }}>skip_next</span>
-                                                Skip Escalation
-                                            </button>
+                                            <div style={{ display: 'flex', gap: 8 }}>
+                                                <button className="btn btn-secondary btn-sm" onClick={() => handleAddRole(false)} disabled={!newRoleName.trim()}>
+                                                    <span className="material-icons-round" style={{ fontSize: 14 }}>skip_next</span>
+                                                    Skip Escalation
+                                                </button>
                                             <button
                                                 className="btn btn-primary btn-sm"
                                                 onClick={() => {
@@ -2050,10 +2050,10 @@ export default function RolesBuilderAssignment() {
                                                 }}
                                                 disabled={!newRoleName.trim()}
                                             >
-                                                Next: Escalation Settings
-                                                <span className="material-icons-round" style={{ fontSize: 14 }}>arrow_forward</span>
-                                            </button>
-                                        </div>
+                                                    Next: Escalation Settings
+                                                    <span className="material-icons-round" style={{ fontSize: 14 }}>arrow_forward</span>
+                                                </button>
+                                            </div>
                                     </div>
                                 </>
                             )}

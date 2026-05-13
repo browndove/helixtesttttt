@@ -18,6 +18,12 @@ export const API_ENDPOINTS = {
   SETUP_PREFILL: `/api/proxy/auth/setup-prefill`,
   SETUP_PHONE_REQUEST_OTP: `/api/proxy/auth/setup/phone/request-otp`,
   SETUP_PHONE_VERIFY: `/api/proxy/auth/setup/phone/verify`,
+  /** Magic-link staff phone update (public; token in query/body). */
+  STAFF_PHONE_UPDATE_PREFILL: `/api/proxy/auth/staff-phone-update/prefill`,
+  STAFF_PHONE_UPDATE_REQUEST_OTP: `/api/proxy/auth/staff-phone-update/request-otp`,
+  STAFF_PHONE_UPDATE_CONFIRM: `/api/proxy/auth/staff-phone-update/confirm`,
+  /** Facility admin: notify staff to update phone via magic link. */
+  STAFF_REQUEST_PHONE_UPDATE: (staffId: string) => `/api/proxy/staff/${staffId}/request-phone-update`,
   ADMIN_RESET: (staffId: string) => `/api/proxy/auth/admin-reset/${staffId}`,
   AUTH_ME: `/api/proxy/auth/me`,
   AUTH_USER: `/api/proxy/auth/user`,

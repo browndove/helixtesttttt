@@ -1963,6 +1963,76 @@ select.input {
   animation: home-fade-up 0.5s ease-out backwards;
 }
 
+/* Home KPI cards: responsive columns + stable metric/footer layout */
+.home-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+}
+@media (max-width: 1100px) {
+  .home-kpi-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 560px) {
+  .home-kpi-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.home-kpi-card {
+  min-height: 176px;
+}
+@media (max-width: 560px) {
+  .home-kpi-card {
+    min-height: 0;
+  }
+}
+
+.home-kpi-value {
+  font-size: clamp(1.625rem, 2.2vw + 0.85rem, 2.375rem);
+}
+
+.home-kpi-card > .home-card-watermark {
+  right: -8px;
+  bottom: -10px;
+  width: 108px;
+  height: 108px;
+}
+.home-kpi-card > .home-card-watermark .home-card-watermark-icon {
+  font-size: 56px !important;
+}
+
+@media (max-width: 560px) {
+  .home-kpi-card > .home-card-watermark {
+    right: -6px;
+    bottom: -8px;
+    width: 96px;
+    height: 96px;
+    opacity: 0.92;
+  }
+  .home-kpi-card > .home-card-watermark .home-card-watermark-icon {
+    font-size: 48px !important;
+  }
+}
+
+/* Home quick-action chips: match KPI breakpoints */
+.home-qa-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+@media (max-width: 1100px) {
+  .home-qa-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 560px) {
+  .home-qa-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .home-orb-1, .home-orb-2, .home-orb-3 { animation: none; }
   .home-fade-in { animation: none; }

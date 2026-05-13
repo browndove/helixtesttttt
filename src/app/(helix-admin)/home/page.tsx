@@ -117,10 +117,11 @@ function summarizeImport(entry: BulkUploadHistoryEntry): ActivityItem {
     };
 }
 
-function CardWatermark({ icon }: { icon: string }) {
+function CardWatermark({ icon, className }: { icon: string; className?: string }) {
     return (
         <div
             aria-hidden
+            className={['home-card-watermark', className].filter(Boolean).join(' ')}
             style={{
                 position: 'absolute',
                 right: -18,
@@ -133,9 +134,10 @@ function CardWatermark({ icon }: { icon: string }) {
                 alignItems: 'center',
                 justifyContent: 'center',
                 pointerEvents: 'none',
+                zIndex: 0,
             }}
         >
-            <span className="material-icons-round" style={{ fontSize: 78, color: 'rgba(51,65,85,0.12)' }}>
+            <span className="material-icons-round home-card-watermark-icon" style={{ fontSize: 78, color: 'rgba(51,65,85,0.12)' }}>
                 {icon}
             </span>
         </div>
@@ -471,13 +473,14 @@ export default function HomePage() {
                     </button>
                 </div>
 
-                {/* KPI row */}
-                <div className="home-fade-in" style={{ position: 'relative', zIndex: 1, animationDelay: '60ms', display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 16, marginBottom: 20 }}>
+                {/* KPI row — responsive grid + flex metric region: see .home-kpi-grid / .home-kpi-card in globals.css */}
+                <div className="home-fade-in home-kpi-grid" style={{ position: 'relative', zIndex: 1, animationDelay: '60ms', marginBottom: 20 }}>
                     {kpis.map((kpi) => {
                         const isCritical = kpi.tone === 'critical';
                         return (
                             <div
                                 key={kpi.label}
+                                className="home-kpi-card"
                                 style={{
                                     position: 'relative',
                                     padding: 20,
@@ -487,8 +490,9 @@ export default function HomePage() {
                                     boxShadow: '0 8px 24px rgba(15,23,42,0.05)',
                                     display: 'flex',
                                     flexDirection: 'column',
-                                    gap: 14,
-                                    minHeight: 172,
+                                    gap: 12,
+                                    minHeight: 0,
+                                    minWidth: 0,
                                     overflow: 'hidden',
                                 }}
                             >
@@ -538,27 +542,61 @@ export default function HomePage() {
                                     ) : null}
                                 </div>
 
-                                {/* Big value */}
+                                {/* Metric: grows so the number stays in the middle band and clears the footer */}
                                 <div
                                     style={{
                                         position: 'relative',
                                         zIndex: 1,
-                                        fontSize: 38,
-                                        fontWeight: 800,
-                                        color: isCritical ? '#DC2626' : '#0F172A',
-                                        lineHeight: 1,
-                                        letterSpacing: '-0.02em',
-                                        fontVariantNumeric: 'tabular-nums',
+                                        flex: '1 1 auto',
+                                        minHeight: '2.75rem',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'flex-start',
                                     }}
                                 >
-                                    {loading ? '—' : `${kpi.value.toLocaleString()}${kpi.valueSuffix ?? ''}`}
+                                    <div
+                                        className="home-kpi-value"
+                                        style={{
+                                            fontWeight: 800,
+                                            color: isCritical ? '#DC2626' : '#0F172A',
+                                            lineHeight: 1.1,
+                                            letterSpacing: '-0.02em',
+                                            fontVariantNumeric: 'tabular-nums',
+                                        }}
+                                    >
+                                        {loading ? '—' : `${kpi.value.toLocaleString()}${kpi.valueSuffix ?? ''}`}
+                                    </div>
                                 </div>
 
-                                {/* Dashed footer */}
-                                <div style={{ position: 'relative', zIndex: 1, borderTop: '1px dashed #E2E8F0', marginTop: 'auto' }} />
-                                <div style={{ position: 'relative', zIndex: 1, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-                                    <span style={{ fontSize: 11.5, color: '#94A3B8' }}>{kpi.footerLabel}</span>
-                                    <span style={{ fontSize: 11.5, fontWeight: 700, color: isCritical ? '#B91C1C' : '#0F172A', textAlign: 'right', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '70%' }}>
+                                {/* Footer — stack on very narrow cards so text is not clipped */}
+                                <div
+                                    style={{
+                                        position: 'relative',
+                                        zIndex: 1,
+                                        flexShrink: 0,
+                                        borderTop: '1px dashed #E2E8F0',
+                                        paddingTop: 12,
+                                        display: 'flex',
+                                        flexWrap: 'wrap',
+                                        alignItems: 'baseline',
+                                        justifyContent: 'space-between',
+                                        gap: '6px 10px',
+                                        rowGap: 6,
+                                        minWidth: 0,
+                                    }}
+                                >
+                                    <span style={{ fontSize: 11.5, color: '#94A3B8', flex: '0 1 auto' }}>{kpi.footerLabel}</span>
+                                    <span
+                                        style={{
+                                            fontSize: 11.5,
+                                            fontWeight: 700,
+                                            color: isCritical ? '#B91C1C' : '#0F172A',
+                                            textAlign: 'right',
+                                            minWidth: 0,
+                                            flex: '1 1 120px',
+                                            wordBreak: 'break-word',
+                                        }}
+                                    >
                                         {kpi.footerValue}
                                     </span>
                                 </div>
@@ -618,8 +656,8 @@ export default function HomePage() {
                     </div>
                 )}
 
-                {/* Quick Actions — horizontal row */}
-                <div className="home-fade-in" style={{ position: 'relative', zIndex: 1, animationDelay: '180ms', display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 20 }}>
+                {/* Quick Actions — responsive row (see .home-qa-grid) */}
+                <div className="home-fade-in home-qa-grid" style={{ position: 'relative', zIndex: 1, animationDelay: '180ms', marginBottom: 20 }}>
                     {quickActions.map((action) => (
                         <button
                             key={action.label}

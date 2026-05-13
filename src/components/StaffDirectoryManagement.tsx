@@ -5,18 +5,12 @@ import type { CSSProperties } from 'react';
 import TopBar from '@/components/TopBar';
 import CustomSelect from '@/components/CustomSelect';
 import DatePicker from '@/components/DatePicker';
-import {
-    PHONE_COUNTRIES,
-    formatPhoneByCountry,
-    isValidPhoneByCountry,
-    splitPhoneForCountryInput,
-    getPhoneCountryByCode,
-} from '@/lib/phone';
 import { parseBulkUploadHistoryResponse, type BulkUploadHistoryEntry } from '@/lib/bulk-upload-history';
 import { MacVibrancyToast, MacVibrancyToastPortal } from '@/components/MacVibrancyToast';
 import { BulkImportErrorsSheet } from '@/components/BulkImportErrorsSheet';
 import { readCachedJson, writeCachedJson } from '@/lib/getJsonCache';
 import { extractOnlineStaffIdSet, fetchMergedFacilityPresenceOnline } from '@/lib/presence-online';
+import { API_ENDPOINTS } from '@/lib/config';
 
 const STAFF_PAGE_CACHE_TTL_MS = 120_000;
 const STAFF_CACHE_LIST = '/api/proxy/staff?page_size=100&page_id=1';
@@ -558,8 +552,6 @@ export default function StaffDirectoryManagement() {
     const [editMiddleName, setEditMiddleName] = useState('');
     const [editLastName, setEditLastName] = useState('');
     const [editEmail, setEditEmail] = useState('');
-    const [editPhoneCountry, setEditPhoneCountry] = useState('GH');
-    const [editPhoneLocal, setEditPhoneLocal] = useState('');
     const [editDob, setEditDob] = useState('');
     const [editGender, setEditGender] = useState('');
     const [editJobTitle, setEditJobTitle] = useState('');
@@ -593,19 +585,11 @@ export default function StaffDirectoryManagement() {
     const [bulkResultErrors, setBulkResultErrors] = useState<StaffBulkImportRowError[]>([]);
     const [pendingDelete, setPendingDelete] = useState<StaffMember | null>(null);
     const [processing, setProcessing] = useState(false);
+    const [requestPhoneUpdatePending, setRequestPhoneUpdatePending] = useState(false);
     const [adding, setAdding] = useState(false);
     const [departmentOptions, setDepartmentOptions] = useState<string[]>([]);
     const [deptIdToName, setDeptIdToName] = useState<Map<string, string>>(() => new Map());
     const fileInputRef = useRef<HTMLInputElement | null>(null);
-    const countryOptions = useMemo(
-        () => PHONE_COUNTRIES.map(c => ({ label: c.label, value: c.code })),
-        []
-    );
-    const editCountryMeta = useMemo(() => getPhoneCountryByCode(editPhoneCountry), [editPhoneCountry]);
-    const formattedEditPhone = useMemo(
-        () => formatPhoneByCountry(editPhoneLocal, editPhoneCountry),
-        [editPhoneLocal, editPhoneCountry]
-    );
 
     const dismissToast = useCallback(() => {
         setToast(null);
@@ -853,6 +837,25 @@ export default function StaffDirectoryManagement() {
     useEffect(() => { fetchDepartments(); }, [fetchDepartments]);
 
     useEffect(() => {
+        if (editingSelected) return;
+        setSelected(prev => {
+            if (!prev) return null;
+            const updated = staff.find(s => s.id === prev.id);
+            return updated ?? prev;
+        });
+    }, [staff, editingSelected]);
+
+    useEffect(() => {
+        if (activeTab !== 'directory') return;
+        const onVisible = () => {
+            if (document.visibilityState !== 'visible') return;
+            void fetchStaff();
+        };
+        document.addEventListener('visibilitychange', onVisible);
+        return () => document.removeEventListener('visibilitychange', onVisible);
+    }, [activeTab, fetchStaff]);
+
+    useEffect(() => {
         if (activeTab !== 'directory') return;
         void fetchOnlinePresence();
         const id = window.setInterval(() => {
@@ -872,9 +875,6 @@ export default function StaffDirectoryManagement() {
         setEditMiddleName(selected.middle_name || '');
         setEditLastName(selected.last_name || '');
         setEditEmail(selected.email || '');
-        const split = splitPhoneForCountryInput(selected.phone || '');
-        setEditPhoneCountry(split.countryCode);
-        setEditPhoneLocal(split.local);
         setEditDob(selected.dob || '');
         setEditGender(selected.gender || '');
         setEditJobTitle(selected.title || selected.job_title || '');
@@ -1208,14 +1208,58 @@ export default function StaffDirectoryManagement() {
         }
     };
 
+    const handleRequestPhoneUpdate = async () => {
+        if (!selected) return;
+        setRequestPhoneUpdatePending(true);
+        try {
+            let facilityId = '';
+            const cookieMatch = document.cookie.match(/helix-facility=([^;]+)/);
+            if (cookieMatch) facilityId = cookieMatch[1];
+
+            const meRes = await fetch('/api/proxy/auth/me', { credentials: 'include' });
+            if (meRes.ok && !facilityId) {
+                const meData = await meRes.json().catch(() => ({}));
+                facilityId = getFacilityIdFromAuthMe(meData);
+            }
+            if (!facilityId) {
+                const hospitalRes = await fetch('/api/proxy/hospital', { credentials: 'include' });
+                if (hospitalRes.ok) {
+                    const hospitalData = await hospitalRes.json().catch(() => ({}));
+                    facilityId = getFacilityIdFromFacilityPayload(hospitalData);
+                }
+            }
+            if (!facilityId) {
+                const facilitiesRes = await fetch('/api/proxy/facilities', { credentials: 'include' });
+                if (facilitiesRes.ok) {
+                    const facilitiesData = await facilitiesRes.json().catch(() => ([]));
+                    facilityId = getFacilityIdFromFacilityPayload(facilitiesData);
+                }
+            }
+
+            const qs = facilityId ? `?facility_id=${encodeURIComponent(facilityId)}` : '';
+            const res = await fetch(`${API_ENDPOINTS.STAFF_REQUEST_PHONE_UPDATE(selected.id)}${qs}`, {
+                method: 'POST',
+                credentials: 'include',
+                headers: { 'Content-Type': 'application/json' },
+                body: '{}',
+            });
+            const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+            if (!res.ok) {
+                showToast(String(data.message || data.detail || data.error || 'Could not send phone update request'), 'error');
+                return;
+            }
+            showToast(String(data.message || 'If the staff member has contact details on file, they have been notified with a link to update their phone number.'), 'success');
+        } catch {
+            showToast('Could not send phone update request', 'error');
+        } finally {
+            setRequestPhoneUpdatePending(false);
+        }
+    };
+
     const handleSaveSelected = async () => {
         if (!selected) return;
         if (!editFirstName.trim() || !editLastName.trim() || !editEmail.trim()) {
             showToast('First name, last name, and email are required', 'error');
-            return;
-        }
-        if (editPhoneLocal.trim() && !isValidPhoneByCountry(formattedEditPhone, editPhoneCountry)) {
-            showToast(`Phone must be ${editCountryMeta.dialCode} followed by ${editCountryMeta.digits} digits`, 'error');
             return;
         }
 
@@ -1227,7 +1271,6 @@ export default function StaffDirectoryManagement() {
                 middle_name: editMiddleName.trim() || undefined,
                 last_name: editLastName.trim(),
                 email: editEmail.trim(),
-                phone: editPhoneLocal.trim() ? formattedEditPhone : '',
                 dob: editDob.trim() || undefined,
                 gender: editGender.trim() || undefined,
                 title: editJobTitle.trim(),
@@ -1325,7 +1368,7 @@ export default function StaffDirectoryManagement() {
                 middle_name: payload.middle_name || '',
                 last_name: payload.last_name,
                 email: payload.email,
-                phone: payload.phone,
+                phone: selected.phone || '',
                 dob: payload.dob || '',
                 gender: payload.gender || '',
                 title: payload.title || selected.title || '',
@@ -1934,55 +1977,34 @@ export default function StaffDirectoryManagement() {
                                         </div>
                                         <div style={{ minWidth: 0 }}>
                                             <label className="label">Phone</label>
-                                            <div style={{ display: 'flex', gap: 8, alignItems: 'stretch', width: '100%' }}>
-                                                <div
-                                                    style={{
-                                                        width: 170,
-                                                        minWidth: 150,
-                                                        maxWidth: '45%',
-                                                        flexShrink: 0,
-                                                        opacity: !editingSelected || savingEdit ? 0.65 : 1,
-                                                        pointerEvents: !editingSelected || savingEdit ? 'none' : 'auto',
-                                                    }}
-                                                >
-                                                    <CustomSelect
-                                                        value={editPhoneCountry}
-                                                        onChange={v => setEditPhoneCountry(v)}
-                                                        options={countryOptions}
-                                                        placeholder="Country code"
-                                                    />
-                                                </div>
+                                            <div style={{ display: 'flex', gap: 8, alignItems: 'center', width: '100%' }}>
                                                 <input
                                                     className="input"
-                                                    value={editPhoneLocal}
-                                                    onChange={e => setEditPhoneLocal(e.target.value.replace(/\D/g, '').slice(0, editCountryMeta.digits))}
-                                                    disabled={!editingSelected || savingEdit}
-                                                    placeholder={`${editCountryMeta.digits} digits`}
-                                                    maxLength={editCountryMeta.digits}
-                                                    aria-label="Phone number local digits"
+                                                    value={(selected.phone || '').trim() || 'No phone on file'}
+                                                    disabled
+                                                    aria-label="Phone number"
                                                     style={{
                                                         fontSize: 12,
                                                         flex: 1,
                                                         minWidth: 0,
-                                                        width: '100%',
                                                         boxSizing: 'border-box',
+                                                        fontStyle: (selected.phone || '').trim() ? 'normal' : 'italic',
+                                                        color: (selected.phone || '').trim() ? undefined : 'var(--text-muted)',
                                                     }}
                                                 />
+                                                <button
+                                                    type="button"
+                                                    className="btn btn-secondary btn-xs"
+                                                    onClick={() => { void handleRequestPhoneUpdate(); }}
+                                                    disabled={requestPhoneUpdatePending}
+                                                    style={{ flexShrink: 0, whiteSpace: 'nowrap' }}
+                                                >
+                                                    <span className="material-icons-round" style={{ fontSize: 14 }}>sms</span>
+                                                    {requestPhoneUpdatePending ? 'Sending…' : 'Request update'}
+                                                </button>
                                             </div>
                                             <div style={{ marginTop: 6, fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.35 }}>
-                                                <span style={{ fontWeight: 600, color: 'var(--text-muted)', marginRight: 6 }}>Full number</span>
-                                                <span style={{ fontWeight: 600, color: 'var(--text-primary)', wordBreak: 'break-all' }}>
-                                                    {(() => {
-                                                        const saved = (selected.phone || '').trim();
-                                                        const valid = editPhoneLocal.trim() && isValidPhoneByCountry(formattedEditPhone, editPhoneCountry);
-                                                        if (valid) return formattedEditPhone;
-                                                        if (saved) return saved;
-                                                        if (formattedEditPhone.replace(/\D/g, '').length > String(editCountryMeta.dialCode).replace(/\D/g, '').length) {
-                                                            return formattedEditPhone;
-                                                        }
-                                                        return '—';
-                                                    })()}
-                                                </span>
+                                                Phone is verified by the staff member. Send them a magic link to change it. The number shown here updates when you return to this browser tab.
                                             </div>
                                         </div>
                                     </div>
