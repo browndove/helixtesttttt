@@ -11,8 +11,9 @@ const PUBLIC_FILE_EXTENSIONS = /\.(png|jpg|jpeg|gif|webp|svg|ico)$/i;
 export async function proxy(req: NextRequest) {
     const { pathname } = req.nextUrl;
 
-    // Allow public paths
+    // Allow public paths (magic-link staff phone update is unauthenticated; token is in query string)
     if (PUBLIC_PATHS.includes(pathname)) return NextResponse.next();
+    if (pathname === '/update-phone' || pathname.startsWith('/update-phone/')) return NextResponse.next();
     if (PUBLIC_PREFIXES.some(prefix => pathname.startsWith(prefix))) return NextResponse.next();
     if (PUBLIC_FILE_EXTENSIONS.test(pathname)) return NextResponse.next();
 
