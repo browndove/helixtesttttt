@@ -41,6 +41,8 @@ type StaffMember = {
     title?: string;
     highest_qualification?: string;
     is_doctor?: boolean;
+    /** When the backend sends the Helix / clinical role this user is currently signed into. */
+    signed_in_role_name?: string;
 };
 
 type SortKey = 'first_name' | 'last_name' | 'employee_id' | 'dept' | 'job_title' | 'status' | 'response_order';
@@ -77,6 +79,67 @@ function asRecord(v: unknown): Record<string, unknown> | null {
 }
 
 const STAFF_DEPT_NEST_KEYS = ['user', 'profile', 'staff', 'staff_member', 'account', 'person'] as const;
+
+const STAFF_PHONE_KEYS = [
+    'phone',
+    'phone_number',
+    'mobile',
+    'mobile_phone',
+    'cell',
+    'cell_phone',
+    'contact_number',
+    'contact_phone',
+    'telephone',
+    'tel',
+] as const;
+
+/** Directory list/detail: email may live on nested `user` / profile objects. */
+function pickStaffEmail(r: Record<string, unknown>): string {
+    const top = String(r.email || r.work_email || r.contact_email || r.primary_email || '').trim();
+    if (top) return top;
+    for (const k of STAFF_DEPT_NEST_KEYS) {
+        const n = asRecord(r[k]);
+        if (!n) continue;
+        const nested = String(n.email || n.work_email || n.contact_email || '').trim();
+        if (nested) return nested;
+    }
+    return '';
+}
+
+function pickStaffPhone(r: Record<string, unknown>): string {
+    for (const k of STAFF_PHONE_KEYS) {
+        const v = String(r[k] || '').trim();
+        if (v) return v;
+    }
+    for (const nest of STAFF_DEPT_NEST_KEYS) {
+        const n = asRecord(r[nest]);
+        if (!n) continue;
+        for (const k of STAFF_PHONE_KEYS) {
+            const v = String(n[k] || '').trim();
+            if (v) return v;
+        }
+    }
+    return '';
+}
+
+/**
+ * GET list (and some PUT bodies) often omit phone/email. Merging the refreshed row into the
+ * open detail panel must not wipe contact fields the user already had loaded.
+ */
+function mergeStaffListRowIntoDetail(prev: StaffMember, fromList: StaffMember): StaffMember {
+    const email = (fromList.email || '').trim() || (prev.email || '').trim();
+    const phone = (fromList.phone || '').trim() || (prev.phone || '').trim();
+    const signed =
+        (fromList.signed_in_role_name || '').trim()
+        || (prev.signed_in_role_name || '').trim()
+        || undefined;
+    return {
+        ...fromList,
+        email,
+        phone: phone || undefined,
+        signed_in_role_name: signed,
+    };
+}
 
 /** Match UUID-shaped strings some APIs put in `department` instead of a nested object. */
 const DEPT_ID_STRING_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -268,7 +331,7 @@ function parseStaffList(raw: unknown): StaffMember[] {
                 first_name: firstName,
                 middle_name: String(r.middle_name || '').trim(),
                 last_name: lastName,
-                email: String(r.email || ''),
+                email: pickStaffEmail(r),
                 job_title: String(r.job_title || r.role || 'Staff'),
                 department_id,
                 dept: deptFromApi,
@@ -277,15 +340,188 @@ function parseStaffList(raw: unknown): StaffMember[] {
                 employee_id: String(r.employee_id || r.username || id),
                 patient_access: Boolean(r.patient_access ?? r.can_access_patients ?? false),
                 role: String(r.system_role || r.role || 'staff').toLowerCase().includes('admin') ? 'admin' as const : 'staff' as const,
-                phone: String(r.phone || '').trim(),
+                phone: pickStaffPhone(r),
                 dob: String(r.dob || '').trim(),
                 gender: String(r.gender || '').trim().toLowerCase(),
                 title: String(r.title || r.job_title || '').trim(),
                 highest_qualification: String(r.highest_qualifications || r.highest_qualification || r.qualification || '').trim(),
                 is_doctor: Boolean(r.is_doctor ?? String(r.title_prefix || '').toLowerCase() === 'dr'),
+                signed_in_role_name: (() => {
+                    const activeRole = r.active_role;
+                    const fromActiveRoleObject =
+                        activeRole && typeof activeRole === 'object' && !Array.isArray(activeRole)
+                            ? String(
+                                (activeRole as Record<string, unknown>).name
+                                ?? (activeRole as Record<string, unknown>).role_name
+                                ?? (activeRole as Record<string, unknown>).title
+                                ?? '',
+                            ).trim() || undefined
+                            : undefined;
+                    const fromActiveRoleString =
+                        typeof activeRole === 'string' ? String(activeRole).trim() || undefined : undefined;
+                    const ur = userRec;
+                    const fromUserRec = ur
+                        ? (() => {
+                            const uar = asRecord(ur.active_role ?? ur.activeRole);
+                            return (
+                                String(
+                                    ur.signed_in_role_name
+                                    || ur.signedInRoleName
+                                    || ur.current_role_name
+                                    || ur.currentRoleName
+                                    || ur.active_role_name
+                                    || ur.activeRoleName
+                                    || ur.helix_role_name
+                                    || ur.helixRoleName
+                                    || ur.signed_into_role
+                                    || ur.signedIntoRole
+                                    || uar?.name
+                                    || uar?.title
+                                    || uar?.role_name
+                                    || '',
+                                ).trim() || undefined
+                            );
+                        })()
+                        : undefined;
+                    const v = r.active_role_name ?? r.signed_in_role_name ?? r.current_role_name ?? r.helix_role_name
+                        ?? r.signed_into_role ?? r.active_helix_role ?? fromUserRec ?? fromActiveRoleObject ?? fromActiveRoleString;
+                    if (v && typeof v === 'object' && !Array.isArray(v)) {
+                        const o = v as Record<string, unknown>;
+                        return String(o.name || o.role_name || o.title || '').trim() || undefined;
+                    }
+                    const s = String(v || '').trim();
+                    return s || undefined;
+                })(),
             };
         })
         .filter((s): s is StaffMember => Boolean(s));
+}
+
+function extractJsonArrayFromRecord(raw: unknown, keys: string[]): unknown[] {
+    if (Array.isArray(raw)) return raw;
+    if (!raw || typeof raw !== 'object') return [];
+    const o = raw as Record<string, unknown>;
+    for (const k of keys) {
+        const v = o[k];
+        if (Array.isArray(v)) return v;
+    }
+    return [];
+}
+
+function addLowerId(set: Set<string>, v: unknown) {
+    if (v == null) return;
+    const s = String(v).trim().toLowerCase();
+    if (s) set.add(s);
+}
+
+/** Collect every id-like string on an active-role row the backend might use to tie a session to staff. */
+function activeRoleRowStaffIdSet(r: Record<string, unknown>): Set<string> {
+    const ids = new Set<string>();
+    addLowerId(ids, r.staff_id);
+    addLowerId(ids, r.staffId);
+    addLowerId(ids, r.user_id);
+    addLowerId(ids, r.userId);
+    addLowerId(ids, r.account_id);
+    addLowerId(ids, r.accountId);
+    addLowerId(ids, r.signed_in_by);
+    addLowerId(ids, r.signed_in_staff_id);
+    addLowerId(ids, r.signedInStaffId);
+    addLowerId(ids, r.member_id);
+    addLowerId(ids, r.memberId);
+    addLowerId(ids, r.employee_id);
+    addLowerId(ids, r.employeeId);
+    addLowerId(ids, r.username);
+    addLowerId(ids, r.user_name);
+    for (const key of ['signed_in_user', 'user', 'account', 'staff'] as const) {
+        const raw = r[key];
+        if (!raw || typeof raw !== 'object' || Array.isArray(raw)) continue;
+        const o = raw as Record<string, unknown>;
+        addLowerId(ids, o.id);
+        addLowerId(ids, o.user_id);
+        addLowerId(ids, o.userId);
+        addLowerId(ids, o.staff_id);
+        addLowerId(ids, o.staffId);
+        addLowerId(ids, o.employee_id);
+        addLowerId(ids, o.employeeId);
+        addLowerId(ids, o.username);
+        addLowerId(ids, o.email);
+    }
+    const assignee = asRecord(r.assigned_to ?? r.assignedTo ?? r.practitioner ?? r.member ?? r.assignee ?? r.assignee_staff);
+    if (assignee) {
+        addLowerId(ids, assignee.id);
+        addLowerId(ids, assignee.user_id);
+        addLowerId(ids, assignee.staff_id);
+        addLowerId(ids, assignee.employee_id);
+        addLowerId(ids, assignee.username);
+        addLowerId(ids, assignee.email);
+    }
+    return ids;
+}
+
+function activeRoleRowDisplayName(r: Record<string, unknown>): string {
+    const roleObj = asRecord(r.role);
+    const helix = asRecord(r.helix_role ?? r.helixRole ?? r.active_role ?? r.activeRole);
+    return String(
+        r.role_name
+        || r.roleName
+        || r.role_title
+        || r.roleTitle
+        || r.display_name
+        || r.displayName
+        || r.helix_role_name
+        || r.helixRoleName
+        || r.signed_in_role_name
+        || r.signedInRoleName
+        || r.current_role_name
+        || r.currentRoleName
+        || (roleObj?.name ?? roleObj?.title ?? roleObj?.role_name ?? '')
+        || (helix?.name ?? helix?.title ?? helix?.role_name ?? '')
+        || r.name
+        || r.title
+        || '',
+    ).trim();
+}
+
+/** Match GET /roles/active row to this staff member (ids, user, nested staff, email, username). */
+function resolveHelixSignedInRoleName(activePayload: unknown, staff: StaffMember): string | null {
+    const list = extractJsonArrayFromRecord(activePayload, [
+        'items',
+        'data',
+        'roles',
+        'active_roles',
+        'activeRoles',
+        'results',
+        'records',
+        'sessions',
+        'assignments',
+        'sign_ins',
+        'signIns',
+        'users',
+        'active_role_sessions',
+        'activeRoleSessions',
+        'role_sessions',
+        'roleSessions',
+    ]);
+    const staffIds = new Set<string>();
+    for (const v of [staff.id, staff.user_id, staff.email, staff.employee_id]) {
+        addLowerId(staffIds, v);
+    }
+    for (const row of list) {
+        if (!row || typeof row !== 'object') continue;
+        const r = row as Record<string, unknown>;
+        const roleName = activeRoleRowDisplayName(r);
+        if (!roleName) continue;
+        const rowIds = activeRoleRowStaffIdSet(r);
+        for (const sid of staffIds) {
+            if (sid && rowIds.has(sid)) return roleName;
+        }
+        const suRaw = r.signed_in_user;
+        const su = suRaw && typeof suRaw === 'object' && !Array.isArray(suRaw) ? suRaw as Record<string, unknown> : null;
+        const suEmail = String(su?.email || '').trim().toLowerCase();
+        const staffEmail = staff.email.trim().toLowerCase();
+        if (staffEmail && suEmail && suEmail === staffEmail) return roleName;
+    }
+    return null;
 }
 
 function isStaffOnline(s: StaffMember, online: Set<string>): boolean {
@@ -586,6 +822,8 @@ export default function StaffDirectoryManagement() {
     const [pendingDelete, setPendingDelete] = useState<StaffMember | null>(null);
     const [processing, setProcessing] = useState(false);
     const [requestPhoneUpdatePending, setRequestPhoneUpdatePending] = useState(false);
+    const [detailSignedInRole, setDetailSignedInRole] = useState<string | null>(null);
+    const [detailSignedInRoleLoading, setDetailSignedInRoleLoading] = useState(false);
     const [adding, setAdding] = useState(false);
     const [departmentOptions, setDepartmentOptions] = useState<string[]>([]);
     const [deptIdToName, setDeptIdToName] = useState<Map<string, string>>(() => new Map());
@@ -617,6 +855,35 @@ export default function StaffDirectoryManagement() {
         window.addEventListener('keydown', onKey);
         return () => window.removeEventListener('keydown', onKey);
     }, [toast, dismissToast, bulkResultErrors.length, dismissBulkErrors, pendingDelete]);
+
+    useEffect(() => {
+        if (!selected) {
+            setDetailSignedInRole(null);
+            setDetailSignedInRoleLoading(false);
+            return;
+        }
+        let canceled = false;
+        setDetailSignedInRoleLoading(true);
+        const fromList = selected.signed_in_role_name?.trim() || null;
+        if (fromList) setDetailSignedInRole(fromList);
+        else setDetailSignedInRole(null);
+        void (async () => {
+            try {
+                const res = await fetch('/api/proxy/roles/active', { credentials: 'include' });
+                const data = await res.json().catch(() => ({}));
+                if (canceled) return;
+                const resolvedApi = resolveHelixSignedInRoleName(data, selected);
+                const trimmed = (resolvedApi || '').trim();
+                const merged = trimmed || fromList || null;
+                setDetailSignedInRole(merged);
+            } catch {
+                if (!canceled) setDetailSignedInRole(fromList);
+            } finally {
+                if (!canceled) setDetailSignedInRoleLoading(false);
+            }
+        })();
+        return () => { canceled = true; };
+    }, [selected]);
 
     const departments = useMemo(() => ['all', ...departmentOptions], [departmentOptions]);
     const deptNameToId = useMemo(() => {
@@ -774,7 +1041,14 @@ export default function StaffDirectoryManagement() {
                 const data = await res.json();
                 writeCachedJson(STAFF_CACHE_LIST, data);
                 const parsed = parseStaffList(data);
-                setStaff(parsed);
+                setStaff(prev => {
+                    if (prev.length === 0) return parsed;
+                    const prevById = new Map(prev.map(s => [s.id, s]));
+                    return parsed.map(s => {
+                        const old = prevById.get(s.id);
+                        return old ? mergeStaffListRowIntoDetail(old, s) : s;
+                    });
+                });
                 void fetchOnlinePresence();
             } else {
                 setFetchError(true);
@@ -841,7 +1115,8 @@ export default function StaffDirectoryManagement() {
         setSelected(prev => {
             if (!prev) return null;
             const updated = staff.find(s => s.id === prev.id);
-            return updated ?? prev;
+            if (!updated) return prev;
+            return mergeStaffListRowIntoDetail(prev, updated);
         });
     }, [staff, editingSelected]);
 
@@ -1210,6 +1485,13 @@ export default function StaffDirectoryManagement() {
 
     const handleRequestPhoneUpdate = async () => {
         if (!selected) return;
+        const ok =
+            typeof window === 'undefined'
+            || window.confirm(
+                'Send this staff member a secure link to update their own phone number? '
+                + 'They will only receive it if contact details on file allow delivery.',
+            );
+        if (!ok) return;
         setRequestPhoneUpdatePending(true);
         try {
             let facilityId = '';
@@ -1383,6 +1665,9 @@ export default function StaffDirectoryManagement() {
                     ...selected,
                     ...fromApi,
                     middle_name: fromApi.middle_name || payload.middle_name || selected.middle_name || '',
+                    email: (fromApi.email || '').trim() || selected.email,
+                    phone: (fromApi.phone || '').trim() || (selected.phone || '').trim() || undefined,
+                    signed_in_role_name: fromApi.signed_in_role_name ?? selected.signed_in_role_name,
                 }
                 : fallbackLocal;
             // Backend PUT 200 body often omits department fields; parseStaffList defaults dept to "Unassigned".
@@ -1610,7 +1895,7 @@ export default function StaffDirectoryManagement() {
                                     setSortDir(dir);
                                 }}
                                 options={[
-                                    { label: 'Same as API (default)', value: 'response_order-asc' },
+                                    { label: 'Original order (default)', value: 'response_order-asc' },
                                     { label: 'Last Name A-Z', value: 'last_name-asc' },
                                     { label: 'Last Name Z-A', value: 'last_name-desc' },
                                     { label: 'First Name A-Z', value: 'first_name-asc' },
@@ -1890,150 +2175,504 @@ export default function StaffDirectoryManagement() {
                             </div>
                         </div>
 
-                        {/* Detail Panel */}
+                        {/* Staff detail — reference layout: pale pills, grouped sections, Helix signed-in role */}
                         {selected && (
-                            <div className="slide-in-right" style={{ display: 'flex', flexDirection: 'column', gap: 14, minWidth: 0, alignSelf: 'start', position: 'sticky', top: 16, maxHeight: 'calc(100vh - 88px)', overflowY: 'auto', overflowX: 'hidden' }}>
-                                <div className="card" style={{ padding: '20px 22px' }}>
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14, gap: 8 }}>
+                            <div
+                                className="slide-in-right"
+                                style={{
+                                    alignSelf: 'start',
+                                    position: 'sticky',
+                                    top: 16,
+                                    minWidth: 300,
+                                    maxWidth: 400,
+                                    width: '100%',
+                                    /** Grid/flex default `min-height: auto` prevents max-height + overflow from scrolling */
+                                    minHeight: 0,
+                                    maxHeight: 'min(calc(100vh - 88px), calc(100dvh - 88px))',
+                                    display: 'flex',
+                                    flexDirection: 'column',
+                                    boxSizing: 'border-box',
+                                }}
+                            >
+                                <div
+                                    style={{
+                                        flex: 1,
+                                        minHeight: 0,
+                                        overflowY: 'auto',
+                                        overflowX: 'hidden',
+                                        WebkitOverflowScrolling: 'touch',
+                                        overscrollBehavior: 'contain',
+                                        display: 'flex',
+                                        flexDirection: 'column',
+                                        gap: 12,
+                                        padding: 10,
+                                        background: '#EDEEF2',
+                                        borderRadius: 16,
+                                        fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, "Helvetica Neue", Helvetica, Arial, sans-serif',
+                                        WebkitFontSmoothing: 'antialiased',
+                                        boxSizing: 'border-box',
+                                    }}
+                                    role="region"
+                                    aria-label="Staff profile and actions"
+                                >
+                                <div
+                                    style={{
+                                        background: '#FFFFFF',
+                                        borderRadius: 14,
+                                        overflowX: 'hidden',
+                                        border: '1px solid #E4E7EC',
+                                        boxShadow: '0 1px 2px rgba(15, 23, 42, 0.04)',
+                                    }}
+                                >
+                                    <div style={{ padding: '16px 16px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
                                         <div style={{ minWidth: 0, flex: 1 }}>
-                                            <h3 style={{ fontSize: 15, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{selected.first_name} {selected.last_name}</h3>
-                                            <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{selected.job_title} · {selected.dept}</div>
+                                            <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 10, rowGap: 8 }}>
+                                                <h3
+                                                    style={{
+                                                        fontSize: 20,
+                                                        fontWeight: 700,
+                                                        letterSpacing: '-0.03em',
+                                                        lineHeight: 1.15,
+                                                        margin: 0,
+                                                        color: '#111827',
+                                                    }}
+                                                >
+                                                    {selected.first_name} {selected.last_name}
+                                                </h3>
+                                                <span
+                                                    style={{
+                                                        display: 'inline-flex',
+                                                        alignItems: 'center',
+                                                        gap: 6,
+                                                        fontSize: 12,
+                                                        fontWeight: 600,
+                                                        padding: '5px 12px',
+                                                        borderRadius: 999,
+                                                        border: selected.status === 'active' ? '1px solid #6EE7B7' : '1px solid #FECACA',
+                                                        background: selected.status === 'active' ? '#DCFCE7' : '#FEE2E2',
+                                                        color: selected.status === 'active' ? '#166534' : '#991B1B',
+                                                    }}
+                                                >
+                                                    <span
+                                                        style={{
+                                                            width: 7,
+                                                            height: 7,
+                                                            borderRadius: '50%',
+                                                            background: selected.status === 'active' ? '#22C55E' : '#EF4444',
+                                                            flexShrink: 0,
+                                                        }}
+                                                        aria-hidden
+                                                    />
+                                                    {selected.status === 'active' ? 'Active' : 'Disabled'}
+                                                </span>
+                                            </div>
+                                            <div style={{ marginTop: 10, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, lineHeight: 1.35 }}>
+                                                <span
+                                                    style={{
+                                                        display: 'inline-flex',
+                                                        alignItems: 'center',
+                                                        maxWidth: '100%',
+                                                        fontSize: 12,
+                                                        fontWeight: 600,
+                                                        padding: '5px 11px',
+                                                        borderRadius: 999,
+                                                        background: '#F3F4F6',
+                                                        color: '#374151',
+                                                        border: '1px solid #E5E7EB',
+                                                        fontVariantNumeric: 'tabular-nums',
+                                                    }}
+                                                    title={selected.employee_id}
+                                                >
+                                                    {selected.employee_id}
+                                                </span>
+                                                <span
+                                                    style={{
+                                                        display: 'inline-flex',
+                                                        alignItems: 'center',
+                                                        maxWidth: 'min(220px, 100%)',
+                                                        fontSize: 12,
+                                                        fontWeight: 600,
+                                                        padding: '5px 11px',
+                                                        borderRadius: 999,
+                                                        background: '#FEF9C3',
+                                                        color: '#854D0E',
+                                                        border: '1px solid #FDE047',
+                                                        overflow: 'hidden',
+                                                        textOverflow: 'ellipsis',
+                                                        whiteSpace: 'nowrap',
+                                                    }}
+                                                    title={editJobTitle || selected.job_title}
+                                                >
+                                                    {editJobTitle || selected.job_title || 'Role'}
+                                                </span>
+                                                <span
+                                                    style={{
+                                                        display: 'inline-flex',
+                                                        alignItems: 'center',
+                                                        maxWidth: '100%',
+                                                        fontSize: 12,
+                                                        fontWeight: 600,
+                                                        padding: '5px 11px',
+                                                        borderRadius: 999,
+                                                        background: '#DBEAFE',
+                                                        color: '#1E3A8A',
+                                                        border: '1px solid #93C5FD',
+                                                        overflow: 'hidden',
+                                                        textOverflow: 'ellipsis',
+                                                        whiteSpace: 'nowrap',
+                                                    }}
+                                                    title={selected.dept || 'Department'}
+                                                >
+                                                    {selected.dept || 'Department'}
+                                                </span>
+                                            </div>
+                                            <div style={{ marginTop: 10, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
+                                                <span style={{ fontSize: 12, fontWeight: 600, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Signed in to</span>
+                                                {detailSignedInRoleLoading ? (
+                                                    <span
+                                                        style={{
+                                                            fontSize: 12,
+                                                            fontWeight: 600,
+                                                            padding: '5px 11px',
+                                                            borderRadius: 999,
+                                                            background: '#F3F4F6',
+                                                            color: '#64748B',
+                                                            border: '1px solid #E5E7EB',
+                                                        }}
+                                                    >
+                                                        Loading…
+                                                    </span>
+                                                ) : detailSignedInRole ? (
+                                                    <span
+                                                        style={{
+                                                            fontSize: 12,
+                                                            fontWeight: 600,
+                                                            padding: '5px 11px',
+                                                            borderRadius: 999,
+                                                            background: '#EDE9FE',
+                                                            color: '#5B21B6',
+                                                            border: '1px solid #C4B5FD',
+                                                            maxWidth: '100%',
+                                                            overflow: 'hidden',
+                                                            textOverflow: 'ellipsis',
+                                                            whiteSpace: 'nowrap',
+                                                        }}
+                                                        title={detailSignedInRole}
+                                                    >
+                                                        {detailSignedInRole}
+                                                    </span>
+                                                ) : (
+                                                    <span
+                                                        style={{
+                                                            fontSize: 12,
+                                                            fontWeight: 600,
+                                                            padding: '5px 11px',
+                                                            borderRadius: 999,
+                                                            background: '#F8FAFC',
+                                                            color: '#64748B',
+                                                            border: '1px solid #E2E8F0',
+                                                        }}
+                                                    >
+                                                        Not signed in
+                                                    </span>
+                                                )}
+                                            </div>
                                             {isStaffOnline(selected, onlineIdSet) && (
-                                                <div style={{ marginTop: 8, fontSize: 11, fontWeight: 600, color: '#166534', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-                                                    <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#22c55e' }} aria-hidden />
+                                                <div style={{ marginTop: 8, fontSize: 12, fontWeight: 600, color: '#059669', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                                                    <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#10B981' }} aria-hidden />
                                                     Online now
                                                 </div>
                                             )}
                                         </div>
-                                        <button className="btn btn-ghost btn-xs" style={{ flexShrink: 0 }} onClick={() => { setEditingSelected(false); setSelected(null); }}>
-                                            <span className="material-icons-round" style={{ fontSize: 16 }}>close</span>
+                                        <button
+                                            type="button"
+                                            className="btn btn-ghost btn-xs"
+                                            style={{
+                                                flexShrink: 0,
+                                                width: 34,
+                                                height: 34,
+                                                borderRadius: '50%',
+                                                display: 'grid',
+                                                placeItems: 'center',
+                                                padding: 0,
+                                                color: '#9CA3AF',
+                                                background: '#F3F4F6',
+                                                border: 'none',
+                                            }}
+                                            aria-label="Close"
+                                            onClick={() => { setEditingSelected(false); setSelected(null); }}
+                                        >
+                                            <span className="material-icons-round" style={{ fontSize: 20 }}>close</span>
                                         </button>
                                     </div>
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-                                        <div style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-                                            Profile Details
-                                        </div>
+
+                                    <div style={{ height: 1, background: '#EEF1F5', margin: '0 4px' }} />
+
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 16px 8px' }}>
+                                        <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', color: '#9CA3AF' }}>Personal information</span>
                                         <button
-                                            className="btn btn-secondary btn-xs"
+                                            type="button"
                                             onClick={() => setEditingSelected(v => !v)}
                                             disabled={savingEdit}
+                                            style={{
+                                                border: 'none',
+                                                background: 'none',
+                                                padding: 0,
+                                                fontSize: 14,
+                                                fontWeight: 600,
+                                                color: savingEdit ? '#CBD5E1' : '#2563EB',
+                                                cursor: savingEdit ? 'default' : 'pointer',
+                                                fontFamily: 'inherit',
+                                            }}
                                         >
-                                            <span className="material-icons-round" style={{ fontSize: 14 }}>{editingSelected ? 'close' : 'edit'}</span>
-                                            {editingSelected ? 'Cancel Edit' : 'Edit'}
+                                            {editingSelected ? 'Done' : 'Edit'}
                                         </button>
                                     </div>
-
-                                    {/* === Section: Personal === */}
-                                    <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 10, paddingBottom: 6, borderBottom: '1px solid var(--border-subtle)' }}>
-                                        Personal
-                                    </div>
-                                    <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: '12px 14px', marginBottom: 18 }}>
-                                        <div style={{ minWidth: 0 }}>
-                                            <label className="label">First Name</label>
-                                            <input className="input" value={editFirstName} onChange={e => setEditFirstName(e.target.value)} disabled={!editingSelected || savingEdit} style={{ fontSize: 12, width: '100%', boxSizing: 'border-box' }} />
-                                        </div>
-                                        <div style={{ minWidth: 0 }}>
-                                            <label className="label">Last Name</label>
-                                            <input className="input" value={editLastName} onChange={e => setEditLastName(e.target.value)} disabled={!editingSelected || savingEdit} style={{ fontSize: 12, width: '100%', boxSizing: 'border-box' }} />
-                                        </div>
-                                        <div style={{ gridColumn: '1 / -1', minWidth: 0 }}>
-                                            <label className="label">Middle Name <span style={{ fontWeight: 400, color: 'var(--text-muted)', textTransform: 'none', letterSpacing: 0 }}>(optional)</span></label>
-                                            <input className="input" value={editMiddleName} onChange={e => setEditMiddleName(e.target.value)} disabled={!editingSelected || savingEdit} style={{ fontSize: 12, width: '100%', boxSizing: 'border-box' }} />
-                                        </div>
-                                        <div style={{ minWidth: 0 }}>
-                                            <label className="label">DOB</label>
-                                            <DatePicker
-                                                value={editDob}
-                                                onChange={setEditDob}
-                                                placeholder="Select DOB"
-                                                disabled={!editingSelected || savingEdit}
-                                            />
-                                        </div>
-                                        <div style={{ minWidth: 0 }}>
-                                            <label className="label">Gender</label>
-                                            <div style={{ opacity: !editingSelected || savingEdit ? 0.65 : 1, pointerEvents: !editingSelected || savingEdit ? 'none' : 'auto' }}>
-                                                <CustomSelect
-                                                    value={editGender}
-                                                    onChange={v => setEditGender(v)}
-                                                    options={[
-                                                        { label: 'Male', value: 'male' },
-                                                        { label: 'Female', value: 'female' },
-                                                        { label: 'Other', value: 'other' },
-                                                    ]}
-                                                    placeholder="-- Select --"
-                                                />
-                                            </div>
-                                        </div>
-                                    </div>
-
-                                    {/* === Section: Contact === */}
-                                    <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 10, paddingBottom: 6, borderBottom: '1px solid var(--border-subtle)' }}>
-                                        Contact
-                                    </div>
-                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 18 }}>
-                                        <div style={{ minWidth: 0 }}>
-                                            <label className="label">Email</label>
-                                            <input className="input" value={editEmail} onChange={e => setEditEmail(e.target.value)} disabled={true} style={{ fontSize: 12, width: '100%', boxSizing: 'border-box', textOverflow: 'ellipsis' }} />
-                                        </div>
-                                        <div style={{ minWidth: 0 }}>
-                                            <label className="label">Phone</label>
-                                            <div style={{ display: 'flex', gap: 8, alignItems: 'center', width: '100%' }}>
+                                    <div style={{ padding: '4px 16px 16px' }}>
+                                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                                            <div style={{ minWidth: 0 }}>
+                                                <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: '#9CA3AF', marginBottom: 6 }}>First name</label>
                                                 <input
                                                     className="input"
-                                                    value={(selected.phone || '').trim() || 'No phone on file'}
-                                                    disabled
-                                                    aria-label="Phone number"
+                                                    value={editFirstName}
+                                                    onChange={e => setEditFirstName(e.target.value)}
+                                                    disabled={!editingSelected || savingEdit}
                                                     style={{
-                                                        fontSize: 12,
-                                                        flex: 1,
-                                                        minWidth: 0,
+                                                        fontSize: 14,
+                                                        width: '100%',
                                                         boxSizing: 'border-box',
-                                                        fontStyle: (selected.phone || '').trim() ? 'normal' : 'italic',
-                                                        color: (selected.phone || '').trim() ? undefined : 'var(--text-muted)',
+                                                        background: '#F5F6F8',
+                                                        border: '1px solid #E8EBF0',
+                                                        borderRadius: 10,
+                                                        opacity: !editingSelected || savingEdit ? 0.65 : 1,
                                                     }}
                                                 />
-                                                <button
-                                                    type="button"
-                                                    className="btn btn-secondary btn-xs"
-                                                    onClick={() => { void handleRequestPhoneUpdate(); }}
-                                                    disabled={requestPhoneUpdatePending}
-                                                    style={{ flexShrink: 0, whiteSpace: 'nowrap' }}
-                                                >
-                                                    <span className="material-icons-round" style={{ fontSize: 14 }}>sms</span>
-                                                    {requestPhoneUpdatePending ? 'Sending…' : 'Request update'}
-                                                </button>
                                             </div>
-                                            <div style={{ marginTop: 6, fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.35 }}>
-                                                Phone is verified by the staff member. Send them a magic link to change it. The number shown here updates when you return to this browser tab.
+                                            <div style={{ minWidth: 0 }}>
+                                                <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: '#9CA3AF', marginBottom: 6 }}>Last name</label>
+                                                <input
+                                                    className="input"
+                                                    value={editLastName}
+                                                    onChange={e => setEditLastName(e.target.value)}
+                                                    disabled={!editingSelected || savingEdit}
+                                                    style={{
+                                                        fontSize: 14,
+                                                        width: '100%',
+                                                        boxSizing: 'border-box',
+                                                        background: '#F5F6F8',
+                                                        border: '1px solid #E8EBF0',
+                                                        borderRadius: 10,
+                                                        opacity: !editingSelected || savingEdit ? 0.65 : 1,
+                                                    }}
+                                                />
+                                            </div>
+                                        </div>
+                                        <div style={{ marginTop: 12, minWidth: 0 }}>
+                                            <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: '#9CA3AF', marginBottom: 6 }}>
+                                                Middle name <span style={{ fontWeight: 400, color: '#CBD5E1' }}>(optional)</span>
+                                            </label>
+                                            <input
+                                                className="input"
+                                                value={editMiddleName}
+                                                onChange={e => setEditMiddleName(e.target.value)}
+                                                disabled={!editingSelected || savingEdit}
+                                                style={{
+                                                    fontSize: 14,
+                                                    width: '100%',
+                                                    boxSizing: 'border-box',
+                                                    background: '#F5F6F8',
+                                                    border: '1px solid #E8EBF0',
+                                                    borderRadius: 10,
+                                                    opacity: !editingSelected || savingEdit ? 0.65 : 1,
+                                                }}
+                                            />
+                                        </div>
+                                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginTop: 12 }}>
+                                            <div style={{ minWidth: 0 }}>
+                                                <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: '#9CA3AF', marginBottom: 6 }}>Date of birth</label>
+                                                <DatePicker
+                                                    value={editDob}
+                                                    onChange={setEditDob}
+                                                    placeholder="Choose date"
+                                                    disabled={!editingSelected || savingEdit}
+                                                />
+                                            </div>
+                                            <div style={{ minWidth: 0 }}>
+                                                <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: '#9CA3AF', marginBottom: 6 }}>Gender</label>
+                                                <div style={{ opacity: !editingSelected || savingEdit ? 0.65 : 1, pointerEvents: !editingSelected || savingEdit ? 'none' : 'auto' }}>
+                                                    <CustomSelect
+                                                        value={editGender}
+                                                        onChange={v => setEditGender(v)}
+                                                        options={[
+                                                            { label: 'Male', value: 'male' },
+                                                            { label: 'Female', value: 'female' },
+                                                            { label: 'Other', value: 'other' },
+                                                        ]}
+                                                        placeholder="Choose"
+                                                    />
+                                                </div>
                                             </div>
                                         </div>
                                     </div>
 
-                                    {/* === Section: Employment === */}
-                                    <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 10, paddingBottom: 6, borderBottom: '1px solid var(--border-subtle)' }}>
-                                        Employment
+                                    <div style={{ height: 1, background: '#EEF1F5', margin: '0 4px' }} />
+
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 16px 8px' }}>
+                                        <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', color: '#9CA3AF' }}>Contact</span>
+                                        <button
+                                            type="button"
+                                            onClick={() => setEditingSelected(v => !v)}
+                                            disabled={savingEdit}
+                                            style={{
+                                                border: 'none',
+                                                background: 'none',
+                                                padding: 0,
+                                                fontSize: 14,
+                                                fontWeight: 600,
+                                                color: savingEdit ? '#CBD5E1' : '#2563EB',
+                                                cursor: savingEdit ? 'default' : 'pointer',
+                                                fontFamily: 'inherit',
+                                            }}
+                                        >
+                                            {editingSelected ? 'Done' : 'Edit'}
+                                        </button>
                                     </div>
-                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 14 }}>
+                                    <div style={{ padding: '4px 16px 16px' }}>
+                                        <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: '#9CA3AF', marginBottom: 6 }} id="staff-detail-email-label">
+                                            Email address
+                                        </label>
+                                        <div style={{ position: 'relative' }}>
+                                            <span
+                                                className="material-icons-round"
+                                                style={{
+                                                    position: 'absolute',
+                                                    left: 12,
+                                                    top: 12,
+                                                    fontSize: 18,
+                                                    color: '#9CA3AF',
+                                                    pointerEvents: 'none',
+                                                }}
+                                                aria-hidden
+                                            >
+                                                mail
+                                            </span>
+                                            <div
+                                                role="status"
+                                                aria-labelledby="staff-detail-email-label"
+                                                style={{
+                                                    fontSize: 14,
+                                                    minHeight: 42,
+                                                    padding: '10px 12px 10px 40px',
+                                                    boxSizing: 'border-box',
+                                                    width: '100%',
+                                                    background: '#F5F6F8',
+                                                    border: '1px solid #E8EBF0',
+                                                    borderRadius: 10,
+                                                    color: '#111827',
+                                                    fontWeight: 500,
+                                                    lineHeight: 1.4,
+                                                    wordBreak: 'break-word',
+                                                }}
+                                            >
+                                                {(selected.email || editEmail || '').trim() || '—'}
+                                            </div>
+                                        </div>
+                                        <div style={{ marginTop: 14, minWidth: 0 }}>
+                                            <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: '#9CA3AF', marginBottom: 6 }}>Phone</label>
+                                            <div
+                                                style={{
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    justifyContent: 'space-between',
+                                                    gap: 10,
+                                                    padding: '10px 12px',
+                                                    borderRadius: 10,
+                                                    border: '1px solid #E8EBF0',
+                                                    background: '#F5F6F8',
+                                                }}
+                                            >
+                                                <span
+                                                    style={{
+                                                        fontSize: 14,
+                                                        fontWeight: 500,
+                                                        color: (selected.phone || '').trim() ? '#111827' : '#9CA3AF',
+                                                        fontStyle: (selected.phone || '').trim() ? 'normal' : 'italic',
+                                                        overflowWrap: 'anywhere',
+                                                        wordBreak: 'break-word',
+                                                        minWidth: 0,
+                                                        flex: 1,
+                                                    }}
+                                                >
+                                                    {(selected.phone || '').trim() || 'Not on file'}
+                                                </span>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => { void handleRequestPhoneUpdate(); }}
+                                                    disabled={requestPhoneUpdatePending}
+                                                    style={{
+                                                        flexShrink: 0,
+                                                        border: 'none',
+                                                        background: 'none',
+                                                        padding: '2px 4px',
+                                                        fontSize: 14,
+                                                        fontWeight: 600,
+                                                        color: requestPhoneUpdatePending ? '#CBD5E1' : '#2563EB',
+                                                        cursor: requestPhoneUpdatePending ? 'default' : 'pointer',
+                                                        fontFamily: 'inherit',
+                                                        whiteSpace: 'nowrap',
+                                                    }}
+                                                >
+                                                    {requestPhoneUpdatePending ? 'Sending…' : 'Send link'}
+                                                </button>
+                                            </div>
+                                            <p style={{ margin: '8px 0 0', fontSize: 11, color: '#9CA3AF', lineHeight: 1.45 }}>
+                                                Sends them a secure link to update their number. Refresh this tab after they finish.
+                                            </p>
+                                        </div>
+                                    </div>
+
+                                    <div style={{ height: 1, background: '#EEF1F5', margin: '0 4px' }} />
+
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 16px 8px' }}>
+                                        <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', color: '#9CA3AF' }}>Employment</span>
+                                        <button
+                                            type="button"
+                                            onClick={() => setEditingSelected(v => !v)}
+                                            disabled={savingEdit}
+                                            style={{
+                                                border: 'none',
+                                                background: 'none',
+                                                padding: 0,
+                                                fontSize: 14,
+                                                fontWeight: 600,
+                                                color: savingEdit ? '#CBD5E1' : '#2563EB',
+                                                cursor: savingEdit ? 'default' : 'pointer',
+                                                fontFamily: 'inherit',
+                                            }}
+                                        >
+                                            {editingSelected ? 'Done' : 'Edit'}
+                                        </button>
+                                    </div>
+                                    <div style={{ padding: '4px 16px 16px', display: 'flex', flexDirection: 'column', gap: 12 }}>
                                         <div style={{ minWidth: 0 }}>
-                                            <label className="label">Department</label>
+                                            <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: '#9CA3AF', marginBottom: 6 }}>Department</label>
                                             <div style={{ opacity: !editingSelected || savingEdit ? 0.65 : 1, pointerEvents: !editingSelected || savingEdit ? 'none' : 'auto' }}>
                                                 <CustomSelect
                                                     value={editDept}
                                                     onChange={setEditDept}
-                                                    options={departmentOptions
-                                                        .map(d => ({ label: d, value: d }))}
-                                                    placeholder="-- Select Department --"
+                                                    options={departmentOptions.map(d => ({ label: d, value: d }))}
+                                                    placeholder="Choose department"
                                                 />
                                             </div>
                                         </div>
                                         <div style={{ minWidth: 0 }}>
-                                            <label className="label">Rank</label>
+                                            <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: '#9CA3AF', marginBottom: 6 }}>Rank</label>
                                             <div style={{ opacity: !editingSelected || savingEdit ? 0.65 : 1, pointerEvents: !editingSelected || savingEdit ? 'none' : 'auto' }}>
                                                 <CustomSelect
                                                     value={editJobTitle}
                                                     onChange={setEditJobTitle}
                                                     options={STAFF_RANK_OPTIONS.map(t => ({ label: t, value: t }))}
-                                                    placeholder="-- Select rank --"
+                                                    placeholder="Choose rank"
                                                     allowCustom
                                                     customEntryTitle="Custom rank"
                                                     customEntryHint="Not listed? Type here, then Enter."
@@ -2042,13 +2681,13 @@ export default function StaffDirectoryManagement() {
                                             </div>
                                         </div>
                                         <div style={{ minWidth: 0 }}>
-                                            <label className="label">Highest Qualification</label>
+                                            <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: '#9CA3AF', marginBottom: 6 }}>Highest qualification</label>
                                             <div style={{ opacity: !editingSelected || savingEdit ? 0.65 : 1, pointerEvents: !editingSelected || savingEdit ? 'none' : 'auto' }}>
                                                 <CustomSelect
                                                     value={editHighestQualification}
                                                     onChange={setEditHighestQualification}
                                                     options={QUALIFICATION_OPTIONS.map(q => ({ label: q, value: q }))}
-                                                    placeholder="-- Select Qualification --"
+                                                    placeholder="Choose qualification"
                                                     allowCustom
                                                     customEntryTitle="Custom qualification"
                                                     customEntryHint="Not listed below? Type here, then Enter."
@@ -2058,59 +2697,146 @@ export default function StaffDirectoryManagement() {
                                         </div>
                                     </div>
 
-                                    {/* === Footer: Employee ID + Save === */}
-                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, paddingTop: 14, marginTop: 4, borderTop: '1px solid var(--border-subtle)' }}>
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
-                                            <span className="material-icons-round" style={{ fontSize: 16, color: 'var(--text-disabled)', flexShrink: 0 }}>fingerprint</span>
+                                    <div style={{ height: 1, background: '#EEF1F5', margin: '0 4px' }} />
+
+                                    <div
+                                        style={{
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'space-between',
+                                            gap: 10,
+                                            padding: '12px 16px',
+                                            background: '#F9FAFB',
+                                        }}
+                                    >
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+                                            <span className="material-icons-round" style={{ fontSize: 18, color: '#9CA3AF', flexShrink: 0 }}>fingerprint</span>
                                             <div style={{ minWidth: 0 }}>
-                                                <div style={{ fontSize: 10, color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Employee ID</div>
-                                                <div style={{ fontSize: 12, color: 'var(--text-primary)', fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>{selected.employee_id}</div>
+                                                <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', color: '#9CA3AF' }}>Employee ID</div>
+                                                <div
+                                                    style={{
+                                                        fontSize: 14,
+                                                        fontWeight: 700,
+                                                        color: '#111827',
+                                                        overflow: 'hidden',
+                                                        textOverflow: 'ellipsis',
+                                                        whiteSpace: 'nowrap',
+                                                        fontVariantNumeric: 'tabular-nums',
+                                                    }}
+                                                >
+                                                    {selected.employee_id}
+                                                </div>
                                             </div>
                                         </div>
                                         {editingSelected && (
-                                            <button className="btn btn-primary btn-sm" style={{ flexShrink: 0 }} onClick={handleSaveSelected} disabled={savingEdit}>
-                                                <span className="material-icons-round" style={{ fontSize: 14 }}>{savingEdit ? 'hourglass_empty' : 'save'}</span>
-                                                {savingEdit ? 'Saving...' : 'Save Changes'}
+                                            <button
+                                                type="button"
+                                                onClick={handleSaveSelected}
+                                                disabled={savingEdit}
+                                                style={{
+                                                    flexShrink: 0,
+                                                    border: 'none',
+                                                    borderRadius: 10,
+                                                    padding: '10px 18px',
+                                                    fontSize: 14,
+                                                    fontWeight: 600,
+                                                    fontFamily: 'inherit',
+                                                    background: '#2563EB',
+                                                    color: '#fff',
+                                                    cursor: savingEdit ? 'default' : 'pointer',
+                                                    opacity: savingEdit ? 0.65 : 1,
+                                                }}
+                                            >
+                                                {savingEdit ? 'Saving…' : 'Save changes'}
                                             </button>
                                         )}
                                     </div>
 
-                                    {/* Patient Access - toggleable */}
-                                    <div style={{ marginTop: 6, padding: '10px 12px', borderRadius: 'var(--radius-md)', background: selected.patient_access ? 'rgba(34,139,34,0.05)' : 'rgba(120,120,120,0.04)', border: `1px solid ${selected.patient_access ? 'rgba(34,139,34,0.15)' : 'rgba(120,120,120,0.12)'}`, transition: 'all 0.2s' }}>
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                            <span className="material-icons-round" style={{ fontSize: 18, color: selected.patient_access ? '#2d8a4e' : '#999' }}>{selected.patient_access ? 'verified_user' : 'shield'}</span>
-                                            <div style={{ flex: 1 }}>
-                                                <div style={{ fontSize: 12, fontWeight: 600, color: selected.patient_access ? '#2d8a4e' : '#888' }}>Patient Records Access</div>
-                                                <div style={{ fontSize: 10.5, color: 'var(--text-muted)', marginTop: 1 }}>{selected.patient_access ? 'Can view and manage patient records.' : 'No access to patient records.'}</div>
+                                    <div style={{ padding: '12px 16px 16px' }}>
+                                        <div
+                                            style={{
+                                                padding: '12px 14px',
+                                                borderRadius: 12,
+                                                background: selected.patient_access ? 'rgba(52, 199, 89, 0.1)' : 'rgba(148, 163, 184, 0.12)',
+                                                border: `1px solid ${selected.patient_access ? 'rgba(52, 199, 89, 0.22)' : '#E5E7EB'}`,
+                                            }}
+                                        >
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                                                <span className="material-icons-round" style={{ fontSize: 20, color: selected.patient_access ? '#16A34A' : '#94A3B8' }}>
+                                                    {selected.patient_access ? 'verified_user' : 'shield'}
+                                                </span>
+                                                <div style={{ flex: '1 1 140px', minWidth: 0 }}>
+                                                    <div style={{ fontSize: 13, fontWeight: 700, color: '#111827' }}>Patient records access</div>
+                                                    <div style={{ fontSize: 12, color: '#6B7280', marginTop: 2, lineHeight: 1.35 }}>
+                                                        {selected.patient_access ? 'Can open and work with patient charts.' : 'No access to patient charts.'}
+                                                    </div>
+                                                </div>
+                                                <span
+                                                    style={{
+                                                        fontSize: 11,
+                                                        fontWeight: 700,
+                                                        letterSpacing: '0.04em',
+                                                        padding: '4px 10px',
+                                                        borderRadius: 20,
+                                                        background: selected.patient_access ? 'rgba(52, 199, 89, 0.2)' : 'rgba(148, 163, 184, 0.25)',
+                                                        color: selected.patient_access ? '#166534' : '#64748B',
+                                                    }}
+                                                >
+                                                    {selected.patient_access ? 'Granted' : 'None'}
+                                                </span>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => togglePatientAccess(selected.id, selected.patient_access)}
+                                                    style={{
+                                                        marginLeft: 'auto',
+                                                        border: '1px solid #E5E7EB',
+                                                        borderRadius: 20,
+                                                        padding: '6px 14px',
+                                                        fontSize: 12,
+                                                        fontWeight: 600,
+                                                        fontFamily: 'inherit',
+                                                        cursor: 'pointer',
+                                                        background: '#fff',
+                                                        color: '#2563EB',
+                                                    }}
+                                                >
+                                                    {selected.patient_access ? 'Remove access' : 'Grant access'}
+                                                </button>
                                             </div>
-                                            <button type="button" onClick={() => togglePatientAccess(selected.id, selected.patient_access)}
-                                                style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 10px', borderRadius: 14, fontSize: 10.5, fontWeight: 700, letterSpacing: '0.03em', cursor: 'pointer', transition: 'all 0.15s', border: `1px solid ${selected.patient_access ? 'rgba(34,139,34,0.25)' : 'rgba(120,120,120,0.2)'}`, background: selected.patient_access ? 'rgba(34,139,34,0.12)' : 'rgba(120,120,120,0.1)', color: selected.patient_access ? '#2d8a4e' : '#888' }}
-                                                onMouseEnter={e => { e.currentTarget.style.opacity = '0.8'; }}
-                                                onMouseLeave={e => { e.currentTarget.style.opacity = '1'; }}
-                                            >
-                                                <span className="material-icons-round" style={{ fontSize: 12 }}>{selected.patient_access ? 'toggle_on' : 'toggle_off'}</span>
-                                                {selected.patient_access ? 'GRANTED' : 'NONE'}
-                                            </button>
                                         </div>
                                     </div>
                                 </div>
 
                                 {/* System Role */}
-                                <div className="card" style={{ padding: '18px' }}>
+                                <div
+                                    style={{
+                                        background: '#FFFFFF',
+                                        borderRadius: 14,
+                                        border: '1px solid #E4E7EC',
+                                        padding: 16,
+                                        boxShadow: '0 1px 2px rgba(15, 23, 42, 0.04)',
+                                    }}
+                                >
                                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                                            <span className="material-icons-round" style={{ fontSize: 15, color: 'var(--text-muted)' }}>admin_panel_settings</span>
-                                            <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>System Role</span>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                            <span className="material-icons-round" style={{ fontSize: 18, color: '#94A3B8' }}>shield</span>
+                                            <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', color: '#9CA3AF' }}>System role</span>
                                         </div>
-                                        <span style={{
-                                            fontSize: 10, fontWeight: 700, letterSpacing: '0.04em', padding: '2px 8px', borderRadius: 10,
-                                            background: selected.role === 'admin' ? 'rgba(99,102,241,0.1)' : 'rgba(34,139,34,0.08)',
-                                            color: selected.role === 'admin' ? 'var(--helix-primary)' : '#2d8a4e',
-                                        }}>
-                                            {selected.role === 'admin' ? 'ADMIN' : 'STAFF'}
+                                        <span
+                                            style={{
+                                                fontSize: 11,
+                                                fontWeight: 700,
+                                                letterSpacing: '0.05em',
+                                                padding: '4px 10px',
+                                                borderRadius: 20,
+                                                background: selected.role === 'admin' ? 'rgba(99, 102, 241, 0.14)' : 'rgba(52, 199, 89, 0.14)',
+                                                color: selected.role === 'admin' ? '#4338CA' : '#166534',
+                                            }}
+                                        >
+                                            {selected.role === 'admin' ? 'Admin' : 'Staff'}
                                         </span>
                                     </div>
-                                    <div style={{ display: 'flex', background: 'var(--surface-2)', borderRadius: 8, padding: 3, gap: 2 }}>
+                                    <div style={{ display: 'flex', background: '#F3F4F6', borderRadius: 10, padding: 4, gap: 4 }}>
                                         {(['staff', 'admin'] as const).map(r => {
                                             const isActive = selected.role === r;
                                             const isAdmin = r === 'admin';
@@ -2120,46 +2846,90 @@ export default function StaffDirectoryManagement() {
                                                     type="button"
                                                     onClick={() => { if (!isActive) assignRole(selected.id, r); }}
                                                     style={{
-                                                        flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-                                                        padding: '7px 0', borderRadius: 6, fontSize: 12, fontWeight: isActive ? 600 : 500,
-                                                        border: 'none', cursor: isActive ? 'default' : 'pointer',
-                                                        background: isActive ? 'var(--surface-card)' : 'transparent',
-                                                        color: isActive ? (isAdmin ? 'var(--helix-primary)' : '#2d8a4e') : 'var(--text-muted)',
+                                                        flex: 1,
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        justifyContent: 'center',
+                                                        gap: 6,
+                                                        padding: '8px 0',
+                                                        borderRadius: 8,
+                                                        fontSize: 13,
+                                                        fontWeight: isActive ? 600 : 500,
+                                                        border: 'none',
+                                                        cursor: isActive ? 'default' : 'pointer',
+                                                        background: isActive ? '#fff' : 'transparent',
+                                                        color: isActive ? (isAdmin ? '#4338CA' : '#166534') : '#9CA3AF',
                                                         boxShadow: isActive ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
                                                         transition: 'all 0.18s ease',
                                                     }}
-                                                    onMouseEnter={e => { if (!isActive) e.currentTarget.style.color = 'var(--text-primary)'; }}
-                                                    onMouseLeave={e => { if (!isActive) e.currentTarget.style.color = 'var(--text-muted)'; }}
+                                                    onMouseEnter={e => { if (!isActive) e.currentTarget.style.color = '#374151'; }}
+                                                    onMouseLeave={e => { if (!isActive) e.currentTarget.style.color = '#9CA3AF'; }}
                                                 >
-                                                    <span className="material-icons-round" style={{ fontSize: 14 }}>
-                                                        {isAdmin ? 'shield' : 'person'}
+                                                    <span className="material-icons-round" style={{ fontSize: 16 }}>
+                                                        {isAdmin ? 'admin_panel_settings' : 'person'}
                                                     </span>
                                                     {isAdmin ? 'Admin' : 'Staff'}
                                                 </button>
                                             );
                                         })}
                                     </div>
-                                    <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 10, lineHeight: 1.4 }}>
+                                    <div style={{ fontSize: 12, color: '#6B7280', marginTop: 10, lineHeight: 1.45 }}>
                                         {selected.role === 'admin'
-                                            ? 'Full access to manage staff, roles, and system settings.'
-                                            : 'Standard access based on assigned clinical roles.'}
+                                            ? 'Can manage staff, roles, and facility settings.'
+                                            : 'Day-to-day access follows the clinical role they sign in to (shown above).'}
                                     </div>
                                 </div>
 
-                                <div className="card" style={{ padding: '18px' }}>
-                                    <h3 style={{ fontSize: 14, marginBottom: 10 }}>Actions</h3>
+                                <div
+                                    style={{
+                                        background: '#FFFFFF',
+                                        borderRadius: 14,
+                                        border: '1px solid #E4E7EC',
+                                        padding: 16,
+                                        boxShadow: '0 1px 2px rgba(15, 23, 42, 0.04)',
+                                    }}
+                                >
+                                    <h3 style={{ fontSize: 14, fontWeight: 700, margin: '0 0 12px', color: '#111827' }}>Actions</h3>
                                     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                                        <button className="btn btn-secondary btn-sm" style={{ justifyContent: 'flex-start' }} onClick={() => showToast('Password reset email sent')}>
-                                            <span className="material-icons-round" style={{ fontSize: 15 }}>lock_reset</span>Reset Password
+                                        <button
+                                            type="button"
+                                            className="btn btn-secondary btn-sm"
+                                            style={{
+                                                justifyContent: 'flex-start',
+                                                borderRadius: 10,
+                                                background: '#F9FAFB',
+                                                border: '1px solid #E5E7EB',
+                                            }}
+                                            onClick={() => showToast('Password reset email sent')}
+                                        >
+                                            <span className="material-icons-round" style={{ fontSize: 16 }}>lock_reset</span>
+                                            Reset password
                                         </button>
-                                        <button className={`btn ${selected.status === 'active' ? 'btn-danger' : 'btn-secondary'} btn-sm`} style={{ justifyContent: 'flex-start' }} onClick={() => { toggleStatus(selected.id); setSelected(prev => prev ? { ...prev, status: prev.status === 'active' ? 'disabled' : 'active' } : null); }}>
-                                            <span className="material-icons-round" style={{ fontSize: 15 }}>{selected.status === 'active' ? 'block' : 'check_circle'}</span>
-                                            {selected.status === 'active' ? 'Disable Account' : 'Enable Account'}
+                                        <button
+                                            type="button"
+                                            className={`btn ${selected.status === 'active' ? 'btn-danger' : 'btn-secondary'} btn-sm`}
+                                            style={{ justifyContent: 'flex-start', borderRadius: 10 }}
+                                            onClick={() => { toggleStatus(selected.id); setSelected(prev => prev ? { ...prev, status: prev.status === 'active' ? 'disabled' : 'active' } : null); }}
+                                        >
+                                            <span className="material-icons-round" style={{ fontSize: 16 }}>{selected.status === 'active' ? 'block' : 'check_circle'}</span>
+                                            {selected.status === 'active' ? 'Disable account' : 'Enable account'}
                                         </button>
-                                        <button className="btn btn-secondary btn-sm" style={{ justifyContent: 'flex-start' }} onClick={() => { requestRemove(selected.id); }}>
-                                            <span className="material-icons-round" style={{ fontSize: 15 }}>delete</span>Remove Staff
+                                        <button
+                                            type="button"
+                                            className="btn btn-secondary btn-sm"
+                                            style={{
+                                                justifyContent: 'flex-start',
+                                                borderRadius: 10,
+                                                background: '#F9FAFB',
+                                                border: '1px solid #E5E7EB',
+                                            }}
+                                            onClick={() => { requestRemove(selected.id); }}
+                                        >
+                                            <span className="material-icons-round" style={{ fontSize: 16 }}>delete</span>
+                                            Remove staff
                                         </button>
                                     </div>
+                                </div>
                                 </div>
                             </div>
                         )}

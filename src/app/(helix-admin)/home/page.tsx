@@ -151,7 +151,6 @@ export default function HomePage() {
     const [patientCount, setPatientCount] = useState(0);
     const [teamCount, setTeamCount] = useState(0);
     const [departmentCount, setDepartmentCount] = useState(0);
-    const [escalationCount, setEscalationCount] = useState(0);
     const [failedImports24h, setFailedImports24h] = useState(0);
     const [setupTasks, setSetupTasks] = useState(0);
     const [recent, setRecent] = useState<ActivityItem[]>([]);
@@ -319,8 +318,6 @@ export default function HomePage() {
             setPatientCount(readTotal(patientJson, patientItems.length));
             setTeamCount(readTotal(teamsJson, teamItems.length));
             setDepartmentCount(readTotal(departmentsJson, departmentItems.length));
-            setEscalationCount(escalationItems.length);
-
             const teamsWithoutLead = teamItems.filter(t => !String(t.lead_id || '').trim()).length;
             const teamsWithoutMembers = teamItems.filter(t => {
                 const c = Number(t.member_count ?? 0);
@@ -408,17 +405,7 @@ export default function HomePage() {
             footerValue: `${criticalRoleFill.filled.toLocaleString()} / ${criticalRoleFill.total.toLocaleString()} roles`,
             tone: criticalRoleFill.total > 0 && criticalRoleFill.percent < 80 ? 'critical' as const : 'default' as const,
         },
-        {
-            label: 'Active Escalations',
-            subLabel: 'Last 24h',
-            value: escalationCount,
-            icon: 'priority_high',
-            iconBg: '#F3F4F6', iconFg: '#475569',
-            footerLabel: 'Status',
-            footerValue: escalationCount > 0 ? 'Requires attention' : 'All clear',
-            tone: 'critical' as const,
-        },
-    ]), [patientCount, staffCount, criticalRoleFill, escalationCount, facilityShort]);
+    ]), [patientCount, staffCount, criticalRoleFill, facilityShort]);
 
     const quickActions = [
         { label: 'Add role', sub: 'Roles', icon: 'badge', iconBg: '#EEF2F7', iconFg: '#334155', href: '/roles' },

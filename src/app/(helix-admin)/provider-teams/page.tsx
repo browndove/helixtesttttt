@@ -658,7 +658,7 @@ export default function ProviderTeamsPage() {
                     if (!rRes.ok) {
                         const errBody = await rRes.json().catch(() => ({}));
                         console.error('Failed to link roles:', rRes.status, JSON.stringify(errBody));
-                        showToast('Team created, but linking roles failed — check API or try adding roles from the team panel', 'error');
+                        showToast('Team created, but linking roles failed. Try adding roles from the team panel, or try again in a moment.', 'error');
                     }
                 } catch (e) { console.error('Error linking roles:', e); }
             }
