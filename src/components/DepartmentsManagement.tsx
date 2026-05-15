@@ -72,10 +72,16 @@ export default function DepartmentsManagement() {
     const [activeTab, setActiveTab] = useState<'departments' | 'units'>('departments');
     const [newUnitName, setNewUnitName] = useState('');
     const [newUnitDescription, setNewUnitDescription] = useState('');
+    const [showAddUnit, setShowAddUnit] = useState(false);
     const [units, setUnits] = useState<UnitItem[]>([]);
     const [unitsLoading, setUnitsLoading] = useState(false);
     const [addingUnit, setAddingUnit] = useState(false);
     const [unitsSearch, setUnitsSearch] = useState('');
+    const [editingUnit, setEditingUnit] = useState<string | null>(null);
+    const [unitDetailName, setUnitDetailName] = useState('');
+    const [unitDetailDescription, setUnitDetailDescription] = useState('');
+    const [unitDetailLoading, setUnitDetailLoading] = useState(false);
+    const [savingUnitDetails, setSavingUnitDetails] = useState(false);
     const [loading, setLoading] = useState(true);
     const [deptSearch, setDeptSearch] = useState('');
     const [detailName, setDetailName] = useState('');
@@ -85,6 +91,8 @@ export default function DepartmentsManagement() {
     const [pendingDelete, setPendingDelete] = useState<PendingDelete | null>(null);
     const departmentsRef = useRef(departments);
     departmentsRef.current = departments;
+    const unitsRef = useRef(units);
+    unitsRef.current = units;
 
     const showToast = useCallback((msg: string) => {
         setToast(msg);
@@ -179,6 +187,21 @@ export default function DepartmentsManagement() {
         }
     }, [loading, departments.length, filteredDepartments, editingDept]);
 
+    useEffect(() => {
+        if (loading || activeTab !== 'units') return;
+        if (units.length === 0) {
+            setEditingUnit(null);
+            return;
+        }
+        if (filteredUnits.length === 0) {
+            setEditingUnit(null);
+            return;
+        }
+        if (!editingUnit || !filteredUnits.some(u => u.id === editingUnit)) {
+            setEditingUnit(filteredUnits[0].id);
+        }
+    }, [loading, activeTab, units.length, filteredUnits, editingUnit]);
+
     // Show list row immediately, then load full details from GET /departments/{id} (authoritative name/description).
     useEffect(() => {
         if (!editingDept) {
@@ -238,9 +261,71 @@ export default function DepartmentsManagement() {
         };
     }, [editingDept, showToast, fetchUnits]);
 
+    useEffect(() => {
+        if (!editingUnit) {
+            setUnitDetailName('');
+            setUnitDetailDescription('');
+            setUnitDetailLoading(false);
+            return;
+        }
+        const local = unitsRef.current.find(u => u.id === editingUnit);
+        if (local) {
+            setUnitDetailName(local.name);
+            setUnitDetailDescription(local.description || '');
+        }
+        const ac = new AbortController();
+        let cancelled = false;
+        setUnitDetailLoading(true);
+        (async () => {
+            try {
+                const res = await fetch(`/api/proxy/units/${editingUnit}`, { signal: ac.signal });
+                if (!res.ok) throw new Error('bad status');
+                const raw = (await res.json()) as Record<string, unknown>;
+                if (cancelled) return;
+                const name = String(raw.name || '').trim();
+                const description = typeof raw.description === 'string' ? raw.description : '';
+                setUnitDetailName(name);
+                setUnitDetailDescription(description);
+                setUnits(prev => prev.map(u => {
+                    if (u.id !== editingUnit) return u;
+                    return {
+                        ...u,
+                        name: name || u.name,
+                        description,
+                        department_id: typeof raw.department_id === 'string' ? raw.department_id : u.department_id,
+                        department_name: typeof raw.department_name === 'string' ? raw.department_name : u.department_name,
+                    };
+                }));
+            } catch (e) {
+                const aborted = cancelled || (e instanceof Error && e.name === 'AbortError');
+                if (aborted) return;
+                const fallback = unitsRef.current.find(u => u.id === editingUnit);
+                if (fallback) {
+                    setUnitDetailName(fallback.name);
+                    setUnitDetailDescription(fallback.description || '');
+                } else {
+                    setUnitDetailName('');
+                    setUnitDetailDescription('');
+                    showToast('Could not load unit details');
+                }
+            } finally {
+                if (!cancelled) setUnitDetailLoading(false);
+            }
+        })();
+        return () => {
+            cancelled = true;
+            ac.abort();
+        };
+    }, [editingUnit, showToast]);
+
     const resetNewDepartmentForm = () => {
         setNewDeptName('');
         setNewDeptDescription('');
+    };
+
+    const resetNewUnitForm = () => {
+        setNewUnitName('');
+        setNewUnitDescription('');
     };
 
     const addDepartment = async () => {
@@ -358,6 +443,14 @@ export default function DepartmentsManagement() {
     const addUnit = async () => {
         const name = newUnitName.trim();
         if (!name) return;
+        if (name.length > DEPARTMENT_NAME_MAX_LENGTH) {
+            showToast(`Unit name must be ${DEPARTMENT_NAME_MAX_LENGTH} characters or fewer`);
+            return;
+        }
+        if (newUnitDescription.length > DEPARTMENT_DESCRIPTION_MAX_LENGTH) {
+            showToast(`Description must be ${DEPARTMENT_DESCRIPTION_MAX_LENGTH} characters or fewer`);
+            return;
+        }
         setAddingUnit(true);
         try {
             const res = await fetch('/api/proxy/units', {
@@ -372,9 +465,10 @@ export default function DepartmentsManagement() {
             if (res.ok) {
                 const unit = await res.json() as UnitItem;
                 setUnits(prev => [...prev, unit]);
+                setEditingUnit(unit.id);
                 showToast(`Unit "${name}" added`);
-                setNewUnitName('');
-                setNewUnitDescription('');
+                resetNewUnitForm();
+                setShowAddUnit(false);
             } else {
                 const err = await res.json().catch(() => ({} as { error?: string; detail?: string }));
                 showToast(String(err.error || err.detail || 'Failed to add unit'));
@@ -384,14 +478,81 @@ export default function DepartmentsManagement() {
     };
 
     const removeUnit = async (unitId: string) => {
+        const unit = units.find(u => u.id === unitId);
         try {
             const res = await fetch(`/api/proxy/units/${unitId}`, { method: 'DELETE' });
             if (res.ok) {
                 setUnits(prev => prev.filter(u => u.id !== unitId));
+                showToast(`${unit?.name || 'Unit'} removed`);
+                if (editingUnit === unitId) setEditingUnit(null);
             } else {
                 showToast('Failed to remove unit');
             }
         } catch { showToast('Failed to remove unit'); }
+    };
+
+    const updateUnitDetails = async () => {
+        const u = units.find(x => x.id === editingUnit);
+        if (!u) return;
+        const trimmedName = unitDetailName.trim();
+        if (!trimmedName) {
+            showToast('Unit name is required');
+            return;
+        }
+        if (trimmedName.length > DEPARTMENT_NAME_MAX_LENGTH) {
+            showToast(`Unit name must be ${DEPARTMENT_NAME_MAX_LENGTH} characters or fewer`);
+            return;
+        }
+        if (unitDetailDescription.length > DEPARTMENT_DESCRIPTION_MAX_LENGTH) {
+            showToast(`Description must be ${DEPARTMENT_DESCRIPTION_MAX_LENGTH} characters or fewer`);
+            return;
+        }
+        const descTrimmed = unitDetailDescription.trim();
+        setSavingUnitDetails(true);
+        try {
+            const res = await fetch(`/api/proxy/units/${u.id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    name: trimmedName,
+                    description: descTrimmed,
+                }),
+            });
+            const rawText = await res.text();
+            let payload: Record<string, unknown> = {};
+            if (rawText) {
+                try {
+                    payload = JSON.parse(rawText) as Record<string, unknown>;
+                } catch {
+                    if (!res.ok) {
+                        showToast('Failed to update unit');
+                        return;
+                    }
+                }
+            }
+            if (!res.ok) {
+                const msg = typeof payload.error === 'string' ? payload.error : typeof payload.detail === 'string' ? payload.detail : 'Failed to update unit';
+                showToast(msg);
+                return;
+            }
+            const body = Object.keys(payload).length > 0 ? payload : { name: trimmedName, description: descTrimmed };
+            const updatedName = String(body.name || trimmedName).trim();
+            const updatedDesc = typeof body.description === 'string' ? body.description : descTrimmed;
+            setUnits(prev => prev.map(x => (x.id === u.id ? {
+                ...x,
+                name: updatedName,
+                description: updatedDesc,
+                department_id: typeof body.department_id === 'string' ? body.department_id : x.department_id,
+                department_name: typeof body.department_name === 'string' ? body.department_name : x.department_name,
+            } : x)));
+            setUnitDetailName(updatedName);
+            setUnitDetailDescription(updatedDesc);
+            showToast('Unit updated');
+        } catch {
+            showToast('Failed to update unit');
+        } finally {
+            setSavingUnitDetails(false);
+        }
     };
 
     const confirmPendingDelete = useCallback(async () => {
@@ -491,10 +652,16 @@ export default function DepartmentsManagement() {
     };
 
     const editDept = departments.find(d => d.id === editingDept);
+    const editUnit = units.find(u => u.id === editingUnit);
     const deptDetailsDirty = Boolean(
         editDept
         && (detailName.trim() !== editDept.name
             || detailDescription.trim() !== (editDept.description || '').trim()),
+    );
+    const unitDetailsDirty = Boolean(
+        editUnit
+        && (unitDetailName.trim() !== editUnit.name
+            || unitDetailDescription.trim() !== (editUnit.description || '').trim()),
     );
 
     if (loading) {
@@ -593,10 +760,29 @@ export default function DepartmentsManagement() {
                                             </button>
                                         </>
                                     ) : (
-                                        <div style={{ fontSize: 13, color: 'var(--text-muted)', minWidth: 0 }}>
-                                            <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{units.length}</span>
-                                            {' '}unit{units.length !== 1 ? 's' : ''}
-                                        </div>
+                                        <>
+                                            <div style={{ fontSize: 13, color: 'var(--text-muted)', minWidth: 0 }}>
+                                                <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{units.length}</span>
+                                                {' '}unit{units.length !== 1 ? 's' : ''}
+                                                {unitsSearch.trim() ? (
+                                                    <span style={{ marginLeft: 8 }}>
+                                                        · <span style={{ fontWeight: 600, color: 'var(--text-secondary)' }}>{filteredUnits.length}</span> shown
+                                                    </span>
+                                                ) : null}
+                                            </div>
+                                            <button
+                                                type="button"
+                                                className="btn btn-primary btn-sm"
+                                                onClick={() => {
+                                                    if (showAddUnit) resetNewUnitForm();
+                                                    setShowAddUnit(!showAddUnit);
+                                                }}
+                                                style={{ flexShrink: 0 }}
+                                            >
+                                                <span className="material-icons-round" style={{ fontSize: 14 }}>{showAddUnit ? 'close' : 'add'}</span>
+                                                {showAddUnit ? 'Cancel' : 'Add Unit'}
+                                            </button>
+                                        </>
                                     )}
                                 </div>
 
@@ -637,6 +823,45 @@ export default function DepartmentsManagement() {
                                     </div>
                                 )}
 
+                                {activeTab === 'units' && showAddUnit && (
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 12, alignSelf: 'stretch', maxWidth: 640 }}>
+                                        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                                            <input
+                                                className="input"
+                                                placeholder="Unit name"
+                                                value={newUnitName}
+                                                maxLength={DEPARTMENT_NAME_MAX_LENGTH}
+                                                onChange={e => setNewUnitName(e.target.value.slice(0, DEPARTMENT_NAME_MAX_LENGTH))}
+                                                onKeyDown={e => e.key === 'Enter' && !e.shiftKey && addUnit()}
+                                                style={{ fontSize: 13, flex: '1 1 220px', minWidth: 160, maxWidth: '100%', boxSizing: 'border-box' }}
+                                                aria-describedby="unit-name-limit-hint"
+                                            />
+                                            <span style={{ fontSize: 11, color: 'var(--text-muted)', flexShrink: 0, fontVariantNumeric: 'tabular-nums' }} id="unit-name-limit-hint">
+                                                {newUnitName.length}/{DEPARTMENT_NAME_MAX_LENGTH}
+                                            </span>
+                                            <button type="button" className="btn btn-primary btn-sm" onClick={addUnit} disabled={!newUnitName.trim() || addingUnit} style={{ flexShrink: 0 }}>
+                                                {addingUnit ? 'Adding…' : 'Add'}
+                                            </button>
+                                        </div>
+                                        <div>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, marginBottom: 6 }}>
+                                                <span className="label" style={{ marginBottom: 0 }}>Description</span>
+                                                <span style={{ fontSize: 11, color: 'var(--text-muted)', fontVariantNumeric: 'tabular-nums' }}>
+                                                    {newUnitDescription.length}/{DEPARTMENT_DESCRIPTION_MAX_LENGTH}
+                                                </span>
+                                            </div>
+                                            <textarea
+                                                className="input"
+                                                value={newUnitDescription}
+                                                maxLength={DEPARTMENT_DESCRIPTION_MAX_LENGTH}
+                                                onChange={e => setNewUnitDescription(e.target.value.slice(0, DEPARTMENT_DESCRIPTION_MAX_LENGTH))}
+                                                rows={2}
+                                                style={{ fontSize: 13, minHeight: 52, resize: 'vertical', boxSizing: 'border-box', width: '100%' }}
+                                            />
+                                        </div>
+                                    </div>
+                                )}
+
                                 <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
                                     <button type="button" className={`btn btn-sm ${activeTab === 'departments' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setActiveTab('departments')}>
                                         Departments
@@ -645,7 +870,6 @@ export default function DepartmentsManagement() {
                                         Units
                                     </button>
                                 </div>
-                                {activeTab === 'departments' ? (
                                 <div style={{ position: 'relative', width: '100%' }}>
                                     <span className="material-icons-round" style={{
                                         position: 'absolute',
@@ -660,15 +884,15 @@ export default function DepartmentsManagement() {
                                     <input
                                         className="input"
                                         type="text"
-                                        placeholder="Search by department…"
-                                        value={deptSearch}
-                                        onChange={e => setDeptSearch(e.target.value)}
+                                        placeholder={activeTab === 'departments' ? 'Search by department…' : 'Search by unit…'}
+                                        value={activeTab === 'departments' ? deptSearch : unitsSearch}
+                                        onChange={e => (activeTab === 'departments' ? setDeptSearch : setUnitsSearch)(e.target.value)}
                                         style={{ fontSize: 13, paddingLeft: 38, height: 40, width: '100%', boxSizing: 'border-box' }}
                                     />
-                                    {deptSearch ? (
+                                    {(activeTab === 'departments' ? deptSearch : unitsSearch) ? (
                                         <button
                                             type="button"
-                                            onClick={() => setDeptSearch('')}
+                                            onClick={() => (activeTab === 'departments' ? setDeptSearch : setUnitsSearch)('')}
                                             style={{
                                                 position: 'absolute',
                                                 right: 8,
@@ -688,7 +912,6 @@ export default function DepartmentsManagement() {
                                         </button>
                                     ) : null}
                                 </div>
-                                ) : null}
                             </div>
                         </div>
 
@@ -878,158 +1101,169 @@ export default function DepartmentsManagement() {
                                 )}
                             </section>
                         </div>
-                        {activeTab === 'units' ? (
-                            <section style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '20px 24px 28px', minWidth: 0, background: 'var(--surface-card)' }}>
-                                {/* ── Add unit form ── */}
-                                <div className="card fade-in" style={{ padding: '16px 18px', margin: '0 0 16px', background: 'var(--surface-2)', border: '1px solid var(--border-subtle)' }}>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
-                                        <span className="material-icons-round" style={{ fontSize: 16, color: 'var(--helix-primary)' }}>add_circle</span>
-                                        <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Add new unit</span>
-                                    </div>
-                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 10, marginBottom: 10 }}>
-                                        <div>
-                                            <label className="label" style={{ marginBottom: 4, fontSize: 11 }}>Unit Name</label>
-                                            <input
-                                                className="input"
-                                                placeholder="e.g. ICU-A, NICU, CCU"
-                                                value={newUnitName}
-                                                onChange={e => setNewUnitName(e.target.value)}
-                                                onKeyDown={e => e.key === 'Enter' && !e.shiftKey && newUnitName.trim() && addUnit()}
-                                                style={{ fontSize: 13, width: '100%', boxSizing: 'border-box' }}
-                                            />
-                                        </div>
-                                    </div>
-                                    <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end' }}>
-                                        <div style={{ flex: 1 }}>
-                                            <label className="label" style={{ marginBottom: 4, fontSize: 11 }}>Description <span style={{ fontWeight: 400, color: 'var(--text-disabled)' }}>(optional)</span></label>
-                                            <input
-                                                className="input"
-                                                placeholder="Brief description of this unit"
-                                                value={newUnitDescription}
-                                                onChange={e => setNewUnitDescription(e.target.value)}
-                                                onKeyDown={e => e.key === 'Enter' && !e.shiftKey && newUnitName.trim() && addUnit()}
-                                                style={{ fontSize: 13, width: '100%', boxSizing: 'border-box' }}
-                                            />
-                                        </div>
-                                        <button
-                                            type="button"
-                                            className="btn btn-primary btn-sm"
-                                            onClick={addUnit}
-                                            disabled={!newUnitName.trim() || addingUnit}
-                                            style={{ flexShrink: 0, height: 38 }}
-                                        >
-                                            <span className="material-icons-round" style={{ fontSize: 14 }}>{addingUnit ? 'hourglass_empty' : 'add'}</span>
-                                            {addingUnit ? 'Adding…' : 'Add Unit'}
-                                        </button>
-                                    </div>
-                                </div>
-
-                                {/* ── Search ── */}
-                                <div style={{ position: 'relative', width: '100%', marginBottom: 16 }}>
-                                    <span className="material-icons-round" style={{
-                                        position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)',
-                                        fontSize: 18, color: 'var(--text-muted)', pointerEvents: 'none', zIndex: 1,
-                                    }}>search</span>
-                                    <input
-                                        className="input"
-                                        type="text"
-                                        placeholder="Search units by name…"
-                                        value={unitsSearch}
-                                        onChange={e => setUnitsSearch(e.target.value)}
-                                        style={{ fontSize: 13, paddingLeft: 38, height: 40, width: '100%', boxSizing: 'border-box' }}
-                                    />
-                                    {unitsSearch ? (
-                                        <button
-                                            type="button"
-                                            onClick={() => setUnitsSearch('')}
-                                            style={{
-                                                position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)',
-                                                background: 'none', border: 'none', cursor: 'pointer', padding: 4,
-                                                display: 'flex', alignItems: 'center', color: 'var(--text-muted)', zIndex: 1,
-                                            }}
-                                        >
-                                            <span className="material-icons-round" style={{ fontSize: 18 }}>close</span>
-                                        </button>
-                                    ) : null}
-                                </div>
-
-                                {/* ── Loading state ── */}
+                        <div
+                            style={{
+                                flex: 1,
+                                minHeight: 0,
+                                display: activeTab === 'units' ? 'grid' : 'none',
+                                gridTemplateColumns: 'minmax(280px, min(32vw, 380px)) 1fr',
+                                overflow: 'hidden',
+                            }}
+                        >
+                            <aside
+                                style={{
+                                    borderRight: '1px solid var(--border-subtle)',
+                                    background: 'var(--surface-2)',
+                                    minHeight: 0,
+                                    overflowY: 'auto',
+                                    padding: '10px 12px',
+                                    display: 'flex',
+                                    flexDirection: 'column',
+                                    gap: 4,
+                                }}
+                            >
                                 {unitsLoading ? (
-                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '48px 20px' }}>
-                                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
-                                            <span className="material-icons-round" style={{ fontSize: 28, color: 'var(--text-disabled)', animation: 'spin 1.5s linear infinite' }}>progress_activity</span>
-                                            <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>Loading units…</span>
+                                    <div style={{ padding: 24, textAlign: 'center', fontSize: 13, color: 'var(--text-muted)' }}>Loading units…</div>
+                                ) : (
+                                    <>
+                                        {filteredUnits.map(u => (
+                                            <button
+                                                key={u.id}
+                                                type="button"
+                                                onClick={() => { setEditingUnit(u.id); }}
+                                                style={{
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    gap: 10,
+                                                    padding: '10px 12px',
+                                                    borderRadius: 'var(--radius-md)',
+                                                    cursor: 'pointer',
+                                                    textAlign: 'left',
+                                                    width: '100%',
+                                                    border: `1px solid ${editingUnit === u.id ? 'var(--helix-primary)' : 'transparent'}`,
+                                                    background: editingUnit === u.id ? 'var(--surface-card)' : 'transparent',
+                                                    boxShadow: editingUnit === u.id ? '0 1px 3px rgba(30,58,95,0.08)' : 'none',
+                                                    transition: 'all 0.15s',
+                                                }}
+                                            >
+                                                <span className="material-icons-round" style={{ fontSize: 18, color: editingUnit === u.id ? 'var(--helix-primary)' : 'var(--text-muted)', flexShrink: 0 }}>medical_services</span>
+                                                <div style={{ flex: 1, minWidth: 0 }}>
+                                                    <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{u.name}</div>
+                                                    <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                                        {u.description || u.department_name || 'Unit'}
+                                                    </div>
+                                                </div>
+                                            </button>
+                                        ))}
+                                        {units.length === 0 && !unitsLoading && (
+                                            <div style={{ padding: 24, textAlign: 'center', fontSize: 13, color: 'var(--text-muted)' }}>No units yet. Use Add Unit above.</div>
+                                        )}
+                                        {units.length > 0 && filteredUnits.length === 0 && (
+                                            <div style={{ padding: 24, textAlign: 'center', fontSize: 13, color: 'var(--text-muted)' }}>
+                                                <span className="material-icons-round" style={{ fontSize: 28, display: 'block', marginBottom: 8, color: 'var(--text-disabled)' }}>search_off</span>
+                                                No matches — try another search
+                                            </div>
+                                        )}
+                                    </>
+                                )}
+                            </aside>
+
+                            <section style={{ minHeight: 0, overflowY: 'auto', padding: '20px 24px 28px', minWidth: 0, background: 'var(--surface-card)' }}>
+                                {editUnit ? (
+                                    <div className="fade-in" key={editUnit.id}>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, marginBottom: 20, flexWrap: 'wrap' }}>
+                                            <div style={{ flex: 1, minWidth: 0 }}>
+                                                <h2 style={{ fontSize: 20, fontWeight: 700, margin: 0, color: 'var(--text-primary)', letterSpacing: '-0.02em' }}>{editUnit.name}</h2>
+                                                <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '6px 0 0' }}>Edit unit details</p>
+                                            </div>
+                                            <button
+                                                type="button"
+                                                className="btn btn-danger btn-sm"
+                                                onClick={() => setPendingDelete({ kind: 'unit', id: editUnit.id, label: editUnit.name })}
+                                            >
+                                                <span className="material-icons-round" style={{ fontSize: 14 }}>delete</span>
+                                                Remove unit
+                                            </button>
                                         </div>
-                                    </div>
-                                ) : filteredUnits.length === 0 ? (
-                                    /* ── Empty state ── */
-                                    <div style={{
-                                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                        minHeight: 260, padding: 32, borderRadius: 'var(--radius-lg, 12px)',
-                                        border: '1px dashed var(--border-default)', background: 'var(--surface-2)',
-                                    }}>
-                                        <div style={{ textAlign: 'center', maxWidth: 360, color: 'var(--text-muted)' }}>
-                                            <span className="material-icons-round" style={{ fontSize: 44, color: 'var(--text-disabled)', marginBottom: 12, display: 'block' }}>
-                                                {unitsSearch ? 'search_off' : 'grid_view'}
-                                            </span>
-                                            <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 6 }}>
-                                                {unitsSearch ? 'No matching units' : 'No units created yet'}
+
+                                        <div className="card" style={{ padding: '16px 18px', margin: 0, background: 'var(--surface-2)', border: '1px solid var(--border-subtle)', opacity: unitDetailLoading ? 0.88 : 1, transition: 'opacity 0.15s' }}>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+                                                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Unit details</div>
+                                                {unitDetailLoading ? (
+                                                    <span style={{ fontSize: 11, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                                                        <span className="material-icons-round" style={{ fontSize: 14 }}>hourglass_empty</span>
+                                                        Loading…
+                                                    </span>
+                                                ) : null}
                                             </div>
-                                            <div style={{ fontSize: 13, lineHeight: 1.5 }}>
-                                                {unitsSearch
-                                                    ? 'Try a different search term or clear the filter.'
-                                                    : 'Use the form above to add your first unit.'}
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, marginBottom: 6 }}>
+                                                <label className="label" htmlFor="unit-detail-name" style={{ marginBottom: 0 }}>Name</label>
+                                                <span style={{ fontSize: 11, color: 'var(--text-muted)', fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>
+                                                    {unitDetailName.length}/{DEPARTMENT_NAME_MAX_LENGTH}
+                                                </span>
                                             </div>
+                                            <input
+                                                id="unit-detail-name"
+                                                className="input"
+                                                value={unitDetailName}
+                                                maxLength={DEPARTMENT_NAME_MAX_LENGTH}
+                                                disabled={unitDetailLoading || savingUnitDetails}
+                                                onChange={e => setUnitDetailName(e.target.value.slice(0, DEPARTMENT_NAME_MAX_LENGTH))}
+                                                style={{ fontSize: 13, marginBottom: 12, boxSizing: 'border-box' }}
+                                            />
+                                            <label className="label" htmlFor="unit-detail-desc" style={{ marginBottom: 6 }}>Description</label>
+                                            <textarea
+                                                id="unit-detail-desc"
+                                                className="input"
+                                                value={unitDetailDescription}
+                                                maxLength={DEPARTMENT_DESCRIPTION_MAX_LENGTH}
+                                                disabled={unitDetailLoading || savingUnitDetails}
+                                                onChange={e => setUnitDetailDescription(e.target.value.slice(0, DEPARTMENT_DESCRIPTION_MAX_LENGTH))}
+                                                rows={3}
+                                                style={{ fontSize: 13, marginBottom: 8, minHeight: 72, resize: 'vertical', boxSizing: 'border-box' }}
+                                            />
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
+                                                <span style={{ fontSize: 11, color: 'var(--text-muted)', fontVariantNumeric: 'tabular-nums' }}>
+                                                    {unitDetailDescription.length}/{DEPARTMENT_DESCRIPTION_MAX_LENGTH}
+                                                </span>
+                                                <button
+                                                    type="button"
+                                                    className="btn btn-primary btn-sm"
+                                                    onClick={updateUnitDetails}
+                                                    disabled={!unitDetailsDirty || savingUnitDetails || unitDetailLoading}
+                                                >
+                                                    {savingUnitDetails ? 'Saving…' : 'Save details'}
+                                                </button>
+                                            </div>
+                                            {editUnit.department_name ? (
+                                                <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '14px 0 0', lineHeight: 1.45 }}>
+                                                    Linked department: <strong style={{ color: 'var(--text-secondary)' }}>{editUnit.department_name}</strong>
+                                                </p>
+                                            ) : null}
                                         </div>
                                     </div>
                                 ) : (
-                                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 10 }}>
-                                        {filteredUnits.map(u => (
-                                            <div
-                                                key={u.id}
-                                                className="fade-in"
-                                                style={{
-                                                    display: 'flex', alignItems: 'center', gap: 12,
-                                                    padding: '12px 14px',
-                                                    background: 'var(--surface-2)',
-                                                    border: '1px solid var(--border-subtle)',
-                                                    borderRadius: 'var(--radius-md)',
-                                                    transition: 'border-color 0.15s, box-shadow 0.15s',
-                                                }}
-                                                onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--helix-primary)'; e.currentTarget.style.boxShadow = '0 2px 8px rgba(30,58,95,0.08)'; }}
-                                                onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border-subtle)'; e.currentTarget.style.boxShadow = 'none'; }}
-                                            >
-                                                <span style={{
-                                                    width: 34, height: 34, borderRadius: 9,
-                                                    background: 'color-mix(in srgb, var(--helix-primary) 8%, transparent)',
-                                                    color: 'var(--helix-primary)',
-                                                    display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-                                                }}>
-                                                    <span className="material-icons-round" style={{ fontSize: 17 }}>medical_services</span>
-                                                </span>
-                                                <div style={{ flex: 1, minWidth: 0 }}>
-                                                    <div style={{
-                                                        fontSize: 13, fontWeight: 600, color: 'var(--text-primary)',
-                                                        whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-                                                    }}>{u.name}</div>
-                                                </div>
-                                                <button
-                                                    type="button"
-                                                    className="btn btn-ghost btn-sm"
-                                                    onClick={() => setPendingDelete({ kind: 'unit', id: u.id, label: u.name })}
-                                                    title="Remove unit"
-                                                    style={{ color: 'var(--text-muted)', flexShrink: 0, opacity: 0.5, transition: 'opacity 0.15s, color 0.15s' }}
-                                                    onMouseEnter={e => { e.currentTarget.style.opacity = '1'; e.currentTarget.style.color = 'var(--danger, #dc2626)'; }}
-                                                    onMouseLeave={e => { e.currentTarget.style.opacity = '0.5'; e.currentTarget.style.color = 'var(--text-muted)'; }}
-                                                >
-                                                    <span className="material-icons-round" style={{ fontSize: 15 }}>delete_outline</span>
-                                                </button>
-                                            </div>
-                                        ))}
+                                    <div
+                                        style={{
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            minHeight: 280,
+                                            padding: 32,
+                                            borderRadius: 'var(--radius-md)',
+                                            border: '1px dashed var(--border-default)',
+                                            background: 'var(--surface-2)',
+                                        }}
+                                    >
+                                        <div style={{ textAlign: 'center', maxWidth: 360, color: 'var(--text-muted)' }}>
+                                            <span className="material-icons-round" style={{ fontSize: 40, color: 'var(--text-disabled)', marginBottom: 12, display: 'block' }}>touch_app</span>
+                                            <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 6 }}>Choose a unit</div>
+                                            <div style={{ fontSize: 13, lineHeight: 1.5 }}>Select a unit on the left to edit details.</div>
+                                        </div>
                                     </div>
                                 )}
                             </section>
-                        ) : null}
+                        </div>
                     </div>
                 </main>
             </div>

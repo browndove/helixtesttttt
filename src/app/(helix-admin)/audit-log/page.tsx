@@ -21,7 +21,25 @@ type LogEntry = {
 };
 
 const entityTypes = ['All', 'staff', 'patient', 'role', 'department', 'facility'];
-const actionTypes = ['All', 'create', 'update', 'delete', 'sign_in', 'sign_out'];
+const actionTypes = ['All', 'create', 'update', 'delete', 'sign_in', 'sign_out', 'request_phone_update'];
+
+function splitActorDisplayName(actorName: string): { firstName: string; lastName: string } {
+    const parts = actorName.trim().split(/\s+/).filter(Boolean);
+    if (parts.length === 0) return { firstName: 'System', lastName: '' };
+    if (parts.length === 1) return { firstName: parts[0], lastName: '' };
+    return { firstName: parts[0], lastName: parts.slice(1).join(' ') };
+}
+
+function actorFirstLastFromRecord(rec: Record<string, unknown>, actor: Record<string, unknown>): { firstName: string; lastName: string } {
+    const fromActorName = asCleanString(rec.actor_name);
+    if (fromActorName) return splitActorDisplayName(fromActorName);
+    const fn = asCleanString(rec.first_name || actor.first_name);
+    const ln = asCleanString(rec.last_name || actor.last_name);
+    if (fn || ln) return { firstName: fn || 'System', lastName: ln };
+    const email = asCleanString(rec.actor_email || actor.email);
+    if (email) return { firstName: email, lastName: '' };
+    return { firstName: 'System', lastName: '' };
+}
 
 function prettify(value: string): string {
     return value
@@ -40,6 +58,83 @@ function parseJsonObject(value: unknown): Record<string, unknown> | null {
     } catch {
         return null;
     }
+}
+
+/** Backend sometimes wraps the real row under `record` / `payload` / etc. */
+function flattenAuditEntry(raw: unknown): Record<string, unknown> {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+    let acc: Record<string, unknown> = { ...(raw as Record<string, unknown>) };
+    for (const w of ['record', 'log_entry', 'audit_log', 'log', 'entry', 'item', 'attributes', 'payload'] as const) {
+        const inner = acc[w];
+        if (!inner || typeof inner !== 'object' || Array.isArray(inner)) continue;
+        acc = { ...acc, ...(inner as Record<string, unknown>) };
+    }
+    return acc;
+}
+
+const UUID_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/i;
+
+/** `staff (uuid)` / `staff: uuid` style placeholders are not a display name — skip so we can use metadata names. */
+function isUnhelpfulStaffTargetLabel(s: string): boolean {
+    const t = s.trim();
+    if (!t) return false;
+    if (new RegExp(`^staff\\s*\\(\\s*${UUID_RE.source}\\s*\\)\\s*$`, 'i').test(t)) return true;
+    if (new RegExp(`^staff:\\s*${UUID_RE.source}\\s*$`, 'i').test(t)) return true;
+    return false;
+}
+
+/** Merge JSON-ish audit fields so sparse `details` does not hide rich `metadata` (e.g. target_staff). Later keys win. */
+function mergeAuditDetailObjects(rec: Record<string, unknown>): Record<string, unknown> | null {
+    let acc: Record<string, unknown> | null = null;
+    for (const key of [
+        'details',
+        'description',
+        'message',
+        'meta',
+        'metadata',
+        'event_metadata',
+        'audit_metadata',
+        'properties',
+        'context',
+        'event_data',
+    ] as const) {
+        const o = parseJsonObject(rec[key]);
+        if (!o) continue;
+        if (!acc) acc = {};
+        for (const [k, v] of Object.entries(o)) {
+            acc[k] = v;
+        }
+    }
+    return acc;
+}
+
+function labelFromObjectSummary(raw: unknown): string {
+    const s = asCleanString(raw);
+    if (!s) return '';
+    const staff = s.match(/^staff:\s*(.+)$/i);
+    if (staff) {
+        const rest = staff[1].trim();
+        if (rest.includes('@')) return rest;
+        return getHumanLabel(rest) || rest;
+    }
+    const patient = s.match(/^patient:\s*(.+)$/i);
+    if (patient) {
+        const rest = patient[1].trim();
+        return getHumanLabel(rest) || rest;
+    }
+    if (isUnhelpfulStaffTargetLabel(s)) return '';
+    return getHumanLabel(s) ? s : '';
+}
+
+/** Best-effort parse of "... staff Jane Doe" from API display_message when metadata is missing. */
+function staffNameHintFromDisplayMessage(dm: string): string {
+    const s = dm.trim();
+    if (!s) return '';
+    const m = s.match(/\bstaff\s+([^.(\n]+)/i);
+    if (m) return m[1].trim();
+    const m2 = s.match(/\bfor\s+staff\s+([^.,\n]+)/i);
+    if (m2) return m2[1].trim();
+    return '';
 }
 
 function looksLikeIdentifier(value: string): boolean {
@@ -109,6 +204,22 @@ function collectDetailCandidates(detailsObj: Record<string, unknown> | null): Re
     return candidates;
 }
 
+function collectTargetStaffLikeRecords(detailsObj: Record<string, unknown> | null): Record<string, unknown>[] {
+    if (!detailsObj) return [];
+    const out: Record<string, unknown>[] = [];
+    const keys = ['target_staff', 'targetStaff', 'TargetStaff', 'subject_staff', 'subjectStaff', 'staff_member', 'staffMember'];
+    for (const k of keys) {
+        const raw = detailsObj[k];
+        if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+            out.push(raw as Record<string, unknown>);
+        } else if (typeof raw === 'string') {
+            const o = parseJsonObject(raw);
+            if (o) out.push(o);
+        }
+    }
+    return out;
+}
+
 function extractPersonLabel(rec: Record<string, unknown>): string {
     const first = asCleanString(rec.first_name) || asCleanString(rec.firstName);
     const last = asCleanString(rec.last_name) || asCleanString(rec.lastName);
@@ -124,11 +235,26 @@ function extractPersonLabel(rec: Record<string, unknown>): string {
     return '';
 }
 
+function summarizeMetadataChanges(changesRaw: unknown, max = 8): string {
+    if (!Array.isArray(changesRaw) || changesRaw.length === 0) return '';
+    const parts: string[] = [];
+    for (const c of changesRaw) {
+        if (parts.length >= max) break;
+        if (!c || typeof c !== 'object' || Array.isArray(c)) continue;
+        const ch = c as Record<string, unknown>;
+        const f = asCleanString(ch.field);
+        if (f) parts.push(prettify(f));
+    }
+    return parts.join(', ');
+}
+
 function staffLabelFromRecord(rec: Record<string, unknown>, detailsObj: Record<string, unknown> | null): string {
-    const candidates: Record<string, unknown>[] = [
-        rec,
-        ...collectDetailCandidates(detailsObj),
-    ];
+    const candidates: Record<string, unknown>[] = [];
+    candidates.push(...collectTargetStaffLikeRecords(detailsObj));
+    candidates.push(rec);
+    if (detailsObj) {
+        candidates.push(...collectDetailCandidates(detailsObj));
+    }
     for (const key of ['target', 'entity', 'resource', 'object', 'staff', 'user']) {
         const nested = getNestedRecord(rec, key);
         if (nested) candidates.push(nested);
@@ -142,14 +268,13 @@ function staffLabelFromRecord(rec: Record<string, unknown>, detailsObj: Record<s
 
 function staffLabelFromPayload(detailsObj: Record<string, unknown> | null): string {
     const candidates = collectDetailCandidates(detailsObj);
+    const staffLikes = collectTargetStaffLikeRecords(detailsObj);
+    for (let i = staffLikes.length - 1; i >= 0; i -= 1) {
+        candidates.unshift(staffLikes[i]);
+    }
     for (const rec of candidates) {
-        const first = asCleanString(rec.first_name);
-        const last = asCleanString(rec.last_name);
-        const full = [first, last].filter(Boolean).join(' ').trim();
-        const email = asCleanString(rec.email);
-        if (full && email) return `${full} (${email})`;
-        if (full) return full;
-        if (email) return email;
+        const label = extractPersonLabel(rec);
+        if (label) return label;
     }
     return '';
 }
@@ -159,22 +284,65 @@ function staffDetailsFallback(actionRaw: string, detailsObj: Record<string, unkn
     if (candidates.length === 0) return '';
     const first = candidates[0];
     const email = asCleanString(first.email);
+    const action = actionRaw.trim().toLowerCase();
+
+    if (action === 'request_phone_update' && detailsObj) {
+        const likes = collectTargetStaffLikeRecords(detailsObj);
+        const ts = likes[0] || getNestedRecord(detailsObj, 'target_staff');
+        const who = ts ? extractPersonLabel(ts) : extractPersonLabel(first);
+        const ttl = asCleanString(detailsObj.link_ttl_label);
+        const facility = asCleanString(detailsObj.facility_name);
+        const bits = [
+            who ? `Staff: ${who}` : '',
+            ttl ? `Link valid ${ttl}` : '',
+            facility ? facility : '',
+        ].filter(Boolean);
+        if (bits.length > 0) return bits.join(' · ');
+        return 'Phone update link requested';
+    }
+
     const updatedRaw = first.updated_fields;
     const updatedFields = Array.isArray(updatedRaw)
         ? updatedRaw.map(v => asCleanString(v)).filter(Boolean)
         : [];
 
-    if (actionRaw === 'update' && updatedFields.length > 0) {
+    if (action === 'update' && updatedFields.length > 0) {
         const label = updatedFields.map(prettify).join(', ');
         if (email) return `Updated fields: ${label} (${email})`;
         return `Updated fields: ${label}`;
     }
-    if (actionRaw === 'delete') {
+
+    const changesSummary = summarizeMetadataChanges(first.changes);
+    if (action === 'update' && changesSummary) {
+        if (email) return `Changes: ${changesSummary} (${email})`;
+        return `Changes: ${changesSummary}`;
+    }
+
+    if (action === 'delete') {
         return email ? `Staff record removed for ${email}` : 'Staff record removed';
     }
-    if (actionRaw === 'create') {
+    if (action === 'create') {
         return email ? `Staff record created for ${email}` : 'Staff record created';
     }
+    return '';
+}
+
+function roleDetailsFallback(actionRaw: string, detailsObj: Record<string, unknown> | null): string {
+    if (!detailsObj) return '';
+    const action = actionRaw.trim().toLowerCase();
+    const roleName = asCleanString(detailsObj.role_name);
+    const changesSummary = summarizeMetadataChanges(detailsObj.changes);
+    if (action === 'update' && changesSummary) {
+        return roleName ? `Role “${roleName}”: ${changesSummary}` : `Updated ${changesSummary}`;
+    }
+    if (roleName) return `Role: ${roleName}`;
+    return '';
+}
+
+function entityDetailsFallback(entityRaw: string, actionRaw: string, detailsObj: Record<string, unknown> | null): string {
+    const ek = String(entityRaw || '').trim().toLowerCase();
+    if (ek === 'staff') return staffDetailsFallback(actionRaw, detailsObj);
+    if (ek === 'role') return roleDetailsFallback(actionRaw, detailsObj);
     return '';
 }
 
@@ -214,8 +382,11 @@ function extractTargetIdFromRecord(rec: Record<string, unknown>, detailsObj: Rec
             obj.object_id,
             obj.subject_id,
             obj.staff_id,
+            getNestedRecord(obj, 'target_staff')?.id,
+            getNestedRecord(obj, 'targetStaff')?.id,
             obj.id,
         ]),
+        ...(detailsObj ? collectTargetStaffLikeRecords(detailsObj).map(o => o.id) : []),
     ]
         .map(asCleanString)
         .find(Boolean);
@@ -224,52 +395,76 @@ function extractTargetIdFromRecord(rec: Record<string, unknown>, detailsObj: Rec
 }
 
 function resolveTargetLabel(rec: Record<string, unknown>, entityRaw: string): { label: string; targetId: string } {
-    const detailsObj = parseJsonObject(rec.details)
-        || parseJsonObject(rec.description)
-        || parseJsonObject(rec.message)
-        || parseJsonObject(rec.metadata)
-        || parseJsonObject(rec.meta);
+    const row = flattenAuditEntry(rec);
+    const detailsObj = mergeAuditDetailObjects(row);
 
-    const targetObj = rec.target && typeof rec.target === 'object' && !Array.isArray(rec.target)
-        ? rec.target as Record<string, unknown>
+    const targetObj = row.target && typeof row.target === 'object' && !Array.isArray(row.target)
+        ? row.target as Record<string, unknown>
         : null;
-    const entityObj = rec.entity && typeof rec.entity === 'object' && !Array.isArray(rec.entity)
-        ? rec.entity as Record<string, unknown>
+    const entityObj = row.entity && typeof row.entity === 'object' && !Array.isArray(row.entity)
+        ? row.entity as Record<string, unknown>
         : null;
-    const resourceObj = rec.resource && typeof rec.resource === 'object' && !Array.isArray(rec.resource)
-        ? rec.resource as Record<string, unknown>
+    const resourceObj = row.resource && typeof row.resource === 'object' && !Array.isArray(row.resource)
+        ? row.resource as Record<string, unknown>
         : null;
-    const objectObj = rec.object && typeof rec.object === 'object' && !Array.isArray(rec.object)
-        ? rec.object as Record<string, unknown>
+    const objectObj = row.object && typeof row.object === 'object' && !Array.isArray(row.object)
+        ? row.object as Record<string, unknown>
         : null;
 
     const entityKey = String(entityRaw || '').trim().toLowerCase();
+    const actionKey = String(row.action || '').trim().toLowerCase();
     const isStaffEntity = entityKey === 'staff';
 
-    const label = [
-        (isStaffEntity ? staffLabelFromRecord(rec, detailsObj) : ''),
+    const labelParts = [
+        (isStaffEntity ? staffLabelFromRecord(row, detailsObj) : ''),
         (isStaffEntity ? staffLabelFromPayload(detailsObj) : ''),
-        getHumanLabel(rec.target_name),
-        getHumanLabel(rec.entity_name),
-        getHumanLabel(rec.resource_name),
-        getHumanLabel(rec.object_name),
-        getHumanLabel(rec.target),
-        getHumanLabel(rec.entity),
-        getHumanLabel(rec.resource),
-        getHumanLabel(rec.object),
+        (isStaffEntity ? labelFromObjectSummary(row.object_summary) : ''),
+        (isStaffEntity ? staffNameHintFromDisplayMessage(asCleanString(row.display_message)) : ''),
+        getHumanLabel(row.target_name),
+        getHumanLabel(row.entity_name),
+        getHumanLabel(row.resource_name),
+        getHumanLabel(row.object_name),
+        getHumanLabel(row.target),
+        getHumanLabel(row.entity),
+        getHumanLabel(row.resource),
+        getHumanLabel(row.object),
         extractNameFromObject(targetObj),
         extractNameFromObject(entityObj),
         extractNameFromObject(resourceObj),
         extractNameFromObject(objectObj),
         extractNameFromObject(detailsObj),
         ...collectDetailCandidates(detailsObj).map(extractNameFromObject),
-    ].find(Boolean) || '';
+    ];
 
-    const targetId = extractTargetIdFromRecord(rec, detailsObj);
+    let label = '';
+    for (const p of labelParts) {
+        const t = asCleanString(p);
+        if (!t) continue;
+        if (isStaffEntity && isUnhelpfulStaffTargetLabel(t)) continue;
+        label = t;
+        break;
+    }
+
+    const targetId = extractTargetIdFromRecord(row, detailsObj);
+    const entityDisplay = prettify(entityRaw) || 'Record';
+
+    /** Critical message ack rows: headline target is the message, not a role id / UUID / technical string from payload. */
+    const isCriticalMessageAck =
+        actionKey.includes('critical_message') && actionKey.includes('acknowledge');
+    const isMessageEntity = entityKey === 'message' || entityKey === 'messages';
+    if (isCriticalMessageAck || (isMessageEntity && actionKey.includes('critical'))) {
+        return { label: 'Message', targetId };
+    }
+    if (isMessageEntity && (!label || looksLikeIdentifier(label))) {
+        return { label: 'Message', targetId };
+    }
 
     if (label) return { label, targetId };
+    if (targetId && looksLikeIdentifier(targetId)) {
+        return { label: entityDisplay, targetId };
+    }
     if (targetId) return { label: targetId, targetId };
-    return { label: prettify(entityRaw), targetId: '' };
+    return { label: entityDisplay, targetId: '' };
 }
 
 function parseAuditPayload(raw: unknown): { logs: LogEntry[]; total: number } {
@@ -280,20 +475,15 @@ function parseAuditPayload(raw: unknown): { logs: LogEntry[]; total: number } {
 
     const entries = Array.isArray(list) ? list : [];
     const logs = entries.map((entry: unknown, idx): LogEntry => {
-        const rec = (entry && typeof entry === 'object') ? entry as Record<string, unknown> : {};
+        const rec = (entry && typeof entry === 'object') ? flattenAuditEntry(entry) : {};
+        const actionRaw = String(rec.action || 'update');
+        const entityRaw = String(rec.entity_type || rec.entityType || 'system');
         const actor = (rec.actor && typeof rec.actor === 'object')
             ? rec.actor as Record<string, unknown>
             : ((rec.user && typeof rec.user === 'object') ? rec.user as Record<string, unknown> : {});
-        const actionRaw = String(rec.action || 'update');
-        const entityRaw = String(rec.entity_type || 'system');
-        const firstName = String(rec.first_name || actor.first_name || 'System');
-        const lastName = String(rec.last_name || actor.last_name || '');
+        const { firstName, lastName } = actorFirstLastFromRecord(rec, actor);
         const ts = String(rec.timestamp || rec.created_at || new Date().toISOString());
-        const detailsObj = parseJsonObject(rec.details)
-            || parseJsonObject(rec.description)
-            || parseJsonObject(rec.message)
-            || parseJsonObject(rec.metadata)
-            || parseJsonObject(rec.meta);
+        const detailsObj = mergeAuditDetailObjects(rec);
         const details = [
             rec.display_message,
             detailsObj?.display_message,
@@ -301,9 +491,10 @@ function parseAuditPayload(raw: unknown): { logs: LogEntry[]; total: number } {
             rec.details,
             rec.description,
             rec.message,
-            (String(entityRaw || '').trim().toLowerCase() === 'staff' ? staffDetailsFallback(actionRaw, detailsObj) : ''),
+            asCleanString(rec.object_summary),
+            entityDetailsFallback(entityRaw, actionRaw, detailsObj),
         ]
-            .map(asCleanString)
+            .map(v => (typeof v === 'string' ? v.trim() : ''))
             .find(Boolean) || '';
         const ip = String(rec.ip || rec.ip_address || '-');
         const targetInfo = resolveTargetLabel(rec, entityRaw);

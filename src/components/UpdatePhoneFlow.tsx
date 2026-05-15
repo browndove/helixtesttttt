@@ -25,6 +25,98 @@ const IOS_BG = '#F2F2F7';
 const IOS_CARD = '#FFFFFF';
 const IOS_SEPARATOR = 'rgba(60, 60, 67, 0.12)';
 
+/** Scoped layout for /update-phone — mobile-first, safe areas, container queries. */
+const UPF_CSS = `
+.upf-shell {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
+  overflow-x: clip;
+  min-height: 100dvh;
+  min-height: 100svh;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+  touch-action: manipulation;
+  -webkit-overflow-scrolling: touch;
+  scroll-padding-bottom: max(12px, env(safe-area-inset-bottom, 0px));
+  padding:
+    max(12px, env(safe-area-inset-top, 0px))
+    max(12px, env(safe-area-inset-right, 0px))
+    max(20px, env(safe-area-inset-bottom, 0px))
+    max(12px, env(safe-area-inset-left, 0px));
+}
+@media (min-width: 480px) {
+  .upf-shell {
+    align-items: center;
+    justify-content: center;
+    padding:
+      max(20px, env(safe-area-inset-top, 0px))
+      max(16px, env(safe-area-inset-right, 0px))
+      max(24px, env(safe-area-inset-bottom, 0px))
+      max(16px, env(safe-area-inset-left, 0px));
+  }
+}
+.upf-card {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: min(400px, 100%);
+  margin-inline: auto;
+  container-type: inline-size;
+  container-name: upf;
+  padding: clamp(18px, 5.5vw, 28px) clamp(14px, 4.2vw, 20px) clamp(16px, 4.8vw, 24px);
+  background: rgba(255, 255, 255, 0.78);
+  backdrop-filter: saturate(180%) blur(24px);
+  -webkit-backdrop-filter: saturate(180%) blur(24px);
+  border-radius: clamp(16px, 4vw, 22px);
+  box-shadow: 0 20px 48px rgba(0, 0, 0, 0.1), 0 1px 0 rgba(255, 255, 255, 0.65) inset;
+  border: 0.5px solid ${IOS_SEPARATOR};
+}
+.upf-hero {
+  font-size: clamp(1.375rem, 5.8vw, 1.75rem);
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+.upf-greet {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+.upf-otp-row {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  align-items: stretch;
+  min-width: 0;
+}
+.upf-otp-btn {
+  width: 100%;
+  min-height: 50px;
+  flex-shrink: 0;
+}
+@container upf (min-width: 360px) {
+  .upf-otp-row {
+    flex-direction: row;
+    align-items: stretch;
+    gap: 10px;
+  }
+  .upf-otp-btn {
+    width: auto;
+    min-width: 112px;
+    flex: 0 0 auto;
+  }
+}
+`;
+
+function UpfChrome({ children }: { children: React.ReactNode }) {
+    return (
+        <>
+            <style>{UPF_CSS}</style>
+            {children}
+        </>
+    );
+}
+
 function apiMessage(data: Record<string, unknown>): string {
     return String(data.message || data.detail || data.error || '').trim() || 'Something went wrong. Please try again.';
 }
@@ -179,27 +271,11 @@ export default function UpdatePhoneFlow() {
         }
     };
 
-    const shell: CSSProperties = {
-        minHeight: '100dvh',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: '20px 16px max(24px, env(safe-area-inset-bottom))',
+    const shellSurface: CSSProperties = {
         background: `linear-gradient(165deg, #E8E8ED 0%, ${IOS_BG} 42%, #D9D9DE 100%)`,
         fontFamily: IOS_FONT,
         WebkitFontSmoothing: 'antialiased',
         MozOsxFontSmoothing: 'grayscale',
-    };
-    const card: CSSProperties = {
-        width: '100%',
-        maxWidth: 400,
-        background: 'rgba(255, 255, 255, 0.78)',
-        backdropFilter: 'saturate(180%) blur(24px)',
-        WebkitBackdropFilter: 'saturate(180%) blur(24px)',
-        borderRadius: 22,
-        padding: '28px 20px 24px',
-        boxShadow: '0 20px 48px rgba(0, 0, 0, 0.1), 0 1px 0 rgba(255, 255, 255, 0.65) inset',
-        border: `0.5px solid ${IOS_SEPARATOR}`,
     };
     const sectionKicker: CSSProperties = {
         fontSize: 13,
@@ -223,6 +299,8 @@ export default function UpdatePhoneFlow() {
         padding: 14,
         background: 'rgba(242, 242, 247, 0.95)',
         marginBottom: 14,
+        minWidth: 0,
+        maxWidth: '100%',
     };
     const fieldLabel: CSSProperties = {
         display: 'block',
@@ -264,29 +342,33 @@ export default function UpdatePhoneFlow() {
 
     if (prefillLoading) {
         return (
-            <div style={shell}>
-                <div style={card}>
-                    <p style={{ margin: '0 0 8px', fontSize: 13, fontWeight: 600, color: IOS_SECONDARY }}>One moment</p>
-                    <p style={{ margin: 0, fontSize: 17, fontWeight: 600, color: IOS_LABEL, letterSpacing: '-0.02em' }}>
-                        Making sure your link still works…
-                    </p>
+            <UpfChrome>
+                <div className="upf-shell" style={shellSurface}>
+                    <div className="upf-card">
+                        <p style={{ margin: '0 0 8px', fontSize: 13, fontWeight: 600, color: IOS_SECONDARY }}>One moment</p>
+                        <p style={{ margin: 0, fontSize: 17, fontWeight: 600, color: IOS_LABEL, letterSpacing: '-0.02em' }}>
+                            Making sure your link still works…
+                        </p>
+                    </div>
                 </div>
-            </div>
+            </UpfChrome>
         );
     }
 
     if (!prefill || prefill.valid === false) {
         return (
-            <div style={shell}>
-                <div style={card}>
-                    <h1 style={{ fontSize: 22, fontWeight: 700, margin: '0 0 12px', color: IOS_LABEL, letterSpacing: '-0.03em' }}>
-                        We could not open that link
-                    </h1>
-                    <p style={{ margin: 0, fontSize: 16, color: IOS_SECONDARY, lineHeight: 1.45, letterSpacing: '-0.01em' }}>
-                        {prefill && 'message' in prefill ? prefill.message : 'That link does not look right. Ask your administrator to send you a new one.'}
-                    </p>
+            <UpfChrome>
+                <div className="upf-shell" style={shellSurface}>
+                    <div className="upf-card">
+                        <h1 className="upf-hero" style={{ fontWeight: 700, margin: '0 0 12px', color: IOS_LABEL, letterSpacing: '-0.03em' }}>
+                            We could not open that link
+                        </h1>
+                        <p style={{ margin: 0, fontSize: 16, color: IOS_SECONDARY, lineHeight: 1.45, letterSpacing: '-0.01em' }}>
+                            {prefill && 'message' in prefill ? prefill.message : 'That link does not look right. Ask your administrator to send you a new one.'}
+                        </p>
+                    </div>
                 </div>
-            </div>
+            </UpfChrome>
         );
     }
 
@@ -295,61 +377,65 @@ export default function UpdatePhoneFlow() {
 
     if (successMsg) {
         return (
-            <div style={shell}>
-                <div style={card}>
-                    <div
-                        style={{
-                            width: 52,
-                            height: 52,
-                            borderRadius: '50%',
-                            background: 'rgba(52, 199, 89, 0.15)',
-                            display: 'grid',
-                            placeItems: 'center',
-                            marginBottom: 16,
-                            fontSize: 26,
-                        }}
-                        aria-hidden
-                    >
-                        ✓
+            <UpfChrome>
+                <div className="upf-shell" style={shellSurface}>
+                    <div className="upf-card">
+                        <div
+                            style={{
+                                width: 52,
+                                height: 52,
+                                borderRadius: '50%',
+                                background: 'rgba(52, 199, 89, 0.15)',
+                                display: 'grid',
+                                placeItems: 'center',
+                                marginBottom: 16,
+                                fontSize: 26,
+                            }}
+                            aria-hidden
+                        >
+                            ✓
+                        </div>
+                        <h1 className="upf-hero" style={{ fontWeight: 700, margin: '0 0 10px', color: IOS_LABEL, letterSpacing: '-0.04em' }}>
+                            All set
+                        </h1>
+                        <p style={{ margin: '0 0 24px', fontSize: 16, color: IOS_SECONDARY, lineHeight: 1.45, letterSpacing: '-0.01em' }}>{successMsg}</p>
+                        <Link
+                            href="/login"
+                            style={{
+                                ...btnPrimary,
+                                width: '100%',
+                                textDecoration: 'none',
+                                boxSizing: 'border-box',
+                            }}
+                        >
+                            Continue to sign in
+                        </Link>
                     </div>
-                    <h1 style={{ fontSize: 28, fontWeight: 700, margin: '0 0 10px', color: IOS_LABEL, letterSpacing: '-0.04em' }}>
-                        All set
-                    </h1>
-                    <p style={{ margin: '0 0 24px', fontSize: 16, color: IOS_SECONDARY, lineHeight: 1.45, letterSpacing: '-0.01em' }}>{successMsg}</p>
-                    <Link
-                        href="/login"
-                        style={{
-                            ...btnPrimary,
-                            width: '100%',
-                            textDecoration: 'none',
-                            boxSizing: 'border-box',
-                        }}
-                    >
-                        Continue to sign in
-                    </Link>
                 </div>
-            </div>
+            </UpfChrome>
         );
     }
 
     return (
-        <div style={shell}>
-            <div style={card}>
+        <UpfChrome>
+            <div className="upf-shell" style={shellSurface}>
+                <div className="upf-card">
                 <p style={{ ...sectionKicker, marginBottom: 2 }}>This link is ready</p>
-                <h1 style={{ fontSize: 28, fontWeight: 700, margin: '0 0 16px', color: IOS_LABEL, letterSpacing: '-0.04em', lineHeight: 1.1 }}>
+                <h1 className="upf-hero" style={{ fontWeight: 700, margin: '0 0 16px', color: IOS_LABEL, letterSpacing: '-0.04em', lineHeight: 1.1 }}>
                     Update your phone
                 </h1>
 
                 <div
                     style={{
                         borderRadius: 14,
-                        padding: '14px 16px',
+                        padding: 'clamp(12px, 3.5vw, 14px) clamp(12px, 3.8vw, 16px)',
                         marginBottom: 20,
                         background: 'rgba(0, 122, 255, 0.09)',
                         border: '0.5px solid rgba(0, 122, 255, 0.18)',
+                        minWidth: 0,
                     }}
                 >
-                    <p style={{ margin: 0, fontSize: 17, fontWeight: 600, color: IOS_LABEL, letterSpacing: '-0.02em' }}>
+                    <p className="upf-greet" style={{ margin: 0, fontSize: 17, fontWeight: 600, color: IOS_LABEL, letterSpacing: '-0.02em' }}>
                         Hi {first}
                         {ok.facility_name ? (
                             <span style={{ fontWeight: 500, color: IOS_SECONDARY }}>
@@ -397,7 +483,13 @@ export default function UpdatePhoneFlow() {
                             <span id="update-phone-country-label" style={fieldLabel}>
                                 Country or region
                             </span>
-                            <CustomSelect value={phoneCountry} onChange={setPhoneCountry} options={countryOptions} placeholder="Choose your country" />
+                            <CustomSelect
+                                value={phoneCountry}
+                                onChange={setPhoneCountry}
+                                options={countryOptions}
+                                placeholder="Choose your country"
+                                style={{ width: '100%', minHeight: 48, fontSize: 16, boxSizing: 'border-box' }}
+                            />
                         </div>
                         <div style={{ marginBottom: 12 }}>
                             <label htmlFor="update-phone-local" style={fieldLabel}>
@@ -422,7 +514,7 @@ export default function UpdatePhoneFlow() {
                                 <span
                                     aria-hidden
                                     style={{
-                                        padding: '0 14px',
+                                        padding: '0 clamp(10px, 3.2vw, 14px)',
                                         display: 'flex',
                                         alignItems: 'center',
                                         flexShrink: 0,
@@ -488,6 +580,7 @@ export default function UpdatePhoneFlow() {
                     style={{
                         ...btnSecondary,
                         marginBottom: 22,
+                        boxSizing: 'border-box',
                         ...(!phoneReady || requestingOtp || otpCooldownSeconds > 0 || !token ? btnPrimaryDisabled : {}),
                     }}
                     onClick={() => { void handleRequestOtp(); }}
@@ -505,7 +598,7 @@ export default function UpdatePhoneFlow() {
                         <label htmlFor="update-phone-otp" style={{ ...fieldLabel, marginBottom: 8 }}>
                             6-digit code
                         </label>
-                        <div style={{ display: 'flex', gap: 10, alignItems: 'stretch' }}>
+                        <div className="upf-otp-row">
                             <input
                                 id="update-phone-otp"
                                 ref={otpInputRef}
@@ -517,6 +610,8 @@ export default function UpdatePhoneFlow() {
                                 onChange={e => setSmsOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
                                 style={{
                                     flex: 1,
+                                    minWidth: 0,
+                                    width: '100%',
                                     letterSpacing: '0.22em',
                                     textAlign: 'center',
                                     fontSize: 20,
@@ -529,13 +624,15 @@ export default function UpdatePhoneFlow() {
                                     background: '#fff',
                                     outline: 'none',
                                     paddingLeft: '0.22em',
+                                    boxSizing: 'border-box',
                                 }}
                             />
                             <button
                                 type="button"
+                                className="upf-otp-btn"
                                 style={{
                                     ...btnPrimary,
-                                    minWidth: 112,
+                                    boxSizing: 'border-box',
                                     ...(confirming || smsOtp.replace(/\D/g, '').length !== 6 || !phoneReady || !token ? btnPrimaryDisabled : {}),
                                 }}
                                 onClick={() => { void handleConfirm(); }}
@@ -546,7 +643,8 @@ export default function UpdatePhoneFlow() {
                         </div>
                     </div>
                 </section>
+                </div>
             </div>
-        </div>
+        </UpfChrome>
     );
 }

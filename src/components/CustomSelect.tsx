@@ -171,14 +171,28 @@ export default function CustomSelect({
         document.body
     ) : null;
 
+    const wrapperStyle: React.CSSProperties = {
+        position: 'relative',
+        minWidth: 0,
+        ...(style && style.width !== undefined ? { width: style.width } : {}),
+    };
+    const triggerStyle: React.CSSProperties = {
+        ...btnStyle,
+        ...(style || {}),
+        width: '100%',
+    };
+    if (triggerStyle.minHeight !== undefined && triggerStyle.minHeight !== null) {
+        triggerStyle.height = 'auto';
+    }
+
     return (
-        <div style={{ position: 'relative', ...style }}>
+        <div style={wrapperStyle}>
             <button
                 ref={btnRef}
                 type="button"
                 title={allowCustom ? 'Open to pick from the list or type your own value' : undefined}
                 onClick={() => { if (!open) updatePos(); setOpen(p => !p); }}
-                style={btnStyle}
+                style={triggerStyle}
             >
                 <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
                     {sel ? sel.label : (value || placeholder)}
