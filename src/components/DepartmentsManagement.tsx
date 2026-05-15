@@ -82,6 +82,7 @@ export default function DepartmentsManagement() {
     const [unitDetailDescription, setUnitDetailDescription] = useState('');
     const [unitDetailLoading, setUnitDetailLoading] = useState(false);
     const [savingUnitDetails, setSavingUnitDetails] = useState(false);
+    const [deleteInProgress, setDeleteInProgress] = useState(false);
     const [loading, setLoading] = useState(true);
     const [deptSearch, setDeptSearch] = useState('');
     const [detailName, setDetailName] = useState('');
@@ -477,19 +478,23 @@ export default function DepartmentsManagement() {
         setAddingUnit(false);
     };
 
-    const removeUnit = async (unitId: string) => {
-        const unit = units.find(u => u.id === unitId);
+    const removeUnit = useCallback(async (unitId: string): Promise<boolean> => {
+        const unit = unitsRef.current.find(u => u.id === unitId);
         try {
             const res = await fetch(`/api/proxy/units/${unitId}`, { method: 'DELETE' });
-            if (res.ok) {
+            if (res.ok || res.status === 204) {
                 setUnits(prev => prev.filter(u => u.id !== unitId));
-                showToast(`${unit?.name || 'Unit'} removed`);
-                if (editingUnit === unitId) setEditingUnit(null);
-            } else {
-                showToast('Failed to remove unit');
+                showToast(`${unit?.name || 'Unit'} deleted`);
+                setEditingUnit(prev => (prev === unitId ? null : prev));
+                return true;
             }
-        } catch { showToast('Failed to remove unit'); }
-    };
+            const err = await res.json().catch(() => ({} as { error?: string; detail?: string; message?: string }));
+            showToast(String(err.error || err.detail || err.message || 'Failed to delete unit'));
+        } catch {
+            showToast('Failed to delete unit');
+        }
+        return false;
+    }, [showToast]);
 
     const updateUnitDetails = async () => {
         const u = units.find(x => x.id === editingUnit);
@@ -557,14 +562,20 @@ export default function DepartmentsManagement() {
 
     const confirmPendingDelete = useCallback(async () => {
         const pending = pendingDelete;
-        if (!pending) return;
-        setPendingDelete(null);
-        if (pending.kind === 'department') {
-            await removeDepartment(pending.id);
-            return;
+        if (!pending || deleteInProgress) return;
+        setDeleteInProgress(true);
+        try {
+            if (pending.kind === 'department') {
+                await removeDepartment(pending.id);
+            } else {
+                const ok = await removeUnit(pending.id);
+                if (!ok) return;
+            }
+            setPendingDelete(null);
+        } finally {
+            setDeleteInProgress(false);
         }
-        await removeUnit(pending.id);
-    }, [pendingDelete, removeDepartment, removeUnit]);
+    }, [pendingDelete, deleteInProgress, removeUnit]);
 
     /** Helix API has no POST /departments/{id}/floors — floor count is updated incrementally on the department (PUT). */
     const putDepartmentFloorCount = async (deptId: string, nextCount: number): Promise<boolean> => {
@@ -1065,7 +1076,8 @@ export default function DepartmentsManagement() {
                                                             type="button"
                                                             className="btn btn-ghost btn-sm"
                                                             onClick={() => setPendingDelete({ kind: 'unit', id: u.id, label: u.name })}
-                                                            title="Remove unit"
+                                                            title="Delete unit"
+                                                            aria-label={`Delete ${u.name}`}
                                                             style={{ color: 'var(--danger, #dc2626)' }}
                                                         >
                                                             <span className="material-icons-round" style={{ fontSize: 14 }}>delete</span>
@@ -1182,7 +1194,7 @@ export default function DepartmentsManagement() {
                                                 onClick={() => setPendingDelete({ kind: 'unit', id: editUnit.id, label: editUnit.name })}
                                             >
                                                 <span className="material-icons-round" style={{ fontSize: 14 }}>delete</span>
-                                                Remove unit
+                                                Delete unit
                                             </button>
                                         </div>
 
@@ -1308,8 +1320,8 @@ export default function DepartmentsManagement() {
                             <button type="button" className="btn btn-ghost btn-sm" onClick={() => setPendingDelete(null)}>
                                 Cancel
                             </button>
-                            <button type="button" className="btn btn-danger btn-sm" onClick={confirmPendingDelete}>
-                                Delete
+                            <button type="button" className="btn btn-danger btn-sm" onClick={confirmPendingDelete} disabled={deleteInProgress}>
+                                {deleteInProgress ? 'Deleting…' : 'Delete'}
                             </button>
                         </div>
                     </div>
