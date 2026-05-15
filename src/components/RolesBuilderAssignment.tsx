@@ -12,7 +12,11 @@ import {
     MIN_ESCALATION_DELAY_SEC,
     secondsToDelay,
 } from '@/lib/escalation-delays';
-import { escalationTargetsConflict } from '@/lib/role-escalation-ladder';
+import {
+    ladderLevelsToPolicyPayload,
+    policyToLadderLevels,
+} from '@/lib/escalation-policy-ladder';
+import { escalationTargetsConflict, findNonCriticalEscalationTarget, isCriticalRole } from '@/lib/role-escalation-ladder';
 import {
     ROLES_CACHE_DEPTS,
     ROLES_CACHE_HOSPITAL,
@@ -56,17 +60,6 @@ function extractPolicies(raw: unknown): Policy[] {
     const obj = raw as Record<string, unknown>;
     const list = obj.data ?? obj.items ?? obj.policies ?? obj.results;
     return Array.isArray(list) ? (list as Policy[]) : [];
-}
-
-function stepsToLevels(steps: EscalationStep[], roleNameMap?: Map<string, string>): EscalationLevel[] {
-    return steps
-        .slice()
-        .sort((a, b) => a.step_order - b.step_order)
-        .map((s, i) => ({
-            level: i + 1,
-            target: s.target_role_name || (roleNameMap?.get(s.target_role_id) ?? ''),
-            delay: secondsToDelay(s.timeout_seconds),
-        }));
 }
 
 type RoutingRule = {
@@ -639,7 +632,15 @@ export default function RolesBuilderAssignment() {
                     const prevById = new Map(prev.map(x => [x.id, x]));
                     const mapped = rolesArr.map((r: Role & { department_id?: string; department_name?: string; department?: unknown }) => {
                     const policy = policyByRole.get(r.id);
-                    const policyLevels = policy ? stepsToLevels(policy.steps || [], roleNameMap) : [];
+                    const policyLevels = policy
+                        ? policyToLadderLevels(
+                            policy.role_id,
+                            r.name,
+                            policy.initial_timeout_seconds,
+                            policy.steps || [],
+                            roleNameMap,
+                        )
+                        : [];
                     const deptResolved = resolveRoleDepartment(r as unknown as Record<string, unknown>, deptMap);
                         const raw = r as unknown as Record<string, unknown>;
                         const fromApi = readIsTransferRoleFromRaw(raw);
@@ -898,7 +899,9 @@ export default function RolesBuilderAssignment() {
                             return roleId ? { target_role_id: roleId, tr } : null;
                         })
                         .filter((row): row is { target_role_id: string; tr: (typeof selectedTemplate.roles)[number] } => Boolean(row));
-                    const steps = stepRows.map((row, idx, arr) => ({
+                    // Level 1 is the policy primary role; only subsequent roles are escalation steps.
+                    const escalationRows = stepRows.slice(1);
+                    const steps = escalationRows.map((row, idx, arr) => ({
                         target_role_id: row.target_role_id,
                         timeout_seconds: arr.length > 1 && idx === arr.length - 1
                             ? MIN_ESCALATION_DELAY_SEC
@@ -956,29 +959,30 @@ export default function RolesBuilderAssignment() {
             const ladderLevels = clampEscalationLevels(newEscLevels);
             let policyLevels = ladderLevels;
             if (withEscalations && newRoleMandatory && ladderLevels.length > 0) {
+                const nonCriticalTarget = findNonCriticalEscalationTarget(ladderLevels, roles);
+                if (nonCriticalTarget) {
+                    showToast(`"${nonCriticalTarget}" is not Critical. Only Critical roles can be in an escalation ladder.`);
+                    return;
+                }
+                const { initial_timeout_seconds, steps } = ladderLevelsToPolicyPayload(
+                    ladderLevels,
+                    role.id,
+                    fullRoleName,
+                    (targetName) => {
+                        if (targetName.trim().toLowerCase() === fullRoleName.trim().toLowerCase()) return role.id;
+                        return criticalRoles.find(r => r.name === targetName)?.id;
+                    },
+                );
                 const policyRes = await fetch('/api/proxy/escalation-policies', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         role_id: role.id,
-                        initial_timeout_seconds: clampEscalationDelaySeconds(delayToSeconds(ladderLevels[0]?.delay || '3 min')),
+                        initial_timeout_seconds,
                     }),
                 });
                 if (policyRes.ok) {
                     const policy = await policyRes.json();
-                    const sortedLadder = ladderLevels.filter(l => l.target).sort((a, b) => a.level - b.level);
-                    const steps = sortedLadder
-                        .map((l, idx, arr) => {
-                            const match = roles.find(r => r.name === l.target);
-                            return {
-                                target_role_id: match?.id || '',
-                                target_role_name: l.target,
-                                timeout_seconds: arr.length > 1 && idx === arr.length - 1
-                                    ? MIN_ESCALATION_DELAY_SEC
-                                    : clampEscalationDelaySeconds(delayToSeconds(l.delay)),
-                            };
-                        })
-                        .filter(s => s.target_role_id);
                     if (steps.length > 0) {
                         await fetch(`/api/proxy/escalation-policies/${policy.id}/steps/bulk`, {
                             method: 'POST',
@@ -986,12 +990,17 @@ export default function RolesBuilderAssignment() {
                             body: JSON.stringify({ steps }),
                         });
                     }
-                    // Re-fetch policy to get steps with IDs
                     const updatedPolicyRes = await fetch(`/api/proxy/escalation-policies/by-role/${role.id}`);
                     if (updatedPolicyRes.ok) {
                         const updatedPolicy = await updatedPolicyRes.json();
-                        const roleNameMap = new Map(roles.map(r => [r.id, r.name]));
-                        policyLevels = stepsToLevels(updatedPolicy.steps || [], roleNameMap);
+                        const roleNameMap = new Map([...roles, { id: role.id, name: fullRoleName } as Role].map(r => [r.id, r.name]));
+                        policyLevels = policyToLadderLevels(
+                            role.id,
+                            fullRoleName,
+                            updatedPolicy.initial_timeout_seconds ?? initial_timeout_seconds,
+                            updatedPolicy.steps || [],
+                            roleNameMap,
+                        );
                     }
                 }
             }
@@ -1180,7 +1189,23 @@ export default function RolesBuilderAssignment() {
                 } catch { /* best effort */ }
                 finalLevels = [];
             } else if (withEscalations && ladderLevels.length > 0) {
-                // Check if a policy already exists for this role
+                const nonCriticalTarget = findNonCriticalEscalationTarget(ladderLevels, roles);
+                if (nonCriticalTarget) {
+                    showToast(`"${nonCriticalTarget}" is not Critical. Only Critical roles can be in an escalation ladder.`);
+                    setEditSaving(false);
+                    return;
+                }
+                const editRoleFullName = buildRoleName(editPrefix, editName);
+                const { initial_timeout_seconds, steps } = ladderLevelsToPolicyPayload(
+                    ladderLevels,
+                    editingRole.id,
+                    editRoleFullName,
+                    (targetName) => {
+                        if (targetName.trim().toLowerCase() === editRoleFullName.trim().toLowerCase()) return editingRole.id;
+                        return criticalRoles.find(r => r.name === targetName)?.id;
+                    },
+                );
+
                 const existingPolicyRes = await fetch(`/api/proxy/escalation-policies/by-role/${editingRole.id}`);
                 let policyId: string | null = null;
 
@@ -1188,15 +1213,11 @@ export default function RolesBuilderAssignment() {
                     const existingPolicy = await existingPolicyRes.json();
                     if (existingPolicy?.id) {
                         policyId = existingPolicy.id;
-                        // Update timeout
                         await fetch(`/api/proxy/escalation-policies/${policyId}`, {
                             method: 'PUT',
                             headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({
-                                initial_timeout_seconds: clampEscalationDelaySeconds(delayToSeconds(ladderLevels[0]?.delay || '3 min')),
-                            }),
+                            body: JSON.stringify({ initial_timeout_seconds }),
                         });
-                        // Delete old steps
                         if (existingPolicy.steps) {
                             for (const step of existingPolicy.steps) {
                                 await fetch(`/api/proxy/escalation-policies/${policyId}/steps/${step.id}`, { method: 'DELETE' });
@@ -1205,14 +1226,13 @@ export default function RolesBuilderAssignment() {
                     }
                 }
 
-                // Create new policy if none exists
                 if (!policyId) {
                     const policyRes = await fetch('/api/proxy/escalation-policies', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
                             role_id: editingRole.id,
-                            initial_timeout_seconds: clampEscalationDelaySeconds(delayToSeconds(ladderLevels[0]?.delay || '3 min')),
+                            initial_timeout_seconds,
                         }),
                     });
                     if (policyRes.ok) {
@@ -1221,21 +1241,7 @@ export default function RolesBuilderAssignment() {
                     }
                 }
 
-                // Bulk add new steps
                 if (policyId) {
-                    const sortedLadder = ladderLevels.filter(l => l.target).sort((a, b) => a.level - b.level);
-                    const steps = sortedLadder
-                        .map((l, idx, arr) => {
-                            const match = roles.find(r => r.name === l.target);
-                            return {
-                                target_role_id: match?.id || '',
-                                target_role_name: l.target,
-                                timeout_seconds: arr.length > 1 && idx === arr.length - 1
-                                    ? MIN_ESCALATION_DELAY_SEC
-                                    : clampEscalationDelaySeconds(delayToSeconds(l.delay)),
-                            };
-                        })
-                        .filter(s => s.target_role_id);
                     if (steps.length > 0) {
                         await fetch(`/api/proxy/escalation-policies/${policyId}/steps/bulk`, {
                             method: 'POST',
@@ -1243,12 +1249,17 @@ export default function RolesBuilderAssignment() {
                             body: JSON.stringify({ steps }),
                         });
                     }
-                    // Re-fetch to get fresh steps
                     const refreshRes = await fetch(`/api/proxy/escalation-policies/by-role/${editingRole.id}`);
                     if (refreshRes.ok) {
                         const refreshed = await refreshRes.json();
                         const roleNameMap = new Map(roles.map(r => [r.id, r.name]));
-                        finalLevels = stepsToLevels(refreshed.steps || [], roleNameMap);
+                        finalLevels = policyToLadderLevels(
+                            editingRole.id,
+                            editRoleFullName,
+                            refreshed.initial_timeout_seconds ?? initial_timeout_seconds,
+                            refreshed.steps || [],
+                            roleNameMap,
+                        );
                     }
                 }
             }
@@ -1283,18 +1294,20 @@ export default function RolesBuilderAssignment() {
         setEditSaving(false);
     };
 
+    const criticalRoles = useMemo(() => roles.filter(isCriticalRole), [roles]);
+
     const roleTargetOptions = useMemo(() => {
-        const names = roles.map(r => r.name).filter(Boolean);
-        return names.length > 0 ? Array.from(new Set(names)) : escalationTargetOptions;
-    }, [roles]);
+        const names = criticalRoles.map(r => r.name).filter(Boolean);
+        return names.length > 0 ? Array.from(new Set(names)) : [];
+    }, [criticalRoles]);
 
     const roleNameToIdLowerForEscalation = useMemo(() => {
         const m = new Map<string, string>();
-        for (const r of roles) {
+        for (const r of criticalRoles) {
             if (r.name?.trim()) m.set(r.name.trim().toLowerCase(), r.id);
         }
         return m;
-    }, [roles]);
+    }, [criticalRoles]);
 
     const editEscalationLevelCount = useMemo(() => {
         if (!editingRole) return 0;
@@ -1459,7 +1472,7 @@ export default function RolesBuilderAssignment() {
                 <div style={{ marginBottom: 2 }}>
                     <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 2 }}>Escalation Ladder</div>
                     <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-                        Level 1 is always this role (primary receiver). Use <strong style={{ fontWeight: 600, color: 'var(--text-secondary)' }}>Add escalation level</strong> below to add each further target (up to three levels total). Each role can only appear once in the chain (including the same role under a different facility prefix).
+                        Level 1 is always this role (primary receiver). Use <strong style={{ fontWeight: 600, color: 'var(--text-secondary)' }}>Add escalation level</strong> below for each further <strong style={{ fontWeight: 600, color: 'var(--text-secondary)' }}>Critical</strong> target (up to three levels total). Standard roles cannot be added to escalation ladders.
                     </div>
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
@@ -1514,7 +1527,8 @@ export default function RolesBuilderAssignment() {
                                             || !escalationTargetsConflict(t, occupiedForRow, roleNameToIdLowerForEscalation)
                                         )).map(t => ({ label: t, value: t }))}
                                         placeholder="-- Select Role --"
-                                        style={{ flex: 1 }}
+                                        style={{ flex: 1, minWidth: 200 }}
+                                        dropdownMinWidth={380}
                                     />
                                 )}
                                 {hideDelayRow ? (
@@ -1536,10 +1550,11 @@ export default function RolesBuilderAssignment() {
                                     }}
                                         options={ESCALATION_DELAY_OPTIONS.map(d => ({ label: d, value: d }))}
                                     placeholder="Delay"
-                                    style={{ width: 100 }}
-                                    maxH={160}
+                                    style={{ width: 112, minWidth: 112 }}
+                                    maxH={200}
                                     allowCustom
-                                    customPlaceholder="e.g. 45 sec, 2 min, 1 hr"
+                                    customPlaceholder="e.g. 45 sec, 2 min"
+                                    dropdownMinWidth={260}
                                 />
                                 )}
                                 {(
@@ -2551,7 +2566,9 @@ export default function RolesBuilderAssignment() {
                                                                 {lvl.target}
                                                                 {isCurrentRole && <span style={{ fontSize: 10, fontWeight: 400, marginLeft: 6, color: 'var(--text-muted)' }}>(this role)</span>}
                                                             </span>
-                                                            <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>+{lvl.delay}</span>
+                                                            {i < arr.length - 1 ? (
+                                                                <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>+{lvl.delay}</span>
+                                                            ) : null}
                                                         </div>
                                                     </div>
                                                 );

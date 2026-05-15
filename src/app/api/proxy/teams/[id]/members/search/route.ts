@@ -1,4 +1,5 @@
 import { getProxyHeaders } from '@/lib/proxy-auth';
+import { ensureFacilityOnUrl } from '@/lib/proxy-upstream';
 import { NextRequest, NextResponse } from 'next/server';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3000';
@@ -11,12 +12,15 @@ export async function GET(
     try {
         const { id } = await params;
         const { searchParams } = new URL(req.url);
-        const url = new URL(`${API_BASE_URL}/api/v1/teams/${id}/members/search`);
+        let url = new URL(`${API_BASE_URL}/api/v1/teams/${id}/members/search`);
 
-        // Forward all query params (e.g. search query)
         searchParams.forEach((value, key) => {
-            url.searchParams.set(key, value);
+            if (key !== 'facility_id') url.searchParams.set(key, value);
         });
+
+        const withFacility = await ensureFacilityOnUrl(req, API_BASE_URL, url);
+        if (withFacility instanceof NextResponse) return withFacility;
+        url = withFacility;
 
         console.log('Proxy search team members request to:', url.toString());
 

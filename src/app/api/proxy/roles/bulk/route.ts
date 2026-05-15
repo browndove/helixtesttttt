@@ -1,5 +1,6 @@
 import { getProxyHeaders } from '@/lib/proxy-auth';
 import { NextRequest, NextResponse } from 'next/server';
+import { buildTenantUpstreamUrl, mergeFacilityIntoBody } from '@/lib/proxy-upstream';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3000';
 
@@ -7,8 +8,11 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3
 export async function POST(req: NextRequest) {
     try {
         const contentType = req.headers.get('content-type') || '';
-        const url = `${API_BASE_URL}/api/v1/roles/bulk`;
+        const upstream = await buildTenantUpstreamUrl(req, API_BASE_URL, `/api/v1/roles/bulk`);
 
+        if (upstream instanceof NextResponse) return upstream;
+
+        const { url } = upstream;
         console.log('Proxy bulk create roles request to:', url);
 
         let res;

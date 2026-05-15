@@ -1,6 +1,7 @@
 import { getProxyHeaders } from '@/lib/proxy-auth';
 import { resolveFacilityId } from '@/lib/proxy-facility';
 import { NextRequest, NextResponse } from 'next/server';
+import { buildTenantUpstreamUrl, mergeFacilityIntoBody } from '@/lib/proxy-upstream';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3000';
 
@@ -68,8 +69,11 @@ export async function GET(
 ) {
     try {
         const { id } = await params;
-        const url = `${API_BASE_URL}/api/v1/roles/${id}`;
+        const upstream = await buildTenantUpstreamUrl(req, API_BASE_URL, `/api/v1/roles/${id}`);
 
+        if (upstream instanceof NextResponse) return upstream;
+
+        const { url } = upstream;
         console.log('Proxy get role request to:', url);
 
         const res = await fetch(url, {
@@ -151,8 +155,11 @@ export async function PUT(
             payload.is_transfer_role = Boolean(body.is_transfer_role);
         }
         console.log('[updateRole] Final outbound payload:', payload);
-        const url = `${API_BASE_URL}/api/v1/roles/${id}`;
+        const upstream = await buildTenantUpstreamUrl(req, API_BASE_URL, `/api/v1/roles/${id}`);
 
+        if (upstream instanceof NextResponse) return upstream;
+
+        const { url } = upstream;
         console.log('Proxy update role request to:', url);
 
         const res = await fetch(url, {
@@ -198,8 +205,11 @@ export async function DELETE(
 ) {
     try {
         const { id } = await params;
-        const url = `${API_BASE_URL}/api/v1/roles/${id}`;
+        const upstream = await buildTenantUpstreamUrl(req, API_BASE_URL, `/api/v1/roles/${id}`);
 
+        if (upstream instanceof NextResponse) return upstream;
+
+        const { url } = upstream;
         console.log('Proxy delete role request to:', url);
 
         const res = await fetch(url, {

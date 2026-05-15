@@ -1,12 +1,19 @@
 import { getProxyHeaders } from '@/lib/proxy-auth';
 import { NextRequest, NextResponse } from 'next/server';
+import { buildTenantUpstreamUrl, mergeFacilityIntoBody } from '@/lib/proxy-upstream';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3000';
 
 // GET /bookmarks/units — List bookmarked units with patient counts
 export async function GET(req: NextRequest) {
     try {
-        const res = await fetch(`${API_BASE_URL}/api/v1/bookmarks/units`, {
+        const upstream = await buildTenantUpstreamUrl(req, API_BASE_URL, `/api/v1/bookmarks/units`);
+
+        if (upstream instanceof NextResponse) return upstream;
+
+        const { url } = upstream;
+
+        const res = await fetch(url, {
             method: 'GET',
             headers: getProxyHeaders(req),
         });

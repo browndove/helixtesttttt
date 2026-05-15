@@ -1,6 +1,7 @@
 import { getProxyHeaders } from '@/lib/proxy-auth';
 import { resolveFacilityId } from '@/lib/proxy-facility';
 import { NextRequest, NextResponse } from 'next/server';
+import { buildTenantUpstreamUrl, mergeFacilityIntoBody } from '@/lib/proxy-upstream';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3000';
 
@@ -39,10 +40,23 @@ export async function PUT(
         const { id } = await params;
         const body = await req.json();
 
-        const res = await fetch(`${API_BASE_URL}/api/v1/patients/${id}`, {
+        const upstream = await buildTenantUpstreamUrl(req, API_BASE_URL, `/api/v1/patients/${id}`);
+
+
+        if (upstream instanceof NextResponse) return upstream;
+
+
+        const { url } = upstream;
+        const payload = mergeFacilityIntoBody(
+            body as Record<string, unknown>,
+            upstream.facilityId,
+        );
+
+
+        const res = await fetch(url, {
             method: 'PUT',
             headers: getProxyHeaders(req),
-            body: JSON.stringify(body),
+            body: JSON.stringify(payload),
         });
         const text = await res.text();
         let data: unknown;
@@ -63,7 +77,13 @@ export async function DELETE(
 ) {
     try {
         const { id } = await params;
-        const res = await fetch(`${API_BASE_URL}/api/v1/patients/${id}`, {
+        const upstream = await buildTenantUpstreamUrl(req, API_BASE_URL, `/api/v1/patients/${id}`);
+
+        if (upstream instanceof NextResponse) return upstream;
+
+        const { url } = upstream;
+
+        const res = await fetch(url, {
             method: 'DELETE',
             headers: getProxyHeaders(req),
         });

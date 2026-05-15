@@ -1,6 +1,7 @@
 import { getProxyHeaders } from '@/lib/proxy-auth';
 import { resolveFacilityId } from '@/lib/proxy-facility';
 import { NextRequest, NextResponse } from 'next/server';
+import { buildTenantUpstreamUrl, mergeFacilityIntoBody } from '@/lib/proxy-upstream';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3000';
 
@@ -15,8 +16,11 @@ export async function POST(req: NextRequest) {
                 { status: 400 }
             );
         }
-        const url = `${API_BASE_URL}/api/v1/staff/bulk`;
+        const upstream = await buildTenantUpstreamUrl(req, API_BASE_URL, `/api/v1/staff/bulk`);
 
+        if (upstream instanceof NextResponse) return upstream;
+
+        const { url } = upstream;
         console.log('[staff/bulk] Forwarding POST to:', url, 'facility_id:', facilityId);
 
         let res;

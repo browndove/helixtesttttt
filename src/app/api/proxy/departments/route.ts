@@ -2,6 +2,7 @@ import { getProxyHeaders } from '@/lib/proxy-auth';
 import { resolveFacilityId } from '@/lib/proxy-facility';
 import { DEPARTMENT_DESCRIPTION_MAX_LENGTH, DEPARTMENT_NAME_MAX_LENGTH } from '@/lib/departmentName';
 import { NextRequest, NextResponse } from 'next/server';
+import { buildTenantUpstreamUrl, mergeFacilityIntoBody } from '@/lib/proxy-upstream';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3000';
 
@@ -91,8 +92,11 @@ export async function POST(req: NextRequest) {
             );
         }
         const payload = { ...body, facility_id: sessionFacilityId };
-        const url = `${API_BASE_URL}/api/v1/departments`;
+        const upstream = await buildTenantUpstreamUrl(req, API_BASE_URL, `/api/v1/departments`);
 
+        if (upstream instanceof NextResponse) return upstream;
+
+        const { url } = upstream;
         console.log('Proxy create department request to:', url);
 
         const res = await fetch(url, {

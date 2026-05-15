@@ -1,5 +1,6 @@
 import { getProxyHeaders } from '@/lib/proxy-auth';
 import { NextRequest, NextResponse } from 'next/server';
+import { buildTenantUpstreamUrl, mergeFacilityIntoBody } from '@/lib/proxy-upstream';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3000';
 
@@ -10,7 +11,13 @@ export async function POST(
 ) {
     try {
         const { team_id } = await params;
-        const res = await fetch(`${API_BASE_URL}/api/v1/bookmarks/provider-teams/${team_id}`, {
+        const upstream = await buildTenantUpstreamUrl(req, API_BASE_URL, `/api/v1/bookmarks/provider-teams/${team_id}`);
+
+        if (upstream instanceof NextResponse) return upstream;
+
+        const { url } = upstream;
+
+        const res = await fetch(url, {
             method: 'POST',
             headers: getProxyHeaders(req),
         });
@@ -36,7 +43,13 @@ export async function DELETE(
 ) {
     try {
         const { team_id } = await params;
-        const res = await fetch(`${API_BASE_URL}/api/v1/bookmarks/provider-teams/${team_id}`, {
+        const upstream = await buildTenantUpstreamUrl(req, API_BASE_URL, `/api/v1/bookmarks/provider-teams/${team_id}`);
+
+        if (upstream instanceof NextResponse) return upstream;
+
+        const { url } = upstream;
+
+        const res = await fetch(url, {
             method: 'DELETE',
             headers: getProxyHeaders(req),
         });

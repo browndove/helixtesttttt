@@ -1,5 +1,6 @@
 import { getProxyHeaders } from '@/lib/proxy-auth';
 import { NextRequest, NextResponse } from 'next/server';
+import { buildTenantUpstreamUrl, mergeFacilityIntoBody } from '@/lib/proxy-upstream';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3000';
 
@@ -10,8 +11,11 @@ export async function GET(
 ) {
     try {
         const { id } = await params;
-        const url = `${API_BASE_URL}/api/v1/teams/${id}/roles`;
+        const upstream = await buildTenantUpstreamUrl(req, API_BASE_URL, `/api/v1/teams/${id}/roles`);
 
+        if (upstream instanceof NextResponse) return upstream;
+
+        const { url } = upstream;
         const res = await fetch(url, {
             method: 'GET',
             headers: getProxyHeaders(req),
@@ -47,12 +51,19 @@ export async function POST(
     try {
         const { id } = await params;
         const body = await req.json();
-        const url = `${API_BASE_URL}/api/v1/teams/${id}/roles`;
+        const upstream = await buildTenantUpstreamUrl(req, API_BASE_URL, `/api/v1/teams/${id}/roles`);
 
+        if (upstream instanceof NextResponse) return upstream;
+
+        const { url } = upstream;
+        const payload = mergeFacilityIntoBody(
+            body as Record<string, unknown>,
+            upstream.facilityId,
+        );
         const res = await fetch(url, {
             method: 'POST',
             headers: getProxyHeaders(req),
-            body: JSON.stringify(body),
+            body: JSON.stringify(payload),
         });
 
         const text = await res.text();

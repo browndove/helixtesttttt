@@ -1,5 +1,6 @@
 import { getProxyHeaders } from '@/lib/proxy-auth';
 import { NextRequest, NextResponse } from 'next/server';
+import { buildTenantUpstreamUrl, mergeFacilityIntoBody } from '@/lib/proxy-upstream';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3000';
 
@@ -16,14 +17,21 @@ export async function POST(
         } catch {
             // Body may be empty for this endpoint
         }
-        const url = `${API_BASE_URL}/api/v1/roles/${id}/sign-in`;
+        const upstream = await buildTenantUpstreamUrl(req, API_BASE_URL, `/api/v1/roles/${id}/sign-in`);
 
+        if (upstream instanceof NextResponse) return upstream;
+
+        const { url } = upstream;
+        const payload = mergeFacilityIntoBody(
+            body as Record<string, unknown>,
+            upstream.facilityId,
+        );
         console.log('Proxy role sign-in request to:', url);
 
         const res = await fetch(url, {
             method: 'POST',
             headers: getProxyHeaders(req),
-            body: JSON.stringify(body),
+            body: JSON.stringify(payload),
         });
 
         const text = await res.text();

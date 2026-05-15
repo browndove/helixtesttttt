@@ -1,5 +1,6 @@
 import { getProxyHeaders } from '@/lib/proxy-auth';
 import { NextRequest, NextResponse } from 'next/server';
+import { buildTenantUpstreamUrl, mergeFacilityIntoBody } from '@/lib/proxy-upstream';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3000';
 
@@ -10,8 +11,11 @@ export async function DELETE(
 ) {
     try {
         const { id, staff_id } = await params;
-        const url = `${API_BASE_URL}/api/v1/teams/${id}/members/${staff_id}`;
+        const upstream = await buildTenantUpstreamUrl(req, API_BASE_URL, `/api/v1/teams/${id}/members/${staff_id}`);
 
+        if (upstream instanceof NextResponse) return upstream;
+
+        const { url } = upstream;
         console.log('Proxy remove team member request to:', url);
 
         const res = await fetch(url, {

@@ -1,6 +1,6 @@
 import { getProxyHeaders } from '@/lib/proxy-auth';
 import { NextRequest, NextResponse } from 'next/server';
-import { resolveFacilityId } from '@/lib/proxy-facility';
+import { ensureFacilityOnUrl } from '@/lib/proxy-upstream';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3000';
 
@@ -16,17 +16,12 @@ export async function GET(req: NextRequest) {
             if (value) url.searchParams.set(param, value);
         });
 
-        // Audit logs must be facility-scoped: prefer explicit query, else resolve from session/auth context.
-        if (!url.searchParams.get('facility_id')) {
-            const resolvedFacilityId = await resolveFacilityId(req, API_BASE_URL);
-            if (resolvedFacilityId) {
-                url.searchParams.set('facility_id', resolvedFacilityId);
-            }
-        }
+        const withFacility = await ensureFacilityOnUrl(req, API_BASE_URL, url);
+        if (withFacility instanceof NextResponse) return withFacility;
 
-        console.log('Proxy list audit logs request to:', url.toString());
+        console.log('Proxy list audit logs request to:', withFacility.toString());
 
-        const res = await fetch(url.toString(), {
+        const res = await fetch(withFacility.toString(), {
             method: 'GET',
             headers: getProxyHeaders(req),
         });

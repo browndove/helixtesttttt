@@ -1,5 +1,5 @@
 import { getProxyHeaders } from '@/lib/proxy-auth';
-import { resolveFacilityId } from '@/lib/proxy-facility';
+import { ensureFacilityOnUrl } from '@/lib/proxy-upstream';
 import type { BulkUploadHistoryKind } from '@/lib/bulk-upload-history';
 import { NextRequest, NextResponse } from 'next/server';
 
@@ -22,22 +22,18 @@ export async function GET(req: NextRequest) {
         const url = new URL(`${API_BASE_URL}/api/v1/bulk-upload-history`);
         url.searchParams.set('kind', kind);
 
-        const sessionFacilityId = await resolveFacilityId(req, API_BASE_URL);
-        const explicitFacility = searchParams.get('facility_id')?.trim();
-        const facilityId = explicitFacility || sessionFacilityId;
-        if (facilityId) {
-            url.searchParams.set('facility_id', facilityId);
-        }
-
         const forwardParams = ['page_size', 'page_id', 'page', 'limit', 'offset'];
         for (const p of forwardParams) {
             const v = searchParams.get(p);
             if (v) url.searchParams.set(p, v);
         }
 
-        console.log('[bulk-upload-history] GET', url.toString());
+        const withFacility = await ensureFacilityOnUrl(req, API_BASE_URL, url);
+        if (withFacility instanceof NextResponse) return withFacility;
 
-        const res = await fetch(url.toString(), {
+        console.log('[bulk-upload-history] GET', withFacility.toString());
+
+        const res = await fetch(withFacility.toString(), {
             method: 'GET',
             headers: getProxyHeaders(req),
         });

@@ -1,6 +1,7 @@
 import { getProxyHeaders } from '@/lib/proxy-auth';
 import { resolveFacilityId } from '@/lib/proxy-facility';
 import { NextRequest, NextResponse } from 'next/server';
+import { buildTenantUpstreamUrl, mergeFacilityIntoBody } from '@/lib/proxy-upstream';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3000';
 
@@ -36,14 +37,12 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
     try {
         const body = await req.json() as Record<string, unknown>;
-        const sessionFacilityId = await resolveFacilityId(req, API_BASE_URL);
-        if (!sessionFacilityId) {
-            return NextResponse.json({ error: 'Unable to resolve facility for current session.' }, { status: 400 });
-        }
+        const upstream = await buildTenantUpstreamUrl(req, API_BASE_URL, `/api/v1/units`);
+        if (upstream instanceof NextResponse) return upstream;
+        const { url, facilityId } = upstream;
+        const payload = { ...body, facility_id: facilityId };
 
-        const payload = { ...body, facility_id: sessionFacilityId };
-
-        const res = await fetch(`${API_BASE_URL}/api/v1/units`, {
+        const res = await fetch(url, {
             method: 'POST',
             headers: getProxyHeaders(req),
             body: JSON.stringify(payload),

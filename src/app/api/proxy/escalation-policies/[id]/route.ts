@@ -1,5 +1,6 @@
 import { getProxyHeaders } from '@/lib/proxy-auth';
 import { NextRequest, NextResponse } from 'next/server';
+import { buildTenantUpstreamUrl, mergeFacilityIntoBody } from '@/lib/proxy-upstream';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3000';
 
@@ -10,8 +11,11 @@ export async function GET(
 ) {
     try {
         const { id } = await params;
-        const url = `${API_BASE_URL}/api/v1/escalation-policies/${id}`;
+        const upstream = await buildTenantUpstreamUrl(req, API_BASE_URL, `/api/v1/escalation-policies/${id}`);
 
+        if (upstream instanceof NextResponse) return upstream;
+
+        const { url } = upstream;
         console.log('Proxy get escalation-policy request to:', url);
 
         const res = await fetch(url, {
@@ -40,14 +44,21 @@ export async function PUT(
     try {
         const { id } = await params;
         const body = await req.json();
-        const url = `${API_BASE_URL}/api/v1/escalation-policies/${id}`;
+        const upstream = await buildTenantUpstreamUrl(req, API_BASE_URL, `/api/v1/escalation-policies/${id}`);
 
+        if (upstream instanceof NextResponse) return upstream;
+
+        const { url } = upstream;
+        const payload = mergeFacilityIntoBody(
+            body as Record<string, unknown>,
+            upstream.facilityId,
+        );
         console.log('Proxy update escalation-policy request to:', url);
 
         const res = await fetch(url, {
             method: 'PUT',
             headers: getProxyHeaders(req),
-            body: JSON.stringify(body),
+            body: JSON.stringify(payload),
         });
 
         const text = await res.text();
@@ -70,8 +81,11 @@ export async function DELETE(
 ) {
     try {
         const { id } = await params;
-        const url = `${API_BASE_URL}/api/v1/escalation-policies/${id}`;
+        const upstream = await buildTenantUpstreamUrl(req, API_BASE_URL, `/api/v1/escalation-policies/${id}`);
 
+        if (upstream instanceof NextResponse) return upstream;
+
+        const { url } = upstream;
         console.log('Proxy delete escalation-policy request to:', url);
 
         const res = await fetch(url, {

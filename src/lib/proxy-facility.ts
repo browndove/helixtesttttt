@@ -135,3 +135,10 @@ export async function resolveFacilityId(req: NextRequest, apiBaseUrl: string): P
 
     return undefined;
 }
+
+/** Upstream Helix API expects ?facility_id= for internal-admin (support-mode) requests. */
+export function withFacilityIdQuery(apiUrl: string, facilityId: string): string {
+    const url = new URL(apiUrl);
+    url.searchParams.set('facility_id', facilityId);
+    return url.toString();
+}

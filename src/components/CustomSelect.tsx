@@ -16,6 +16,8 @@ interface Props {
     customEntryTitle?: string;
     /** Optional helper line under the title (defaults to clear Enter instruction). */
     customEntryHint?: string;
+    /** Min width of the open panel (defaults to 248 when `allowCustom`). */
+    dropdownMinWidth?: number;
 }
 export default function CustomSelect({
     value,
@@ -28,6 +30,7 @@ export default function CustomSelect({
     customPlaceholder = 'Type qualification, then press Enter',
     customEntryTitle = 'Add your own',
     customEntryHint = 'Not in the list? Type below, then Enter.',
+    dropdownMinWidth,
 }: Props) {
     const [open, setOpen] = useState(false);
     const [q, setQ] = useState('');
@@ -77,9 +80,14 @@ export default function CustomSelect({
         color: sel ? 'var(--text-primary,#111)' : 'var(--text-muted,#888)', outline: 'none',
     };
 
+    const panelWidth = Math.max(
+        pos.width,
+        dropdownMinWidth ?? (allowCustom ? 248 : options.length > 6 ? 360 : 0),
+    );
+
     const dropdown = open && typeof document !== 'undefined' ? createPortal(
         <div ref={ddRef} style={{
-            position: 'fixed', top: pos.top, left: pos.left, width: pos.width,
+            position: 'fixed', top: pos.top, left: pos.left, width: panelWidth,
             background: 'var(--surface-card,#fff)', border: '1px solid var(--border-default,#d1d5db)',
             borderRadius: 'var(--radius-md,6px)', boxShadow: '0 8px 24px rgba(0,0,0,0.15)',
             zIndex: 99999, overflow: 'hidden',
@@ -140,7 +148,7 @@ export default function CustomSelect({
                 {list.length === 0 && <div style={{ padding: '10px 12px', fontSize: 12, color: 'var(--text-muted)', textAlign: 'center' }}>No results</div>}
                 {list.map(o => (
                     <button key={o.value} type="button" onClick={() => { onChange(o.value); close(); }}
-                        style={{ width: '100%', padding: '7px 12px', fontSize: 13, textAlign: 'left', background: o.value === value ? 'rgba(99,102,241,0.08)' : 'transparent', border: 'none', cursor: 'pointer', color: o.value === value ? 'var(--helix-primary,#6366f1)' : 'var(--text-primary,#111)', fontWeight: o.value === value ? 600 : 400 }}
+                        style={{ width: '100%', padding: '7px 12px', fontSize: 13, textAlign: 'left', whiteSpace: 'nowrap', background: o.value === value ? 'rgba(99,102,241,0.08)' : 'transparent', border: 'none', cursor: 'pointer', color: o.value === value ? 'var(--helix-primary,#6366f1)' : 'var(--text-primary,#111)', fontWeight: o.value === value ? 600 : 400 }}
                         onMouseEnter={e => { if (o.value !== value) e.currentTarget.style.background = 'var(--surface-2,#f3f4f6)'; }}
                         onMouseLeave={e => { e.currentTarget.style.background = o.value === value ? 'rgba(99,102,241,0.08)' : 'transparent'; }}>
                         {o.value === value && <span style={{ marginRight: 6, fontSize: 12 }}>✓</span>}{o.label}

@@ -1,6 +1,7 @@
 import { getProxyHeaders } from '@/lib/proxy-auth';
 import { DEPARTMENT_DESCRIPTION_MAX_LENGTH, DEPARTMENT_NAME_MAX_LENGTH } from '@/lib/departmentName';
 import { NextRequest, NextResponse } from 'next/server';
+import { buildTenantUpstreamUrl, mergeFacilityIntoBody } from '@/lib/proxy-upstream';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3000';
 
@@ -11,8 +12,11 @@ export async function GET(
 ) {
     try {
         const { id } = await params;
-        const url = `${API_BASE_URL}/api/v1/departments/${id}`;
+        const upstream = await buildTenantUpstreamUrl(req, API_BASE_URL, `/api/v1/departments/${id}`);
 
+        if (upstream instanceof NextResponse) return upstream;
+
+        const { url } = upstream;
         console.log('Proxy get department request to:', url);
 
         const res = await fetch(url, {
@@ -62,14 +66,18 @@ export async function PUT(
                 { status: 400 }
             );
         }
-        const url = `${API_BASE_URL}/api/v1/departments/${id}`;
+        const upstream = await buildTenantUpstreamUrl(req, API_BASE_URL, `/api/v1/departments/${id}`);
 
+        if (upstream instanceof NextResponse) return upstream;
+
+        const { url } = upstream;
+        const payload = mergeFacilityIntoBody(body, upstream.facilityId);
         console.log('Proxy update department request to:', url);
 
         const res = await fetch(url, {
             method: 'PUT',
             headers: getProxyHeaders(req),
-            body: JSON.stringify(body as object),
+            body: JSON.stringify(payload),
         });
 
         const text = await res.text();
@@ -101,8 +109,11 @@ export async function DELETE(
 ) {
     try {
         const { id } = await params;
-        const url = `${API_BASE_URL}/api/v1/departments/${id}`;
+        const upstream = await buildTenantUpstreamUrl(req, API_BASE_URL, `/api/v1/departments/${id}`);
 
+        if (upstream instanceof NextResponse) return upstream;
+
+        const { url } = upstream;
         console.log('Proxy delete department request to:', url);
 
         const res = await fetch(url, {

@@ -1,5 +1,6 @@
 import { getProxyHeaders } from '@/lib/proxy-auth';
 import { NextRequest, NextResponse } from 'next/server';
+import { buildTenantUpstreamUrl, mergeFacilityIntoBody } from '@/lib/proxy-upstream';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3000';
 
@@ -11,14 +12,21 @@ export async function PATCH(
     try {
         const { id } = await params;
         const body = await req.json();
-        const url = `${API_BASE_URL}/api/v1/staff/${id}/status`;
+        const upstream = await buildTenantUpstreamUrl(req, API_BASE_URL, `/api/v1/staff/${id}/status`);
 
+        if (upstream instanceof NextResponse) return upstream;
+
+        const { url } = upstream;
+        const payload = mergeFacilityIntoBody(
+            body as Record<string, unknown>,
+            upstream.facilityId,
+        );
         console.log('Proxy update staff status request to:', url);
 
         const res = await fetch(url, {
             method: 'PATCH',
             headers: getProxyHeaders(req),
-            body: JSON.stringify(body),
+            body: JSON.stringify(payload),
         });
 
         const text = await res.text();

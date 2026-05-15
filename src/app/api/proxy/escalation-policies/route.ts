@@ -1,6 +1,6 @@
 import { getProxyHeaders } from '@/lib/proxy-auth';
-import { resolveFacilityId } from '@/lib/proxy-facility';
 import { NextRequest, NextResponse } from 'next/server';
+import { buildTenantUpstreamUrl, ensureFacilityOnUrl, mergeFacilityIntoBody } from '@/lib/proxy-upstream';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3000';
 
@@ -8,10 +8,13 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3
 export async function GET(req: NextRequest) {
     try {
         const { searchParams } = new URL(req.url);
-        const url = new URL(`${API_BASE_URL}/api/v1/escalation-policies`);
+        let url = new URL(`${API_BASE_URL}/api/v1/escalation-policies`);
+        const departmentId = searchParams.get('department_id');
+        if (departmentId) url.searchParams.set('department_id', departmentId);
 
-        const facilityId = searchParams.get('facility_id') || await resolveFacilityId(req, API_BASE_URL);
-        if (facilityId) url.searchParams.set('facility_id', facilityId);
+        const withFacility = await ensureFacilityOnUrl(req, API_BASE_URL, url);
+        if (withFacility instanceof NextResponse) return withFacility;
+        url = withFacility;
 
         console.log('[listPolicies] Request to:', url.toString());
 
@@ -48,15 +51,22 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
     try {
         const body = await req.json();
-        const url = `${API_BASE_URL}/api/v1/escalation-policies`;
+        const upstream = await buildTenantUpstreamUrl(req, API_BASE_URL, `/api/v1/escalation-policies`);
 
+        if (upstream instanceof NextResponse) return upstream;
+
+        const { url } = upstream;
+        const payload = mergeFacilityIntoBody(
+            body as Record<string, unknown>,
+            upstream.facilityId,
+        );
         console.log('[createPolicy] Payload:', JSON.stringify(body));
         console.log('[createPolicy] Request to:', url);
 
         const res = await fetch(url, {
             method: 'POST',
             headers: getProxyHeaders(req),
-            body: JSON.stringify(body),
+            body: JSON.stringify(payload),
         });
 
         const text = await res.text();

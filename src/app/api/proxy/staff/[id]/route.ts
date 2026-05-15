@@ -2,6 +2,7 @@ import { getProxyHeaders } from '@/lib/proxy-auth';
 import { resolveDepartmentIdByName } from '@/lib/proxy-resolve-department';
 import { resolveFacilityId } from '@/lib/proxy-facility';
 import { NextRequest, NextResponse } from 'next/server';
+import { buildTenantUpstreamUrl, mergeFacilityIntoBody } from '@/lib/proxy-upstream';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3000';
 
@@ -12,8 +13,11 @@ export async function GET(
 ) {
     try {
         const { id } = await params;
-        const url = `${API_BASE_URL}/api/v1/staff/${id}`;
+        const upstream = await buildTenantUpstreamUrl(req, API_BASE_URL, `/api/v1/staff/${id}`);
 
+        if (upstream instanceof NextResponse) return upstream;
+
+        const { url } = upstream;
         console.log('Proxy get staff member request to:', url);
 
         const res = await fetch(url, {
@@ -94,8 +98,13 @@ export async function PUT(
         }).catch(() => {});
         // #endregion
 
-        const url = `${API_BASE_URL}/api/v1/staff/${id}`;
+        const upstream = await buildTenantUpstreamUrl(req, API_BASE_URL, `/api/v1/staff/${id}`);
 
+
+        if (upstream instanceof NextResponse) return upstream;
+
+
+        const { url } = upstream;
         console.log('Proxy update staff member request to:', url);
 
         const res = await fetch(url, {
@@ -154,8 +163,11 @@ export async function DELETE(
 ) {
     try {
         const { id } = await params;
-        const url = `${API_BASE_URL}/api/v1/staff/${id}`;
+        const upstream = await buildTenantUpstreamUrl(req, API_BASE_URL, `/api/v1/staff/${id}`);
 
+        if (upstream instanceof NextResponse) return upstream;
+
+        const { url } = upstream;
         console.log('Proxy delete staff member request to:', url);
 
         const res = await fetch(url, {

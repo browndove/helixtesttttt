@@ -1,4 +1,5 @@
 import { getProxyHeaders } from '@/lib/proxy-auth';
+import { ensureFacilityOnUrl } from '@/lib/proxy-upstream';
 import { NextRequest, NextResponse } from 'next/server';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3000';
@@ -7,12 +8,15 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3
 export async function GET(req: NextRequest) {
     try {
         const { searchParams } = new URL(req.url);
-        const url = new URL(`${API_BASE_URL}/api/v1/roles/my-roles`);
+        let url = new URL(`${API_BASE_URL}/api/v1/roles/my-roles`);
 
-        // Forward any query params
         searchParams.forEach((value, key) => {
-            url.searchParams.set(key, value);
+            if (key !== 'facility_id') url.searchParams.set(key, value);
         });
+
+        const withFacility = await ensureFacilityOnUrl(req, API_BASE_URL, url);
+        if (withFacility instanceof NextResponse) return withFacility;
+        url = withFacility;
 
         console.log('Proxy list my roles request to:', url.toString());
 

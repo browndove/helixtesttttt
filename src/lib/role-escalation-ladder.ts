@@ -1,3 +1,25 @@
+export function isCriticalRole(role: { priority?: string; mandatory?: boolean }): boolean {
+    return role.priority?.toString().trim().toLowerCase() === 'critical' || Boolean(role.mandatory);
+}
+
+/** First ladder target that is not a Critical role, if any. */
+export function findNonCriticalEscalationTarget(
+    levels: Array<{ target?: string; target_role_id?: string }>,
+    roles: Array<{ id: string; name: string; priority?: string; mandatory?: boolean }>,
+): string | undefined {
+    const critical = roles.filter(isCriticalRole);
+    const criticalIds = new Set(critical.map(r => r.id));
+    const criticalNamesLower = new Set(critical.map(r => r.name.trim().toLowerCase()));
+    for (const level of levels) {
+        const target = level.target?.trim();
+        if (!target) continue;
+        if (level.target_role_id && criticalIds.has(level.target_role_id)) continue;
+        if (criticalNamesLower.has(target.toLowerCase())) continue;
+        return target;
+    }
+    return undefined;
+}
+
 /**
  * Escalation ladder: treat two role display names as the same slot when they are
  * identical, share the same role id, or match the "Prefix - Suffix" pattern (e.g.

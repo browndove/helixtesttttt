@@ -1,5 +1,6 @@
 import { getProxyHeaders } from '@/lib/proxy-auth';
 import { NextRequest, NextResponse } from 'next/server';
+import { buildTenantUpstreamUrl, mergeFacilityIntoBody } from '@/lib/proxy-upstream';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3000';
 
@@ -10,8 +11,11 @@ export async function DELETE(
 ) {
     try {
         const { id, role_id: roleId } = await params;
-        const url = `${API_BASE_URL}/api/v1/teams/${id}/roles/${encodeURIComponent(roleId)}`;
+        const upstream = await buildTenantUpstreamUrl(req, API_BASE_URL, `/api/v1/teams/${id}/roles/${encodeURIComponent(roleId)}`);
 
+        if (upstream instanceof NextResponse) return upstream;
+
+        const { url } = upstream;
         const res = await fetch(url, {
             method: 'DELETE',
             headers: getProxyHeaders(req),

@@ -2,6 +2,7 @@ import { getProxyHeaders } from '@/lib/proxy-auth';
 import { resolveDepartmentIdByName } from '@/lib/proxy-resolve-department';
 import { resolveFacilityId } from '@/lib/proxy-facility';
 import { NextRequest, NextResponse } from 'next/server';
+import { buildTenantUpstreamUrl, mergeFacilityIntoBody } from '@/lib/proxy-upstream';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3000';
 
@@ -158,8 +159,11 @@ export async function POST(req: NextRequest) {
         if (!payload.middle_name) delete payload.middle_name;
         if (body.dob) payload.dob = body.dob.trim();
         if (body.gender) payload.gender = body.gender.trim();
-        const url = `${API_BASE_URL}/api/v1/staff`;
+        const upstream = await buildTenantUpstreamUrl(req, API_BASE_URL, `/api/v1/staff`);
 
+        if (upstream instanceof NextResponse) return upstream;
+
+        const { url } = upstream;
         console.log('Proxy create staff request to:', url);
         console.log('[createStaff] Payload:', JSON.stringify(payload));
 

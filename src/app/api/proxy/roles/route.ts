@@ -1,6 +1,7 @@
 import { getProxyHeaders } from '@/lib/proxy-auth';
 import { resolveFacilityId } from '@/lib/proxy-facility';
 import { NextRequest, NextResponse } from 'next/server';
+import { buildTenantUpstreamUrl, ensureFacilityOnUrl } from '@/lib/proxy-upstream';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3000';
 
@@ -109,15 +110,15 @@ function resolvePriority(body: IncomingRoleBody): 'critical' | 'standard' {
 export async function GET(req: NextRequest) {
     try {
         const { searchParams } = new URL(req.url);
-        const url = new URL(`${API_BASE_URL}/api/v1/roles`);
-
-        const facilityId = searchParams.get('facility_id') || await resolveFacilityId(req, API_BASE_URL);
+        let url = new URL(`${API_BASE_URL}/api/v1/roles`);
         const departmentId = searchParams.get('department_id');
         const priority = searchParams.get('priority');
-
-        if (facilityId) url.searchParams.set('facility_id', facilityId);
         if (departmentId) url.searchParams.set('department_id', departmentId);
         if (priority) url.searchParams.set('priority', priority);
+
+        const withFacility = await ensureFacilityOnUrl(req, API_BASE_URL, url);
+        if (withFacility instanceof NextResponse) return withFacility;
+        url = withFacility;
 
         console.log('Proxy list roles request to:', url.toString());
 
@@ -182,8 +183,12 @@ export async function POST(req: NextRequest) {
         if (Object.prototype.hasOwnProperty.call(body, 'enabled')) {
             payload.enabled = Boolean(body.enabled);
         }
-        const url = `${API_BASE_URL}/api/v1/roles`;
+        const upstream = await buildTenantUpstreamUrl(req, API_BASE_URL, `/api/v1/roles`);
 
+        if (upstream instanceof NextResponse) return upstream;
+
+        const { url, facilityId: upstreamFacilityId } = upstream;
+        payload.facility_id = upstreamFacilityId;
         console.log('[createRole] Final payload:', JSON.stringify(payload));
 
         const res = await fetch(url, {

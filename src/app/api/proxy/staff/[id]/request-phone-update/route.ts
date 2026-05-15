@@ -1,5 +1,6 @@
 import { getProxyHeaders } from '@/lib/proxy-auth';
 import { NextRequest, NextResponse } from 'next/server';
+import { buildTenantUpstreamUrl, mergeFacilityIntoBody } from '@/lib/proxy-upstream';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3000';
 
@@ -12,8 +13,11 @@ export async function POST(
         const { id } = await params;
         const facilityId = req.nextUrl.searchParams.get('facility_id');
         const qs = facilityId ? `?facility_id=${encodeURIComponent(facilityId)}` : '';
-        const url = `${API_BASE_URL}/api/v1/staff/${encodeURIComponent(id)}/request-phone-update${qs}`;
+        const upstream = await buildTenantUpstreamUrl(req, API_BASE_URL, `/api/v1/staff/${encodeURIComponent(id)}/request-phone-update${qs}`);
 
+        if (upstream instanceof NextResponse) return upstream;
+
+        const { url } = upstream;
         const res = await fetch(url, {
             method: 'POST',
             headers: getProxyHeaders(req),

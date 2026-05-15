@@ -1,6 +1,7 @@
 import { getProxyHeaders } from '@/lib/proxy-auth';
 import { resolveFacilityId } from '@/lib/proxy-facility';
 import { NextRequest, NextResponse } from 'next/server';
+import { buildTenantUpstreamUrl, ensureFacilityOnUrl } from '@/lib/proxy-upstream';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3000';
 
@@ -58,13 +59,13 @@ async function resolveDepartmentIdByName(req: NextRequest, facilityId: string, d
 export async function GET(req: NextRequest) {
     try {
         const { searchParams } = new URL(req.url);
-        const url = new URL(`${API_BASE_URL}/api/v1/teams`);
-
-        const facilityId = searchParams.get('facility_id') || await resolveFacilityId(req, API_BASE_URL);
+        let url = new URL(`${API_BASE_URL}/api/v1/teams`);
         const departmentId = searchParams.get('department_id');
-
-        if (facilityId) url.searchParams.set('facility_id', facilityId);
         if (departmentId) url.searchParams.set('department_id', departmentId);
+
+        const withFacility = await ensureFacilityOnUrl(req, API_BASE_URL, url);
+        if (withFacility instanceof NextResponse) return withFacility;
+        url = withFacility;
 
         console.log('Proxy list teams request to:', url.toString());
 
@@ -118,8 +119,12 @@ export async function POST(req: NextRequest) {
             lead_id: body.lead_id || body.leadId,
             is_resuscitation_team: isResuscitation,
         };
-        const url = `${API_BASE_URL}/api/v1/teams`;
+        const upstream = await buildTenantUpstreamUrl(req, API_BASE_URL, `/api/v1/teams`);
 
+        if (upstream instanceof NextResponse) return upstream;
+
+        const { url, facilityId: upstreamFacilityId } = upstream;
+        payload.facility_id = upstreamFacilityId;
         console.log('Proxy create team request to:', url);
 
         const res = await fetch(url, {

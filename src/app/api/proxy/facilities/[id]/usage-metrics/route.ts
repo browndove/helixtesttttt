@@ -1,5 +1,6 @@
 import { getProxyHeaders } from '@/lib/proxy-auth';
 import { NextRequest, NextResponse } from 'next/server';
+import { buildTenantUpstreamUrl, mergeFacilityIntoBody } from '@/lib/proxy-upstream';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3000';
 
@@ -12,8 +13,11 @@ export async function GET(
         const { id } = await params;
         const { searchParams } = new URL(req.url);
         const days = searchParams.get('days') || '30';
-        const url = `${API_BASE_URL}/api/v1/facilities/${id}/usage-metrics?days=${encodeURIComponent(days)}`;
+        const upstream = await buildTenantUpstreamUrl(req, API_BASE_URL, `/api/v1/facilities/${id}/usage-metrics?days=${encodeURIComponent(days)}`);
 
+        if (upstream instanceof NextResponse) return upstream;
+
+        const { url } = upstream;
         console.log('Proxy facility usage-metrics GET:', url);
 
         const res = await fetch(url, {
