@@ -2017,7 +2017,6 @@ export default function RolesBuilderAssignment() {
                                             <label className="label">Role Name</label>
                                             <input
                                                 className="input"
-                                                placeholder="e.g. AMC - CEO"
                                                 value={newRoleName}
                                                 onChange={e => setNewRoleName(e.target.value)}
                                                 style={{ fontSize: 13 }}
