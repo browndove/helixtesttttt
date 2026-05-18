@@ -201,17 +201,40 @@ function normalizeRoleForUi<T extends Role>(role: T, deptIdToName: Map<string, s
     } as T);
 }
 
-function countFilledEscalationLevels(levels: EscalationLevel[], fixedFirstTarget?: string): number {
+function getFilledEscalationLevels(levels: EscalationLevel[]): EscalationLevel[] {
+    return clampEscalationLevels(levels).filter(l => Boolean(String(l.target || '').trim()));
+}
+
+function countFilledEscalationLevels(levels: EscalationLevel[]): number {
+    return getFilledEscalationLevels(levels).length;
+}
+
+/** Level 1 is always the role this ladder belongs to; further levels start empty. */
+function ensurePrimaryEscalationLevel(
+    levels: EscalationLevel[],
+    primaryName: string,
+    defaultDelay = '5 min',
+): EscalationLevel[] {
+    const primary = primaryName.trim();
+    if (!primary) return clampEscalationLevels(levels);
     const sorted = clampEscalationLevels(levels).sort((a, b) => a.level - b.level);
-    return sorted.filter((lvl, idx) => {
-        if (idx === 0) {
-            const first = typeof fixedFirstTarget === 'string' && fixedFirstTarget.trim()
-                ? fixedFirstTarget.trim()
-                : String(lvl.target || '').trim();
-            return Boolean(first);
-        }
-        return Boolean(String(lvl.target || '').trim());
-    }).length;
+    if (sorted.length === 0) {
+        return [{ level: 1, target: primary, delay: defaultDelay }];
+    }
+    const levelOne = sorted.find(l => l.level === 1);
+    const rest = sorted.filter(l => l.level !== 1);
+    return clampEscalationLevels([
+        { level: 1, target: primary, delay: levelOne?.delay || defaultDelay },
+        ...rest,
+    ]);
+}
+
+function escalationLevelMissingTarget(levels: EscalationLevel[], primaryName?: string): boolean {
+    const primary = primaryName?.trim();
+    return clampEscalationLevels(levels).some(l => {
+        if (primary && l.level === 1) return false;
+        return !String(l.target || '').trim();
+    });
 }
 
 type TemplateRole = {
@@ -329,11 +352,6 @@ const defaultRoutingRules: RoutingRule[] = [
 
 /** Level 1 = primary role; at most two further escalation targets (3 steps total). */
 const ESCALATION_LADDER_MAX_LEVELS = 3;
-
-/** Single primary row; user adds further targets with "Add escalation level". */
-const defaultEscalationLevels: EscalationLevel[] = [
-    { level: 1, target: '', delay: '30 sec' },
-];
 
 function clampEscalationLevels(levels: EscalationLevel[]): EscalationLevel[] {
     const sorted = [...levels].sort((a, b) => a.level - b.level);
@@ -830,6 +848,26 @@ export default function RolesBuilderAssignment() {
         if (editingRole && editStep === 2 && !editMandatory) setEditStep(1);
     }, [editingRole, editStep, editMandatory]);
 
+    useEffect(() => {
+        if (!editingRole || editStep !== 2) return;
+        const primary = buildRoleName(editPrefix, editName) || editingRole.name;
+        setEditEscLevels(prev => {
+            const level1 = prev.find(l => l.level === 1);
+            if (level1?.target?.trim() === primary.trim()) return prev;
+            return ensurePrimaryEscalationLevel(prev, primary);
+        });
+    }, [editingRole, editStep, editPrefix, editName]);
+
+    useEffect(() => {
+        if (!showAddForm || addStep !== 3 || !newRoleName.trim()) return;
+        const primary = buildRoleName('', newRoleName);
+        setNewEscLevels(prev => {
+            const level1 = prev.find(l => l.level === 1);
+            if (level1?.target?.trim() === primary.trim()) return prev;
+            return ensurePrimaryEscalationLevel(prev, primary);
+        });
+    }, [showAddForm, addStep, newRoleName]);
+
     const resetAddForm = () => {
         setNewRoleName('');
         setNewRoleDesc('');
@@ -857,7 +895,7 @@ export default function RolesBuilderAssignment() {
         setNewRoleDesc('');
         setNewRoleMandatory(false);
         setNewRoleIsTransferRole(false);
-        setNewEscLevels(defaultEscalationLevels.map(l => ({ ...l })));
+        setNewEscLevels([]);
         setAddStep(2);
     };
 
@@ -950,6 +988,12 @@ export default function RolesBuilderAssignment() {
     const handleAddRole = async (withEscalations = true) => {
         if (!newRoleName.trim()) return;
         const fullRoleName = buildRoleName('', newRoleName);
+        const ladderLevels = clampEscalationLevels(newEscLevels);
+        const filledEscalationLevels = getFilledEscalationLevels(ladderLevels);
+        if (withEscalations && newRoleMandatory && escalationLevelMissingTarget(ladderLevels, fullRoleName)) {
+            showToast('Select a role for each additional escalation level before saving.', 'info');
+            return;
+        }
         try {
             const res = await fetch('/api/proxy/roles', {
                 method: 'POST',
@@ -973,9 +1017,8 @@ export default function RolesBuilderAssignment() {
             const role = (addParsed && typeof addParsed === 'object' ? addParsed : {}) as Role;
 
             // Create escalation policy + steps for critical/mandatory roles (max 3 levels)
-            const ladderLevels = clampEscalationLevels(newEscLevels);
             let policyLevels = ladderLevels;
-            if (withEscalations && newRoleMandatory && ladderLevels.length > 0) {
+            if (withEscalations && newRoleMandatory && filledEscalationLevels.length > 0) {
                 const nonCriticalTarget = findNonCriticalEscalationTarget(ladderLevels, roles);
                 if (nonCriticalTarget) {
                     showToast(`"${nonCriticalTarget}" is not Critical. Only Critical roles can be in an escalation ladder.`, 'error');
@@ -1094,11 +1137,7 @@ export default function RolesBuilderAssignment() {
         setEditRouting((role.escalation_routing || []).map(r => ({ ...r })));
         // Pre-fill level 1 with the role being edited if no levels exist
         const existing = (role.escalation_levels || []).map(l => ({ ...l }));
-        if (existing.length > 0) {
-            setEditEscLevels(clampEscalationLevels(existing));
-        } else {
-            setEditEscLevels([{ level: 1, target: role.name, delay: '5 min' }]);
-        }
+        setEditEscLevels(ensurePrimaryEscalationLevel(existing, role.name));
         // Pull full role details (includes full allowlist when restricted).
         fetch(`/api/proxy/roles/${role.id}`)
             .then(async (res) => {
@@ -1130,6 +1169,13 @@ export default function RolesBuilderAssignment() {
     const handleSaveEdit = async (withEscalations = true) => {
         if (!editingRole || !editName.trim()) return;
         const nextName = buildRoleName(editPrefix, editName);
+        const ladderLevels = clampEscalationLevels(editEscLevels);
+        const filledEscalationLevels = getFilledEscalationLevels(ladderLevels);
+        const editPrimaryName = buildRoleName(editPrefix, editName) || editingRole.name;
+        if (withEscalations && escalationLevelMissingTarget(ladderLevels, editPrimaryName)) {
+            showToast('Select a role for each additional escalation level before saving.', 'info');
+            return;
+        }
         setEditSaving(true);
         try {
             const normalizedEditDept = editDept.trim();
@@ -1179,8 +1225,7 @@ export default function RolesBuilderAssignment() {
             });
 
             // 2. Escalation policy: only Critical roles may have a chain; demoting to Standard removes it.
-            const ladderLevels = clampEscalationLevels(editEscLevels);
-            let finalLevels = ladderLevels;
+            let finalLevels = editingRole.escalation_levels || [];
             if (!editMandatory) {
                 try {
                     const existingPolicyRes = await fetch(`/api/proxy/escalation-policies/by-role/${editingRole.id}`);
@@ -1194,8 +1239,13 @@ export default function RolesBuilderAssignment() {
                     // best effort
                 }
                 finalLevels = [];
-            } else if (withEscalations && ladderLevels.length === 0) {
-                // All ladder levels removed: drop any existing escalation policy.
+            } else if (
+                withEscalations
+                && filledEscalationLevels.length === 0
+                && ladderLevels.length === 0
+                && (editingRole.escalation_levels?.length ?? 0) > 0
+            ) {
+                // User removed all escalation rows — drop existing policy.
                 try {
                     const existingPolicyRes = await fetch(`/api/proxy/escalation-policies/by-role/${editingRole.id}`);
                     if (existingPolicyRes.ok) {
@@ -1206,7 +1256,7 @@ export default function RolesBuilderAssignment() {
                     }
                 } catch { /* best effort */ }
                 finalLevels = [];
-            } else if (withEscalations && ladderLevels.length > 0) {
+            } else if (withEscalations && filledEscalationLevels.length > 0) {
                 const editRoleFullName = buildRoleName(editPrefix, editName);
                 const rolesForEscalation = applyEscalationRoleOverrides(roles, [
                     {
@@ -1337,14 +1387,12 @@ export default function RolesBuilderAssignment() {
 
     const editEscalationLevelCount = useMemo(() => {
         if (!editingRole) return 0;
-        const fixedFirst = buildRoleName(editPrefix, editName) || editingRole.name;
-        return countFilledEscalationLevels(editEscLevels, fixedFirst);
-    }, [editingRole, editEscLevels, editPrefix, editName]);
+        return countFilledEscalationLevels(editEscLevels);
+    }, [editingRole, editEscLevels]);
 
     const newEscalationLevelCount = useMemo(() => {
-        const fixedFirst = buildRoleName('', newRoleName);
-        return countFilledEscalationLevels(newEscLevels, fixedFirst);
-    }, [newEscLevels, newRoleName]);
+        return countFilledEscalationLevels(newEscLevels);
+    }, [newEscLevels]);
 
     // Hydrate Transfer toggle from merged roles[] until the user changes it (list row may omit the flag at open).
     useEffect(() => {
@@ -1436,55 +1484,34 @@ export default function RolesBuilderAssignment() {
     const renderEscalationLadder = (
         levels: EscalationLevel[],
         setLevels: (levels: EscalationLevel[]) => void,
-        fixedFirstTarget?: string
+        fixedFirstTarget?: string,
     ) => {
         const sorted = [...levels].sort((a, b) => a.level - b.level);
+        const primaryName = fixedFirstTarget?.trim() || '';
 
-        const ensurePrimaryFirst = (next: EscalationLevel[]): EscalationLevel[] => {
-            const primary = fixedFirstTarget?.trim();
-            if (!primary) {
-                return [...next].sort((a, b) => a.level - b.level).map((l, i) => ({ ...l, level: i + 1 }));
-            }
-            const hadPrimaryRow = [...next].sort((a, b) => a.level - b.level)[0]?.target?.trim() === primary;
-            const primaryDelay = hadPrimaryRow
-                ? [...next].sort((a, b) => a.level - b.level)[0].delay
-                : (sorted[0]?.delay || '5 min');
-            const rest = next
-                .filter(l => l.target.trim() !== primary)
-                .sort((a, b) => a.level - b.level);
-            return [
-                { level: 1, target: primary, delay: primaryDelay },
-                ...rest.map((l, i) => ({ ...l, level: i + 2 })),
-            ];
-        };
+        const normalizeLevels = (next: EscalationLevel[]): EscalationLevel[] =>
+            primaryName ? ensurePrimaryEscalationLevel(next, primaryName) : clampEscalationLevels(next);
 
         const handleAddLevel = () => {
             if (levels.length >= ESCALATION_LADDER_MAX_LEVELS) return;
-            // If empty and a primary is locked, add primary first; otherwise add a blank target row.
             let next: EscalationLevel[];
-            if (levels.length === 0 && fixedFirstTarget?.trim()) {
-                next = [{ level: 1, target: fixedFirstTarget.trim(), delay: '5 min' }];
+            if (sorted.length === 0 && primaryName) {
+                next = [{ level: 1, target: primaryName, delay: '5 min' }];
             } else {
-            const nextLevel = sorted.length > 0 ? sorted[sorted.length - 1].level + 1 : 1;
+                const nextLevel = sorted.length > 0 ? sorted[sorted.length - 1].level + 1 : 1;
                 next = [...levels, { level: nextLevel, target: '', delay: '5 min' }];
             }
-            setLevels(ensurePrimaryFirst(next));
+            setLevels(normalizeLevels(next));
         };
 
         const handleRemoveLevel = (levelNum: number) => {
+            if (levelNum === 1 && primaryName) return;
             const filtered = levels.filter(l => l.level !== levelNum);
-            if (filtered.length === 0) {
-                setLevels([]);
-                return;
-            }
-            setLevels(ensurePrimaryFirst(filtered));
+            setLevels(filtered.length === 0 && !primaryName ? [] : normalizeLevels(filtered));
         };
 
         const rowHasEscalationTarget = (lvl: EscalationLevel) => {
-            if (lvl.level === 1) {
-                if (fixedFirstTarget?.trim()) return true;
-                return Boolean(lvl.target?.trim());
-            }
+            if (lvl.level === 1 && primaryName) return true;
             return Boolean(lvl.target?.trim());
         };
         let lastFilledSortedIndex = -1;
@@ -1498,22 +1525,19 @@ export default function RolesBuilderAssignment() {
                 <div style={{ marginBottom: 2 }}>
                     <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 2 }}>Escalation Ladder</div>
                     <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-                        Level 1 is always this role (primary receiver). Use <strong style={{ fontWeight: 600, color: 'var(--text-secondary)' }}>Add escalation level</strong> below for each further <strong style={{ fontWeight: 600, color: 'var(--text-secondary)' }}>Critical</strong> target (up to three levels total). Standard roles cannot be added to escalation ladders.
+                        Level 1 is always this role (cannot be changed). Use <strong style={{ fontWeight: 600, color: 'var(--text-secondary)' }}>Add escalation level</strong> for up to two more <strong style={{ fontWeight: 600, color: 'var(--text-secondary)' }}>Critical</strong> targets — select a role for each added level before saving.
                     </div>
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
                     {sorted.map((lvl, i) => {
                         const hideDelayRow = !rowHasEscalationTarget(lvl)
                             || (filledRowCount > 1 && i === lastFilledSortedIndex);
-                        const primaryLabels = [
-                            fixedFirstTarget?.trim(),
-                            sorted.find(l => l.level === 1)?.target?.trim(),
-                        ].filter((x): x is string => Boolean(x));
-                        const uniqPrimary = Array.from(new Set(primaryLabels));
-                        const occupiedOtherLevels = levels
-                            .filter(l => l.level !== lvl.level && l.target.trim())
-                            .map(l => l.target.trim());
-                        const occupiedForRow = [...uniqPrimary, ...occupiedOtherLevels];
+                        const occupiedForRow = [
+                            ...(primaryName ? [primaryName] : []),
+                            ...levels
+                                .filter(l => l.level !== lvl.level && l.target.trim())
+                                .map(l => l.target.trim()),
+                        ];
                         return (
                         <div key={lvl.level} style={{ display: 'flex', alignItems: 'stretch', gap: 10 }}>
                             {/* Level number + connector line */}
@@ -1525,7 +1549,7 @@ export default function RolesBuilderAssignment() {
                             </div>
                             {/* Row content */}
                             <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', marginBottom: i < sorted.length - 1 ? 0 : 0, borderRadius: 'var(--radius-md)', background: 'var(--surface-2)', border: '1px solid var(--border-subtle)', marginTop: i === 0 ? 0 : 4 }}>
-                                {lvl.level === 1 && fixedFirstTarget ? (
+                                {lvl.level === 1 && primaryName ? (
                                     <div
                                         style={{
                                             flex: 1,
@@ -1542,7 +1566,7 @@ export default function RolesBuilderAssignment() {
                                         }}
                                         title="Level 1 is fixed to this role"
                                     >
-                                        {fixedFirstTarget}
+                                        {primaryName}
                                     </div>
                                 ) : (
                                     <CustomSelect
@@ -1558,7 +1582,7 @@ export default function RolesBuilderAssignment() {
                                                     }
                                                     : l,
                                             );
-                                            setLevels(updated);
+                                            setLevels(normalizeLevels(updated));
                                         }}
                                         options={roleTargetOptions.filter(t => (
                                             t === lvl.target
@@ -1580,11 +1604,11 @@ export default function RolesBuilderAssignment() {
                                                 ? {
                                                     ...l,
                                                     delay: v,
-                                                    ...(l.level === 1 && fixedFirstTarget ? { target: fixedFirstTarget } : {}),
+                                                    ...(l.level === 1 && primaryName ? { target: primaryName } : {}),
                                                 }
                                                 : l
                                         );
-                                        setLevels(updated);
+                                        setLevels(normalizeLevels(updated));
                                     }}
                                         options={ESCALATION_DELAY_OPTIONS.map(d => ({ label: d, value: d }))}
                                     placeholder="Delay"
@@ -1595,7 +1619,7 @@ export default function RolesBuilderAssignment() {
                                     dropdownMinWidth={260}
                                 />
                                 )}
-                                {(
+                                {!(lvl.level === 1 && primaryName) && (
                                     <button
                                         type="button"
                                         onClick={() => handleRemoveLevel(lvl.level)}
@@ -1823,6 +1847,8 @@ export default function RolesBuilderAssignment() {
                                                     showToast('Escalation is only available for Critical roles. Turn on “This role must always be filled” first.', 'info');
                                                     return;
                                                 }
+                                                const primary = buildRoleName(editPrefix, editName) || editingRole.name;
+                                                setEditEscLevels(prev => ensurePrimaryEscalationLevel(prev, primary));
                                                 setEditStep(2);
                                             }}
                                             disabled={!editName.trim()}
@@ -1837,7 +1863,11 @@ export default function RolesBuilderAssignment() {
 
                         {editStep === 2 && (
                             <>
-                                {renderEscalationLadder(editEscLevels, setEditEscLevels, editName || editingRole.name)}
+                                {renderEscalationLadder(
+                                    editEscLevels,
+                                    setEditEscLevels,
+                                    buildRoleName(editPrefix, editName) || editingRole?.name,
+                                )}
 
                                 <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginTop: 20 }}>
                                     <button className="btn btn-secondary btn-sm" onClick={() => setEditStep(1)}>
@@ -1876,7 +1906,7 @@ export default function RolesBuilderAssignment() {
                     subtitle="Role Management"
                     search={{ placeholder: 'Search roles...', value: search, onChange: setSearch }}
                     actions={
-                        <button className="btn btn-primary btn-sm" onClick={() => { if (showAddForm) resetAddForm(); else { setShowAddForm(true); setAddStep(2); setNewEscLevels(defaultEscalationLevels.map(l => ({ ...l }))); } }}>
+                        <button className="btn btn-primary btn-sm" onClick={() => { if (showAddForm) resetAddForm(); else { setShowAddForm(true); setAddStep(2); setNewEscLevels([]); } }}>
                             <span className="material-icons-round" style={{ fontSize: 14 }}>{showAddForm ? 'close' : 'add'}</span>
                             {showAddForm ? 'Cancel' : 'Add Role'}
                         </button>
@@ -2103,6 +2133,7 @@ export default function RolesBuilderAssignment() {
                                                         showToast('Escalation is only available for Critical roles. Turn on “This role must always be filled” first.', 'info');
                                                         return;
                                                     }
+                                                    setNewEscLevels(prev => ensurePrimaryEscalationLevel(prev, buildRoleName('', newRoleName)));
                                                     setAddStep(3);
                                                 }}
                                                 disabled={!newRoleName.trim()}
@@ -2118,7 +2149,7 @@ export default function RolesBuilderAssignment() {
                             {/* Step 3: Custom Role — Escalation Settings */}
                             {addStep === 3 && (
                                 <>
-                                    {renderEscalationLadder(newEscLevels, setNewEscLevels, newRoleName || 'This role')}
+                                    {renderEscalationLadder(newEscLevels, setNewEscLevels, buildRoleName('', newRoleName))}
 
                                     <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginTop: 20 }}>
                                         <button className="btn btn-secondary btn-sm" onClick={() => setAddStep(2)}>
