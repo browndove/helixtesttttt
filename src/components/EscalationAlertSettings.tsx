@@ -3,7 +3,12 @@
 import { useState, useEffect, useLayoutEffect, useCallback, useMemo } from 'react';
 import TopBar from '@/components/TopBar';
 import CustomSelect from '@/components/CustomSelect';
-import { MacVibrancyToast, MacVibrancyToastPortal } from '@/components/MacVibrancyToast';
+import {
+    MacVibrancyToast,
+    MacVibrancyToastPortal,
+    macToastLeading,
+    type MacVibrancyToastVariant,
+} from '@/components/MacVibrancyToast';
 import { readCachedJson, writeCachedJson } from '@/lib/getJsonCache';
 import {
     clampEscalationDelaySeconds,
@@ -21,6 +26,8 @@ import {
     findEscalationConflictingTargetLabels,
     findNonCriticalEscalationTarget,
     isCriticalRole,
+    normalizeRoleCriticalFields,
+    resolveEscalationTargetRoleId,
     roleNamesConflictForEscalation,
 } from '@/lib/role-escalation-ladder';
 import {
@@ -109,10 +116,7 @@ function resolveRoleDepartmentName(
 }
 
 function normalizeRoleForUi<T extends Role>(role: T): T {
-    const isCritical = role.priority?.toString().trim().toLowerCase() === 'critical';
-    const priority = isCritical ? 'Critical' : 'Standard';
-    const mandatory = isCritical;
-    return { ...role, mandatory, priority } as T;
+    return normalizeRoleCriticalFields(role);
 }
 
 type ChainGroup = {
@@ -152,47 +156,19 @@ const levelColor = (i: number) => {
     return '#c26b6b';
 };
 
-function extractDepartmentNames(raw: unknown): string[] {
-    const list = Array.isArray(raw)
-        ? raw
-        : (raw && typeof raw === 'object'
-            ? ((raw as { items?: unknown; data?: unknown; departments?: unknown }).items
-                || (raw as { items?: unknown; data?: unknown; departments?: unknown }).data
-                || (raw as { items?: unknown; data?: unknown; departments?: unknown }).departments)
-            : []);
-
-    if (!Array.isArray(list)) return [];
-
-    const names = list
-        .map((d: unknown) => {
-            if (!d || typeof d !== 'object') return '';
-            const rec = d as Record<string, unknown>;
-            const nameRaw = rec.name ?? rec.department_name;
-            return typeof nameRaw === 'string' ? nameRaw.trim() : '';
-        })
-        .filter(Boolean);
-
-    return Array.from(new Set(names));
-}
-
 export default function EscalationAlertSettings() {
-    const DESC_LIMIT = 200;
     const [roles, setRoles] = useState<Role[]>([]);
     const [policies, setPolicies] = useState<Policy[]>([]);
-    const [departments, setDepartments] = useState<string[]>([]);
-    const [deptIdMap, setDeptIdMap] = useState<Map<string, string>>(new Map());
     const [loading, setLoading] = useState(true);
     const [selectedChainKey, setSelectedChainKey] = useState<string | null>(null);
     const [search, setSearch] = useState('');
-    const [toast, setToast] = useState<string | null>(null);
+    const [toast, setToast] = useState<{ message: string; variant: MacVibrancyToastVariant } | null>(null);
 
     // Create form
     const [showCreate, setShowCreate] = useState(false);
     const [createStep, setCreateStep] = useState(0); // 0=basic, 1=levels, 2=summary
     /** Existing Critical role that owns this escalation (policy.role_id + ladder level 1). */
     const [createPrimaryRoleId, setCreatePrimaryRoleId] = useState('');
-    const [newDesc, setNewDesc] = useState('');
-    const [newDept, setNewDept] = useState('');
     const [newLevels, setNewLevels] = useState<EscalationLevel[]>([
         { level: 1, target: '', delay: '30 sec' },
         { level: 2, target: '', delay: '3 min' },
@@ -203,7 +179,6 @@ export default function EscalationAlertSettings() {
     const [editRole, setEditRole] = useState<Role | null>(null);
     const [editStep, setEditStep] = useState(0);
     const [editName, setEditName] = useState('');
-    const [editDesc, setEditDesc] = useState('');
     const [editLevels, setEditLevels] = useState<EscalationLevel[]>([]);
     const [levelRoleSearch, setLevelRoleSearch] = useState<Record<number, string>>({});
     const [editSaving, setEditSaving] = useState(false);
@@ -213,7 +188,10 @@ export default function EscalationAlertSettings() {
     // Delete confirm
     const [confirmDelete, setConfirmDelete] = useState<ChainGroup | null>(null);
 
-    const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(null), 2500); };
+    const showToast = (msg: string, variant: MacVibrancyToastVariant = 'success') => {
+        setToast({ message: msg, variant });
+        setTimeout(() => setToast(null), 2800);
+    };
 
     const ingestEscalationPayloads = useCallback(
         (
@@ -228,10 +206,8 @@ export default function EscalationAlertSettings() {
             let deptMap = new Map<string, string>();
             if (ok.depts && parsed.departments != null) {
                 const depts = parsed.departments;
-                setDepartments(extractDepartmentNames(depts));
                 const deptRec = depts as Record<string, unknown>;
                 const list = Array.isArray(depts) ? depts : (deptRec.items || deptRec.data || deptRec.departments || []);
-                const nameToId = new Map<string, string>();
                 if (Array.isArray(list)) {
                     for (const d of list) {
                         if (!d || typeof d !== 'object') continue;
@@ -243,13 +219,9 @@ export default function EscalationAlertSettings() {
                                 : '';
                         const nameRaw = rec.name ?? rec.department_name;
                         const name = typeof nameRaw === 'string' ? nameRaw.trim() : '';
-                        if (depId && name) {
-                            deptMap.set(depId, name);
-                            nameToId.set(name, depId);
-                        }
+                        if (depId && name) deptMap.set(depId, name);
                     }
                 }
-                setDeptIdMap(nameToId);
             }
 
             if (ok.roles && parsed.roles != null) {
@@ -349,7 +321,7 @@ export default function EscalationAlertSettings() {
                 },
             );
         } catch {
-            showToast('Failed to load data');
+            showToast('Failed to load data', 'error');
         }
         setLoading(false);
     }, [ingestEscalationPayloads]);
@@ -468,7 +440,7 @@ export default function EscalationAlertSettings() {
     // --- Create ---
     const resetCreate = () => {
         setShowCreate(false); setCreateStep(0);
-        setCreatePrimaryRoleId(''); setNewDesc(''); setNewDept('');
+        setCreatePrimaryRoleId('');
         setNewLevels([{ level: 1, target: '', delay: '30 sec' }, { level: 2, target: '', delay: '3 min' }]);
         setLevelRoleSearch({});
     };
@@ -478,7 +450,6 @@ export default function EscalationAlertSettings() {
         if (!roleId.trim()) return;
         const role = roles.find(r => r.id === roleId);
         if (!role) return;
-        setNewDept(role.department || '');
         setNewLevels(prev => {
             const rest = prev.slice(1);
             return [{ level: 1, target: role.name, target_role_id: role.id, delay: prev[0]?.delay || '30 sec' }, ...rest.map((l, i) => ({ ...l, level: i + 2 }))];
@@ -489,34 +460,38 @@ export default function EscalationAlertSettings() {
         if (!createPrimaryRoleId.trim()) return;
         const selectedPrimary = roles.find(r => r.id === createPrimaryRoleId);
         if (selectedPrimary && roleAlreadyHasEscalationConfig(selectedPrimary)) {
-            showToast('An escalation already exists for this role. Edit it instead.');
+            showToast('An escalation already exists for this role. Edit it instead.', 'info');
             return;
         }
         const primaryRole = roles.find(r => r.id === createPrimaryRoleId);
-        if (!primaryRole) { showToast('Role not found'); return; }
+        if (!primaryRole) { showToast('Role not found', 'error'); return; }
         const nonCriticalTarget = findNonCriticalEscalationTarget(newLevels, roles);
         if (nonCriticalTarget) {
-            showToast(`"${nonCriticalTarget}" is not Critical. Only Critical roles can be in an escalation ladder.`);
+            showToast(`"${nonCriticalTarget}" is not Critical. Only Critical roles can be in an escalation ladder.`, 'error');
             return;
         }
         try {
-            const resolvedDeptId = newDept.trim() ? (deptIdMap.get(newDept.trim()) || undefined) : undefined;
-            await fetch(`/api/proxy/roles/${createPrimaryRoleId}`, {
+            const roleRes = await fetch(`/api/proxy/roles/${createPrimaryRoleId}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    name: primaryRole.name,
-                    description: newDesc.trim() || primaryRole.description || '',
-                    priority: 'critical',
-                    ...(resolvedDeptId ? { department_id: resolvedDeptId } : {}),
-                }),
+                body: JSON.stringify({ priority: 'critical' }),
             });
+            if (!roleRes.ok) {
+                const errBody = await roleRes.json().catch(() => ({}));
+                const msg = String(
+                    (errBody as { message?: string }).message
+                    || (errBody as { detail?: string }).detail
+                    || 'Failed to update role for escalation',
+                ).trim();
+                showToast(msg, 'error');
+                return;
+            }
 
             const { initial_timeout_seconds, steps } = ladderLevelsToPolicyPayload(
                 newLevels,
                 createPrimaryRoleId,
                 primaryRole.name,
-                (targetName) => allRolesForSelect.find(r => r.name === targetName)?.id,
+                (targetName) => resolveEscalationTargetRoleId(targetName, roles),
             );
 
             const policyRes = await fetch('/api/proxy/escalation-policies', {
@@ -527,7 +502,7 @@ export default function EscalationAlertSettings() {
                     initial_timeout_seconds,
                 }),
             });
-            if (!policyRes.ok) { showToast('Failed to create escalation policy'); return; }
+            if (!policyRes.ok) { showToast('Failed to create escalation policy', 'error'); return; }
             const policy = await policyRes.json();
             if (steps.length > 0) {
                 const bulkRes = await fetch(`/api/proxy/escalation-policies/${policy.id}/steps/bulk`, {
@@ -537,14 +512,14 @@ export default function EscalationAlertSettings() {
                 });
                 if (!bulkRes.ok) {
                     console.error('[createPolicy] Bulk add failed:', await bulkRes.text().catch(() => ''));
-                    showToast('Warning: steps may not have saved correctly');
+                    showToast('Warning: steps may not have saved correctly', 'info');
                 }
             }
 
             showToast(`Escalation created for "${primaryRole.name}"`);
             resetCreate();
             fetchData();
-        } catch { showToast('Failed to create escalation'); }
+        } catch { showToast('Failed to create escalation', 'error'); }
     };
 
     // --- Edit ---
@@ -552,7 +527,7 @@ export default function EscalationAlertSettings() {
         const primary = chain.roles[0] || null;
         setEditPolicyId(chain.policyId);
         setEditRole(primary); setEditStep(0);
-        setEditName(chain.chainName); setEditDesc(chain.description);
+        setEditName(chain.chainName);
         const lvls = chain.levels.map(l => ({ ...l })).sort((a, b) => a.level - b.level);
         if (primary && lvls.length > 0) {
             lvls[0] = { ...lvls[0], target: primary.name, target_role_id: primary.id };
@@ -564,7 +539,7 @@ export default function EscalationAlertSettings() {
     const openEditChainForPrimaryRole = (roleId: string) => {
         const chain = chainGroups.find(c => c.primaryRoleId === roleId);
         if (!chain) {
-            showToast('Could not find that escalation configuration');
+            showToast('Could not find that escalation configuration', 'error');
             return;
         }
         resetCreate();
@@ -575,7 +550,7 @@ export default function EscalationAlertSettings() {
         if (!editPolicyId) return;
         const nonCriticalTarget = findNonCriticalEscalationTarget(editLevels, roles);
         if (nonCriticalTarget) {
-            showToast(`"${nonCriticalTarget}" is not Critical. Only Critical roles can be in an escalation ladder.`);
+            showToast(`"${nonCriticalTarget}" is not Critical. Only Critical roles can be in an escalation ladder.`, 'error');
             return;
         }
         setEditSaving(true);
@@ -593,7 +568,7 @@ export default function EscalationAlertSettings() {
                 levelsNormalized,
                 editRole?.id || '',
                 editRole?.name || editName,
-                (targetName) => allRolesForSelect.find(r => r.name === targetName)?.id,
+                (targetName) => resolveEscalationTargetRoleId(targetName, roles),
             );
 
             const putRes = await fetch(`/api/proxy/escalation-policies/${editPolicyId}`, {
@@ -601,7 +576,7 @@ export default function EscalationAlertSettings() {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ initial_timeout_seconds }),
             });
-            if (!putRes.ok) { showToast('Failed to update policy timeout'); setEditSaving(false); return; }
+            if (!putRes.ok) { showToast('Failed to update policy timeout', 'error'); setEditSaving(false); return; }
 
             // 3. Delete existing steps
             const existing = policies.find(p => p.id === editPolicyId);
@@ -622,14 +597,14 @@ export default function EscalationAlertSettings() {
                 });
                 if (!bulkRes.ok) {
                     console.error('[editPolicy] Bulk add failed:', await bulkRes.text().catch(() => ''));
-                    showToast('Warning: steps may not have saved correctly');
+                    showToast('Warning: steps may not have saved correctly', 'info');
                 }
             }
 
             showToast(`"${editName}" updated`);
             closeEditModal();
             fetchData();
-        } catch { showToast('Failed to save changes'); }
+        } catch { showToast('Failed to save changes', 'error'); }
         setEditSaving(false);
     };
 
@@ -638,11 +613,11 @@ export default function EscalationAlertSettings() {
         try {
             // Delete the escalation policy (cascades to all steps)
             const res = await fetch(`/api/proxy/escalation-policies/${chain.policyId}`, { method: 'DELETE' });
-            if (!res.ok) { showToast('Failed to delete policy'); setConfirmDelete(null); return; }
+            if (!res.ok) { showToast('Failed to delete policy', 'error'); setConfirmDelete(null); return; }
             if (selectedChainKey === chain.key) setSelectedChainKey(null);
             showToast(`"${chain.chainName}" deleted`);
             fetchData();
-        } catch { showToast('Failed to delete'); }
+        } catch { showToast('Failed to delete', 'error'); }
         setConfirmDelete(null);
     };
 
@@ -1049,7 +1024,12 @@ export default function EscalationAlertSettings() {
         <>
             {toast && (
                 <MacVibrancyToastPortal>
-                    <MacVibrancyToast message={toast} variant="success" dismissible={false} />
+                    <MacVibrancyToast
+                        message={toast.message}
+                        variant={toast.variant}
+                        leading={macToastLeading(toast.variant)}
+                        dismissible={false}
+                    />
                 </MacVibrancyToastPortal>
             )}
 
@@ -1067,19 +1047,6 @@ export default function EscalationAlertSettings() {
                                     <div>
                                         <label className="label">Role Name</label>
                                         <input className="input" value={editName} readOnly disabled style={{ fontSize: 13 }} />
-                                    </div>
-                                    <div>
-                                        <label className="label">Description</label>
-                                        <textarea
-                                            className="input"
-                                            value={editDesc}
-                                            readOnly
-                                            disabled
-                                            style={{ fontSize: 13, minHeight: 60, resize: 'vertical' }}
-                                        />
-                                        <div style={{ marginTop: 6, fontSize: 10.5, color: 'var(--text-muted)', textAlign: 'right' }}>
-                                            {editDesc.length}/{DESC_LIMIT}
-                                        </div>
                                     </div>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderRadius: 'var(--radius-md)', background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.2)' }}>
                                         <span className="material-icons-round" style={{ fontSize: 16, color: 'var(--danger)' }}>priority_high</span>
@@ -1256,29 +1223,6 @@ export default function EscalationAlertSettings() {
                                                     No Critical roles are available for a new config. Mark a role as Critical on the Roles page first, or edit an existing config from the list.
                                                 </div>
                                             )}
-                                        </div>
-                                        <div>
-                                            <label className="label">Description</label>
-                                            <textarea
-                                                className="input"
-                                                value={newDesc}
-                                                maxLength={DESC_LIMIT}
-                                                onChange={e => setNewDesc(e.target.value.slice(0, DESC_LIMIT))}
-                                                placeholder="Describe when this escalation should trigger..."
-                                                style={{ fontSize: 13, minHeight: 60, resize: 'vertical' }}
-                                            />
-                                            <div style={{ marginTop: 6, fontSize: 10.5, color: 'var(--text-muted)', textAlign: 'right' }}>
-                                                {newDesc.length}/{DESC_LIMIT}
-                                            </div>
-                                        </div>
-                                        <div>
-                                            <label className="label">Department (optional)</label>
-                                            <CustomSelect
-                                                value={newDept}
-                                                onChange={v => setNewDept(v)}
-                                                options={departments.map(d => ({ label: d, value: d }))}
-                                                placeholder="-- Select Department --"
-                                            />
                                         </div>
                                         <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderRadius: 'var(--radius-md)', background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.2)' }}>
                                             <span className="material-icons-round" style={{ fontSize: 16, color: 'var(--danger)' }}>priority_high</span>

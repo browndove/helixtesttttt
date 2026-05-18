@@ -654,9 +654,16 @@ function parseBulkErrorRows(raw: unknown): StaffBulkImportRowError[] {
     });
 }
 
-function summarizeBulkCreatedEntry(raw: unknown): { name: string; email: string; meta: string } {
+function staffDisplayInitials(name: string): string {
+    const parts = name.trim().split(/\s+/).filter(Boolean);
+    if (parts.length === 0) return '?';
+    if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+    return `${parts[0][0] || ''}${parts[parts.length - 1][0] || ''}`.toUpperCase();
+}
+
+function summarizeBulkCreatedEntry(raw: unknown): { name: string; email: string; job: string; idShort: string } {
     if (!raw || typeof raw !== 'object') {
-        return { name: 'New staff', email: '', meta: '' };
+        return { name: 'New staff', email: '', job: '', idShort: '' };
     }
     const r = raw as Record<string, unknown>;
     const nest = (k: string): Record<string, unknown> | null => {
@@ -672,8 +679,8 @@ function summarizeBulkCreatedEntry(raw: unknown): { name: string; email: string;
     const email = String(staff.email || r.email || '').trim();
     const job = String(staff.job_title || r.job_title || staff.title || r.title || '').trim();
     const id = String(r.id || staff.id || r.staff_id || '').trim();
-    const meta = [job, id ? `ID ${id.length > 10 ? `${id.slice(0, 8)}…` : id}` : ''].filter(Boolean).join(' · ');
-    return { name, email, meta };
+    const idShort = id ? (id.length > 10 ? `${id.slice(0, 8)}…` : id) : '';
+    return { name, email, job, idShort };
 }
 
 type StaffBulkInterpret = {
@@ -3206,64 +3213,192 @@ export default function StaffDirectoryManagement() {
                     </div>
 
                     {bulkResultCreated.length > 0 && (
-                        <div className="fade-in" style={{ display: 'flex', flexDirection: 'column', gap: 20, marginBottom: 24 }}>
-                            <div>
-                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 12 }}>
-                                    <h3 style={{ margin: 0, fontSize: 15, fontWeight: 600, color: 'var(--text-primary)' }}>
-                                        Created staff ({bulkResultCreated.length})
-                                    </h3>
+                        <section
+                            className="fade-in staff-bulk-created"
+                            aria-label={`${bulkResultCreated.length} staff added`}
+                            style={{ marginBottom: 24 }}
+                        >
+                            <div
+                                style={{
+                                    borderRadius: 14,
+                                    border: '1px solid rgba(11, 30, 59, 0.08)',
+                                    background: 'var(--surface-card)',
+                                    boxShadow: '0 1px 2px rgba(11, 30, 59, 0.04), 0 8px 24px rgba(11, 30, 59, 0.06)',
+                                    overflow: 'hidden',
+                                }}
+                            >
+                                <div
+                                    style={{
+                                        display: 'flex',
+                                        alignItems: 'flex-start',
+                                        justifyContent: 'space-between',
+                                        gap: 16,
+                                        flexWrap: 'wrap',
+                                        padding: '16px 18px',
+                                        background: 'linear-gradient(180deg, #f4f7fb 0%, #eef2f8 100%)',
+                                        borderBottom: '1px solid rgba(11, 30, 59, 0.06)',
+                                    }}
+                                >
+                                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, minWidth: 0 }}>
+                                        <div
+                                            style={{
+                                                width: 40,
+                                                height: 40,
+                                                borderRadius: 10,
+                                                flexShrink: 0,
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                                background: 'var(--helix-primary)',
+                                                color: '#fff',
+                                                fontSize: 15,
+                                                fontWeight: 700,
+                                                letterSpacing: '-0.02em',
+                                            }}
+                                            aria-hidden
+                                        >
+                                            {bulkResultCreated.length}
+                                        </div>
+                                        <div style={{ minWidth: 0 }}>
+                                            <h3
+                                                style={{
+                                                    margin: 0,
+                                                    fontSize: 15,
+                                                    fontWeight: 700,
+                                                    color: 'var(--text-primary)',
+                                                    letterSpacing: '-0.02em',
+                                                }}
+                                            >
+                                                Added to directory
+                                            </h3>
+                                            <p style={{ margin: '4px 0 0', fontSize: 12.5, lineHeight: 1.45, color: 'var(--text-muted)' }}>
+                                                {bulkResultCreated.length === 1
+                                                    ? 'One person was imported. Send an invite when you are ready.'
+                                                    : `${bulkResultCreated.length} people were imported. Send invites when you are ready.`}
+                                            </p>
+                                        </div>
+                                    </div>
                                     {bulkCreatedStaffIds.length > 0 && (
                                         <button
                                             type="button"
                                             className="btn btn-primary btn-sm"
                                             disabled={sendingInvites}
                                             onClick={() => { void handleSendInviteEmails(bulkCreatedStaffIds); }}
+                                            style={{ flexShrink: 0, alignSelf: 'center' }}
                                         >
                                             <span className="material-icons-round" style={{ fontSize: 16 }}>
                                                 {sendingInvites ? 'hourglass_empty' : 'mail'}
                                             </span>
                                             {sendingInvites
                                                 ? 'Sending…'
-                                                : `Send invite emails to all created (${bulkCreatedStaffIds.length})`}
+                                                : `Send invites (${bulkCreatedStaffIds.length})`}
                                         </button>
                                     )}
                                 </div>
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                                <ul style={{ margin: 0, padding: 0, listStyle: 'none' }}>
                                     {bulkResultCreated.map((raw, idx) => {
-                                        const { name, email, meta } = summarizeBulkCreatedEntry(raw);
+                                        const { name, email, job, idShort } = summarizeBulkCreatedEntry(raw);
+                                        const initials = staffDisplayInitials(name);
+                                        const isLast = idx === bulkResultCreated.length - 1;
                                         return (
-                                            <div
+                                            <li
                                                 key={`created-${idx}-${email || name}`}
                                                 style={{
-                                                    display: 'flex',
-                                                    alignItems: 'flex-start',
-                                                    gap: 12,
-                                                    padding: '14px 16px',
-                                                    borderRadius: 'var(--radius-lg)',
-                                                    background: 'var(--surface-card)',
-                                                    border: '1px solid var(--border-subtle)',
-                                                    borderLeft: '4px solid var(--success)',
-                                                    boxShadow: 'var(--shadow-soft)',
+                                                    padding: '12px 18px',
+                                                    borderBottom: isLast ? 'none' : '1px solid var(--border-subtle)',
                                                 }}
                                             >
-                                                <span className="material-icons-round" style={{ fontSize: 22, color: 'var(--success)', flexShrink: 0, marginTop: 1 }} aria-hidden>
-                                                    person_add
-                                                </span>
-                                                <div style={{ flex: 1, minWidth: 0 }}>
-                                                    <div style={{ fontWeight: 600, fontSize: 14, color: 'var(--text-primary)' }}>{name}</div>
+                                                <div
+                                                    aria-hidden
+                                                    style={{
+                                                        width: 36,
+                                                        height: 36,
+                                                        borderRadius: '50%',
+                                                        flexShrink: 0,
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        justifyContent: 'center',
+                                                        background: 'rgba(30, 58, 95, 0.09)',
+                                                        color: 'var(--helix-primary)',
+                                                        fontSize: 12,
+                                                        fontWeight: 700,
+                                                        letterSpacing: '0.02em',
+                                                    }}
+                                                >
+                                                    {initials}
+                                                </div>
+                                                <div style={{ minWidth: 0 }}>
+                                                    <div
+                                                        style={{
+                                                            fontWeight: 600,
+                                                            fontSize: 13.5,
+                                                            color: 'var(--text-primary)',
+                                                            lineHeight: 1.3,
+                                                        }}
+                                                    >
+                                                        {name}
+                                                    </div>
                                                     {email ? (
-                                                        <div style={{ fontSize: 12.5, color: 'var(--text-secondary)', marginTop: 2 }}>{email}</div>
-                                                    ) : null}
-                                                    {meta ? (
-                                                        <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>{meta}</div>
+                                                        <div
+                                                            style={{
+                                                                fontSize: 12,
+                                                                color: 'var(--text-secondary)',
+                                                                marginTop: 2,
+                                                                overflow: 'hidden',
+                                                                textOverflow: 'ellipsis',
+                                                                whiteSpace: 'nowrap',
+                                                            }}
+                                                        >
+                                                            {email}
+                                                        </div>
                                                     ) : null}
                                                 </div>
-                                            </div>
+                                                <div
+                                                    style={{
+                                                        display: 'flex',
+                                                        flexDirection: 'column',
+                                                        alignItems: 'flex-end',
+                                                        gap: 4,
+                                                        minWidth: 0,
+                                                    }}
+                                                >
+                                                    {job ? (
+                                                        <span
+                                                            style={{
+                                                                fontSize: 11,
+                                                                fontWeight: 600,
+                                                                padding: '3px 8px',
+                                                                borderRadius: 6,
+                                                                background: 'rgba(11, 30, 59, 0.06)',
+                                                                color: 'var(--text-secondary)',
+                                                                whiteSpace: 'nowrap',
+                                                                maxWidth: 'min(10rem, 28vw)',
+                                                                overflow: 'hidden',
+                                                                textOverflow: 'ellipsis',
+                                                            }}
+                                                        >
+                                                            {job}
+                                                        </span>
+                                                    ) : null}
+                                                    {idShort ? (
+                                                        <span
+                                                            style={{
+                                                                fontSize: 10,
+                                                                fontWeight: 500,
+                                                                color: 'var(--text-muted)',
+                                                                fontVariantNumeric: 'tabular-nums',
+                                                            }}
+                                                        >
+                                                            {idShort}
+                                                        </span>
+                                                    ) : null}
+                                                </div>
+                                            </li>
                                         );
                                     })}
-                                </div>
+                                </ul>
                             </div>
-                        </div>
+                        </section>
                     )}
 
                     <div className="fade-in delay-3 card">
@@ -3499,6 +3634,27 @@ export default function StaffDirectoryManagement() {
                 </div>
             )}
             <style>{`
+                .staff-bulk-created li {
+                    display: grid;
+                    grid-template-columns: auto 1fr auto;
+                    align-items: center;
+                    gap: 12px 14px;
+                }
+                @media (max-width: 640px) {
+                    .staff-bulk-created li {
+                        grid-template-columns: auto 1fr;
+                        grid-template-rows: auto auto;
+                        align-items: start;
+                    }
+                    .staff-bulk-created li > div:last-child {
+                        grid-column: 2;
+                        flex-direction: row !important;
+                        align-items: center !important;
+                        justify-content: flex-start !important;
+                        flex-wrap: wrap;
+                        gap: 6px !important;
+                    }
+                }
                 @media (max-width: 1024px) {
                     .staff-table-scroll {
                         overflow-x: auto !important;

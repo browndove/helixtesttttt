@@ -3,7 +3,12 @@
 import { useState, useEffect, useLayoutEffect, useCallback, useMemo, useRef } from 'react';
 import TopBar from '@/components/TopBar';
 import CustomSelect from '@/components/CustomSelect';
-import { MacVibrancyToast, MacVibrancyToastPortal } from '@/components/MacVibrancyToast';
+import {
+    MacVibrancyToast,
+    MacVibrancyToastPortal,
+    macToastLeading,
+    type MacVibrancyToastVariant,
+} from '@/components/MacVibrancyToast';
 import { readCachedJson, writeCachedJson } from '@/lib/getJsonCache';
 import {
     clampEscalationDelaySeconds,
@@ -16,7 +21,14 @@ import {
     ladderLevelsToPolicyPayload,
     policyToLadderLevels,
 } from '@/lib/escalation-policy-ladder';
-import { escalationTargetsConflict, findNonCriticalEscalationTarget, isCriticalRole } from '@/lib/role-escalation-ladder';
+import {
+    applyEscalationRoleOverrides,
+    escalationTargetsConflict,
+    findNonCriticalEscalationTarget,
+    isCriticalRole,
+    normalizeRoleCriticalFields,
+    resolveEscalationTargetRoleId,
+} from '@/lib/role-escalation-ladder';
 import {
     ROLES_CACHE_DEPTS,
     ROLES_CACHE_HOSPITAL,
@@ -171,20 +183,22 @@ function parseFetchJsonBody(text: string): unknown {
     }
 }
 
+function apiErrorMessage(parsed: unknown, fallback: string): string {
+    if (!parsed || typeof parsed !== 'object') return fallback;
+    const rec = parsed as Record<string, unknown>;
+    const msg = String(rec.message || rec.detail || rec.error || '').trim();
+    return msg || fallback;
+}
+
 function normalizeRoleForUi<T extends Role>(role: T, deptIdToName: Map<string, string> = new Map()): T {
-    const isCritical = role.priority?.toString().trim().toLowerCase() === 'critical';
-    const priority = isCritical ? 'Critical' : 'Standard';
-    const mandatory = isCritical;
     const rec = role as unknown as Record<string, unknown>;
     const department = resolveRoleDepartment(rec, deptIdToName);
-    return {
+    return normalizeRoleCriticalFields({
         ...role,
         department,
-        mandatory,
         enabled: role.enabled ?? true,
         visible_in_directory: role.visible_in_directory ?? true,
-        priority,
-    } as T;
+    } as T);
 }
 
 function countFilledEscalationLevels(levels: EscalationLevel[], fixedFirstTarget?: string): number {
@@ -490,7 +504,7 @@ export default function RolesBuilderAssignment() {
         });
         return m;
     }, [deptIdMap]);
-    const [toast, setToast] = useState<string | null>(null);
+    const [toast, setToast] = useState<{ message: string; variant: MacVibrancyToastVariant } | null>(null);
     const [search, setSearch] = useState('');
     const [loading, setLoading] = useState(true);
     const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -565,7 +579,10 @@ export default function RolesBuilderAssignment() {
         return map;
     }, [roles]);
 
-    const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(null), 2500); };
+    const showToast = (msg: string, variant: MacVibrancyToastVariant = 'success') => {
+        setToast({ message: msg, variant });
+        setTimeout(() => setToast(null), 2800);
+    };
 
     const ingestRolesPagePayloads = useCallback(
         (
@@ -753,7 +770,7 @@ export default function RolesBuilderAssignment() {
                 if (hid) writeCachedJson(`/api/proxy/facilities/${hid}`, facilityJson);
             }
         } catch {
-            showToast('Failed to load data');
+            showToast('Failed to load data', 'error');
         }
         setLoading(false);
     }, [ingestRolesPagePayloads]);
@@ -919,14 +936,14 @@ export default function RolesBuilderAssignment() {
 
             setRoles(prev => [...prev, ...createdRoles]);
             if (skippedNames.length > 0 && createdRoles.length > 0) {
-                showToast(`${createdRoles.length} created, ${skippedNames.length} skipped (already exist)`);
+                showToast(`${createdRoles.length} created, ${skippedNames.length} skipped (already exist)`, 'info');
             } else if (skippedNames.length > 0 && createdRoles.length === 0) {
-                showToast(`All roles already exist — nothing created`);
+                showToast(`All roles already exist — nothing created`, 'info');
             } else {
                 showToast(`${createdRoles.length} roles created from "${selectedTemplate.name}"`);
             }
             resetAddForm();
-        } catch { showToast('Failed to create roles from template'); }
+        } catch { showToast('Failed to create roles from template', 'error'); }
         setTemplateCreating(false);
     };
 
@@ -952,7 +969,7 @@ export default function RolesBuilderAssignment() {
             });
             const addResponseText = await res.text();
             const addParsed = parseFetchJsonBody(addResponseText);
-            if (!res.ok) { showToast('Failed to add role'); return; }
+            if (!res.ok) { showToast('Failed to add role', 'error'); return; }
             const role = (addParsed && typeof addParsed === 'object' ? addParsed : {}) as Role;
 
             // Create escalation policy + steps for critical/mandatory roles (max 3 levels)
@@ -961,7 +978,7 @@ export default function RolesBuilderAssignment() {
             if (withEscalations && newRoleMandatory && ladderLevels.length > 0) {
                 const nonCriticalTarget = findNonCriticalEscalationTarget(ladderLevels, roles);
                 if (nonCriticalTarget) {
-                    showToast(`"${nonCriticalTarget}" is not Critical. Only Critical roles can be in an escalation ladder.`);
+                    showToast(`"${nonCriticalTarget}" is not Critical. Only Critical roles can be in an escalation ladder.`, 'error');
                     return;
                 }
                 const { initial_timeout_seconds, steps } = ladderLevelsToPolicyPayload(
@@ -970,7 +987,7 @@ export default function RolesBuilderAssignment() {
                     fullRoleName,
                     (targetName) => {
                         if (targetName.trim().toLowerCase() === fullRoleName.trim().toLowerCase()) return role.id;
-                        return criticalRoles.find(r => r.name === targetName)?.id;
+                        return resolveEscalationTargetRoleId(targetName, roles);
                     },
                 );
                 const policyRes = await fetch('/api/proxy/escalation-policies', {
@@ -1017,7 +1034,7 @@ export default function RolesBuilderAssignment() {
             showToast(`"${fullRoleName}" created`);
             resetAddForm();
             fetchData();
-        } catch { showToast('Failed to add role'); }
+        } catch { showToast('Failed to add role', 'error'); }
     };
 
     const handleRemoveRole = async (role: Role) => {
@@ -1028,7 +1045,7 @@ export default function RolesBuilderAssignment() {
                 showToast(`"${role.name}" removed`);
                 setConfirmDelete(null);
             }
-        } catch { showToast('Failed to remove role'); }
+        } catch { showToast('Failed to remove role', 'error'); }
     };
 
     const handleToggleMandatory = async (role: Role) => {
@@ -1049,12 +1066,12 @@ export default function RolesBuilderAssignment() {
             } else {
                 // Rollback on failure
                 setRoles(prev => prev.map(r => r.id === role.id ? normalizeRoleForUi({ ...r, mandatory: role.mandatory }, departmentIdToName) : r));
-                showToast('Failed to update role');
+                showToast('Failed to update role', 'error');
             }
         } catch {
             // Rollback on error
             setRoles(prev => prev.map(r => r.id === role.id ? normalizeRoleForUi({ ...r, mandatory: role.mandatory }, departmentIdToName) : r));
-            showToast('Failed to update role');
+            showToast('Failed to update role', 'error');
         }
     };
 
@@ -1122,34 +1139,35 @@ export default function RolesBuilderAssignment() {
                     || Array.from(deptIdMap.entries()).find(([name]) => name.trim().toLowerCase() === normalizedEditDept.toLowerCase())?.[1]
                 )
                 : undefined;
-            console.log('[roles-ui][saveEdit] Department debug:', {
-                roleId: editingRole.id,
-                roleName: editingRole.name,
-                selectedDepartment: normalizedEditDept,
-                resolvedDepartmentId: resolvedEditDeptId,
-                knownDepartments: departments,
-            });
-            // 1. Update the role itself
+            const currentName = editingRole.name.trim();
+            const nameChanged = nextName.trim() !== currentName;
+            const currentDept = String(editingRole.department || '').trim();
+            const deptChanged = normalizedEditDept !== currentDept;
+
+            const roleUpdatePayload: Record<string, unknown> = {
+                description: editDesc.trim(),
+                priority: editMandatory ? 'critical' : 'standard',
+                mandatory: editMandatory,
+                sign_in_allowed_user_ids: editRestricted ? editAllowedUserIds : [],
+                enabled: editEnabled,
+                is_transfer_role: editIsTransferRole,
+            };
+            if (nameChanged) roleUpdatePayload.name = nextName;
+            if (deptChanged) {
+                if (resolvedEditDeptId) roleUpdatePayload.department_id = resolvedEditDeptId;
+                if (normalizedEditDept) roleUpdatePayload.department = normalizedEditDept;
+            }
+
+            // 1. Update the role itself (omit unchanged name — backend 409s on duplicate names)
             const res = await fetch(`/api/proxy/roles/${editingRole.id}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    name: nextName,
-                    description: editDesc.trim(),
-                    department_id: resolvedEditDeptId,
-                    // Send display name whenever selected so upstream can validate alongside department_id.
-                    department: normalizedEditDept || undefined,
-                    priority: editMandatory ? 'critical' : 'standard',
-                    mandatory: editMandatory,
-                    sign_in_allowed_user_ids: editRestricted ? editAllowedUserIds : [],
-                    enabled: editEnabled,
-                    is_transfer_role: editIsTransferRole,
-                }),
+                body: JSON.stringify(roleUpdatePayload),
             });
             const responseText = await res.text();
             const parsedBody = parseFetchJsonBody(responseText);
             if (!res.ok) {
-                showToast('Failed to save changes');
+                showToast(apiErrorMessage(parsedBody, 'Failed to save changes'), 'error');
                 setEditSaving(false);
                 return;
             }
@@ -1189,20 +1207,28 @@ export default function RolesBuilderAssignment() {
                 } catch { /* best effort */ }
                 finalLevels = [];
             } else if (withEscalations && ladderLevels.length > 0) {
-                const nonCriticalTarget = findNonCriticalEscalationTarget(ladderLevels, roles);
+                const editRoleFullName = buildRoleName(editPrefix, editName);
+                const rolesForEscalation = applyEscalationRoleOverrides(roles, [
+                    {
+                        id: editingRole.id,
+                        mandatory: editMandatory,
+                        priority: editMandatory ? 'Critical' : 'Standard',
+                        name: editRoleFullName,
+                    },
+                ]);
+                const nonCriticalTarget = findNonCriticalEscalationTarget(ladderLevels, rolesForEscalation);
                 if (nonCriticalTarget) {
-                    showToast(`"${nonCriticalTarget}" is not Critical. Only Critical roles can be in an escalation ladder.`);
+                    showToast(`"${nonCriticalTarget}" is not Critical. Only Critical roles can be in an escalation ladder.`, 'error');
                     setEditSaving(false);
                     return;
                 }
-                const editRoleFullName = buildRoleName(editPrefix, editName);
                 const { initial_timeout_seconds, steps } = ladderLevelsToPolicyPayload(
                     ladderLevels,
                     editingRole.id,
                     editRoleFullName,
                     (targetName) => {
                         if (targetName.trim().toLowerCase() === editRoleFullName.trim().toLowerCase()) return editingRole.id;
-                        return criticalRoles.find(r => r.name === targetName)?.id;
+                        return resolveEscalationTargetRoleId(targetName, rolesForEscalation);
                     },
                 );
 
@@ -1290,7 +1316,7 @@ export default function RolesBuilderAssignment() {
             showToast(`"${editName}" updated`);
             setEditingRole(null);
             fetchData();
-        } catch { showToast('Failed to save changes'); }
+        } catch { showToast('Failed to save changes', 'error'); }
         setEditSaving(false);
     };
 
@@ -1521,7 +1547,19 @@ export default function RolesBuilderAssignment() {
                                 ) : (
                                     <CustomSelect
                                         value={lvl.target}
-                                        onChange={v => { const updated = levels.map(l => l.level === lvl.level ? { ...l, target: v } : l); setLevels(updated); }}
+                                        onChange={v => {
+                                            const roleId = resolveEscalationTargetRoleId(v, roles);
+                                            const updated = levels.map(l =>
+                                                l.level === lvl.level
+                                                    ? {
+                                                        ...l,
+                                                        target: v,
+                                                        ...(roleId ? { target_role_id: roleId } : {}),
+                                                    }
+                                                    : l,
+                                            );
+                                            setLevels(updated);
+                                        }}
                                         options={roleTargetOptions.filter(t => (
                                             t === lvl.target
                                             || !escalationTargetsConflict(t, occupiedForRow, roleNameToIdLowerForEscalation)
@@ -1648,7 +1686,12 @@ export default function RolesBuilderAssignment() {
         <>
             {toast && (
                 <MacVibrancyToastPortal>
-                    <MacVibrancyToast message={toast} variant="success" dismissible={false} />
+                    <MacVibrancyToast
+                        message={toast.message}
+                        variant={toast.variant}
+                        leading={macToastLeading(toast.variant)}
+                        dismissible={false}
+                    />
                 </MacVibrancyToastPortal>
             )}
 
@@ -1777,7 +1820,7 @@ export default function RolesBuilderAssignment() {
                                             className="btn btn-primary btn-sm"
                                             onClick={() => {
                                                 if (!editMandatory) {
-                                                    showToast('Escalation is only available for Critical roles. Turn on “This role must always be filled” first.');
+                                                    showToast('Escalation is only available for Critical roles. Turn on “This role must always be filled” first.', 'info');
                                                     return;
                                                 }
                                                 setEditStep(2);
@@ -2058,7 +2101,7 @@ export default function RolesBuilderAssignment() {
                                                 className="btn btn-primary btn-sm"
                                                 onClick={() => {
                                                     if (!newRoleMandatory) {
-                                                        showToast('Escalation is only available for Critical roles. Turn on “This role must always be filled” first.');
+                                                        showToast('Escalation is only available for Critical roles. Turn on “This role must always be filled” first.', 'info');
                                                         return;
                                                     }
                                                     setAddStep(3);
@@ -2476,7 +2519,7 @@ export default function RolesBuilderAssignment() {
                                                                         body: JSON.stringify({ user_id: signInUserId }),
                                                                     });
                                                                     if (!res.ok) {
-                                                                        showToast('Failed to sign in staff');
+                                                                        showToast('Failed to sign in staff', 'error');
                                                                         setSignInLoading(false);
                                                                         return;
                                                                     }
@@ -2490,7 +2533,7 @@ export default function RolesBuilderAssignment() {
                                                                     setShowSignIn(false);
                                                                     setSignInUserId(null);
                                                                 } catch {
-                                                                    showToast('Failed to sign in staff');
+                                                                    showToast('Failed to sign in staff', 'error');
                                                                 }
                                                                 setSignInLoading(false);
                                                             }}

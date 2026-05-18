@@ -4,6 +4,17 @@ import { useCallback, useRef, type PointerEvent, type ReactNode } from 'react';
 
 export type MacVibrancyToastVariant = 'success' | 'error' | 'info';
 
+export function macToastLeading(variant: MacVibrancyToastVariant) {
+    const icon = variant === 'error' ? 'error_outline' : variant === 'success' ? 'check_circle' : 'info';
+    const color =
+        variant === 'error' ? 'var(--critical)' : variant === 'success' ? 'var(--success)' : 'var(--helix-primary)';
+    return (
+        <span className="material-icons-round" style={{ fontSize: 18, color }} aria-hidden>
+            {icon}
+        </span>
+    );
+}
+
 /** Fixed top-right anchor; use `column-reverse` so newer items render toward the top visually when multiple children exist. */
 export function MacVibrancyToastPortal({ children, className }: { children: ReactNode; className?: string }) {
     return <div className={['helix-mac-toast-portal', className].filter(Boolean).join(' ')}>{children}</div>;
