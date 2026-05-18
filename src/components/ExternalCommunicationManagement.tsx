@@ -10,7 +10,26 @@ type RoleRow = {
     name: string;
     department: string;
     external_messaging: boolean;
+    is_transfer_role: boolean;
 };
+
+function readIsTransferRoleFromRaw(raw: Record<string, unknown>): boolean {
+    const keys = ['is_transfer_role', 'transfer_role', 'isTransferRole'] as const;
+    for (const k of keys) {
+        if (!Object.prototype.hasOwnProperty.call(raw, k)) continue;
+        const v = raw[k as string];
+        if (v === true || v === 1) return true;
+        if (v === false || v === 0) return false;
+        if (typeof v === 'string') {
+            const s = v.trim().toLowerCase();
+            if (s === 'true' || s === '1' || s === 'yes') return true;
+            if (s === 'false' || s === '0' || s === 'no' || s === '') return false;
+        }
+        if (v == null) continue;
+        return Boolean(v);
+    }
+    return false;
+}
 
 function parseRolesPayload(data: unknown): RoleRow[] {
     const raw = Array.isArray(data) ? data : [];
@@ -30,7 +49,8 @@ function parseRolesPayload(data: unknown): RoleRow[] {
         } else if (typeof r.department === 'string') department = r.department.trim();
         const em = r.external_messaging;
         const external_messaging = em === true || em === 'true' || em === 1;
-        out.push({ id, name, department, external_messaging });
+        const is_transfer_role = readIsTransferRoleFromRaw(r);
+        out.push({ id, name, department, external_messaging, is_transfer_role });
     }
     return out.sort((a, b) => a.name.localeCompare(b.name));
 }
@@ -63,9 +83,9 @@ export default function ExternalCommunicationManagement() {
         [roleExternal],
     );
 
-    /** Roles currently enabled for external messaging (the only rows we show in the list). */
+    /** External messaging roles plus all transfer roles (transfer flag is separate on Roles page). */
     const addedRoles = useMemo(
-        () => roles.filter(r => roleExternal[r.id]).sort((a, b) => a.name.localeCompare(b.name)),
+        () => roles.filter(r => roleExternal[r.id] || r.is_transfer_role).sort((a, b) => a.name.localeCompare(b.name)),
         [roles, roleExternal],
     );
 
@@ -73,14 +93,14 @@ export default function ExternalCommunicationManagement() {
         const q = addedListSearch.trim().toLowerCase();
         if (!q) return addedRoles;
         return addedRoles.filter(r => {
-                const name = r.name.toLowerCase();
-                const dept = (r.department || '').toLowerCase();
-                return name.includes(q) || (!!dept && dept.includes(q));
-            });
+            const name = r.name.toLowerCase();
+            const dept = (r.department || '').toLowerCase();
+            return name.includes(q) || (!!dept && dept.includes(q));
+        });
     }, [addedRoles, addedListSearch]);
 
     const rolesAvailableToAdd = useMemo(
-        () => roles.filter(r => !roleExternal[r.id]).sort((a, b) => a.name.localeCompare(b.name)),
+        () => roles.filter(r => !roleExternal[r.id] && !r.is_transfer_role).sort((a, b) => a.name.localeCompare(b.name)),
         [roles, roleExternal],
     );
 
@@ -141,11 +161,12 @@ export default function ExternalCommunicationManagement() {
 
     useEffect(() => { fetchData(); }, [fetchData]);
 
-    const setDraftFacilityEnabledGuarded = (next: boolean) => {
-        setDraftFacilityEnabled(next);
-    };
-
     const toggleRoleExternal = (roleId: string, next: boolean) => {
+        const role = roles.find(r => r.id === roleId);
+        if (!next && role?.is_transfer_role) {
+            showToast('Transfer roles stay on this list. Turn off Transfer role under Setup → Roles to remove.');
+            return;
+        }
         if (!next && draftFacilityEnabled) {
             const others = externalRoleCount - (roleExternal[roleId] ? 1 : 0);
             if (others < 1) {
@@ -201,7 +222,10 @@ export default function ExternalCommunicationManagement() {
                 }
             }
 
-            setRoles(prev => prev.map(r => ({ ...r, external_messaging: Boolean(roleExternal[r.id]) })));
+            setRoles(prev => prev.map(r => ({
+                ...r,
+                external_messaging: Boolean(roleExternal[r.id]),
+            })));
             showToast('External communication settings saved');
         } catch {
             showToast('Failed to save');
@@ -250,7 +274,6 @@ export default function ExternalCommunicationManagement() {
                     <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 20 }}>
 
                         <div className="card" style={{ padding: '20px 22px', width: '100%', maxWidth: '100%', minWidth: 0, boxSizing: 'border-box' }}>
-                            {/* Facility — full width at top */}
                             <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, marginBottom: 14 }}>
                                 <div style={{
                                     width: 40,
@@ -292,7 +315,7 @@ export default function ExternalCommunicationManagement() {
                                 <button
                                     type="button"
                                     aria-pressed={draftFacilityEnabled}
-                                    onClick={() => setDraftFacilityEnabledGuarded(!draftFacilityEnabled)}
+                                    onClick={() => setDraftFacilityEnabled(!draftFacilityEnabled)}
                                     style={{
                                         width: 44,
                                         height: 24,
@@ -336,10 +359,9 @@ export default function ExternalCommunicationManagement() {
                                 transition: 'opacity 0.25s ease',
                             }}>
 
-                            {/* External messaging roles — only roles you have added */}
                             <h2 style={{ fontSize: 16, fontWeight: 700, margin: '0 0 6px', color: 'var(--text-primary)' }}>External messaging roles</h2>
                             <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: '0 0 16px', lineHeight: 1.5 }}>
-                                Add duty roles that may send or receive cross-facility messages when this facility allows it. If external communication is on, keep at least one role on the list.
+                                Add duty roles that may send or receive cross-facility messages when this facility allows it. Transfer roles appear automatically with a tag. If external communication is on, keep at least one role with external messaging enabled.
                             </p>
 
                             {roles.length > 0 && (
@@ -411,21 +433,41 @@ export default function ExternalCommunicationManagement() {
                                             }}
                                         >
                                             <div>
-                                                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>{r.name}</div>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                                                    <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>{r.name}</span>
+                                                    {r.is_transfer_role ? (
+                                                        <span
+                                                            className="badge badge-info"
+                                                            style={{
+                                                                fontSize: 10,
+                                                                flexShrink: 0,
+                                                                background: 'rgba(124,58,237,0.12)',
+                                                                color: '#7c3aed',
+                                                                border: '1px solid rgba(124,58,237,0.28)',
+                                                            }}
+                                                        >
+                                                            Transfer role
+                                                        </span>
+                                                    ) : null}
+                                                </div>
                                                 {r.department ? (
                                                     <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>{r.department}</div>
                                                 ) : null}
                                             </div>
                                             <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-                                                <button
-                                                    type="button"
-                                                    className="btn btn-ghost btn-xs"
-                                                    onClick={() => toggleRoleExternal(r.id, false)}
-                                                    title="Remove from external messaging"
-                                                >
-                                                    <span className="material-icons-round" style={{ fontSize: 16 }}>close</span>
-                                                    Remove
-                                                </button>
+                                                {r.is_transfer_role ? (
+                                                    <span style={{ fontSize: 11, color: 'var(--text-muted)', fontStyle: 'italic' }}>—</span>
+                                                ) : (
+                                                    <button
+                                                        type="button"
+                                                        className="btn btn-ghost btn-xs"
+                                                        onClick={() => toggleRoleExternal(r.id, false)}
+                                                        title="Remove from external messaging"
+                                                    >
+                                                        <span className="material-icons-round" style={{ fontSize: 16 }}>close</span>
+                                                        Remove
+                                                    </button>
+                                                )}
                                             </div>
                                         </div>
                                     ))}
