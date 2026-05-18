@@ -11,6 +11,11 @@ import { BulkImportErrorsSheet } from '@/components/BulkImportErrorsSheet';
 import { readCachedJson, writeCachedJson } from '@/lib/getJsonCache';
 import { extractOnlineStaffIdSet, fetchMergedFacilityPresenceOnline } from '@/lib/presence-online';
 import { API_ENDPOINTS } from '@/lib/config';
+import {
+    extractStaffIdFromBulkCreated,
+    sendStaffInviteEmails,
+    type StaffInviteEmailError,
+} from '@/lib/staff-invite-emails';
 
 const STAFF_PAGE_CACHE_TTL_MS = 120_000;
 const STAFF_CACHE_LIST = '/api/proxy/staff?page_size=100&page_id=1';
@@ -820,11 +825,15 @@ export default function StaffDirectoryManagement() {
     const [bulkResultCreated, setBulkResultCreated] = useState<unknown[]>([]);
     const [bulkResultErrors, setBulkResultErrors] = useState<StaffBulkImportRowError[]>([]);
     const [pendingDelete, setPendingDelete] = useState<StaffMember | null>(null);
+    const [pendingInviteSend, setPendingInviteSend] = useState<StaffMember | null>(null);
     const [processing, setProcessing] = useState(false);
     const [requestPhoneUpdatePending, setRequestPhoneUpdatePending] = useState(false);
     const [detailSignedInRole, setDetailSignedInRole] = useState<string | null>(null);
     const [detailSignedInRoleLoading, setDetailSignedInRoleLoading] = useState(false);
     const [adding, setAdding] = useState(false);
+    const [sendingInvites, setSendingInvites] = useState(false);
+    const [selectedStaffIds, setSelectedStaffIds] = useState<Set<string>>(() => new Set());
+    const [inviteSendErrors, setInviteSendErrors] = useState<StaffInviteEmailError[]>([]);
     const [departmentOptions, setDepartmentOptions] = useState<string[]>([]);
     const [deptIdToName, setDeptIdToName] = useState<Map<string, string>>(() => new Map());
     const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -841,20 +850,72 @@ export default function StaffDirectoryManagement() {
         setBulkResultErrors([]);
     }, []);
 
+    const dismissInviteSendErrors = useCallback(() => {
+        setInviteSendErrors([]);
+    }, []);
+
+    const reportInviteSendResult = useCallback((result: Awaited<ReturnType<typeof sendStaffInviteEmails>>) => {
+        if (result.emailNotConfigured) {
+            showToast('Invite email is not configured on the server. Contact your administrator.', 'error');
+            return;
+        }
+        if (result.errors.length > 0) {
+            setInviteSendErrors(result.errors);
+        }
+        if (result.queued > 0) {
+            const errNote = result.errors.length > 0 ? ` · ${result.errors.length} could not be queued` : '';
+            showToast(`Queued ${result.queued} invite${result.queued === 1 ? '' : 's'}${errNote}`, result.errors.length > 0 ? 'info' : 'success');
+        } else if (result.errors.length > 0) {
+            showToast('No invites were queued. See errors in the panel.', 'error');
+        } else if (!result.ok) {
+            showToast('Failed to send invite emails', 'error');
+        }
+    }, [showToast]);
+
+    const handleSendInviteEmails = useCallback(async (staffIds: string[], options?: { clearSelection?: boolean }) => {
+        const ids = staffIds.map(id => id.trim()).filter(Boolean);
+        if (ids.length === 0) return;
+        setSendingInvites(true);
+        try {
+            const result = await sendStaffInviteEmails(ids);
+            reportInviteSendResult(result);
+            if (options?.clearSelection && result.queued > 0) {
+                setSelectedStaffIds(new Set());
+            }
+        } catch {
+            showToast('Failed to send invite emails', 'error');
+        } finally {
+            setSendingInvites(false);
+        }
+    }, [reportInviteSendResult, showToast]);
+
+    const toggleStaffRowSelected = useCallback((id: string, checked: boolean) => {
+        setSelectedStaffIds(prev => {
+            const next = new Set(prev);
+            if (checked) next.add(id);
+            else next.delete(id);
+            return next;
+        });
+    }, []);
+
     useEffect(() => {
         const onKey = (e: KeyboardEvent) => {
             if (e.key !== 'Escape') return;
             if (pendingDelete) {
                 setPendingDelete(null);
+            } else if (pendingInviteSend) {
+                setPendingInviteSend(null);
             } else if (bulkResultErrors.length > 0) {
                 dismissBulkErrors();
+            } else if (inviteSendErrors.length > 0) {
+                dismissInviteSendErrors();
             } else if (toast) {
                 dismissToast();
             }
         };
         window.addEventListener('keydown', onKey);
         return () => window.removeEventListener('keydown', onKey);
-    }, [toast, dismissToast, bulkResultErrors.length, dismissBulkErrors, pendingDelete]);
+    }, [toast, dismissToast, bulkResultErrors.length, dismissBulkErrors, inviteSendErrors.length, dismissInviteSendErrors, pendingDelete, pendingInviteSend]);
 
     useEffect(() => {
         if (!selected) {
@@ -1302,6 +1363,25 @@ export default function StaffDirectoryManagement() {
         [filtered, staffPage, staffPageSize]
     );
 
+    const toggleSelectAllOnPage = useCallback(() => {
+        setSelectedStaffIds(prev => {
+            const pageIds = paginatedFiltered.map(s => s.id);
+            const allSelected = pageIds.length > 0 && pageIds.every(id => prev.has(id));
+            const next = new Set(prev);
+            if (allSelected) {
+                pageIds.forEach(id => next.delete(id));
+            } else {
+                pageIds.forEach(id => next.add(id));
+            }
+            return next;
+        });
+    }, [paginatedFiltered]);
+
+    const bulkCreatedStaffIds = useMemo(
+        () => bulkResultCreated.map(extractStaffIdFromBulkCreated).filter(Boolean),
+        [bulkResultCreated],
+    );
+
     const onlineInFiltered = useMemo(
         () => filtered.filter(s => isStaffOnline(s, onlineIdSet)).length,
         [filtered, onlineIdSet]
@@ -1398,12 +1478,23 @@ export default function StaffDirectoryManagement() {
             setNewRole('');
             setNewHighestQualification('');
             setNewPatientAccess(true);
-            showToast(`${newFirstName} ${newLastName} added to staff`, 'success');
+            const displayName = `${newFirstName} ${newLastName}`.trim() || 'Staff member';
+            showToast(`${displayName} added to staff`, 'success');
+            if (member.id && member.email.trim()) {
+                setPendingInviteSend(member);
+            }
         } catch {
             showToast('Failed to add staff', 'error');
         } finally {
             setAdding(false);
         }
+    };
+
+    const confirmSendInviteAfterCreate = () => {
+        if (!pendingInviteSend) return;
+        const id = pendingInviteSend.id;
+        setPendingInviteSend(null);
+        void handleSendInviteEmails([id]);
     };
 
     const requestRemove = (id: string) => {
@@ -1719,6 +1810,20 @@ export default function StaffDirectoryManagement() {
                     descId="staff-bulk-errors-desc"
                 />
             )}
+            {inviteSendErrors.length > 0 && (
+                <BulkImportErrorsSheet
+                    errors={inviteSendErrors.map((e, i) => ({
+                        row: i + 1,
+                        email: e.email || e.staff_id || '—',
+                        message: e.message,
+                    }))}
+                    onDismiss={dismissInviteSendErrors}
+                    title="Invite email — not sent"
+                    description={`${inviteSendErrors.length} staff member${inviteSendErrors.length === 1 ? '' : 's'} could not be queued. Fix the issue and try again.`}
+                    titleId="staff-invite-errors-title"
+                    descId="staff-invite-errors-desc"
+                />
+            )}
             {toast && (
                 <MacVibrancyToastPortal>
                     <MacVibrancyToast message={toast.message} variant={toast.variant} onDismiss={dismissToast} />
@@ -1885,6 +1990,21 @@ export default function StaffDirectoryManagement() {
                                 </button>
                             ))}
                         </div>
+                        {selectedStaffIds.size > 0 && (
+                            <button
+                                type="button"
+                                className="btn btn-primary btn-xs"
+                                disabled={sendingInvites}
+                                onClick={() => {
+                                    void handleSendInviteEmails([...selectedStaffIds], { clearSelection: true });
+                                }}
+                            >
+                                <span className="material-icons-round" style={{ fontSize: 14 }}>
+                                    {sendingInvites ? 'hourglass_empty' : 'mail'}
+                                </span>
+                                {sendingInvites ? 'Sending…' : `Send invites (${selectedStaffIds.size})`}
+                            </button>
+                        )}
                         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-muted)' }}>
                             <span className="material-icons-round" style={{ fontSize: 14 }}>sort</span>
                             <CustomSelect
@@ -1932,6 +2052,27 @@ export default function StaffDirectoryManagement() {
                                 <table className="staff-table" style={{ width: 'max-content', minWidth: '100%', borderCollapse: 'separate', borderSpacing: 0, tableLayout: 'auto' }}>
                                     <thead>
                                         <tr>
+                                            <th
+                                                style={{
+                                                    ...staffHeadCell,
+                                                    width: 44,
+                                                    minWidth: 44,
+                                                    textAlign: 'center',
+                                                    background: '#fafbfc',
+                                                    borderBottom: '1px solid var(--border-default)',
+                                                }}
+                                            >
+                                                <input
+                                                    type="checkbox"
+                                                    aria-label="Select all on this page"
+                                                    checked={
+                                                        paginatedFiltered.length > 0
+                                                        && paginatedFiltered.every(s => selectedStaffIds.has(s.id))
+                                                    }
+                                                    onChange={toggleSelectAllOnPage}
+                                                    onClick={e => e.stopPropagation()}
+                                                />
+                                            </th>
                                             <th
                                                 style={{
                                                     ...staffHeadCell,
@@ -1990,13 +2131,13 @@ export default function StaffDirectoryManagement() {
                                             <th style={{ ...staffHeadCell, minWidth: 140, whiteSpace: 'nowrap', background: '#fafbfc', borderBottom: '1px solid var(--border-default)' }}>Patient Access</th>
                                             <th style={{ ...staffHeadCell, minWidth: 88, whiteSpace: 'nowrap', cursor: 'pointer', background: '#fafbfc', borderBottom: '1px solid var(--border-default)' }} onClick={() => toggleSort('status')}>Status {sortKey === 'status' && (sortDir === 'asc' ? '↑' : '↓')}</th>
                                             <th style={{ ...staffHeadCell, minWidth: 76, whiteSpace: 'nowrap', background: '#fafbfc', borderBottom: '1px solid var(--border-default)' }}>Online</th>
-                                            <th style={{ ...staffHeadCell, width: 44, minWidth: 44, background: '#fafbfc', borderBottom: '1px solid var(--border-default)' }} />
+                                            <th style={{ ...staffHeadCell, width: 72, minWidth: 72, background: '#fafbfc', borderBottom: '1px solid var(--border-default)' }} />
                                         </tr>
                                     </thead>
                                     <tbody>
                                         {loading && filtered.length === 0 && (
                                             <tr>
-                                                <td colSpan={10} style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--text-muted)', fontSize: 13 }}>
+                                                <td colSpan={11} style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--text-muted)', fontSize: 13 }}>
                                                     <span className="material-icons-round" style={{ fontSize: 24, display: 'block', marginBottom: 8, opacity: 0.4 }}>hourglass_empty</span>
                                                     Loading staff from server...
                                                 </td>
@@ -2004,7 +2145,7 @@ export default function StaffDirectoryManagement() {
                                         )}
                                         {!loading && fetchError && filtered.length === 0 && (
                                             <tr>
-                                                <td colSpan={10} style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--text-muted)', fontSize: 13 }}>
+                                                <td colSpan={11} style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--text-muted)', fontSize: 13 }}>
                                                     <span className="material-icons-round" style={{ fontSize: 24, display: 'block', marginBottom: 8, color: 'var(--critical)' }}>cloud_off</span>
                                                     <div style={{ fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>Could not load staff</div>
                                                     <div style={{ marginBottom: 12 }}>The server is unreachable. Check your connection and try again.</div>
@@ -2016,7 +2157,7 @@ export default function StaffDirectoryManagement() {
                                         )}
                                         {!loading && !fetchError && filtered.length === 0 && (
                                             <tr>
-                                                <td colSpan={10} style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--text-muted)', fontSize: 13 }}>
+                                                <td colSpan={11} style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--text-muted)', fontSize: 13 }}>
                                                     <span className="material-icons-round" style={{ fontSize: 24, display: 'block', marginBottom: 8, opacity: 0.4 }}>person_off</span>
                                                     {search || deptFilter !== 'all' || statusFilter !== 'all' ? 'No staff match your filters.' : 'No staff members yet. Add staff above to get started.'}
                                                 </td>
@@ -2035,6 +2176,24 @@ export default function StaffDirectoryManagement() {
                                                     onClick={() => setSelected(isSelected ? null : s)}
                                                     style={{ cursor: 'pointer' }}
                                                 >
+                                                    <td
+                                                        style={{
+                                                            ...staffBodyCell,
+                                                            width: 44,
+                                                            minWidth: 44,
+                                                            textAlign: 'center',
+                                                            background: rowBg,
+                                                            borderBottom: '1px solid var(--border-subtle)',
+                                                        }}
+                                                        onClick={e => e.stopPropagation()}
+                                                    >
+                                                        <input
+                                                            type="checkbox"
+                                                            aria-label={`Select ${s.first_name} ${s.last_name}`}
+                                                            checked={selectedStaffIds.has(s.id)}
+                                                            onChange={e => toggleStaffRowSelected(s.id, e.target.checked)}
+                                                        />
+                                                    </td>
                                                     <td
                                                         style={{
                                                             ...staffBodyCell,
@@ -2142,10 +2301,24 @@ export default function StaffDirectoryManagement() {
                                                             <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>Offline</span>
                                                         )}
                                                     </td>
-                                                    <td style={{ ...staffBodyCell, width: 44, minWidth: 44, textAlign: 'center', background: rowBg, borderBottom: '1px solid var(--border-subtle)' }}>
-                                                        <button className="btn btn-ghost btn-xs" onClick={e => { e.stopPropagation(); requestRemove(s.id); }}>
-                                                            <span className="material-icons-round" style={{ fontSize: 14, color: 'var(--text-muted)' }}>delete</span>
-                                                        </button>
+                                                    <td style={{ ...staffBodyCell, width: 72, minWidth: 72, textAlign: 'center', background: rowBg, borderBottom: '1px solid var(--border-subtle)' }}>
+                                                        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+                                                            <button
+                                                                type="button"
+                                                                className="btn btn-ghost btn-xs"
+                                                                title="Send invite email"
+                                                                disabled={sendingInvites || !s.email.trim()}
+                                                                onClick={e => {
+                                                                    e.stopPropagation();
+                                                                    void handleSendInviteEmails([s.id]);
+                                                                }}
+                                                            >
+                                                                <span className="material-icons-round" style={{ fontSize: 14, color: 'var(--helix-primary)' }}>mail</span>
+                                                            </button>
+                                                            <button type="button" className="btn btn-ghost btn-xs" onClick={e => { e.stopPropagation(); requestRemove(s.id); }}>
+                                                                <span className="material-icons-round" style={{ fontSize: 14, color: 'var(--text-muted)' }}>delete</span>
+                                                            </button>
+                                                        </div>
                                                     </td>
                                                 </tr>
                                             );
@@ -2576,6 +2749,23 @@ export default function StaffDirectoryManagement() {
                                             >
                                                 {(selected.email || editEmail || '').trim() || '—'}
                                             </div>
+                                        </div>
+                                        <div style={{ marginTop: 12 }}>
+                                            <button
+                                                type="button"
+                                                className="btn btn-secondary btn-sm"
+                                                disabled={sendingInvites || !(selected.email || editEmail || '').trim()}
+                                                onClick={() => { void handleSendInviteEmails([selected.id]); }}
+                                                style={{ width: '100%', justifyContent: 'center' }}
+                                            >
+                                                <span className="material-icons-round" style={{ fontSize: 16 }}>
+                                                    {sendingInvites ? 'hourglass_empty' : 'mail'}
+                                                </span>
+                                                {sendingInvites ? 'Sending invite…' : 'Send invite email'}
+                                            </button>
+                                            <p style={{ margin: '8px 0 0', fontSize: 11, color: '#9CA3AF', lineHeight: 1.45 }}>
+                                                Sends the Helix account setup link. Safe to resend if they did not receive it.
+                                            </p>
                                         </div>
                                         <div style={{ marginTop: 14, minWidth: 0 }}>
                                             <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: '#9CA3AF', marginBottom: 6 }}>Phone</label>
@@ -3018,9 +3208,26 @@ export default function StaffDirectoryManagement() {
                     {bulkResultCreated.length > 0 && (
                         <div className="fade-in" style={{ display: 'flex', flexDirection: 'column', gap: 20, marginBottom: 24 }}>
                             <div>
-                                <h3 style={{ marginBottom: 12, fontSize: 15, fontWeight: 600, color: 'var(--text-primary)' }}>
-                                    Created staff ({bulkResultCreated.length})
-                                </h3>
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 12 }}>
+                                    <h3 style={{ margin: 0, fontSize: 15, fontWeight: 600, color: 'var(--text-primary)' }}>
+                                        Created staff ({bulkResultCreated.length})
+                                    </h3>
+                                    {bulkCreatedStaffIds.length > 0 && (
+                                        <button
+                                            type="button"
+                                            className="btn btn-primary btn-sm"
+                                            disabled={sendingInvites}
+                                            onClick={() => { void handleSendInviteEmails(bulkCreatedStaffIds); }}
+                                        >
+                                            <span className="material-icons-round" style={{ fontSize: 16 }}>
+                                                {sendingInvites ? 'hourglass_empty' : 'mail'}
+                                            </span>
+                                            {sendingInvites
+                                                ? 'Sending…'
+                                                : `Send invite emails to all created (${bulkCreatedStaffIds.length})`}
+                                        </button>
+                                    )}
+                                </div>
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                                     {bulkResultCreated.map((raw, idx) => {
                                         const { name, email, meta } = summarizeBulkCreatedEntry(raw);
@@ -3138,6 +3345,83 @@ export default function StaffDirectoryManagement() {
                 </main>
                 )}
             </div>
+            {pendingInviteSend && (
+                <div
+                    role="dialog"
+                    aria-modal="true"
+                    aria-labelledby="staff-invite-send-title"
+                    onClick={() => setPendingInviteSend(null)}
+                    style={{
+                        position: 'fixed',
+                        inset: 0,
+                        background: 'rgba(8, 12, 20, 0.45)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        zIndex: 1200,
+                        padding: 16,
+                    }}
+                >
+                    <div
+                        onClick={e => e.stopPropagation()}
+                        style={{
+                            width: '100%',
+                            maxWidth: 440,
+                            background: 'var(--surface-card)',
+                            border: '1px solid var(--border-default)',
+                            borderRadius: 'var(--radius-lg)',
+                            boxShadow: '0 24px 64px rgba(0,0,0,0.25)',
+                            padding: '18px 18px 14px',
+                        }}
+                    >
+                        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+                            <div
+                                style={{
+                                    width: 32,
+                                    height: 32,
+                                    borderRadius: 10,
+                                    background: 'rgba(37, 99, 235, 0.12)',
+                                    color: '#2563eb',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    flexShrink: 0,
+                                }}
+                            >
+                                <span className="material-icons-round" style={{ fontSize: 18 }}>mail</span>
+                            </div>
+                            <div style={{ minWidth: 0 }}>
+                                <div id="staff-invite-send-title" style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)' }}>
+                                    Send invite email?
+                                </div>
+                                <div style={{ marginTop: 6, fontSize: 12.5, color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+                                    <strong>
+                                        {[pendingInviteSend.first_name, pendingInviteSend.last_name].filter(Boolean).join(' ').trim() || 'This staff member'}
+                                    </strong>{' '}
+                                    was created. Send the &ldquo;complete your account&rdquo; invite email now?
+                                </div>
+                            </div>
+                        </div>
+                        <div style={{ marginTop: 14, display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+                            <button
+                                type="button"
+                                className="btn btn-secondary btn-sm"
+                                onClick={() => setPendingInviteSend(null)}
+                            >
+                                Not now
+                            </button>
+                            <button
+                                type="button"
+                                className="btn btn-primary btn-sm"
+                                disabled={sendingInvites}
+                                onClick={confirmSendInviteAfterCreate}
+                            >
+                                {sendingInvites ? 'Sending…' : 'Send invite email'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
             {pendingDelete && (
                 <div
                     role="dialog"

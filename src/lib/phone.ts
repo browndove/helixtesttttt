@@ -297,6 +297,25 @@ export function isValidPhoneByCountry(phone: string, countryCode: string): boole
     return re.test(String(phone || '').trim());
 }
 
+/** Human-friendly spacing for OTP instruction copy (e.g. +233 59 123 4567). */
+export function formatPhoneForDisplay(e164: string): string {
+    const cleaned = String(e164 || '').trim();
+    if (!cleaned) return '';
+    const country = detectPhoneCountryFromE164(cleaned);
+    const dial = country.dialCode;
+    const local = cleaned.slice(dial.length);
+    if (!local) return dial;
+    const groups: string[] = [];
+    let i = 0;
+    while (i < local.length) {
+        const remaining = local.length - i;
+        const size = remaining > 6 ? 3 : remaining > 4 ? 3 : remaining;
+        groups.push(local.slice(i, i + size));
+        i += size;
+    }
+    return `${dial} ${groups.join(' ')}`;
+}
+
 export function splitPhoneForCountryInput(phone: string): { countryCode: string; local: string } {
     const country = detectPhoneCountryFromE164(phone);
     const dialDigits = country.dialCode.replace('+', '');

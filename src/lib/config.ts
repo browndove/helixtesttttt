@@ -24,6 +24,8 @@ export const API_ENDPOINTS = {
   STAFF_PHONE_UPDATE_CONFIRM: `/api/proxy/auth/staff-phone-update/confirm`,
   /** Facility admin: notify staff to update phone via magic link. */
   STAFF_REQUEST_PHONE_UPDATE: (staffId: string) => `/api/proxy/staff/${staffId}/request-phone-update`,
+  /** Facility admin: send account-setup invite emails (explicit; not sent on create/bulk). */
+  STAFF_SEND_INVITE_EMAILS: `/api/proxy/staff/send-invite-emails`,
   ADMIN_RESET: (staffId: string) => `/api/proxy/auth/admin-reset/${staffId}`,
   AUTH_ME: `/api/proxy/auth/me`,
   AUTH_USER: `/api/proxy/auth/user`,

@@ -11,6 +11,7 @@ import {
     splitPhoneForCountryInput,
 } from '@/lib/phone';
 import CustomSelect from '@/components/CustomSelect';
+import { SETUP_ACCOUNT_MOBILE_CSS } from '@/components/setupAccountMobileStyles';
 
 export type SetupAccountFormVariant = 'account' | 'facility';
 
@@ -511,7 +512,7 @@ export default function SetupAccountForm({
                     ) : null}
 
                     {!opts.facilityMode && (
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                        <div className="setup-staff-form-grid">
                             <div>
                                 <label className="label" style={{ fontSize: 11, marginBottom: 4 }}>First name</label>
                                 <input
@@ -538,8 +539,8 @@ export default function SetupAccountForm({
                             </div>
                             <div style={{ gridColumn: '1 / -1' }}>
                                 <label className="label" style={{ fontSize: 11, marginBottom: 4 }}>Phone *</label>
-                                <div style={{ display: 'flex', gap: 8, alignItems: 'stretch' }}>
-                                    <div style={{ minWidth: 170, flexShrink: 0 }}>
+                                <div className="setup-phone-row">
+                                    <div className="setup-country-wrap">
                                         <CustomSelect
                                             value={phoneCountry}
                                             onChange={v => setPhoneCountry(v)}
@@ -548,14 +549,13 @@ export default function SetupAccountForm({
                                         />
                                     </div>
                                     <input
-                                        className="input"
+                                        className="input setup-phone-input"
                                         value={phoneLocal}
                                         onChange={e => setPhoneLocal(e.target.value.replace(/\D/g, '').slice(0, accountCountryMeta.digits))}
                                         placeholder={`${accountCountryMeta.digits} digits`}
                                         maxLength={accountCountryMeta.digits}
                                         autoComplete="tel-national"
                                         aria-label="Phone number (local digits)"
-                                        style={{ flex: 1 }}
                                     />
                                 </div>
                                 <div style={{ marginTop: 4, fontSize: 10.5, color: 'var(--text-muted)' }}>
@@ -582,31 +582,30 @@ export default function SetupAccountForm({
                                     </div>
                                 ) : (
                                     <>
-                                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', marginBottom: 8 }}>
-                                            <button
-                                                type="button"
-                                                className="btn btn-secondary btn-sm"
-                                                onClick={() => { void handleRequestSetupSmsOtp(); }}
-                                                disabled={!phoneReady || requestingSmsOtp || otpCooldownSeconds > 0 || !token}
-                                            >
-                                                {requestingSmsOtp ? 'Sending…' : otpCooldownSeconds > 0 ? `Resend in ${otpCooldownSeconds}s` : 'Send verification code'}
-                                            </button>
-                                        </div>
-                                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+                                        <button
+                                            type="button"
+                                            className="btn btn-secondary btn-sm setup-sms-send-btn"
+                                            style={{ marginBottom: 8 }}
+                                            onClick={() => { void handleRequestSetupSmsOtp(); }}
+                                            disabled={!phoneReady || requestingSmsOtp || otpCooldownSeconds > 0 || !token}
+                                        >
+                                            {requestingSmsOtp ? 'Sending…' : otpCooldownSeconds > 0 ? `Resend in ${otpCooldownSeconds}s` : 'Send verification code'}
+                                        </button>
+                                        <div className="setup-otp-row">
                                             <input
                                                 ref={otpInputRef}
-                                                className="input"
+                                                className="input setup-otp-input"
                                                 inputMode="numeric"
                                                 autoComplete="one-time-code"
                                                 placeholder="6-digit code"
                                                 value={smsOtp}
                                                 maxLength={6}
                                                 onChange={e => setSmsOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                                                style={{ width: 140, fontSize: 14, letterSpacing: '0.2em', textAlign: 'center' }}
+                                                style={{ fontSize: 14, letterSpacing: '0.2em', textAlign: 'center' }}
                                             />
                                             <button
                                                 type="button"
-                                                className="btn btn-primary btn-sm"
+                                                className="btn btn-primary btn-sm setup-otp-verify-btn"
                                                 onClick={() => { void handleVerifySetupSmsOtp(); }}
                                                 disabled={verifyingSmsOtp || smsOtp.replace(/\D/g, '').length !== 6 || !token || !phoneReady}
                                             >
@@ -947,15 +946,13 @@ export default function SetupAccountForm({
     );
 
     const accountShellStyle: CSSProperties = {
-        height: '100vh',
-        maxHeight: '100vh',
+        minHeight: '100dvh',
         background: 'linear-gradient(180deg, #f6f8fb 0%, #eef3f8 100%)',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        padding: '16px 12px',
         position: 'relative',
-        overflow: 'hidden',
+        overflowX: 'clip',
         isolation: 'isolate',
     };
 
@@ -980,8 +977,10 @@ export default function SetupAccountForm({
             backgroundImage: 'repeating-linear-gradient(0deg, transparent, transparent 16px, rgba(0,0,0,0.035) 17px), repeating-linear-gradient(90deg, transparent, transparent 16px, rgba(0,0,0,0.035) 17px)',
         };
         return (
-            <div style={gridPattern}>
+            <div className="setup-facility-shell" style={gridPattern}>
+                <style>{SETUP_ACCOUNT_MOBILE_CSS}</style>
                 <header
+                    className="setup-facility-header"
                     style={{
                         position: 'sticky' as const,
                         top: 0,
@@ -1037,20 +1036,20 @@ export default function SetupAccountForm({
                 </header>
 
                 <main
+                    className="setup-facility-main"
                     style={{
                         flex: 1,
                         minHeight: 0,
                         display: 'flex',
                         alignItems: 'flex-start',
                         justifyContent: 'center',
-                        padding: '10px 12px 12px',
                         overflowY: 'auto',
                     }}
                 >
                     <div
+                        className="setup-facility-card"
                         style={{
                             width: '100%',
-                            maxWidth: 400,
                             background: '#fff',
                             borderRadius: 12,
                             border: '1px solid #e8e4df',
@@ -1115,9 +1114,9 @@ export default function SetupAccountForm({
     }
 
     return (
-        <div style={accountShellStyle}>
+        <div className="setup-staff-shell setup-account-shell" style={accountShellStyle}>
             <style>
-                {`
+                {`${SETUP_ACCOUNT_MOBILE_CSS}
 @keyframes staffSetupFloatA {
   0%, 100% { transform: translate3d(0,0,0) scale(1); opacity: 0.28; }
   50% { transform: translate3d(14px,-10px,0) scale(1.05); opacity: 0.4; }
@@ -1175,14 +1174,14 @@ export default function SetupAccountForm({
                     animation: 'staffSetupFloatB 22s ease-in-out infinite',
                 }}
             />
-            <div style={{ width: '100%', maxWidth: 400, position: 'relative', zIndex: 1, maxHeight: '100%' }}>
-                <div style={{
+            <div className="setup-staff-card-wrap setup-account-card" style={{ width: '100%', position: 'relative', zIndex: 1, maxHeight: '100%' }}>
+                <div className="setup-staff-card" style={{
                     background: 'var(--surface-card)',
                     border: '1px solid var(--border-default)',
                     borderRadius: 'var(--radius-lg)',
-                    padding: '18px 16px',
+                    padding: 'clamp(16px, 4vw, 18px) clamp(14px, 3.5vw, 16px)',
                     boxShadow: '0 14px 34px rgba(15, 23, 42, 0.08), 0 1px 3px rgba(0,0,0,0.05)',
-                    maxHeight: 'calc(100vh - 32px)',
+                    maxHeight: 'calc(100dvh - max(32px, env(safe-area-inset-top, 0px) + env(safe-area-inset-bottom, 0px)))',
                     overflowY: 'auto',
                 }}>
                     <div style={{ textAlign: 'center', marginBottom: 12 }}>

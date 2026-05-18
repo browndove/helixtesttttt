@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { useRouter } from 'next/navigation';
 import CustomSelect from '@/components/CustomSelect';
 import { API_ENDPOINTS } from '@/lib/config';
@@ -12,6 +12,9 @@ import {
     isValidPhoneByCountry,
     splitPhoneForCountryInput,
 } from '@/lib/phone';
+import { SETUP_ACCOUNT_MOBILE_CSS } from '@/components/setupAccountMobileStyles';
+import SetupAccountPhoneStep from '@/components/SetupAccountPhoneStep';
+import SetupAccountSecurityStep from '@/components/SetupAccountSecurityStep';
 
 type SetupStep = 'info' | 'phone' | 'security';
 
@@ -70,10 +73,19 @@ export default function SetupAccountStepper({ token, step }: { token: string; st
     const [success, setSuccess] = useState('');
     const [completed, setCompleted] = useState(false);
     const [facilityCode, setFacilityCode] = useState('');
-    const otpInputRef = useRef<HTMLInputElement | null>(null);
+    const [otpCodeSent, setOtpCodeSent] = useState(false);
 
     const countryOptions = useMemo(
         () => PHONE_COUNTRIES.map(c => ({ label: c.label, value: c.code })),
+        []
+    );
+    const countryDialOptions = useMemo(
+        () =>
+            PHONE_COUNTRIES.map(c => ({
+                label: c.label,
+                triggerLabel: c.dialCode,
+                value: c.code,
+            })),
         []
     );
     const accountCountryMeta = useMemo(() => getPhoneCountryByCode(phoneCountry), [phoneCountry]);
@@ -169,6 +181,7 @@ export default function SetupAccountStepper({ token, step }: { token: string; st
             setVerifiedPhoneE164('');
             setSmsOtp('');
             setSmsHint('');
+            setOtpCodeSent(false);
         }
     }, [formattedPhone, verifiedPhoneE164]);
 
@@ -207,8 +220,8 @@ export default function SetupAccountStepper({ token, step }: { token: string; st
             setPhoneVerified(false);
             setVerifiedPhoneE164('');
             setSmsOtp('');
-            setSmsHint('We sent a 6-digit code. It expires in 5 minutes. Enter it below.');
-            setTimeout(() => otpInputRef.current?.focus(), 80);
+            setOtpCodeSent(true);
+            setSmsHint('We sent a 6-digit code. It expires in 5 minutes.');
         } catch {
             setError('Network error. Please try again.');
         } finally {
@@ -305,6 +318,14 @@ export default function SetupAccountStepper({ token, step }: { token: string; st
     };
 
     const stepIndex = STEP_ORDER.indexOf(step);
+    const isCleanFlowStep = step === 'phone' || step === 'security';
+
+    const handleEditPhoneNumber = () => {
+        setOtpCodeSent(false);
+        setSmsOtp('');
+        setSmsHint('');
+        setError('');
+    };
     const alertBox: CSSProperties = { padding: '8px 10px', borderRadius: 8, fontSize: 12, marginBottom: 10 };
     const shellRootStyle: CSSProperties = {
         position: 'relative',
@@ -347,7 +368,6 @@ export default function SetupAccountStepper({ token, step }: { token: string; st
         alignItems: 'center',
         justifyContent: 'center',
         overflow: 'hidden',
-        padding: '24px 40px',
     };
     const formInnerStyle: CSSProperties = {
         display: 'flex',
@@ -394,56 +414,17 @@ export default function SetupAccountStepper({ token, step }: { token: string; st
         fontWeight: 600,
         justifyContent: 'center',
     };
-    const secondaryButtonStyle: CSSProperties = {
-        ...primaryButtonStyle,
-        background: '#ffffff',
-        border: '1px solid #D4DCE8',
-        color: '#22324a',
-    };
-    const sendCodeButtonStyle: CSSProperties = {
-        ...primaryButtonStyle,
-        background: 'linear-gradient(180deg, #e8eef8 0%, #d8e3f3 100%)',
-        border: '1px solid #b7c8e0',
-        color: '#153761',
-        fontWeight: 700,
-    };
-
     return (
         <>
-            <style>
-                {`
-@media (max-width: 767px) {
-  .setup-step-aside { display: none !important; }
-  .setup-step-right {
-    flex: 1 1 auto !important;
-    min-height: 100dvh !important;
-    height: 100dvh !important;
-  }
-  .setup-step-scroll {
-    padding: 16px !important;
-    justify-content: flex-start !important;
-    overflow-y: auto !important;
-  }
-  .setup-step-inner {
-    max-width: 100% !important;
-    padding-top: 10px !important;
-    padding-bottom: 22px !important;
-  }
-}
-@media (min-width: 768px) {
-  .setup-step-shell { flex-direction: row !important; }
-  .setup-step-aside {
-    max-height: none !important;
-    height: 100% !important;
-    min-height: 0 !important;
-    width: 40% !important;
-    max-width: 28rem !important;
-    flex: 0 0 40% !important;
-  }
-}
-            `}
-            </style>
-            <div className="setup-step-shell" style={shellRootStyle}>
+            <style>{SETUP_ACCOUNT_MOBILE_CSS}</style>
+            <div
+                className={[
+                    'setup-account-shell',
+                    'setup-step-shell',
+                    isCleanFlowStep ? 'setup-step-shell--clean' : 'setup-step-shell--classic',
+                ].join(' ')}
+                style={shellRootStyle}
+            >
                 <aside className="setup-step-aside" style={asideStyle}>
                     <div
                         aria-hidden
@@ -497,15 +478,57 @@ export default function SetupAccountStepper({ token, step }: { token: string; st
                         <p style={{ marginTop: 22, fontSize: 13, lineHeight: 1.6, color: '#c5d0e3', maxWidth: 360 }}>
                             Complete your account in three quick steps: confirm profile details, verify your mobile number, and set a secure password.
                         </p>
+                        <ol className="setup-aside-steps" aria-label="Setup progress">
+                            {STEP_ORDER.map((item, idx) => {
+                                const labels = { info: 'Profile', phone: 'Phone', security: 'Password' } as const;
+                                return (
+                                    <li
+                                        key={item}
+                                        className={[
+                                            idx < stepIndex ? 'is-done' : '',
+                                            idx === stepIndex ? 'is-active' : '',
+                                        ].filter(Boolean).join(' ') || undefined}
+                                    >
+                                        <span className="setup-aside-steps__num">{idx + 1}</span>
+                                        <span>{labels[item]}</span>
+                                    </li>
+                                );
+                            })}
+                        </ol>
                     </div>
                     <p style={{ position: 'relative', zIndex: 1, padding: '0 28px 18px', margin: 0, fontSize: 12, lineHeight: 1.55, color: 'rgba(255,255,255,0.72)' }}>
                         Use the invite link sent by your administrator.
                     </p>
                 </aside>
 
-                <div className="setup-step-right" style={rightColumnStyle}>
-                    <div className="setup-step-scroll" style={formScrollStyle}>
-                        <div className="setup-step-inner" style={formInnerStyle}>
+                <div
+                    className={
+                        step === 'security'
+                            ? 'setup-step-right setup-step-right--security'
+                            : step === 'phone'
+                              ? 'setup-step-right setup-step-right--phone'
+                              : 'setup-step-right'
+                    }
+                    style={rightColumnStyle}
+                >
+                    <div
+                        className="setup-account-scroll setup-step-scroll"
+                        style={formScrollStyle}
+                    >
+                        <div
+                            className={[
+                                'setup-account-card',
+                                'setup-step-inner',
+                                isCleanFlowStep ? 'setup-step-inner--clean' : 'setup-step-inner--classic',
+                            ].join(' ')}
+                            style={formInnerStyle}
+                        >
+                            {isCleanFlowStep ? (
+                                <p className="setup-desktop-step-label">
+                                    Step {stepIndex + 1} of {STEP_ORDER.length}
+                                </p>
+                            ) : null}
+                            {!isCleanFlowStep && (
                             <header style={{ textAlign: 'center', marginBottom: 22 }}>
                                 <p style={{ fontSize: 9, fontWeight: 600, letterSpacing: '0.14em', color: '#7A8A9E', margin: '0 0 4px' }}>
                                     STEP {stepIndex + 1} OF 3
@@ -514,8 +537,19 @@ export default function SetupAccountStepper({ token, step }: { token: string; st
                                     Set up account
                                 </h2>
                             </header>
+                            )}
 
-                            <div style={cardSurface}>
+                            <div
+                                className={
+                                    step === 'security'
+                                        ? 'setup-step-card setup-step-card--security'
+                                        : step === 'phone'
+                                          ? 'setup-step-card setup-step-card--phone'
+                                          : 'setup-step-card'
+                                }
+                                style={isCleanFlowStep ? undefined : cardSurface}
+                            >
+                                {!isCleanFlowStep && (
                                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6, marginBottom: 14 }}>
                                     {STEP_ORDER.map((item, idx) => (
                                         <div
@@ -528,6 +562,7 @@ export default function SetupAccountStepper({ token, step }: { token: string; st
                                         />
                                     ))}
                                 </div>
+                                )}
 
                 {prefillLoading && <p style={{ fontSize: 11, color: 'var(--text-muted)', margin: '0 0 8px' }}>Loading invitation details…</p>}
                 {!token && (
@@ -535,7 +570,7 @@ export default function SetupAccountStepper({ token, step }: { token: string; st
                         Use the invitation link from your email to open this page.
                     </div>
                 )}
-                {error && <div style={{ ...alertBox, background: 'var(--critical-bg)', border: '1px solid rgba(140,90,94,0.2)', color: 'var(--critical)' }}>{error}</div>}
+                {error && !isCleanFlowStep && <div style={{ ...alertBox, background: 'var(--critical-bg)', border: '1px solid rgba(140,90,94,0.2)', color: 'var(--critical)' }}>{error}</div>}
                 {success && !completed && <div style={{ ...alertBox, background: 'var(--success-bg)', border: '1px solid rgba(46,125,50,0.2)', color: 'var(--success)' }}>{success}</div>}
 
                 {completed ? (
@@ -554,7 +589,7 @@ export default function SetupAccountStepper({ token, step }: { token: string; st
                             <label className="label" style={{ fontSize: 11, marginBottom: 4 }}>Email</label>
                             <div className="input" style={readOnlyInputStyle}>{email || '—'}</div>
                         </div>
-                        <div style={{ ...sectionCard, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                        <div className="setup-name-grid" style={{ ...sectionCard }}>
                             <div>
                                 <label className="label" style={{ fontSize: 11, marginBottom: 4 }}>First name</label>
                                 <input className="input" value={firstName} readOnly tabIndex={-1} style={readOnlyInputStyle} />
@@ -571,111 +606,60 @@ export default function SetupAccountStepper({ token, step }: { token: string; st
                 )}
 
                 {!completed && step === 'phone' && (
-                    <>
-                        <div style={{ ...sectionCard, marginBottom: 10 }}>
-                            <div style={{ display: 'flex', gap: 8, alignItems: 'stretch' }}>
-                                <div style={{ minWidth: 170, flexShrink: 0 }}>
-                                    <CustomSelect value={phoneCountry} onChange={setPhoneCountry} options={countryOptions} placeholder="Country" />
-                                </div>
-                                <input
-                                    className="input"
-                                    value={phoneLocal}
-                                    onChange={e => setPhoneLocal(e.target.value.replace(/\D/g, '').slice(0, accountCountryMeta.digits))}
-                                    placeholder={`${accountCountryMeta.digits} digits`}
-                                    maxLength={accountCountryMeta.digits}
-                                    autoComplete="tel-national"
-                                    aria-label="Phone number (local digits)"
-                                    style={{ ...inputStyle, flex: 1 }}
-                                />
-                            </div>
-                            <p style={{ margin: '6px 0 0', fontSize: 11, color: 'var(--text-muted)' }}>
-                                {`Saved as ${formattedPhone || '…'} (${accountCountryMeta.dialCode} + ${accountCountryMeta.digits} digits)`}
-                            </p>
-                        </div>
-                        {phoneVerifiedForSubmit ? (
-                            <div style={{ ...alertBox, background: 'var(--success-bg)', border: '1px solid rgba(46,125,50,0.2)', color: 'var(--success)', marginBottom: 12 }}>
-                                Phone verified for {formattedPhone}
-                            </div>
-                        ) : (
-                            <div style={{ ...sectionCard, marginTop: 0 }}>
-                                <button type="button" className="btn btn-secondary" style={sendCodeButtonStyle} onClick={() => { void handleRequestSetupSmsOtp(); }} disabled={!phoneReady || requestingSmsOtp || otpCooldownSeconds > 0 || !token}>
-                                    {requestingSmsOtp ? 'Sending…' : otpCooldownSeconds > 0 ? `Resend in ${otpCooldownSeconds}s` : 'Send verification code'}
-                                </button>
-                                <div style={{ display: 'flex', gap: 10, marginTop: 10 }}>
-                                    <input
-                                        ref={otpInputRef}
-                                        className="input"
-                                        inputMode="numeric"
-                                        autoComplete="one-time-code"
-                                        placeholder="6-digit code"
-                                        value={smsOtp}
-                                        maxLength={6}
-                                        onChange={e => setSmsOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                                        style={{ ...inputStyle, width: 210, letterSpacing: '0.2em', textAlign: 'center' }}
-                                    />
-                                    <button type="button" className="btn btn-primary" style={primaryButtonStyle} onClick={() => { void handleVerifySetupSmsOtp(); }} disabled={verifyingSmsOtp || smsOtp.replace(/\D/g, '').length !== 6 || !token || !phoneReady}>
-                                        {verifyingSmsOtp ? 'Verifying…' : 'Verify'}
-                                    </button>
-                                </div>
-                                {smsHint ? <p style={{ fontSize: 11, color: 'var(--text-muted)', margin: '8px 0 0' }}>{smsHint}</p> : null}
-                            </div>
-                        )}
-                        <div style={{ display: 'flex', gap: 10, marginTop: 14 }}>
-                            <button className="btn btn-secondary" type="button" style={{ ...secondaryButtonStyle, flex: 1 }} onClick={() => moveStep('info')}>
-                                Back
-                            </button>
-                            <button className="btn btn-primary" type="button" style={{ ...primaryButtonStyle, flex: 1 }} onClick={() => moveStep('security')} disabled={!phoneVerifiedForSubmit}>
-                                Continue
-                            </button>
-                        </div>
-                    </>
+                    <SetupAccountPhoneStep
+                        stepIndex={stepIndex}
+                        phoneCountry={phoneCountry}
+                        phoneLocal={phoneLocal}
+                        formattedPhone={formattedPhone}
+                        countryOptions={countryOptions}
+                        countryDialOptions={countryDialOptions}
+                        phoneDigits={accountCountryMeta.digits}
+                        onPhoneCountryChange={setPhoneCountry}
+                        onPhoneLocalChange={setPhoneLocal}
+                        smsOtp={smsOtp}
+                        onOtpChange={setSmsOtp}
+                        otpCodeSent={otpCodeSent}
+                        phoneVerifiedForSubmit={phoneVerifiedForSubmit}
+                        phoneReady={phoneReady}
+                        requestingSmsOtp={requestingSmsOtp}
+                        verifyingSmsOtp={verifyingSmsOtp}
+                        otpCooldownSeconds={otpCooldownSeconds}
+                        error={error || undefined}
+                        onBack={() => moveStep('info')}
+                        onSendCode={() => { void handleRequestSetupSmsOtp(); }}
+                        onVerifyOtp={() => { void handleVerifySetupSmsOtp(); }}
+                        onEditNumber={handleEditPhoneNumber}
+                        onContinue={() => moveStep('security')}
+                    />
                 )}
 
                 {!completed && step === 'security' && (
-                    <>
-                        <div style={{ ...alertBox, background: '#f7f9fd', border: '1px solid #d9e1ee', color: '#415067' }}>
-                            Verified phone: <strong>{verifiedPhoneE164 || 'Not verified yet'}</strong>
-                        </div>
-                        <div style={{ ...sectionCard, marginBottom: 10 }}>
-                            <div style={{ marginBottom: 8 }}>
-                                <label className="label" style={{ fontSize: 11, marginBottom: 4 }}>Password</label>
-                                <div style={{ position: 'relative' }}>
-                                    <input className="input" type={showPassword ? 'text' : 'password'} value={password} onChange={e => setPassword(e.target.value)} placeholder="At least 8 characters" style={{ ...inputStyle, paddingRight: 42 }} />
-                                    <button type="button" onClick={() => setShowPassword(p => !p)} style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', border: 'none', background: 'transparent', color: 'var(--text-muted)', cursor: 'pointer', padding: 0 }}>
-                                        <span className="material-icons-round" style={{ fontSize: 18 }}>{showPassword ? 'visibility_off' : 'visibility'}</span>
-                                    </button>
-                                </div>
-                            </div>
-                            <div style={{ marginBottom: 8 }}>
-                                <label className="label" style={{ fontSize: 11, marginBottom: 4 }}>Confirm password</label>
-                                <div style={{ position: 'relative' }}>
-                                    <input className="input" type={showConfirmPassword ? 'text' : 'password'} value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} placeholder="Re-enter password" style={{ ...inputStyle, paddingRight: 42 }} />
-                                    <button type="button" onClick={() => setShowConfirmPassword(p => !p)} style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', border: 'none', background: 'transparent', color: 'var(--text-muted)', cursor: 'pointer', padding: 0 }}>
-                                        <span className="material-icons-round" style={{ fontSize: 18 }}>{showConfirmPassword ? 'visibility_off' : 'visibility'}</span>
-                                    </button>
-                                </div>
-                            </div>
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2px 8px', marginBottom: 0, marginTop: 2 }}>
-                                {passwordChecks.map(check => (
-                                    <div key={check.id} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10, color: check.met ? 'var(--success)' : 'var(--text-disabled)' }}>
-                                        <span className="material-icons-round" style={{ fontSize: 12 }}>{check.met ? 'check_circle' : 'radio_button_unchecked'}</span>
-                                        <span>{check.label}</span>
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
-                        <div style={{ display: 'flex', gap: 10 }}>
-                            <button className="btn btn-secondary" type="button" style={{ ...secondaryButtonStyle, flex: 1 }} onClick={() => moveStep('phone')}>
-                                Back
-                            </button>
-                            <button className="btn btn-primary" type="button" style={{ ...primaryButtonStyle, flex: 1 }} onClick={() => { void handleSubmit(); }} disabled={loading || !phoneVerifiedForSubmit || !passwordIsValid || password !== confirmPassword}>
-                                {loading ? 'Setting up…' : 'Set up account'}
-                            </button>
-                        </div>
-                    </>
+                    <SetupAccountSecurityStep
+                        password={password}
+                        confirmPassword={confirmPassword}
+                        showPassword={showPassword}
+                        showConfirmPassword={showConfirmPassword}
+                        onPasswordChange={setPassword}
+                        onConfirmPasswordChange={setConfirmPassword}
+                        onToggleShowPassword={() => setShowPassword(p => !p)}
+                        onToggleShowConfirmPassword={() => setShowConfirmPassword(p => !p)}
+                        passwordChecks={passwordChecks}
+                        passwordIsValid={passwordIsValid}
+                        verifiedPhoneE164={verifiedPhoneE164}
+                        loading={loading}
+                        phoneVerifiedForSubmit={phoneVerifiedForSubmit}
+                        stepIndex={stepIndex}
+                        onBack={() => moveStep('phone')}
+                        onSubmit={() => { void handleSubmit(); }}
+                    />
                 )}
 
-                {!completed && <p style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 8, marginBottom: 0, textAlign: 'center' }}>Link expires in 48 hours.</p>}
+
+                {!completed && step !== 'security' && step !== 'phone' && (
+                    <p style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 8, marginBottom: 0, textAlign: 'center' }}>
+                        Link expires in 48 hours.
+                    </p>
+                )}
                             </div>
                         </div>
                     </div>

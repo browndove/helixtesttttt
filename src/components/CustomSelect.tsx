@@ -1,11 +1,16 @@
 'use client';
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-type Option = { label: string; value: string };
+export type CustomSelectOption = {
+    label: string;
+    value: string;
+    /** Shown on the closed trigger when set; dropdown still uses `label`. */
+    triggerLabel?: string;
+};
 interface Props {
     value: string;
     onChange: (v: string) => void;
-    options: Option[];
+    options: CustomSelectOption[];
     placeholder?: string;
     style?: React.CSSProperties;
     maxH?: number;
@@ -18,6 +23,8 @@ interface Props {
     customEntryHint?: string;
     /** Min width of the open panel (defaults to 248 when `allowCustom`). */
     dropdownMinWidth?: number;
+    /** Placeholder for the dropdown search field (when the list is searchable). */
+    searchPlaceholder?: string;
 }
 export default function CustomSelect({
     value,
@@ -31,6 +38,7 @@ export default function CustomSelect({
     customEntryTitle = 'Add your own',
     customEntryHint = 'Not in the list? Type below, then Enter.',
     dropdownMinWidth,
+    searchPlaceholder = 'Search...',
 }: Props) {
     const [open, setOpen] = useState(false);
     const [q, setQ] = useState('');
@@ -65,7 +73,15 @@ export default function CustomSelect({
     }, [open, close, updatePos]);
 
     const sel = options.find(o => o.value === value);
-    const list = q ? options.filter(o => o.label.toLowerCase().includes(q.toLowerCase())) : options;
+    const optionMatchesQuery = (o: CustomSelectOption, query: string) => {
+        const qLower = query.toLowerCase();
+        if (o.label.toLowerCase().includes(qLower)) return true;
+        if (o.triggerLabel?.toLowerCase().includes(qLower)) return true;
+        if (o.value.toLowerCase().includes(qLower)) return true;
+        return false;
+    };
+    const list = q ? options.filter(o => optionMatchesQuery(o, q)) : options;
+    const triggerText = sel ? (sel.triggerLabel ?? sel.label) : (value || placeholder);
     const commitCustom = () => {
         const next = q.trim();
         if (!allowCustom || !next) return;
@@ -125,7 +141,7 @@ export default function CustomSelect({
                                 if (allowCustom && q.trim()) commitCustom();
                             }
                         }}
-                        placeholder={allowCustom ? customPlaceholder : 'Search...'}
+                        placeholder={allowCustom ? customPlaceholder : searchPlaceholder}
                         aria-label={allowCustom ? `${customEntryTitle}. ${customPlaceholder}` : 'Search options'}
                         autoFocus
                         style={{
@@ -148,7 +164,7 @@ export default function CustomSelect({
                 {list.length === 0 && <div style={{ padding: '10px 12px', fontSize: 12, color: 'var(--text-muted)', textAlign: 'center' }}>No results</div>}
                 {list.map(o => (
                     <button key={o.value} type="button" onClick={() => { onChange(o.value); close(); }}
-                        style={{ width: '100%', padding: '7px 12px', fontSize: 13, textAlign: 'left', whiteSpace: 'nowrap', background: o.value === value ? 'rgba(99,102,241,0.08)' : 'transparent', border: 'none', cursor: 'pointer', color: o.value === value ? 'var(--helix-primary,#6366f1)' : 'var(--text-primary,#111)', fontWeight: o.value === value ? 600 : 400 }}
+                        style={{ width: '100%', padding: '8px 12px', fontSize: 13, lineHeight: 1.35, textAlign: 'left', whiteSpace: 'normal', background: o.value === value ? 'rgba(99,102,241,0.08)' : 'transparent', border: 'none', cursor: 'pointer', color: o.value === value ? 'var(--helix-primary,#6366f1)' : 'var(--text-primary,#111)', fontWeight: o.value === value ? 600 : 400 }}
                         onMouseEnter={e => { if (o.value !== value) e.currentTarget.style.background = 'var(--surface-2,#f3f4f6)'; }}
                         onMouseLeave={e => { e.currentTarget.style.background = o.value === value ? 'rgba(99,102,241,0.08)' : 'transparent'; }}>
                         {o.value === value && <span style={{ marginRight: 6, fontSize: 12 }}>✓</span>}{o.label}
@@ -203,7 +219,7 @@ export default function CustomSelect({
                 style={triggerStyle}
             >
                 <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
-                    {sel ? sel.label : (value || placeholder)}
+                    {triggerText}
                 </span>
                 <span className="material-icons-round" style={{ fontSize: 16, color: 'var(--text-muted)', marginLeft: 4, transform: open ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s' }}>expand_more</span>
             </button>
