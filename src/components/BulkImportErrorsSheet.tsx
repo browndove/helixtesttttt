@@ -16,8 +16,7 @@ type BulkImportErrorsSheetProps = {
 };
 
 /**
- * Top-right frosted-glass sheet listing bulk-import row errors (staff or patients).
- * Uses `helix-mac-sheet-*` styles from globals.css.
+ * Top-right panel for bulk-import row errors. Opaque card with list layout.
  */
 export function BulkImportErrorsSheet({
     errors,
@@ -30,65 +29,59 @@ export function BulkImportErrorsSheet({
     if (errors.length === 0) return null;
 
     return (
-        <div
-            className="helix-mac-sheet-item"
-            style={{
-                position: 'fixed',
-                top: 20,
-                right: 20,
-                zIndex: 10001,
-                width: 'min(440px, calc(100vw - 32px))',
-                maxHeight: 'min(78vh, 600px)',
-                display: 'flex',
-                flexDirection: 'column',
-            }}
-        >
+        <div className="bulk-import-errors-root" role="presentation">
             <div
                 role="dialog"
                 aria-modal="false"
                 aria-labelledby={titleId}
                 aria-describedby={descId}
                 aria-live="polite"
-                className="helix-mac-sheet-surface"
+                className="bulk-import-errors-panel"
             >
-                <div className="helix-mac-sheet-header">
-                    <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
-                        <div style={{ minWidth: 0 }}>
-                            <div id={titleId} className="helix-mac-sheet-title">
-                                {title}
+                <header className="bulk-import-errors-header">
+                    <div className="bulk-import-errors-header-main">
+                        <div className="bulk-import-errors-icon" aria-hidden>
+                            <span className="material-icons-round">report_problem</span>
+                        </div>
+                        <div className="bulk-import-errors-heading">
+                            <div className="bulk-import-errors-title-row">
+                                <h2 id={titleId} className="bulk-import-errors-title">
+                                    {title}
+                                </h2>
+                                <span className="bulk-import-errors-count">{errors.length}</span>
                             </div>
-                            <p id={descId} className="helix-mac-sheet-desc">
+                            <p id={descId} className="bulk-import-errors-desc">
                                 {description}
                             </p>
                         </div>
-                        <span className="helix-mac-sheet-badge">{errors.length}</span>
-                    </div>
-                    <div className="helix-mac-sheet-actions">
-                        <button type="button" className="helix-mac-sheet-close" onClick={onDismiss}>
-                            Close
+                        <button
+                            type="button"
+                            className="bulk-import-errors-icon-close"
+                            onClick={onDismiss}
+                            aria-label="Close"
+                        >
+                            <span className="material-icons-round">close</span>
                         </button>
                     </div>
-                </div>
-                <div className="helix-mac-sheet-table-wrap">
-                    <table className="helix-mac-sheet-table">
-                        <thead>
-                            <tr>
-                                <th scope="col">Row</th>
-                                <th scope="col">Identifier</th>
-                                <th scope="col">Reason</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {errors.map((err, idx) => (
-                                <tr key={`err-${err.row}-${err.email}-${idx}`}>
-                                    <td className="helix-mac-sheet-col-row">{err.row}</td>
-                                    <td className="helix-mac-sheet-col-id">{err.email?.trim() ? err.email : '—'}</td>
-                                    <td className="helix-mac-sheet-col-reason">{err.message}</td>
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                </div>
+                </header>
+
+                <ul className="bulk-import-errors-list">
+                    {errors.map((err, idx) => (
+                        <li key={`err-${err.row}-${err.email}-${idx}`} className="bulk-import-errors-item">
+                            <span className="bulk-import-errors-item-row">Row {err.row}</span>
+                            <span className="bulk-import-errors-item-email">
+                                {err.email?.trim() ? err.email : '—'}
+                            </span>
+                            <span className="bulk-import-errors-item-message">{err.message}</span>
+                        </li>
+                    ))}
+                </ul>
+
+                <footer className="bulk-import-errors-footer">
+                    <button type="button" className="bulk-import-errors-dismiss" onClick={onDismiss}>
+                        Dismiss
+                    </button>
+                </footer>
             </div>
         </div>
     );

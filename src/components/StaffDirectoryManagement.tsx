@@ -16,6 +16,7 @@ import {
     sendStaffInviteEmails,
     type StaffInviteEmailError,
 } from '@/lib/staff-invite-emails';
+import { bulkImportToastHeadline } from '@/lib/bulk-import-toast';
 import { fetchAllStaffPayload, STAFF_CACHE_LIST_KEY } from '@/lib/fetch-all-staff';
 import {
     appendFacilityIdToProxyUrl,
@@ -75,7 +76,13 @@ function parseSortControlValue(v: string): { key: SortKey; dir: 'asc' | 'desc' }
 }
 
 type StaffToastVariant = 'success' | 'error' | 'info';
-type StaffToastState = { message: string; variant: StaffToastVariant };
+type StaffToastState = {
+    message: string;
+    variant: StaffToastVariant;
+    opaque?: boolean;
+    details?: string[];
+    wide?: boolean;
+};
 
 type BulkUploadSummary = {
     records: number;
@@ -862,9 +869,12 @@ export default function StaffDirectoryManagement() {
         setToast(null);
     }, []);
 
-    const showToast = useCallback((message: string, variant: StaffToastVariant = 'info') => {
-        setToast({ message, variant });
-    }, []);
+    const showToast = useCallback(
+        (message: string, variant: StaffToastVariant = 'info', opaque = false, details?: string[], wide = false) => {
+            setToast({ message, variant, opaque, details, wide: wide || Boolean(details?.length) });
+        },
+        [],
+    );
 
     const dismissBulkErrors = useCallback(() => {
         setBulkResultErrors([]);
@@ -1325,19 +1335,33 @@ export default function StaffDirectoryManagement() {
             const data = await res.json().catch(() => ({}));
             const recPayload =
                 data && typeof data === 'object' && !Array.isArray(data) ? (data as Record<string, unknown>) : {};
-            setBulkResultCreated(Array.isArray(recPayload.created) ? [...recPayload.created] : []);
-            setBulkResultErrors(parseBulkErrorRows(recPayload.errors));
+            const created = Array.isArray(recPayload.created) ? [...recPayload.created] : [];
+            const importErrors = parseBulkErrorRows(recPayload.errors);
+            setBulkResultCreated(created);
+            setBulkResultErrors(importErrors);
+
+            if (created.length > 0 || importErrors.length > 0) {
+                // Row-level failures use BulkImportErrorsSheet only (no red-accent error toast).
+                if (created.length > 0) {
+                    showToast(
+                        bulkImportToastHeadline(created.length, importErrors.length),
+                        importErrors.length > 0 ? 'info' : 'success',
+                    );
+                }
+            } else {
+                const outcome = interpretStaffBulkResponse(res.ok, data);
+                showToast(
+                    outcome.toastText,
+                    outcome.historyStatus === 'error'
+                        ? 'error'
+                        : outcome.historyWarnings > 0
+                          ? 'info'
+                          : 'success',
+                    outcome.historyWarnings > 0 || outcome.historyStatus === 'error',
+                );
+            }
 
             const outcome = interpretStaffBulkResponse(res.ok, data);
-
-            showToast(
-                outcome.toastText,
-                outcome.historyStatus === 'error'
-                    ? 'error'
-                    : outcome.historyWarnings > 0
-                      ? 'info'
-                      : 'success'
-            );
             if (outcome.shouldClearFile) clearUploadedFile();
             if (outcome.shouldRefreshStaff) {
                 setLoading(true);
@@ -1346,7 +1370,7 @@ export default function StaffDirectoryManagement() {
         } catch {
             setBulkResultCreated([]);
             setBulkResultErrors([]);
-            showToast('Bulk import failed', 'error');
+            showToast('Bulk import failed', 'error', true);
         } finally {
             setProcessing(false);
             void fetchBulkHistory();
@@ -1849,8 +1873,15 @@ export default function StaffDirectoryManagement() {
                 />
             )}
             {toast && (
-                <MacVibrancyToastPortal>
-                    <MacVibrancyToast message={toast.message} variant={toast.variant} onDismiss={dismissToast} />
+                <MacVibrancyToastPortal className={toast.wide ? 'helix-mac-toast-portal--front' : undefined}>
+                    <MacVibrancyToast
+                        message={toast.message}
+                        variant={toast.variant}
+                        opaque={toast.opaque}
+                        wide={toast.wide}
+                        details={toast.details}
+                        onDismiss={dismissToast}
+                    />
                 </MacVibrancyToastPortal>
             )}
 

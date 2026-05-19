@@ -9,6 +9,7 @@ import {
 } from '@/lib/bulk-upload-history';
 import { MacVibrancyToast, MacVibrancyToastPortal } from '@/components/MacVibrancyToast';
 import { BulkImportErrorsSheet } from '@/components/BulkImportErrorsSheet';
+import { patientBulkImportToastHeadline } from '@/lib/bulk-import-toast';
 
 /* ── Types ─────────────────────────────────────────────────── */
 
@@ -41,7 +42,13 @@ type Dept = { id: string; name: string };
 
 type PatientBulkRowError = { row: number; email: string; message: string };
 type PatientToastVariant = 'success' | 'error' | 'info';
-type PatientToastState = { message: string; variant: PatientToastVariant };
+type PatientToastState = {
+    message: string;
+    variant: PatientToastVariant;
+    opaque?: boolean;
+    details?: string[];
+    wide?: boolean;
+};
 
 /* ── Helpers ───────────────────────────────────────────────── */
 
@@ -258,9 +265,12 @@ export default function PatientsDirectoryManagement() {
     const dismissBulkErrors = useCallback(() => {
         setBulkResultErrors([]);
     }, []);
-    const showToast = useCallback((message: string, variant: PatientToastVariant = 'info') => {
-        setToast({ message, variant });
-    }, []);
+    const showToast = useCallback(
+        (message: string, variant: PatientToastVariant = 'info', opaque = false, details?: string[], wide = false) => {
+            setToast({ message, variant, opaque, details, wide: wide || Boolean(details?.length) });
+        },
+        [],
+    );
 
     useEffect(() => {
         const onKey = (e: KeyboardEvent) => {
@@ -401,11 +411,28 @@ export default function PatientsDirectoryManagement() {
             const data = await res.json().catch(() => ({}));
             const recPayload =
                 data && typeof data === 'object' && !Array.isArray(data) ? (data as Record<string, unknown>) : {};
-            setBulkResultCreated(Array.isArray(recPayload.created) ? [...recPayload.created] : []);
-            setBulkResultErrors(parsePatientBulkErrors(recPayload.errors));
+            const created = Array.isArray(recPayload.created) ? [...recPayload.created] : [];
+            const importErrors = parsePatientBulkErrors(recPayload.errors);
+            setBulkResultCreated(created);
+            setBulkResultErrors(importErrors);
+
+            if (created.length > 0 || importErrors.length > 0) {
+                if (created.length > 0) {
+                    showToast(
+                        patientBulkImportToastHeadline(created.length, importErrors.length),
+                        importErrors.length > 0 ? 'info' : 'success',
+                    );
+                }
+            } else {
+                const outcome = interpretPatientBulkOutcome(res.ok, data);
+                showToast(
+                    outcome.toastText,
+                    outcome.toastVariant,
+                    importErrors.length > 0 || outcome.toastVariant === 'error',
+                );
+            }
 
             const outcome = interpretPatientBulkOutcome(res.ok, data);
-            showToast(outcome.toastText, outcome.toastVariant);
             if (outcome.shouldClearFile) clearUploadedFile();
             if (outcome.shouldRefresh) {
                 setLoading(true);
@@ -414,7 +441,7 @@ export default function PatientsDirectoryManagement() {
         } catch {
             setBulkResultCreated([]);
             setBulkResultErrors([]);
-            showToast('Bulk import failed', 'error');
+            showToast('Bulk import failed', 'error', true);
         } finally {
             setProcessing(false);
             void fetchBulkHistory();
@@ -687,8 +714,15 @@ export default function PatientsDirectoryManagement() {
                 />
             )}
             {toast && (
-                <MacVibrancyToastPortal>
-                    <MacVibrancyToast message={toast.message} variant={toast.variant} onDismiss={dismissToast} />
+                <MacVibrancyToastPortal className={toast.wide ? 'helix-mac-toast-portal--front' : undefined}>
+                    <MacVibrancyToast
+                        message={toast.message}
+                        variant={toast.variant}
+                        opaque={toast.opaque}
+                        wide={toast.wide}
+                        details={toast.details}
+                        onDismiss={dismissToast}
+                    />
                 </MacVibrancyToastPortal>
             )}
             <div className="app-main">

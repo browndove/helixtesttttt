@@ -33,6 +33,12 @@ type MacVibrancyToastProps = {
     dismissible?: boolean;
     /** Optional leading content (icon); default is accent strip only. */
     leading?: ReactNode;
+    /** Plain white background (no frosted glass) for readability over busy UIs. */
+    opaque?: boolean;
+    /** Extra lines shown under the headline (e.g. bulk import row errors). */
+    details?: string[];
+    /** Wider toast for error lists. */
+    wide?: boolean;
 };
 
 /**
@@ -45,6 +51,9 @@ export function MacVibrancyToast({
     onDismiss,
     dismissible = true,
     leading,
+    opaque = false,
+    details,
+    wide = false,
 }: MacVibrancyToastProps) {
     const showDismiss = dismissible && typeof onDismiss === 'function';
     const swipeStartX = useRef<number | null>(null);
@@ -73,7 +82,7 @@ export function MacVibrancyToast({
 
     return (
         <div
-            className="helix-mac-toast-item"
+            className={['helix-mac-toast-item', wide ? 'helix-mac-toast-item--wide' : ''].filter(Boolean).join(' ')}
             style={{ touchAction: 'pan-y' }}
             onPointerDown={onPointerDown}
             onPointerUp={onPointerUp}
@@ -83,7 +92,13 @@ export function MacVibrancyToast({
             <div
                 role="alert"
                 aria-live="polite"
-                className={`helix-mac-toast-surface helix-mac-toast-surface--${variant}`}
+                className={[
+                    'helix-mac-toast-surface',
+                    `helix-mac-toast-surface--${variant}`,
+                    opaque ? 'helix-mac-toast-surface--solid' : '',
+                ]
+                    .filter(Boolean)
+                    .join(' ')}
             >
                 {leading ? (
                     <div className="helix-mac-toast-leading" aria-hidden>
@@ -92,7 +107,16 @@ export function MacVibrancyToast({
                 ) : (
                     <div className="helix-mac-toast-accent" aria-hidden />
                 )}
-                <div className="helix-mac-toast-body">{message}</div>
+                <div className="helix-mac-toast-body">
+                    <div className="helix-mac-toast-message">{message}</div>
+                    {details && details.length > 0 ? (
+                        <ul className="helix-mac-toast-details">
+                            {details.map((line, i) => (
+                                <li key={`${i}-${line.slice(0, 24)}`}>{line}</li>
+                            ))}
+                        </ul>
+                    ) : null}
+                </div>
                 {showDismiss ? (
                     <button type="button" className="helix-mac-toast-dismiss" onClick={onDismiss} aria-label="Dismiss">
                         Dismiss
