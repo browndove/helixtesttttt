@@ -16,9 +16,10 @@ import {
     sendStaffInviteEmails,
     type StaffInviteEmailError,
 } from '@/lib/staff-invite-emails';
+import { fetchAllStaffPayload, STAFF_CACHE_LIST_KEY } from '@/lib/fetch-all-staff';
 
 const STAFF_PAGE_CACHE_TTL_MS = 120_000;
-const STAFF_CACHE_LIST = '/api/proxy/staff?page_size=100&page_id=1';
+const STAFF_CACHE_LIST = STAFF_CACHE_LIST_KEY;
 const STAFF_CACHE_DEPTS = '/api/proxy/departments';
 /** Local-only field on the add-staff form (not sent to the API). */
 const STAFF_CREATE_TITLE_MAX_LEN = 20;
@@ -1104,9 +1105,8 @@ export default function StaffDirectoryManagement() {
     const fetchStaff = useCallback(async () => {
         setFetchError(false);
         try {
-            const res = await fetch(STAFF_CACHE_LIST);
-            if (res.ok) {
-                const data = await res.json();
+            const { ok, data } = await fetchAllStaffPayload({ credentials: 'include' });
+            if (ok && data != null) {
                 writeCachedJson(STAFF_CACHE_LIST, data);
                 const parsed = parseStaffList(data);
                 setStaff(prev => {
@@ -1370,19 +1370,19 @@ export default function StaffDirectoryManagement() {
         [filtered, staffPage, staffPageSize]
     );
 
-    const toggleSelectAllOnPage = useCallback(() => {
+    const toggleSelectAllFiltered = useCallback(() => {
         setSelectedStaffIds(prev => {
-            const pageIds = paginatedFiltered.map(s => s.id);
-            const allSelected = pageIds.length > 0 && pageIds.every(id => prev.has(id));
+            const filteredIds = filtered.map(s => s.id);
+            const allSelected = filteredIds.length > 0 && filteredIds.every(id => prev.has(id));
             const next = new Set(prev);
             if (allSelected) {
-                pageIds.forEach(id => next.delete(id));
+                filteredIds.forEach(id => next.delete(id));
             } else {
-                pageIds.forEach(id => next.add(id));
+                filteredIds.forEach(id => next.add(id));
             }
             return next;
         });
-    }, [paginatedFiltered]);
+    }, [filtered]);
 
     const bulkCreatedStaffIds = useMemo(
         () => bulkResultCreated.map(extractStaffIdFromBulkCreated).filter(Boolean),
@@ -2071,12 +2071,12 @@ export default function StaffDirectoryManagement() {
                                             >
                                                 <input
                                                     type="checkbox"
-                                                    aria-label="Select all on this page"
+                                                    aria-label="Select all staff matching current filters"
                                                     checked={
-                                                        paginatedFiltered.length > 0
-                                                        && paginatedFiltered.every(s => selectedStaffIds.has(s.id))
+                                                        filtered.length > 0
+                                                        && filtered.every(s => selectedStaffIds.has(s.id))
                                                     }
-                                                    onChange={toggleSelectAllOnPage}
+                                                    onChange={toggleSelectAllFiltered}
                                                     onClick={e => e.stopPropagation()}
                                                 />
                                             </th>

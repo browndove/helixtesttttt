@@ -29,6 +29,7 @@ import {
     normalizeRoleCriticalFields,
     resolveEscalationTargetRoleId,
 } from '@/lib/role-escalation-ladder';
+import { fetchAllStaffPayload } from '@/lib/fetch-all-staff';
 import {
     ROLES_CACHE_DEPTS,
     ROLES_CACHE_HOSPITAL,
@@ -729,19 +730,19 @@ export default function RolesBuilderAssignment() {
 
     const fetchData = useCallback(async () => {
         try {
-            const [rolesRes, deptsRes, policiesRes, staffRes, hospitalRes] = await Promise.all([
+            const [rolesRes, deptsRes, policiesRes, staffFetch, hospitalRes] = await Promise.all([
                 fetch(ROLES_CACHE_ROLES),
                 fetch(ROLES_CACHE_DEPTS),
                 fetch(ROLES_CACHE_POLICIES),
-                fetch(ROLES_CACHE_STAFF),
+                fetchAllStaffPayload({ credentials: 'include' }),
                 fetch(ROLES_CACHE_HOSPITAL),
             ]);
 
-            const [rolesJson, deptsJson, policiesJson, staffJson, hospitalJson] = await Promise.all([
+            const staffJson = staffFetch.ok ? staffFetch.data : null;
+            const [rolesJson, deptsJson, policiesJson, hospitalJson] = await Promise.all([
                 rolesRes.ok ? rolesRes.json() : Promise.resolve(null),
                 deptsRes.ok ? deptsRes.json() : Promise.resolve(null),
                 policiesRes.ok ? policiesRes.json() : Promise.resolve(null),
-                staffRes.ok ? staffRes.json() : Promise.resolve(null),
                 hospitalRes.ok ? hospitalRes.json() : Promise.resolve(null),
             ]);
 
@@ -765,7 +766,7 @@ export default function RolesBuilderAssignment() {
                     roles: rolesRes.ok,
                     depts: deptsRes.ok,
                     policies: policiesRes.ok,
-                    staff: staffRes.ok,
+                    staff: staffFetch.ok,
                 },
                 {
                     roles: rolesJson,
@@ -779,7 +780,7 @@ export default function RolesBuilderAssignment() {
             if (rolesRes.ok && rolesJson != null) writeCachedJson(ROLES_CACHE_ROLES, rolesJson);
             if (deptsRes.ok && deptsJson != null) writeCachedJson(ROLES_CACHE_DEPTS, deptsJson);
             if (policiesRes.ok && policiesJson != null) writeCachedJson(ROLES_CACHE_POLICIES, policiesJson);
-            if (staffRes.ok && staffJson != null) writeCachedJson(ROLES_CACHE_STAFF, staffJson);
+            if (staffFetch.ok && staffJson != null) writeCachedJson(ROLES_CACHE_STAFF, staffJson);
             if (hospitalRes.ok && hospitalJson != null) writeCachedJson(ROLES_CACHE_HOSPITAL, hospitalJson);
             if (facilityJson != null && hospitalJson && typeof hospitalJson === 'object') {
                 const hid = typeof (hospitalJson as Record<string, unknown>).id === 'string'
