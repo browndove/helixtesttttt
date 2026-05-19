@@ -17,28 +17,13 @@ function tryParseJson(text: string): unknown | undefined {
 // GET /departments - List departments (requires facility_id query param)
 export async function GET(req: NextRequest) {
     try {
-        const { searchParams } = new URL(req.url);
-        const requestedFacilityId = searchParams.get('facility_id');
-        const sessionFacilityId = await resolveFacilityId(req, API_BASE_URL);
-        if (!sessionFacilityId) {
-            return NextResponse.json(
-                { error: 'Unable to resolve facility for current session. Please log in again.' },
-                { status: 400 }
-            );
-        }
-        if (requestedFacilityId && requestedFacilityId !== sessionFacilityId) {
-            return NextResponse.json(
-                { error: 'Facility mismatch. Departments are restricted to your logged-in facility.' },
-                { status: 403 }
-            );
-        }
+        const upstream = await buildTenantUpstreamUrl(req, API_BASE_URL, `/api/v1/departments`);
+        if (upstream instanceof NextResponse) return upstream;
 
-        const url = new URL(`${API_BASE_URL}/api/v1/departments`);
-        url.searchParams.set('facility_id', sessionFacilityId);
+        const { url } = upstream;
+        console.log('Proxy list departments request to:', url);
 
-        console.log('Proxy list departments request to:', url.toString());
-
-        const res = await fetch(url.toString(), {
+        const res = await fetch(url, {
             method: 'GET',
             headers: getProxyHeaders(req),
         });

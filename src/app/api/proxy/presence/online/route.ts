@@ -1,5 +1,6 @@
 import { getProxyHeaders } from '@/lib/proxy-auth';
 import { NextRequest, NextResponse } from 'next/server';
+import { buildTenantUpstreamUrl } from '@/lib/proxy-upstream';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3000';
 
@@ -7,16 +8,19 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3
 export async function GET(req: NextRequest) {
     try {
         const { searchParams } = new URL(req.url);
-        const url = new URL(`${API_BASE_URL}/api/v1/presence/online`);
+        const query: Record<string, string | undefined> = {};
         searchParams.forEach((value, key) => {
-            url.searchParams.set(key, value);
+            query[key] = value;
         });
         // REST defaults to app-sourced presence; admin Next.js must pass client=admin (see fetchMergedFacilityPresenceOnline).
-        if (!url.searchParams.has('client')) {
-            url.searchParams.set('client', 'admin');
+        if (!query.client) {
+            query.client = 'admin';
         }
 
-        const res = await fetch(url.toString(), {
+        const upstream = await buildTenantUpstreamUrl(req, API_BASE_URL, `/api/v1/presence/online`, query);
+        if (upstream instanceof NextResponse) return upstream;
+
+        const res = await fetch(upstream.url, {
             method: 'GET',
             headers: getProxyHeaders(req),
         });

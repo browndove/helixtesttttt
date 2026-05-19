@@ -17,10 +17,22 @@ import {
     type StaffInviteEmailError,
 } from '@/lib/staff-invite-emails';
 import { fetchAllStaffPayload, STAFF_CACHE_LIST_KEY } from '@/lib/fetch-all-staff';
+import {
+    appendFacilityIdToProxyUrl,
+    getCachedClientFacilityId,
+    readHelixFacilityIdFromDocument,
+    resolveClientFacilityId,
+} from '@/lib/facility-client';
 
 const STAFF_PAGE_CACHE_TTL_MS = 120_000;
 const STAFF_CACHE_LIST = STAFF_CACHE_LIST_KEY;
 const STAFF_CACHE_DEPTS = '/api/proxy/departments';
+
+/** Appends ?facility_id= when known (required for internal act-as proxy calls). */
+function staffUrl(path: string): string {
+    const fid = getCachedClientFacilityId() || readHelixFacilityIdFromDocument();
+    return appendFacilityIdToProxyUrl(path, fid);
+}
 /** Local-only field on the add-staff form (not sent to the API). */
 const STAFF_CREATE_TITLE_MAX_LEN = 20;
 
@@ -1129,7 +1141,8 @@ export default function StaffDirectoryManagement() {
 
     const fetchDepartments = useCallback(async () => {
         try {
-            const res = await fetch(STAFF_CACHE_DEPTS);
+            const facilityId = await resolveClientFacilityId();
+            const res = await fetch(appendFacilityIdToProxyUrl(STAFF_CACHE_DEPTS, facilityId));
             if (!res.ok) return;
             const data = await res.json();
             writeCachedJson(STAFF_CACHE_DEPTS, data);
@@ -1173,6 +1186,10 @@ export default function StaffDirectoryManagement() {
             setDeptIdToName(idToName);
             setDepartmentOptions(Array.from(new Set(names)));
         }
+    }, []);
+
+    useLayoutEffect(() => {
+        void resolveClientFacilityId();
     }, []);
 
     useEffect(() => { fetchStaff(); }, [fetchStaff]);
@@ -1410,7 +1427,7 @@ export default function StaffDirectoryManagement() {
         setAdding(true);
         try {
             const derivedIsDoctor = isDoctorFromHighestQualification(newHighestQualification);
-            const res = await fetch('/api/proxy/staff', {
+            const res = await fetch(staffUrl('/api/proxy/staff'), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -1519,7 +1536,7 @@ export default function StaffDirectoryManagement() {
         setPendingDelete(null);
         showToast(`${member?.first_name} ${member?.last_name} removed`, 'success');
         try {
-            await fetch(`/api/proxy/staff/${id}`, { method: 'DELETE' });
+            await fetch(staffUrl(`/api/proxy/staff/${id}`), { method: 'DELETE' });
         } catch { /* optimistic — already removed locally */ }
     };
 
@@ -1529,7 +1546,7 @@ export default function StaffDirectoryManagement() {
         setStaff(prev => prev.map(s => s.id === id ? { ...s, status: newStatus } : s));
         showToast(newStatus === 'disabled' ? `${member?.first_name} ${member?.last_name} disabled` : `${member?.first_name} ${member?.last_name} enabled`, 'success');
         try {
-            await fetch(`/api/proxy/staff/${id}`, {
+            await fetch(staffUrl(`/api/proxy/staff/${id}`), {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ status: newStatus }),
@@ -1544,7 +1561,7 @@ export default function StaffDirectoryManagement() {
         setSelected(prev => prev && prev.id === id ? { ...prev, patient_access: newVal } : prev);
         showToast(`Patient access ${newVal ? 'granted' : 'revoked'} for ${member?.first_name} ${member?.last_name}`, 'success');
         try {
-            await fetch(`/api/proxy/staff/${id}`, {
+            await fetch(staffUrl(`/api/proxy/staff/${id}`), {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ patient_access: newVal }),
@@ -1564,7 +1581,7 @@ export default function StaffDirectoryManagement() {
         setSelected(prev => prev && prev.id === id ? { ...prev, role: newRole } : prev);
         showToast(`${member?.first_name} ${member?.last_name} is now ${newRole === 'admin' ? 'an Admin' : 'Staff'}`, 'success');
         try {
-            const res = await fetch(`/api/proxy/staff/${id}/assign-role`, {
+            const res = await fetch(staffUrl(`/api/proxy/staff/${id}/assign-role`), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ role: newRole }),
@@ -1687,7 +1704,7 @@ export default function StaffDirectoryManagement() {
                 }).catch(() => {});
             }
             // #endregion
-            const res = await fetch(`/api/proxy/staff/${selected.id}`, {
+            const res = await fetch(staffUrl(`/api/proxy/staff/${selected.id}`), {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(payload),
@@ -2404,603 +2421,234 @@ export default function StaffDirectoryManagement() {
                                         boxShadow: '0 1px 2px rgba(15, 23, 42, 0.04)',
                                     }}
                                 >
-                                    <div style={{ padding: '16px 16px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
+                                    <div style={{ padding: '14px 14px 10px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
                                         <div style={{ minWidth: 0, flex: 1 }}>
-                                            <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 10, rowGap: 8 }}>
-                                                <h3
-                                                    style={{
-                                                        fontSize: 20,
-                                                        fontWeight: 700,
-                                                        letterSpacing: '-0.03em',
-                                                        lineHeight: 1.15,
-                                                        margin: 0,
-                                                        color: '#111827',
-                                                    }}
-                                                >
-                                                    {selected.first_name} {selected.last_name}
-                                                </h3>
-                                                <span
-                                                    style={{
-                                                        display: 'inline-flex',
-                                                        alignItems: 'center',
-                                                        gap: 6,
-                                                        fontSize: 12,
-                                                        fontWeight: 600,
-                                                        padding: '5px 12px',
-                                                        borderRadius: 999,
-                                                        border: selected.status === 'active' ? '1px solid #6EE7B7' : '1px solid #FECACA',
-                                                        background: selected.status === 'active' ? '#DCFCE7' : '#FEE2E2',
-                                                        color: selected.status === 'active' ? '#166534' : '#991B1B',
-                                                    }}
-                                                >
-                                                    <span
-                                                        style={{
-                                                            width: 7,
-                                                            height: 7,
-                                                            borderRadius: '50%',
-                                                            background: selected.status === 'active' ? '#22C55E' : '#EF4444',
-                                                            flexShrink: 0,
-                                                        }}
-                                                        aria-hidden
-                                                    />
-                                                    {selected.status === 'active' ? 'Active' : 'Disabled'}
-                                                </span>
-                                            </div>
-                                            <div style={{ marginTop: 10, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, lineHeight: 1.35 }}>
-                                                <span
-                                                    style={{
-                                                        display: 'inline-flex',
-                                                        alignItems: 'center',
-                                                        maxWidth: '100%',
-                                                        fontSize: 12,
-                                                        fontWeight: 600,
-                                                        padding: '5px 11px',
-                                                        borderRadius: 999,
-                                                        background: '#F3F4F6',
-                                                        color: '#374151',
-                                                        border: '1px solid #E5E7EB',
-                                                        fontVariantNumeric: 'tabular-nums',
-                                                    }}
-                                                    title={selected.employee_id}
-                                                >
-                                                    {selected.employee_id}
-                                                </span>
-                                                <span
-                                                    style={{
-                                                        display: 'inline-flex',
-                                                        alignItems: 'center',
-                                                        maxWidth: 'min(220px, 100%)',
-                                                        fontSize: 12,
-                                                        fontWeight: 600,
-                                                        padding: '5px 11px',
-                                                        borderRadius: 999,
-                                                        background: '#FEF9C3',
-                                                        color: '#854D0E',
-                                                        border: '1px solid #FDE047',
-                                                        overflow: 'hidden',
-                                                        textOverflow: 'ellipsis',
-                                                        whiteSpace: 'nowrap',
-                                                    }}
-                                                    title={editJobTitle || selected.job_title}
-                                                >
-                                                    {editJobTitle || selected.job_title || 'Role'}
-                                                </span>
-                                                <span
-                                                    style={{
-                                                        display: 'inline-flex',
-                                                        alignItems: 'center',
-                                                        maxWidth: '100%',
-                                                        fontSize: 12,
-                                                        fontWeight: 600,
-                                                        padding: '5px 11px',
-                                                        borderRadius: 999,
-                                                        background: '#DBEAFE',
-                                                        color: '#1E3A8A',
-                                                        border: '1px solid #93C5FD',
-                                                        overflow: 'hidden',
-                                                        textOverflow: 'ellipsis',
-                                                        whiteSpace: 'nowrap',
-                                                    }}
-                                                    title={selected.dept || 'Department'}
-                                                >
-                                                    {selected.dept || 'Department'}
-                                                </span>
-                                            </div>
-                                            <div style={{ marginTop: 10, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
-                                                <span style={{ fontSize: 12, fontWeight: 600, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Signed in to</span>
-                                                {detailSignedInRoleLoading ? (
-                                                    <span
-                                                        style={{
-                                                            fontSize: 12,
-                                                            fontWeight: 600,
-                                                            padding: '5px 11px',
-                                                            borderRadius: 999,
-                                                            background: '#F3F4F6',
-                                                            color: '#64748B',
-                                                            border: '1px solid #E5E7EB',
-                                                        }}
-                                                    >
-                                                        Loading…
-                                                    </span>
-                                                ) : detailSignedInRole ? (
-                                                    <span
-                                                        style={{
-                                                            fontSize: 12,
-                                                            fontWeight: 600,
-                                                            padding: '5px 11px',
-                                                            borderRadius: 999,
-                                                            background: '#EDE9FE',
-                                                            color: '#5B21B6',
-                                                            border: '1px solid #C4B5FD',
-                                                            maxWidth: '100%',
-                                                            overflow: 'hidden',
-                                                            textOverflow: 'ellipsis',
-                                                            whiteSpace: 'nowrap',
-                                                        }}
-                                                        title={detailSignedInRole}
-                                                    >
-                                                        {detailSignedInRole}
-                                                    </span>
-                                                ) : (
-                                                    <span
-                                                        style={{
-                                                            fontSize: 12,
-                                                            fontWeight: 600,
-                                                            padding: '5px 11px',
-                                                            borderRadius: 999,
-                                                            background: '#F8FAFC',
-                                                            color: '#64748B',
-                                                            border: '1px solid #E2E8F0',
-                                                        }}
-                                                    >
-                                                        Not signed in
-                                                    </span>
-                                                )}
+                                            <h3 style={{ fontSize: 17, fontWeight: 700, letterSpacing: '-0.02em', lineHeight: 1.2, margin: 0, color: '#111827' }}>
+                                                {selected.first_name} {selected.last_name}
+                                            </h3>
+                                            <div style={{ fontSize: 12, color: '#6B7280', marginTop: 2 }}>
+                                                {selected.dept || 'Department'}{selected.employee_id ? ` · ${selected.employee_id}` : ''}
                                             </div>
                                             {isStaffOnline(selected, onlineIdSet) && (
-                                                <div style={{ marginTop: 8, fontSize: 12, fontWeight: 600, color: '#059669', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                                                    <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#10B981' }} aria-hidden />
+                                                <div style={{ marginTop: 4, fontSize: 11, fontWeight: 600, color: '#059669', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                                                    <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#10B981' }} aria-hidden />
                                                     Online now
                                                 </div>
                                             )}
                                         </div>
-                                        <button
-                                            type="button"
-                                            className="btn btn-ghost btn-xs"
-                                            style={{
-                                                flexShrink: 0,
-                                                width: 34,
-                                                height: 34,
-                                                borderRadius: '50%',
-                                                display: 'grid',
-                                                placeItems: 'center',
-                                                padding: 0,
-                                                color: '#9CA3AF',
-                                                background: '#F3F4F6',
-                                                border: 'none',
-                                            }}
-                                            aria-label="Close"
-                                            onClick={() => { setEditingSelected(false); setSelected(null); }}
-                                        >
-                                            <span className="material-icons-round" style={{ fontSize: 20 }}>close</span>
-                                        </button>
-                                    </div>
-
-                                    <div style={{ height: 1, background: '#EEF1F5', margin: '0 4px' }} />
-
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 16px 8px' }}>
-                                        <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', color: '#9CA3AF' }}>Personal information</span>
-                                        <button
-                                            type="button"
-                                            onClick={() => setEditingSelected(v => !v)}
-                                            disabled={savingEdit}
-                                            style={{
-                                                border: 'none',
-                                                background: 'none',
-                                                padding: 0,
-                                                fontSize: 14,
-                                                fontWeight: 600,
-                                                color: savingEdit ? '#CBD5E1' : '#2563EB',
-                                                cursor: savingEdit ? 'default' : 'pointer',
-                                                fontFamily: 'inherit',
-                                            }}
-                                        >
-                                            {editingSelected ? 'Done' : 'Edit'}
-                                        </button>
-                                    </div>
-                                    <div style={{ padding: '4px 16px 16px' }}>
-                                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-                                            <div style={{ minWidth: 0 }}>
-                                                <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: '#9CA3AF', marginBottom: 6 }}>First name</label>
-                                                <input
-                                                    className="input"
-                                                    value={editFirstName}
-                                                    onChange={e => setEditFirstName(e.target.value)}
-                                                    disabled={!editingSelected || savingEdit}
-                                                    style={{
-                                                        fontSize: 14,
-                                                        width: '100%',
-                                                        boxSizing: 'border-box',
-                                                        background: '#F5F6F8',
-                                                        border: '1px solid #E8EBF0',
-                                                        borderRadius: 10,
-                                                        opacity: !editingSelected || savingEdit ? 0.65 : 1,
-                                                    }}
-                                                />
-                                            </div>
-                                            <div style={{ minWidth: 0 }}>
-                                                <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: '#9CA3AF', marginBottom: 6 }}>Last name</label>
-                                                <input
-                                                    className="input"
-                                                    value={editLastName}
-                                                    onChange={e => setEditLastName(e.target.value)}
-                                                    disabled={!editingSelected || savingEdit}
-                                                    style={{
-                                                        fontSize: 14,
-                                                        width: '100%',
-                                                        boxSizing: 'border-box',
-                                                        background: '#F5F6F8',
-                                                        border: '1px solid #E8EBF0',
-                                                        borderRadius: 10,
-                                                        opacity: !editingSelected || savingEdit ? 0.65 : 1,
-                                                    }}
-                                                />
-                                            </div>
-                                        </div>
-                                        <div style={{ marginTop: 12, minWidth: 0 }}>
-                                            <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: '#9CA3AF', marginBottom: 6 }}>
-                                                Middle name <span style={{ fontWeight: 400, color: '#CBD5E1' }}>(optional)</span>
-                                            </label>
-                                            <input
-                                                className="input"
-                                                value={editMiddleName}
-                                                onChange={e => setEditMiddleName(e.target.value)}
-                                                disabled={!editingSelected || savingEdit}
-                                                style={{
-                                                    fontSize: 14,
-                                                    width: '100%',
-                                                    boxSizing: 'border-box',
-                                                    background: '#F5F6F8',
-                                                    border: '1px solid #E8EBF0',
-                                                    borderRadius: 10,
-                                                    opacity: !editingSelected || savingEdit ? 0.65 : 1,
-                                                }}
-                                            />
-                                        </div>
-                                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginTop: 12 }}>
-                                            <div style={{ minWidth: 0 }}>
-                                                <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: '#9CA3AF', marginBottom: 6 }}>Date of birth</label>
-                                                <DatePicker
-                                                    value={editDob}
-                                                    onChange={setEditDob}
-                                                    placeholder="Choose date"
-                                                    disabled={!editingSelected || savingEdit}
-                                                />
-                                            </div>
-                                            <div style={{ minWidth: 0 }}>
-                                                <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: '#9CA3AF', marginBottom: 6 }}>Gender</label>
-                                                <div style={{ opacity: !editingSelected || savingEdit ? 0.65 : 1, pointerEvents: !editingSelected || savingEdit ? 'none' : 'auto' }}>
-                                                    <CustomSelect
-                                                        value={editGender}
-                                                        onChange={v => setEditGender(v)}
-                                                        options={[
-                                                            { label: 'Male', value: 'male' },
-                                                            { label: 'Female', value: 'female' },
-                                                            { label: 'Other', value: 'other' },
-                                                        ]}
-                                                        placeholder="Choose"
-                                                    />
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
-
-                                    <div style={{ height: 1, background: '#EEF1F5', margin: '0 4px' }} />
-
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 16px 8px' }}>
-                                        <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', color: '#9CA3AF' }}>Contact</span>
-                                        <button
-                                            type="button"
-                                            onClick={() => setEditingSelected(v => !v)}
-                                            disabled={savingEdit}
-                                            style={{
-                                                border: 'none',
-                                                background: 'none',
-                                                padding: 0,
-                                                fontSize: 14,
-                                                fontWeight: 600,
-                                                color: savingEdit ? '#CBD5E1' : '#2563EB',
-                                                cursor: savingEdit ? 'default' : 'pointer',
-                                                fontFamily: 'inherit',
-                                            }}
-                                        >
-                                            {editingSelected ? 'Done' : 'Edit'}
-                                        </button>
-                                    </div>
-                                    <div style={{ padding: '4px 16px 16px' }}>
-                                        <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: '#9CA3AF', marginBottom: 6 }} id="staff-detail-email-label">
-                                            Email address
-                                        </label>
-                                        <div style={{ position: 'relative' }}>
-                                            <span
-                                                className="material-icons-round"
-                                                style={{
-                                                    position: 'absolute',
-                                                    left: 12,
-                                                    top: 12,
-                                                    fontSize: 18,
-                                                    color: '#9CA3AF',
-                                                    pointerEvents: 'none',
-                                                }}
-                                                aria-hidden
-                                            >
-                                                mail
-                                            </span>
-                                            <div
-                                                role="status"
-                                                aria-labelledby="staff-detail-email-label"
-                                                style={{
-                                                    fontSize: 14,
-                                                    minHeight: 42,
-                                                    padding: '10px 12px 10px 40px',
-                                                    boxSizing: 'border-box',
-                                                    width: '100%',
-                                                    background: '#F5F6F8',
-                                                    border: '1px solid #E8EBF0',
-                                                    borderRadius: 10,
-                                                    color: '#111827',
-                                                    fontWeight: 500,
-                                                    lineHeight: 1.4,
-                                                    wordBreak: 'break-word',
-                                                }}
-                                            >
-                                                {(selected.email || editEmail || '').trim() || '—'}
-                                            </div>
-                                        </div>
-                                        <div style={{ marginTop: 12 }}>
-                                            <button
-                                                type="button"
-                                                className="btn btn-secondary btn-sm"
-                                                disabled={sendingInvites || !(selected.email || editEmail || '').trim()}
-                                                onClick={() => { void handleSendInviteEmails([selected.id]); }}
-                                                style={{ width: '100%', justifyContent: 'center' }}
-                                            >
-                                                <span className="material-icons-round" style={{ fontSize: 16 }}>
-                                                    {sendingInvites ? 'hourglass_empty' : 'mail'}
-                                                </span>
-                                                {sendingInvites ? 'Sending invite…' : 'Send invite email'}
-                                            </button>
-                                            <p style={{ margin: '8px 0 0', fontSize: 11, color: '#9CA3AF', lineHeight: 1.45 }}>
-                                                Sends the Helix account setup link. Safe to resend if they did not receive it.
-                                            </p>
-                                        </div>
-                                        <div style={{ marginTop: 14, minWidth: 0 }}>
-                                            <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: '#9CA3AF', marginBottom: 6 }}>Phone</label>
-                                            <div
-                                                style={{
-                                                    display: 'flex',
-                                                    alignItems: 'center',
-                                                    justifyContent: 'space-between',
-                                                    gap: 10,
-                                                    padding: '10px 12px',
-                                                    borderRadius: 10,
-                                                    border: '1px solid #E8EBF0',
-                                                    background: '#F5F6F8',
-                                                }}
-                                            >
-                                                <span
-                                                    style={{
-                                                        fontSize: 14,
-                                                        fontWeight: 500,
-                                                        color: (selected.phone || '').trim() ? '#111827' : '#9CA3AF',
-                                                        fontStyle: (selected.phone || '').trim() ? 'normal' : 'italic',
-                                                        overflowWrap: 'anywhere',
-                                                        wordBreak: 'break-word',
-                                                        minWidth: 0,
-                                                        flex: 1,
-                                                    }}
-                                                >
-                                                    {(selected.phone || '').trim() || 'Not on file'}
-                                                </span>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+                                            {!editingSelected && (
                                                 <button
                                                     type="button"
-                                                    onClick={() => { void handleRequestPhoneUpdate(); }}
-                                                    disabled={requestPhoneUpdatePending}
+                                                    onClick={() => setEditingSelected(true)}
                                                     style={{
-                                                        flexShrink: 0,
-                                                        border: 'none',
-                                                        background: 'none',
-                                                        padding: '2px 4px',
-                                                        fontSize: 14,
-                                                        fontWeight: 600,
-                                                        color: requestPhoneUpdatePending ? '#CBD5E1' : '#2563EB',
-                                                        cursor: requestPhoneUpdatePending ? 'default' : 'pointer',
-                                                        fontFamily: 'inherit',
-                                                        whiteSpace: 'nowrap',
+                                                        display: 'inline-flex', alignItems: 'center', gap: 5,
+                                                        border: 'none', borderRadius: 8, padding: '6px 12px',
+                                                        fontSize: 12, fontWeight: 600, fontFamily: 'inherit',
+                                                        background: '#1E3A5F', color: '#fff', cursor: 'pointer',
                                                     }}
                                                 >
-                                                    {requestPhoneUpdatePending ? 'Sending…' : 'Send link'}
+                                                    <span className="material-icons-round" style={{ fontSize: 14 }}>edit</span>
+                                                    Edit
                                                 </button>
-                                            </div>
-                                            <p style={{ margin: '8px 0 0', fontSize: 11, color: '#9CA3AF', lineHeight: 1.45 }}>
-                                                Sends them a secure link to update their number. Refresh this tab after they finish.
-                                            </p>
-                                        </div>
-                                    </div>
-
-                                    <div style={{ height: 1, background: '#EEF1F5', margin: '0 4px' }} />
-
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 16px 8px' }}>
-                                        <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', color: '#9CA3AF' }}>Employment</span>
-                                        <button
-                                            type="button"
-                                            onClick={() => setEditingSelected(v => !v)}
-                                            disabled={savingEdit}
-                                            style={{
-                                                border: 'none',
-                                                background: 'none',
-                                                padding: 0,
-                                                fontSize: 14,
-                                                fontWeight: 600,
-                                                color: savingEdit ? '#CBD5E1' : '#2563EB',
-                                                cursor: savingEdit ? 'default' : 'pointer',
-                                                fontFamily: 'inherit',
-                                            }}
-                                        >
-                                            {editingSelected ? 'Done' : 'Edit'}
-                                        </button>
-                                    </div>
-                                    <div style={{ padding: '4px 16px 16px', display: 'flex', flexDirection: 'column', gap: 12 }}>
-                                        <div style={{ minWidth: 0 }}>
-                                            <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: '#9CA3AF', marginBottom: 6 }}>Department</label>
-                                            <div style={{ opacity: !editingSelected || savingEdit ? 0.65 : 1, pointerEvents: !editingSelected || savingEdit ? 'none' : 'auto' }}>
-                                                <CustomSelect
-                                                    value={editDept}
-                                                    onChange={setEditDept}
-                                                    options={departmentOptions.map(d => ({ label: d, value: d }))}
-                                                    placeholder="Choose department"
-                                                />
-                                            </div>
-                                        </div>
-                                        <div style={{ minWidth: 0 }}>
-                                            <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: '#9CA3AF', marginBottom: 6 }}>Rank</label>
-                                            <div style={{ opacity: !editingSelected || savingEdit ? 0.65 : 1, pointerEvents: !editingSelected || savingEdit ? 'none' : 'auto' }}>
-                                                <CustomSelect
-                                                    value={editJobTitle}
-                                                    onChange={setEditJobTitle}
-                                                    options={STAFF_RANK_OPTIONS.map(t => ({ label: t, value: t }))}
-                                                    placeholder="Choose rank"
-                                                    allowCustom
-                                                    customEntryTitle="Custom rank"
-                                                    customEntryHint="Not listed? Type here, then Enter."
-                                                    customPlaceholder="Type rank — Enter"
-                                                />
-                                            </div>
-                                        </div>
-                                        <div style={{ minWidth: 0 }}>
-                                            <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: '#9CA3AF', marginBottom: 6 }}>Highest qualification</label>
-                                            <div style={{ opacity: !editingSelected || savingEdit ? 0.65 : 1, pointerEvents: !editingSelected || savingEdit ? 'none' : 'auto' }}>
-                                                <CustomSelect
-                                                    value={editHighestQualification}
-                                                    onChange={setEditHighestQualification}
-                                                    options={QUALIFICATION_OPTIONS.map(q => ({ label: q, value: q }))}
-                                                    placeholder="Choose qualification"
-                                                    allowCustom
-                                                    customEntryTitle="Custom qualification"
-                                                    customEntryHint="Not listed below? Type here, then Enter."
-                                                    customPlaceholder="e.g. MBChB — Enter"
-                                                />
-                                            </div>
-                                        </div>
-                                    </div>
-
-                                    <div style={{ height: 1, background: '#EEF1F5', margin: '0 4px' }} />
-
-                                    <div
-                                        style={{
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            justifyContent: 'space-between',
-                                            gap: 10,
-                                            padding: '12px 16px',
-                                            background: '#F9FAFB',
-                                        }}
-                                    >
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
-                                            <span className="material-icons-round" style={{ fontSize: 18, color: '#9CA3AF', flexShrink: 0 }}>fingerprint</span>
-                                            <div style={{ minWidth: 0 }}>
-                                                <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', color: '#9CA3AF' }}>Employee ID</div>
-                                                <div
-                                                    style={{
-                                                        fontSize: 14,
-                                                        fontWeight: 700,
-                                                        color: '#111827',
-                                                        overflow: 'hidden',
-                                                        textOverflow: 'ellipsis',
-                                                        whiteSpace: 'nowrap',
-                                                        fontVariantNumeric: 'tabular-nums',
-                                                    }}
-                                                >
-                                                    {selected.employee_id}
-                                                </div>
-                                            </div>
-                                        </div>
-                                        {editingSelected && (
+                                            )}
                                             <button
                                                 type="button"
-                                                onClick={handleSaveSelected}
-                                                disabled={savingEdit}
-                                                style={{
-                                                    flexShrink: 0,
-                                                    border: 'none',
-                                                    borderRadius: 10,
-                                                    padding: '10px 18px',
-                                                    fontSize: 14,
-                                                    fontWeight: 600,
-                                                    fontFamily: 'inherit',
-                                                    background: '#2563EB',
-                                                    color: '#fff',
-                                                    cursor: savingEdit ? 'default' : 'pointer',
-                                                    opacity: savingEdit ? 0.65 : 1,
-                                                }}
+                                                className="btn btn-ghost btn-xs"
+                                                style={{ width: 30, height: 30, borderRadius: '50%', display: 'grid', placeItems: 'center', padding: 0, color: '#9CA3AF', background: '#F3F4F6', border: 'none' }}
+                                                aria-label="Close"
+                                                onClick={() => { setEditingSelected(false); setSelected(null); }}
                                             >
-                                                {savingEdit ? 'Saving…' : 'Save changes'}
+                                                <span className="material-icons-round" style={{ fontSize: 18 }}>close</span>
                                             </button>
+                                        </div>
+                                    </div>
+                                    <div style={{ padding: '0 14px 12px', display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11, fontWeight: 600, padding: '4px 10px', borderRadius: 999, border: selected.status === 'active' ? '1px solid #6EE7B7' : '1px solid #FECACA', background: selected.status === 'active' ? '#DCFCE7' : '#FEE2E2', color: selected.status === 'active' ? '#166534' : '#991B1B' }}>
+                                            <span style={{ width: 6, height: 6, borderRadius: '50%', background: selected.status === 'active' ? '#22C55E' : '#EF4444' }} aria-hidden />
+                                            {selected.status === 'active' ? 'Active' : 'Disabled'}
+                                        </span>
+                                        <span style={{ fontSize: 11, fontWeight: 600, padding: '4px 10px', borderRadius: 999, background: '#FEF9C3', color: '#854D0E', border: '1px solid #FDE047', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 160 }} title={editJobTitle || selected.job_title}>
+                                            {editJobTitle || selected.job_title || 'Role'}
+                                        </span>
+                                        {detailSignedInRoleLoading ? (
+                                            <span style={{ fontSize: 11, fontWeight: 600, padding: '4px 10px', borderRadius: 999, background: '#F3F4F6', color: '#64748B', border: '1px solid #E5E7EB' }}>Loading…</span>
+                                        ) : detailSignedInRole ? (
+                                            <span style={{ fontSize: 11, fontWeight: 600, padding: '4px 10px', borderRadius: 999, background: '#EDE9FE', color: '#5B21B6', border: '1px solid #C4B5FD', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 180 }} title={detailSignedInRole}>
+                                                {detailSignedInRole}
+                                            </span>
+                                        ) : (
+                                            <span style={{ fontSize: 11, fontWeight: 600, padding: '4px 10px', borderRadius: 999, background: '#F8FAFC', color: '#64748B', border: '1px solid #E2E8F0' }}>Not signed in</span>
                                         )}
                                     </div>
 
-                                    <div style={{ padding: '12px 16px 16px' }}>
-                                        <div
-                                            style={{
-                                                padding: '12px 14px',
-                                                borderRadius: 12,
-                                                background: selected.patient_access ? 'rgba(52, 199, 89, 0.1)' : 'rgba(148, 163, 184, 0.12)',
-                                                border: `1px solid ${selected.patient_access ? 'rgba(52, 199, 89, 0.22)' : '#E5E7EB'}`,
-                                            }}
-                                        >
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                                                <span className="material-icons-round" style={{ fontSize: 20, color: selected.patient_access ? '#16A34A' : '#94A3B8' }}>
-                                                    {selected.patient_access ? 'verified_user' : 'shield'}
-                                                </span>
-                                                <div style={{ flex: '1 1 140px', minWidth: 0 }}>
-                                                    <div style={{ fontSize: 13, fontWeight: 700, color: '#111827' }}>Patient records access</div>
-                                                    <div style={{ fontSize: 12, color: '#6B7280', marginTop: 2, lineHeight: 1.35 }}>
-                                                        {selected.patient_access ? 'Can open and work with patient charts.' : 'No access to patient charts.'}
-                                                    </div>
+                                </div>
+
+                                {/* Personal Information */}
+                                <div style={{ background: '#FFFFFF', borderRadius: 14, border: '1px solid #E4E7EC', boxShadow: '0 1px 2px rgba(15, 23, 42, 0.04)', padding: '12px 14px' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: editingSelected ? 10 : 6 }}>
+                                        <span className="material-icons-round" style={{ fontSize: 16, color: '#94A3B8' }}>person</span>
+                                        <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', color: '#9CA3AF', flex: 1 }}>PERSONAL INFORMATION</span>
+                                        {!editingSelected && (
+                                            <button
+                                                type="button"
+                                                onClick={() => setEditingSelected(true)}
+                                                style={{ border: 'none', background: 'none', padding: 2, cursor: 'pointer', color: '#9CA3AF', display: 'inline-flex', alignItems: 'center', borderRadius: 4 }}
+                                                title="Edit personal information"
+                                            >
+                                                <span className="material-icons-round" style={{ fontSize: 15 }}>edit</span>
+                                            </button>
+                                        )}
+                                    </div>
+                                    {!editingSelected ? (
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                                            {[
+                                                { icon: 'badge', label: 'First name', value: selected.first_name },
+                                                { icon: 'badge', label: 'Last name', value: selected.last_name },
+                                                { icon: 'badge', label: 'Middle name', value: selected.middle_name },
+                                                { icon: 'cake', label: 'Date of birth', value: selected.dob },
+                                                { icon: 'wc', label: 'Gender', value: selected.gender ? (selected.gender.charAt(0).toUpperCase() + selected.gender.slice(1)) : '' },
+                                            ].map(row => (
+                                                <div key={row.label} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '4px 0' }}>
+                                                    <span className="material-icons-round" style={{ fontSize: 16, color: '#94A3B8', flexShrink: 0 }}>{row.icon}</span>
+                                                    <span style={{ fontSize: 12, color: '#6B7280', minWidth: 80 }}>{row.label}</span>
+                                                    <span style={{ fontSize: 13, fontWeight: 600, color: '#111827' }}>{row.value || '—'}</span>
                                                 </div>
-                                                <span
-                                                    style={{
-                                                        fontSize: 11,
-                                                        fontWeight: 700,
-                                                        letterSpacing: '0.04em',
-                                                        padding: '4px 10px',
-                                                        borderRadius: 20,
-                                                        background: selected.patient_access ? 'rgba(52, 199, 89, 0.2)' : 'rgba(148, 163, 184, 0.25)',
-                                                        color: selected.patient_access ? '#166534' : '#64748B',
-                                                    }}
-                                                >
-                                                    {selected.patient_access ? 'Granted' : 'None'}
-                                                </span>
-                                                <button
-                                                    type="button"
-                                                    onClick={() => togglePatientAccess(selected.id, selected.patient_access)}
-                                                    style={{
-                                                        marginLeft: 'auto',
-                                                        border: '1px solid #E5E7EB',
-                                                        borderRadius: 20,
-                                                        padding: '6px 14px',
-                                                        fontSize: 12,
-                                                        fontWeight: 600,
-                                                        fontFamily: 'inherit',
-                                                        cursor: 'pointer',
-                                                        background: '#fff',
-                                                        color: '#2563EB',
-                                                    }}
-                                                >
-                                                    {selected.patient_access ? 'Remove access' : 'Grant access'}
-                                                </button>
+                                            ))}
+                                        </div>
+                                    ) : (
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                                                <div style={{ minWidth: 0 }}>
+                                                    <label style={{ display: 'block', fontSize: 11, fontWeight: 500, color: '#9CA3AF', marginBottom: 4 }}>First name</label>
+                                                    <input className="input" value={editFirstName} onChange={e => setEditFirstName(e.target.value)} disabled={savingEdit} style={{ fontSize: 13, width: '100%', boxSizing: 'border-box', background: '#F5F6F8', border: '1px solid #E8EBF0', borderRadius: 8, padding: '7px 10px' }} />
+                                                </div>
+                                                <div style={{ minWidth: 0 }}>
+                                                    <label style={{ display: 'block', fontSize: 11, fontWeight: 500, color: '#9CA3AF', marginBottom: 4 }}>Last name</label>
+                                                    <input className="input" value={editLastName} onChange={e => setEditLastName(e.target.value)} disabled={savingEdit} style={{ fontSize: 13, width: '100%', boxSizing: 'border-box', background: '#F5F6F8', border: '1px solid #E8EBF0', borderRadius: 8, padding: '7px 10px' }} />
+                                                </div>
+                                            </div>
+                                            <div style={{ minWidth: 0 }}>
+                                                <label style={{ display: 'block', fontSize: 11, fontWeight: 500, color: '#9CA3AF', marginBottom: 4 }}>Middle name</label>
+                                                <input className="input" value={editMiddleName} onChange={e => setEditMiddleName(e.target.value)} disabled={savingEdit} style={{ fontSize: 13, width: '100%', boxSizing: 'border-box', background: '#F5F6F8', border: '1px solid #E8EBF0', borderRadius: 8, padding: '7px 10px' }} />
+                                            </div>
+                                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                                                <div style={{ minWidth: 0 }}>
+                                                    <label style={{ display: 'block', fontSize: 11, fontWeight: 500, color: '#9CA3AF', marginBottom: 4 }}>Date of birth</label>
+                                                    <DatePicker value={editDob} onChange={setEditDob} placeholder="Choose date" disabled={savingEdit} />
+                                                </div>
+                                                <div style={{ minWidth: 0 }}>
+                                                    <label style={{ display: 'block', fontSize: 11, fontWeight: 500, color: '#9CA3AF', marginBottom: 4 }}>Gender</label>
+                                                    <CustomSelect value={editGender} onChange={v => setEditGender(v)} options={[{ label: 'Male', value: 'male' }, { label: 'Female', value: 'female' }, { label: 'Other', value: 'other' }]} placeholder="Choose" />
+                                                </div>
                                             </div>
                                         </div>
+                                    )}
+                                </div>
+
+                                {/* Contact */}
+                                <div style={{ background: '#FFFFFF', borderRadius: 14, border: '1px solid #E4E7EC', boxShadow: '0 1px 2px rgba(15, 23, 42, 0.04)', padding: '12px 14px' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+                                        <span className="material-icons-round" style={{ fontSize: 16, color: '#94A3B8' }}>contact_mail</span>
+                                        <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', color: '#9CA3AF' }}>CONTACT</span>
+                                    </div>
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                                            <span className="material-icons-round" style={{ fontSize: 16, color: '#94A3B8', flexShrink: 0 }}>mail</span>
+                                            <span style={{ fontSize: 13, fontWeight: 500, color: '#111827', wordBreak: 'break-word', minWidth: 0, flex: 1 }}>
+                                                {(selected.email || editEmail || '').trim() || '—'}
+                                            </span>
+                                        </div>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                                            <span className="material-icons-round" style={{ fontSize: 16, color: '#94A3B8', flexShrink: 0 }}>phone</span>
+                                            <span style={{ fontSize: 13, fontWeight: 500, color: (selected.phone || '').trim() ? '#111827' : '#9CA3AF', fontStyle: (selected.phone || '').trim() ? 'normal' : 'italic', minWidth: 0, flex: 1 }}>
+                                                {(selected.phone || '').trim() || 'Not on file'}
+                                            </span>
+                                            <button
+                                                type="button"
+                                                onClick={() => { void handleRequestPhoneUpdate(); }}
+                                                disabled={requestPhoneUpdatePending}
+                                                style={{ flexShrink: 0, border: 'none', background: 'none', padding: '2px 4px', fontSize: 12, fontWeight: 600, color: requestPhoneUpdatePending ? '#CBD5E1' : '#2563EB', cursor: requestPhoneUpdatePending ? 'default' : 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap' }}
+                                            >
+                                                {requestPhoneUpdatePending ? 'Sending…' : 'Update'}
+                                            </button>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            className="btn btn-secondary btn-sm"
+                                            disabled={sendingInvites || !(selected.email || editEmail || '').trim()}
+                                            onClick={() => { void handleSendInviteEmails([selected.id]); }}
+                                            style={{ width: '100%', justifyContent: 'center', marginTop: 2, borderRadius: 8, fontSize: 12, padding: '7px 12px' }}
+                                        >
+                                            <span className="material-icons-round" style={{ fontSize: 15 }}>
+                                                {sendingInvites ? 'hourglass_empty' : 'mail'}
+                                            </span>
+                                            {sendingInvites ? 'Sending invite…' : 'Send invite email'}
+                                        </button>
+                                    </div>
+                                </div>
+
+                                {/* Employment */}
+                                <div style={{ background: '#FFFFFF', borderRadius: 14, border: '1px solid #E4E7EC', boxShadow: '0 1px 2px rgba(15, 23, 42, 0.04)', padding: '12px 14px' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: editingSelected ? 10 : 6 }}>
+                                        <span className="material-icons-round" style={{ fontSize: 16, color: '#94A3B8' }}>work</span>
+                                        <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', color: '#9CA3AF' }}>EMPLOYMENT</span>
+                                    </div>
+                                    {!editingSelected ? (
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                                            {[
+                                                { icon: 'apartment', label: 'Department', value: selected.dept },
+                                                { icon: 'military_tech', label: 'Rank', value: selected.job_title },
+                                                { icon: 'school', label: 'Qualification', value: selected.highest_qualification },
+                                            ].map(row => (
+                                                <div key={row.label} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '4px 0' }}>
+                                                    <span className="material-icons-round" style={{ fontSize: 16, color: '#94A3B8', flexShrink: 0 }}>{row.icon}</span>
+                                                    <span style={{ fontSize: 12, color: '#6B7280', minWidth: 80 }}>{row.label}</span>
+                                                    <span style={{ fontSize: 13, fontWeight: 600, color: '#111827' }}>{row.value || '—'}</span>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    ) : (
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                                            <div style={{ minWidth: 0 }}>
+                                                <label style={{ display: 'block', fontSize: 11, fontWeight: 500, color: '#9CA3AF', marginBottom: 4 }}>Department</label>
+                                                <CustomSelect value={editDept} onChange={setEditDept} options={departmentOptions.map(d => ({ label: d, value: d }))} placeholder="Choose department" />
+                                            </div>
+                                            <div style={{ minWidth: 0 }}>
+                                                <label style={{ display: 'block', fontSize: 11, fontWeight: 500, color: '#9CA3AF', marginBottom: 4 }}>Rank</label>
+                                                <CustomSelect value={editJobTitle} onChange={setEditJobTitle} options={STAFF_RANK_OPTIONS.map(t => ({ label: t, value: t }))} placeholder="Choose rank" allowCustom customEntryTitle="Custom rank" customEntryHint="Not listed? Type here, then Enter." customPlaceholder="Type rank — Enter" />
+                                            </div>
+                                            <div style={{ minWidth: 0 }}>
+                                                <label style={{ display: 'block', fontSize: 11, fontWeight: 500, color: '#9CA3AF', marginBottom: 4 }}>Highest qualification</label>
+                                                <CustomSelect value={editHighestQualification} onChange={setEditHighestQualification} options={QUALIFICATION_OPTIONS.map(q => ({ label: q, value: q }))} placeholder="Choose qualification" allowCustom customEntryTitle="Custom qualification" customEntryHint="Not listed below? Type here, then Enter." customPlaceholder="e.g. MBChB — Enter" />
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+
+                                {/* Patient Access */}
+                                <div style={{ background: '#FFFFFF', borderRadius: 14, border: '1px solid #E4E7EC', boxShadow: '0 1px 2px rgba(15, 23, 42, 0.04)', padding: '12px 14px' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                                        <span className="material-icons-round" style={{ fontSize: 18, color: selected.patient_access ? '#16A34A' : '#94A3B8' }}>
+                                            {selected.patient_access ? 'verified_user' : 'shield'}
+                                        </span>
+                                        <div style={{ flex: 1, minWidth: 0 }}>
+                                            <div style={{ fontSize: 12, fontWeight: 700, color: '#111827' }}>Patient records</div>
+                                            <div style={{ fontSize: 11, color: '#6B7280' }}>
+                                                {selected.patient_access ? 'Access granted' : 'No access'}
+                                            </div>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={() => togglePatientAccess(selected.id, selected.patient_access)}
+                                            style={{
+                                                flexShrink: 0, border: '1px solid #E5E7EB', borderRadius: 20,
+                                                padding: '5px 12px', fontSize: 11, fontWeight: 600, fontFamily: 'inherit',
+                                                cursor: 'pointer', background: '#fff', color: '#2563EB',
+                                            }}
+                                        >
+                                            {selected.patient_access ? 'Remove' : 'Grant'}
+                                        </button>
                                     </div>
                                 </div>
 
@@ -3010,21 +2658,21 @@ export default function StaffDirectoryManagement() {
                                         background: '#FFFFFF',
                                         borderRadius: 14,
                                         border: '1px solid #E4E7EC',
-                                        padding: 16,
+                                        padding: '12px 14px',
                                         boxShadow: '0 1px 2px rgba(15, 23, 42, 0.04)',
                                     }}
                                 >
-                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                            <span className="material-icons-round" style={{ fontSize: 18, color: '#94A3B8' }}>shield</span>
-                                            <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', color: '#9CA3AF' }}>System role</span>
+                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                            <span className="material-icons-round" style={{ fontSize: 16, color: '#94A3B8' }}>shield</span>
+                                            <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', color: '#9CA3AF' }}>SYSTEM ROLE</span>
                                         </div>
                                         <span
                                             style={{
                                                 fontSize: 11,
                                                 fontWeight: 700,
                                                 letterSpacing: '0.05em',
-                                                padding: '4px 10px',
+                                                padding: '3px 9px',
                                                 borderRadius: 20,
                                                 background: selected.role === 'admin' ? 'rgba(99, 102, 241, 0.14)' : 'rgba(52, 199, 89, 0.14)',
                                                 color: selected.role === 'admin' ? '#4338CA' : '#166534',
@@ -3033,7 +2681,7 @@ export default function StaffDirectoryManagement() {
                                             {selected.role === 'admin' ? 'Admin' : 'Staff'}
                                         </span>
                                     </div>
-                                    <div style={{ display: 'flex', background: '#F3F4F6', borderRadius: 10, padding: 4, gap: 4 }}>
+                                    <div style={{ display: 'flex', background: '#F3F4F6', borderRadius: 8, padding: 3, gap: 3 }}>
                                         {(['staff', 'admin'] as const).map(r => {
                                             const isActive = selected.role === r;
                                             const isAdmin = r === 'admin';
@@ -3047,10 +2695,10 @@ export default function StaffDirectoryManagement() {
                                                         display: 'flex',
                                                         alignItems: 'center',
                                                         justifyContent: 'center',
-                                                        gap: 6,
-                                                        padding: '8px 0',
-                                                        borderRadius: 8,
-                                                        fontSize: 13,
+                                                        gap: 5,
+                                                        padding: '6px 0',
+                                                        borderRadius: 6,
+                                                        fontSize: 12,
                                                         fontWeight: isActive ? 600 : 500,
                                                         border: 'none',
                                                         cursor: isActive ? 'default' : 'pointer',
@@ -3062,7 +2710,7 @@ export default function StaffDirectoryManagement() {
                                                     onMouseEnter={e => { if (!isActive) e.currentTarget.style.color = '#374151'; }}
                                                     onMouseLeave={e => { if (!isActive) e.currentTarget.style.color = '#9CA3AF'; }}
                                                 >
-                                                    <span className="material-icons-round" style={{ fontSize: 16 }}>
+                                                    <span className="material-icons-round" style={{ fontSize: 14 }}>
                                                         {isAdmin ? 'admin_panel_settings' : 'person'}
                                                     </span>
                                                     {isAdmin ? 'Admin' : 'Staff'}
@@ -3070,45 +2718,46 @@ export default function StaffDirectoryManagement() {
                                             );
                                         })}
                                     </div>
-                                    <div style={{ fontSize: 12, color: '#6B7280', marginTop: 10, lineHeight: 1.45 }}>
-                                        {selected.role === 'admin'
-                                            ? 'Can manage staff, roles, and facility settings.'
-                                            : 'Day-to-day access follows the clinical role they sign in to (shown above).'}
-                                    </div>
                                 </div>
 
+                                {/* Actions */}
                                 <div
                                     style={{
                                         background: '#FFFFFF',
                                         borderRadius: 14,
                                         border: '1px solid #E4E7EC',
-                                        padding: 16,
+                                        padding: '12px 14px',
                                         boxShadow: '0 1px 2px rgba(15, 23, 42, 0.04)',
                                     }}
                                 >
-                                    <h3 style={{ fontSize: 14, fontWeight: 700, margin: '0 0 12px', color: '#111827' }}>Actions</h3>
-                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10 }}>
+                                        <span className="material-icons-round" style={{ fontSize: 16, color: '#94A3B8' }}>settings</span>
+                                        <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', color: '#9CA3AF' }}>ACTIONS</span>
+                                    </div>
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                                         <button
                                             type="button"
                                             className="btn btn-secondary btn-sm"
                                             style={{
                                                 justifyContent: 'flex-start',
-                                                borderRadius: 10,
+                                                borderRadius: 8,
                                                 background: '#F9FAFB',
                                                 border: '1px solid #E5E7EB',
+                                                fontSize: 12,
+                                                padding: '7px 12px',
                                             }}
                                             onClick={() => showToast('Password reset email sent')}
                                         >
-                                            <span className="material-icons-round" style={{ fontSize: 16 }}>lock_reset</span>
+                                            <span className="material-icons-round" style={{ fontSize: 15 }}>lock_reset</span>
                                             Reset password
                                         </button>
                                         <button
                                             type="button"
                                             className={`btn ${selected.status === 'active' ? 'btn-danger' : 'btn-secondary'} btn-sm`}
-                                            style={{ justifyContent: 'flex-start', borderRadius: 10 }}
+                                            style={{ justifyContent: 'flex-start', borderRadius: 8, fontSize: 12, padding: '7px 12px' }}
                                             onClick={() => { toggleStatus(selected.id); setSelected(prev => prev ? { ...prev, status: prev.status === 'active' ? 'disabled' : 'active' } : null); }}
                                         >
-                                            <span className="material-icons-round" style={{ fontSize: 16 }}>{selected.status === 'active' ? 'block' : 'check_circle'}</span>
+                                            <span className="material-icons-round" style={{ fontSize: 15 }}>{selected.status === 'active' ? 'block' : 'check_circle'}</span>
                                             {selected.status === 'active' ? 'Disable account' : 'Enable account'}
                                         </button>
                                         <button
@@ -3116,18 +2765,88 @@ export default function StaffDirectoryManagement() {
                                             className="btn btn-secondary btn-sm"
                                             style={{
                                                 justifyContent: 'flex-start',
-                                                borderRadius: 10,
+                                                borderRadius: 8,
                                                 background: '#F9FAFB',
                                                 border: '1px solid #E5E7EB',
+                                                fontSize: 12,
+                                                padding: '7px 12px',
                                             }}
                                             onClick={() => { requestRemove(selected.id); }}
                                         >
-                                            <span className="material-icons-round" style={{ fontSize: 16 }}>delete</span>
+                                            <span className="material-icons-round" style={{ fontSize: 15 }}>delete</span>
                                             Remove staff
                                         </button>
                                     </div>
                                 </div>
                                 </div>
+
+                                {/* Sticky action bar — always visible when editing */}
+                                {editingSelected && (
+                                    <div
+                                        style={{
+                                            flexShrink: 0,
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'flex-end',
+                                            gap: 8,
+                                            padding: '10px 12px',
+                                            borderTop: '1px solid #E5E7EB',
+                                            background: '#FFFFFF',
+                                            borderRadius: '0 0 16px 16px',
+                                        }}
+                                    >
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                setEditingSelected(false);
+                                                if (selected) {
+                                                    setEditFirstName(selected.first_name || '');
+                                                    setEditMiddleName(selected.middle_name || '');
+                                                    setEditLastName(selected.last_name || '');
+                                                    setEditEmail(selected.email || '');
+                                                    setEditDob(selected.dob || '');
+                                                    setEditGender(selected.gender || '');
+                                                    setEditJobTitle(selected.title || selected.job_title || '');
+                                                    setEditHighestQualification(selected.highest_qualification || '');
+                                                    setEditDept(selected.dept || '');
+                                                }
+                                            }}
+                                            disabled={savingEdit}
+                                            style={{
+                                                border: '1px solid #E5E7EB',
+                                                borderRadius: 8,
+                                                padding: '8px 16px',
+                                                fontSize: 13,
+                                                fontWeight: 600,
+                                                fontFamily: 'inherit',
+                                                background: '#fff',
+                                                color: '#374151',
+                                                cursor: savingEdit ? 'default' : 'pointer',
+                                            }}
+                                        >
+                                            Cancel
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={handleSaveSelected}
+                                            disabled={savingEdit}
+                                            style={{
+                                                border: 'none',
+                                                borderRadius: 8,
+                                                padding: '8px 20px',
+                                                fontSize: 13,
+                                                fontWeight: 600,
+                                                fontFamily: 'inherit',
+                                                background: '#2563EB',
+                                                color: '#fff',
+                                                cursor: savingEdit ? 'default' : 'pointer',
+                                                opacity: savingEdit ? 0.65 : 1,
+                                            }}
+                                        >
+                                            {savingEdit ? 'Saving…' : 'Save'}
+                                        </button>
+                                    </div>
+                                )}
                             </div>
                         )}
                     </div>

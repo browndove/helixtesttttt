@@ -12,6 +12,7 @@ import {
     writeCachedSidebarUser,
     writeFacilityDisplayName,
 } from '@/lib/facilityDisplayCache';
+import { primeClientFacilityId } from '@/lib/facility-client';
 
 interface NavItem {
     icon: string;
@@ -119,6 +120,8 @@ export default function Sidebar({
                 if (!ctx) return;
                 setSupportMode(Boolean(ctx.support_mode));
                 setSupportFacilityName(ctx.facility_name || null);
+                const fid = String((ctx as { facility_id?: string }).facility_id || '').trim();
+                if (fid) primeClientFacilityId(fid);
             })
             .catch(() => {
                 setSupportMode(false);

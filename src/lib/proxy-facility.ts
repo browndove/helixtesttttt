@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server';
-import { getTokenFromCookie } from '@/lib/proxy-auth';
+import { getInternalTokenFromCookie, getTokenFromCookie } from '@/lib/proxy-auth';
 
 const FACILITY_CACHE_TTL_MS = 60_000;
 const facilityIdCache = new Map<string, { facilityId: string; expiresAt: number }>();
@@ -72,29 +72,36 @@ export function extractFacilityIdFromPayload(payload: unknown): string | undefin
     return undefined;
 }
 
+/** Read facility id from request cookies/query (no upstream call). */
+export function readFacilityIdFromRequest(req: NextRequest): string | undefined {
+    const fromQuery = req.nextUrl.searchParams.get('facility_id')?.trim();
+    if (fromQuery) return fromQuery;
+
+    const fromHeader = req.headers.get('x-helix-facility-id')?.trim();
+    if (fromHeader) return fromHeader;
+
+    return (
+        req.cookies.get('helix-support-facility')?.value?.trim()
+        || req.cookies.get('helix-facility')?.value?.trim()
+        || undefined
+    );
+}
+
 /**
  * Best-effort helper that resolves facility_id from the authenticated user context.
  * Priority: 1) explicit facility cookie  2) /auth/me user.facility_id
  * Returns undefined if not resolvable; callers should decide fallback behavior.
  */
 export async function resolveFacilityId(req: NextRequest, apiBaseUrl: string): Promise<string | undefined> {
-    const token = getTokenFromCookie(req);
+    const fromRequest = readFacilityIdFromRequest(req);
+    if (fromRequest) {
+        const token = getTokenFromCookie(req) || getInternalTokenFromCookie(req);
+        if (token) setCachedFacilityId(token, fromRequest);
+        return fromRequest;
+    }
+
+    const token = getTokenFromCookie(req) || getInternalTokenFromCookie(req);
     if (!token) return undefined;
-
-    // 0. Support mode facility context (internal admin acting as tenant)
-    const supportMode = req.cookies.get('helix-support-mode')?.value === '1';
-    const supportFacilityId = req.cookies.get('helix-support-facility')?.value;
-    if (supportMode && supportFacilityId) {
-        setCachedFacilityId(token, supportFacilityId);
-        return supportFacilityId;
-    }
-
-    // 1. Check explicit facility cookie (set during OTP verification)
-    const cookieFacilityId = req.cookies.get('helix-facility')?.value;
-    if (cookieFacilityId) {
-        setCachedFacilityId(token, cookieFacilityId);
-        return cookieFacilityId;
-    }
 
     // 1.5 Try short-lived in-memory cache to avoid repeated auth/me calls.
     const cachedFacilityId = getCachedFacilityId(token);

@@ -1,4 +1,5 @@
 import { API_ENDPOINTS } from '@/lib/config';
+import { appendFacilityIdToProxyUrl, resolveClientFacilityId } from '@/lib/facility-client';
 
 /**
  * GET /api/v1/presence/online is scoped by WebSocket `client` (defaults to app).
@@ -112,10 +113,13 @@ export async function fetchMergedFacilityPresenceOnline(): Promise<{ ok: boolean
     const seen = new Set<string>();
     let ok = false;
     const base = API_ENDPOINTS.PRESENCE_ONLINE.split('?')[0];
+    const facilityId = await resolveClientFacilityId();
 
     for (const client of PRESENCE_CLIENTS) {
         try {
-            const url = `${base}?client=${encodeURIComponent(client)}`;
+            const params = new URLSearchParams({ client });
+            if (facilityId) params.set('facility_id', facilityId);
+            const url = appendFacilityIdToProxyUrl(`${base}?${params.toString()}`, facilityId);
             const res = await fetch(url, { credentials: 'include' });
             if (!res.ok) continue;
             ok = true;

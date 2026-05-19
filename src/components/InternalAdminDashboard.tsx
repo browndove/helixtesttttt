@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { API_ENDPOINTS } from '@/lib/config';
+import { primeClientFacilityId } from '@/lib/facility-client';
 import { MacVibrancyToast, MacVibrancyToastPortal } from '@/components/MacVibrancyToast';
 
 type FacilityRow = { id: string; name: string; code: string };
@@ -84,6 +85,8 @@ export default function InternalAdminDashboard() {
                 showToast(String(data.error || data.message || 'Could not enter support mode.'), 'error');
                 return;
             }
+            const actAsFacilityId = String(data.facility_id || facility.id || '').trim();
+            if (actAsFacilityId) primeClientFacilityId(actAsFacilityId);
             showToast(`Support mode enabled for ${facility.name}.`, 'success');
             if (typeof window !== 'undefined') window.location.assign('/home');
             else router.replace('/home');

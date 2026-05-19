@@ -1,11 +1,18 @@
+import { appendFacilityIdToProxyUrl, resolveClientFacilityId } from '@/lib/facility-client';
+
 /** Page size for each GET /staff request while loading the full directory. */
 export const STAFF_LIST_PAGE_SIZE = 100;
 
 /** Cache key for the merged full staff list (not a real URL query). */
 export const STAFF_CACHE_LIST_KEY = '/api/proxy/staff?all';
 
-function staffListPageUrl(pageId: number, pageSize = STAFF_LIST_PAGE_SIZE): string {
-    return `/api/proxy/staff?page_size=${pageSize}&page_id=${pageId}`;
+function staffListPageUrl(pageId: number, pageSize = STAFF_LIST_PAGE_SIZE, facilityId?: string): string {
+    const params = new URLSearchParams({
+        page_size: String(pageSize),
+        page_id: String(pageId),
+    });
+    if (facilityId) params.set('facility_id', facilityId);
+    return `/api/proxy/staff?${params.toString()}`;
 }
 
 function looksLikeStaffRecord(value: unknown): boolean {
@@ -75,9 +82,14 @@ export async function fetchAllStaffPayload(
     const allRows: unknown[] = [];
     let pageId = 1;
     let reportedTotal: number | undefined;
+    const facilityId = await resolveClientFacilityId();
 
     while (pageId <= MAX_STAFF_PAGES) {
-        const res = await fetch(staffListPageUrl(pageId), init);
+        const pageUrl = appendFacilityIdToProxyUrl(
+            staffListPageUrl(pageId, STAFF_LIST_PAGE_SIZE, facilityId),
+            facilityId,
+        );
+        const res = await fetch(pageUrl, init);
         if (!res.ok) {
             if (pageId === 1) return { ok: false, data: null };
             break;

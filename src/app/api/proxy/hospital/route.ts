@@ -1,20 +1,19 @@
 import { getProxyHeaders } from '@/lib/proxy-auth';
 import { resolveFacilityId } from '@/lib/proxy-facility';
 import { NextRequest, NextResponse } from 'next/server';
+import { buildTenantUpstreamUrl } from '@/lib/proxy-upstream';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3000';
 
 // GET /hospital - Get hospital/facility info for the logged-in user
 export async function GET(req: NextRequest) {
     try {
-        // First resolve the user's actual facility ID
         const facilityId = await resolveFacilityId(req, API_BASE_URL);
+        const path = facilityId ? `/api/v1/facilities/${facilityId}` : `/api/v1/facilities`;
+        const upstream = await buildTenantUpstreamUrl(req, API_BASE_URL, path);
+        if (upstream instanceof NextResponse) return upstream;
 
-        // If we have a specific facility ID, fetch that one directly
-        const url = facilityId
-            ? `${API_BASE_URL}/api/v1/facilities/${facilityId}`
-            : `${API_BASE_URL}/api/v1/facilities`;
-
+        const { url } = upstream;
         console.log('[hospital] GET request to:', url);
 
         const res = await fetch(url, {

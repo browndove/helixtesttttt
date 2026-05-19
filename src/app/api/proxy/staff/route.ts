@@ -61,34 +61,20 @@ function mapUpstreamNetworkError(err: unknown) {
 export async function GET(req: NextRequest) {
     try {
         const { searchParams } = new URL(req.url);
-        const url = new URL(`${API_BASE_URL}/api/v1/staff`);
-        const requestedFacilityId = searchParams.get('facility_id');
-        const sessionFacilityId = await resolveFacilityId(req, API_BASE_URL);
-        console.log('[listStaff] Resolved facilityId:', sessionFacilityId);
-        if (!sessionFacilityId) {
-            return NextResponse.json(
-                { error: 'Unable to resolve facility for current session. Please log in again.' },
-                { status: 400 }
-            );
-        }
-        if (requestedFacilityId && requestedFacilityId !== sessionFacilityId) {
-            return NextResponse.json(
-                { error: 'Facility mismatch. Staff listing is restricted to your logged-in facility.' },
-                { status: 403 }
-            );
-        }
-        url.searchParams.set('facility_id', sessionFacilityId);
-
-        // Forward all supported query params
-        const queryParams = ['page_size', 'page_id', 'role', 'job_title', 'status', 'search'];
-        queryParams.forEach((param) => {
+        const query: Record<string, string | undefined> = {};
+        for (const param of ['page_size', 'page_id', 'role', 'job_title', 'status', 'search'] as const) {
             const value = searchParams.get(param);
-            if (value) url.searchParams.set(param, value);
-        });
+            if (value) query[param] = value;
+        }
 
-        console.log('[listStaff] Request to:', url.toString());
+        const upstream = await buildTenantUpstreamUrl(req, API_BASE_URL, `/api/v1/staff`, query);
+        if (upstream instanceof NextResponse) return upstream;
 
-        const res = await fetch(url.toString(), {
+        const { url, facilityId } = upstream;
+        console.log('[listStaff] Resolved facilityId:', facilityId);
+        console.log('[listStaff] Request to:', url);
+
+        const res = await fetch(url, {
             method: 'GET',
             headers: getProxyHeaders(req),
         });

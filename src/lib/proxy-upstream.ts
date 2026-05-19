@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { hasInternalSupportContext } from '@/lib/proxy-auth';
-import { resolveFacilityId, withFacilityIdQuery } from '@/lib/proxy-facility';
+import { hasInternalSupportContext, isInternalScopedRequest } from '@/lib/proxy-auth';
+import { readFacilityIdFromRequest, resolveFacilityId, withFacilityIdQuery } from '@/lib/proxy-facility';
 
 export const FACILITY_SESSION_ERROR =
     'Unable to resolve facility for current session. Please log in again.';
@@ -10,10 +10,10 @@ export const INTERNAL_ADMIN_FACILITY_ERROR = 'facility_id is required for intern
 export type TenantUpstream = { url: string; facilityId: string };
 
 function facilityErrorResponse(req: NextRequest): NextResponse {
-    const message = hasInternalSupportContext(req)
+    const message = isInternalScopedRequest(req)
         ? INTERNAL_ADMIN_FACILITY_ERROR
         : FACILITY_SESSION_ERROR;
-    if (hasInternalSupportContext(req)) {
+    if (isInternalScopedRequest(req)) {
         return NextResponse.json(
             { status: 'error', message, code: 400, error: message },
             { status: 400 },
@@ -27,6 +27,14 @@ export async function requireFacilityId(
     req: NextRequest,
     apiBaseUrl: string,
 ): Promise<string | NextResponse> {
+    const fromRequest = readFacilityIdFromRequest(req);
+    if (fromRequest) {
+        if (isInternalScopedRequest(req)) return fromRequest;
+        // Tenant users: only trust cookies/query when not conflicting with session resolution below.
+        const resolved = await resolveFacilityId(req, apiBaseUrl);
+        if (!resolved || resolved === fromRequest) return fromRequest;
+    }
+
     const facilityId = await resolveFacilityId(req, apiBaseUrl);
     if (facilityId) return facilityId;
     return facilityErrorResponse(req);
