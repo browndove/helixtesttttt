@@ -853,6 +853,7 @@ export default function StaffDirectoryManagement() {
     const [bulkResultErrors, setBulkResultErrors] = useState<StaffBulkImportRowError[]>([]);
     const [pendingDelete, setPendingDelete] = useState<StaffMember | null>(null);
     const [pendingInviteSend, setPendingInviteSend] = useState<StaffMember | null>(null);
+    const [pendingPhoneUpdate, setPendingPhoneUpdate] = useState(false);
     const [processing, setProcessing] = useState(false);
     const [requestPhoneUpdatePending, setRequestPhoneUpdatePending] = useState(false);
     const [detailSignedInRole, setDetailSignedInRole] = useState<string | null>(null);
@@ -879,6 +880,20 @@ export default function StaffDirectoryManagement() {
     const dismissBulkErrors = useCallback(() => {
         setBulkResultErrors([]);
     }, []);
+
+    const cancelStaffEdit = useCallback(() => {
+        setEditingSelected(false);
+        if (!selected) return;
+        setEditFirstName(selected.first_name || '');
+        setEditMiddleName(selected.middle_name || '');
+        setEditLastName(selected.last_name || '');
+        setEditEmail(selected.email || '');
+        setEditDob(selected.dob || '');
+        setEditGender(selected.gender || '');
+        setEditJobTitle(selected.title || selected.job_title || '');
+        setEditHighestQualification(selected.highest_qualification || '');
+        setEditDept(selected.dept || '');
+    }, [selected]);
 
     const dismissInviteSendErrors = useCallback(() => {
         setInviteSendErrors([]);
@@ -935,6 +950,8 @@ export default function StaffDirectoryManagement() {
                 setPendingDelete(null);
             } else if (pendingInviteSend) {
                 setPendingInviteSend(null);
+            } else if (pendingPhoneUpdate) {
+                setPendingPhoneUpdate(false);
             } else if (bulkResultErrors.length > 0) {
                 dismissBulkErrors();
             } else if (inviteSendErrors.length > 0) {
@@ -945,7 +962,7 @@ export default function StaffDirectoryManagement() {
         };
         window.addEventListener('keydown', onKey);
         return () => window.removeEventListener('keydown', onKey);
-    }, [toast, dismissToast, bulkResultErrors.length, dismissBulkErrors, inviteSendErrors.length, dismissInviteSendErrors, pendingDelete, pendingInviteSend]);
+    }, [toast, dismissToast, bulkResultErrors.length, dismissBulkErrors, inviteSendErrors.length, dismissInviteSendErrors, pendingDelete, pendingInviteSend, pendingPhoneUpdate]);
 
     useEffect(() => {
         if (!selected) {
@@ -1622,15 +1639,9 @@ export default function StaffDirectoryManagement() {
         }
     };
 
-    const handleRequestPhoneUpdate = async () => {
+    const confirmRequestPhoneUpdate = async () => {
         if (!selected) return;
-        const ok =
-            typeof window === 'undefined'
-            || window.confirm(
-                'Send this staff member a secure link to update their own phone number? '
-                + 'They will only receive it if contact details on file allow delivery.',
-            );
-        if (!ok) return;
+        setPendingPhoneUpdate(false);
         setRequestPhoneUpdatePending(true);
         try {
             let facilityId = '';
@@ -2406,7 +2417,7 @@ export default function StaffDirectoryManagement() {
                         {/* Staff detail — reference layout: pale pills, grouped sections, Helix signed-in role */}
                         {selected && (
                             <div
-                                className="slide-in-right"
+                                className={editingSelected ? 'staff-detail-panel' : 'staff-detail-panel slide-in-right'}
                                 style={{
                                     alignSelf: 'start',
                                     position: 'sticky',
@@ -2414,15 +2425,91 @@ export default function StaffDirectoryManagement() {
                                     minWidth: 300,
                                     maxWidth: 400,
                                     width: '100%',
-                                    /** Grid/flex default `min-height: auto` prevents max-height + overflow from scrolling */
                                     minHeight: 0,
+                                    height: 'min(calc(100vh - 88px), calc(100dvh - 88px))',
                                     maxHeight: 'min(calc(100vh - 88px), calc(100dvh - 88px))',
                                     display: 'flex',
                                     flexDirection: 'column',
+                                    overflow: 'hidden',
                                     boxSizing: 'border-box',
+                                    background: '#EDEEF2',
+                                    borderRadius: 16,
+                                    border: '1px solid #E4E7EC',
+                                    fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, "Helvetica Neue", Helvetica, Arial, sans-serif',
                                 }}
                             >
+                                {editingSelected && (
+                                    <div
+                                        className="staff-detail-edit-toolbar"
+                                        style={{
+                                            flexShrink: 0,
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: 6,
+                                            padding: '10px 12px',
+                                            background: '#FFFFFF',
+                                            borderBottom: '1px solid #E5E7EB',
+                                        }}
+                                    >
+                                        <p
+                                            style={{
+                                                flex: 1,
+                                                minWidth: 0,
+                                                margin: 0,
+                                                fontSize: 14,
+                                                fontWeight: 600,
+                                                color: '#111827',
+                                                lineHeight: 1.25,
+                                                overflow: 'hidden',
+                                                textOverflow: 'ellipsis',
+                                                whiteSpace: 'nowrap',
+                                            }}
+                                            title={`${editFirstName || selected.first_name} ${editLastName || selected.last_name}`}
+                                        >
+                                            {editFirstName || selected.first_name} {editLastName || selected.last_name}
+                                        </p>
+                                        <button
+                                            type="button"
+                                            className="btn btn-secondary btn-sm"
+                                            onClick={cancelStaffEdit}
+                                            disabled={savingEdit}
+                                            style={{ flexShrink: 0 }}
+                                        >
+                                            Cancel
+                                        </button>
+                                        <button
+                                            type="button"
+                                            className="btn btn-primary btn-sm"
+                                            onClick={handleSaveSelected}
+                                            disabled={savingEdit}
+                                            style={{ flexShrink: 0, gap: 4 }}
+                                        >
+                                            <span className="material-icons-round" style={{ fontSize: 14 }}>save</span>
+                                            {savingEdit ? 'Saving…' : 'Save'}
+                                        </button>
+                                        <button
+                                            type="button"
+                                            className="btn btn-ghost btn-xs"
+                                            aria-label="Close"
+                                            onClick={() => { cancelStaffEdit(); setSelected(null); }}
+                                            style={{
+                                                width: 28,
+                                                height: 28,
+                                                borderRadius: '50%',
+                                                display: 'grid',
+                                                placeItems: 'center',
+                                                padding: 0,
+                                                color: '#9CA3AF',
+                                                background: '#F3F4F6',
+                                                flexShrink: 0,
+                                            }}
+                                        >
+                                            <span className="material-icons-round" style={{ fontSize: 16 }}>close</span>
+                                        </button>
+                                    </div>
+                                )}
                                 <div
+                                    className="staff-detail-scroll"
                                     style={{
                                         flex: 1,
                                         minHeight: 0,
@@ -2434,20 +2521,16 @@ export default function StaffDirectoryManagement() {
                                         flexDirection: 'column',
                                         gap: 12,
                                         padding: 10,
-                                        background: '#EDEEF2',
-                                        borderRadius: 16,
-                                        fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, "Helvetica Neue", Helvetica, Arial, sans-serif',
-                                        WebkitFontSmoothing: 'antialiased',
                                         boxSizing: 'border-box',
                                     }}
                                     role="region"
                                     aria-label="Staff profile and actions"
                                 >
+                                {!editingSelected && (
                                 <div
                                     style={{
                                         background: '#FFFFFF',
                                         borderRadius: 14,
-                                        overflowX: 'hidden',
                                         border: '1px solid #E4E7EC',
                                         boxShadow: '0 1px 2px rgba(15, 23, 42, 0.04)',
                                     }}
@@ -2468,27 +2551,24 @@ export default function StaffDirectoryManagement() {
                                             )}
                                         </div>
                                         <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
-                                            {!editingSelected && (
-                                                <button
-                                                    type="button"
-                                                    onClick={() => setEditingSelected(true)}
-                                                    style={{
-                                                        display: 'inline-flex', alignItems: 'center', gap: 5,
-                                                        border: 'none', borderRadius: 8, padding: '6px 12px',
-                                                        fontSize: 12, fontWeight: 600, fontFamily: 'inherit',
-                                                        background: '#1E3A5F', color: '#fff', cursor: 'pointer',
-                                                    }}
-                                                >
-                                                    <span className="material-icons-round" style={{ fontSize: 14 }}>edit</span>
-                                                    Edit
-                                                </button>
-                                            )}
                                             <button
                                                 type="button"
-                                                className="btn btn-ghost btn-xs"
-                                                style={{ width: 30, height: 30, borderRadius: '50%', display: 'grid', placeItems: 'center', padding: 0, color: '#9CA3AF', background: '#F3F4F6', border: 'none' }}
+                                                onClick={() => setEditingSelected(true)}
+                                                style={{
+                                                    display: 'inline-flex', alignItems: 'center', gap: 5,
+                                                    border: 'none', borderRadius: 8, padding: '6px 12px',
+                                                    fontSize: 12, fontWeight: 600, fontFamily: 'inherit',
+                                                    background: '#1E3A5F', color: '#fff', cursor: 'pointer',
+                                                }}
+                                            >
+                                                <span className="material-icons-round" style={{ fontSize: 14 }}>edit</span>
+                                                Edit
+                                            </button>
+                                            <button
+                                                type="button"
                                                 aria-label="Close"
                                                 onClick={() => { setEditingSelected(false); setSelected(null); }}
+                                                style={{ width: 30, height: 30, borderRadius: '50%', display: 'grid', placeItems: 'center', padding: 0, color: '#9CA3AF', background: '#F3F4F6', border: 'none', cursor: 'pointer' }}
                                             >
                                                 <span className="material-icons-round" style={{ fontSize: 18 }}>close</span>
                                             </button>
@@ -2514,6 +2594,7 @@ export default function StaffDirectoryManagement() {
                                     </div>
 
                                 </div>
+                                )}
 
                                 {/* Personal Information */}
                                 <div style={{ background: '#FFFFFF', borderRadius: 14, border: '1px solid #E4E7EC', boxShadow: '0 1px 2px rgba(15, 23, 42, 0.04)', padding: '12px 14px' }}>
@@ -2578,6 +2659,7 @@ export default function StaffDirectoryManagement() {
                                 </div>
 
                                 {/* Contact */}
+                                {!editingSelected && (
                                 <div style={{ background: '#FFFFFF', borderRadius: 14, border: '1px solid #E4E7EC', boxShadow: '0 1px 2px rgba(15, 23, 42, 0.04)', padding: '12px 14px' }}>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
                                         <span className="material-icons-round" style={{ fontSize: 16, color: '#94A3B8' }}>contact_mail</span>
@@ -2597,7 +2679,7 @@ export default function StaffDirectoryManagement() {
                                             </span>
                                             <button
                                                 type="button"
-                                                onClick={() => { void handleRequestPhoneUpdate(); }}
+                                                onClick={() => setPendingPhoneUpdate(true)}
                                                 disabled={requestPhoneUpdatePending}
                                                 style={{ flexShrink: 0, border: 'none', background: 'none', padding: '2px 4px', fontSize: 12, fontWeight: 600, color: requestPhoneUpdatePending ? '#CBD5E1' : '#2563EB', cursor: requestPhoneUpdatePending ? 'default' : 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap' }}
                                             >
@@ -2618,6 +2700,7 @@ export default function StaffDirectoryManagement() {
                                         </button>
                                     </div>
                                 </div>
+                                )}
 
                                 {/* Employment */}
                                 <div style={{ background: '#FFFFFF', borderRadius: 14, border: '1px solid #E4E7EC', boxShadow: '0 1px 2px rgba(15, 23, 42, 0.04)', padding: '12px 14px' }}>
@@ -2658,6 +2741,7 @@ export default function StaffDirectoryManagement() {
                                 </div>
 
                                 {/* Patient Access */}
+                                {!editingSelected && (
                                 <div style={{ background: '#FFFFFF', borderRadius: 14, border: '1px solid #E4E7EC', boxShadow: '0 1px 2px rgba(15, 23, 42, 0.04)', padding: '12px 14px' }}>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                                         <span className="material-icons-round" style={{ fontSize: 18, color: selected.patient_access ? '#16A34A' : '#94A3B8' }}>
@@ -2682,8 +2766,10 @@ export default function StaffDirectoryManagement() {
                                         </button>
                                     </div>
                                 </div>
+                                )}
 
                                 {/* System Role */}
+                                {!editingSelected && (
                                 <div
                                     style={{
                                         background: '#FFFFFF',
@@ -2750,8 +2836,9 @@ export default function StaffDirectoryManagement() {
                                         })}
                                     </div>
                                 </div>
+                                )}
 
-                                {/* Actions */}
+                                {!editingSelected && (
                                 <div
                                     style={{
                                         background: '#FFFFFF',
@@ -2809,75 +2896,8 @@ export default function StaffDirectoryManagement() {
                                         </button>
                                     </div>
                                 </div>
-                                </div>
-
-                                {/* Sticky action bar — always visible when editing */}
-                                {editingSelected && (
-                                    <div
-                                        style={{
-                                            flexShrink: 0,
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            justifyContent: 'flex-end',
-                                            gap: 8,
-                                            padding: '10px 12px',
-                                            borderTop: '1px solid #E5E7EB',
-                                            background: '#FFFFFF',
-                                            borderRadius: '0 0 16px 16px',
-                                        }}
-                                    >
-                                        <button
-                                            type="button"
-                                            onClick={() => {
-                                                setEditingSelected(false);
-                                                if (selected) {
-                                                    setEditFirstName(selected.first_name || '');
-                                                    setEditMiddleName(selected.middle_name || '');
-                                                    setEditLastName(selected.last_name || '');
-                                                    setEditEmail(selected.email || '');
-                                                    setEditDob(selected.dob || '');
-                                                    setEditGender(selected.gender || '');
-                                                    setEditJobTitle(selected.title || selected.job_title || '');
-                                                    setEditHighestQualification(selected.highest_qualification || '');
-                                                    setEditDept(selected.dept || '');
-                                                }
-                                            }}
-                                            disabled={savingEdit}
-                                            style={{
-                                                border: '1px solid #E5E7EB',
-                                                borderRadius: 8,
-                                                padding: '8px 16px',
-                                                fontSize: 13,
-                                                fontWeight: 600,
-                                                fontFamily: 'inherit',
-                                                background: '#fff',
-                                                color: '#374151',
-                                                cursor: savingEdit ? 'default' : 'pointer',
-                                            }}
-                                        >
-                                            Cancel
-                                        </button>
-                                        <button
-                                            type="button"
-                                            onClick={handleSaveSelected}
-                                            disabled={savingEdit}
-                                            style={{
-                                                border: 'none',
-                                                borderRadius: 8,
-                                                padding: '8px 20px',
-                                                fontSize: 13,
-                                                fontWeight: 600,
-                                                fontFamily: 'inherit',
-                                                background: '#2563EB',
-                                                color: '#fff',
-                                                cursor: savingEdit ? 'default' : 'pointer',
-                                                opacity: savingEdit ? 0.65 : 1,
-                                            }}
-                                        >
-                                            {savingEdit ? 'Saving…' : 'Save'}
-                                        </button>
-                                    </div>
                                 )}
+                                </div>
                             </div>
                         )}
                     </div>
@@ -3230,6 +3250,84 @@ export default function StaffDirectoryManagement() {
                 </main>
                 )}
             </div>
+            {pendingPhoneUpdate && selected && (
+                <div
+                    role="dialog"
+                    aria-modal="true"
+                    aria-labelledby="staff-phone-update-title"
+                    onClick={() => setPendingPhoneUpdate(false)}
+                    style={{
+                        position: 'fixed',
+                        inset: 0,
+                        background: 'rgba(8, 12, 20, 0.45)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        zIndex: 1200,
+                        padding: 16,
+                    }}
+                >
+                    <div
+                        onClick={e => e.stopPropagation()}
+                        style={{
+                            width: '100%',
+                            maxWidth: 440,
+                            background: 'var(--surface-card)',
+                            border: '1px solid var(--border-default)',
+                            borderRadius: 'var(--radius-lg)',
+                            boxShadow: '0 24px 64px rgba(0,0,0,0.25)',
+                            padding: '18px 18px 14px',
+                        }}
+                    >
+                        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+                            <div
+                                style={{
+                                    width: 32,
+                                    height: 32,
+                                    borderRadius: 10,
+                                    background: 'rgba(37, 99, 235, 0.12)',
+                                    color: '#2563eb',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    flexShrink: 0,
+                                }}
+                            >
+                                <span className="material-icons-round" style={{ fontSize: 18 }}>phone</span>
+                            </div>
+                            <div style={{ minWidth: 0 }}>
+                                <div id="staff-phone-update-title" style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)' }}>
+                                    Send phone update link?
+                                </div>
+                                <div style={{ marginTop: 6, fontSize: 12.5, color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+                                    Send{' '}
+                                    <strong>
+                                        {[selected.first_name, selected.last_name].filter(Boolean).join(' ').trim() || 'this staff member'}
+                                    </strong>{' '}
+                                    a secure link to update their own phone number. They will only receive it if contact details on file allow delivery.
+                                </div>
+                            </div>
+                        </div>
+                        <div style={{ marginTop: 14, display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+                            <button
+                                type="button"
+                                className="btn btn-secondary btn-sm"
+                                onClick={() => setPendingPhoneUpdate(false)}
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                type="button"
+                                className="btn btn-primary btn-sm"
+                                disabled={requestPhoneUpdatePending}
+                                onClick={() => { void confirmRequestPhoneUpdate(); }}
+                            >
+                                {requestPhoneUpdatePending ? 'Sending…' : 'Send link'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
             {pendingInviteSend && (
                 <div
                     role="dialog"
