@@ -1,9 +1,9 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useId, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Montserrat } from 'next/font/google';
-import TopBar from '@/components/TopBar';
+import { Plus_Jakarta_Sans } from 'next/font/google';
+import './home-overview.css';
 import { parseBulkUploadHistoryResponse, type BulkUploadHistoryEntry } from '@/lib/bulk-upload-history';
 import { fetchMergedFacilityPresenceOnline } from '@/lib/presence-online';
 
@@ -11,10 +11,20 @@ type SimpleItem = Record<string, unknown>;
 type ActivityItem = { id: string; title: string; detail: string; time: string; tone?: 'default' | 'critical' | 'info' };
 type SignedInStaff = { id: string; name: string; initials: string; role: string; when: string; status: 'online' | 'recent' | 'away' };
 
-const montserrat = Montserrat({
+const plusJakarta = Plus_Jakarta_Sans({
     subsets: ['latin'],
-    weight: ['600', '800'],
+    weight: ['400', '600', '700'],
+    variable: '--font-plus-jakarta',
 });
+
+const OPERATIONAL_MIX = [
+    { label: 'Wards & units', pct: 44, tone: 'm1' as const },
+    { label: 'Outpatient', pct: 28, tone: 'm2' as const },
+    { label: 'On-call pools', pct: 18, tone: 'm3' as const },
+    { label: 'Corporate', pct: 10, tone: 'm4' as const },
+];
+
+const SPARK_POINTS = [22, 24, 23, 28, 31, 30, 34, 33, 36, 40, 38, 41];
 
 function getList(raw: unknown, keys: string[]): unknown[] {
     if (Array.isArray(raw)) return raw;
@@ -38,7 +48,6 @@ function readTotal(raw: unknown, fallback: number): number {
     return fallback;
 }
 
-/** Map GET /presence/online payload to UI rows (supports several backend shapes). */
 function parsePresenceOnlineToSignedIn(raw: unknown, max: number): SignedInStaff[] {
     const list = getList(raw, ['data', 'items', 'online', 'staff', 'users', 'results', 'presence', 'records']);
     if (!Array.isArray(list) || list.length === 0) return [];
@@ -103,44 +112,58 @@ function greetingByTime(): string {
     return 'Good evening';
 }
 
-function todayLabel(): string {
-    return new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
+function todayLabelLong(): string {
+    return new Date().toLocaleDateString('en-US', {
+        weekday: 'long',
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric',
+    });
+}
+
+function todayLabelShort(): string {
+    return new Date().toLocaleDateString('en-US', {
+        weekday: 'short',
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric',
+    });
 }
 
 function summarizeImport(entry: BulkUploadHistoryEntry): ActivityItem {
     return {
         id: `import-${entry.id}`,
         title: entry.status === 'error' ? 'Import failed' : 'Bulk upload completed',
-        detail: `${entry.file} • ${entry.records.toLocaleString()} records`,
+        detail: `${entry.file} · ${entry.records.toLocaleString()} records`,
         time: entry.date,
         tone: entry.status === 'error' ? 'critical' : 'info',
     };
 }
 
-function CardWatermark({ icon, className }: { icon: string; className?: string }) {
+function Sparkline({ points }: { points: number[] }) {
+    const uid = useId().replace(/:/g, '');
+    const w = 120;
+    const h = 36;
+    const pad = 4;
+    const max = Math.max(...points);
+    const min = Math.min(...points);
+    const coords = points.map((v, i) => {
+        const x = pad + (i / (points.length - 1)) * (w - pad * 2);
+        const y = pad + (1 - (v - min) / (max - min || 1)) * (h - pad * 2);
+        return `${x},${y}`;
+    });
+    const pts = coords.join(' ');
     return (
-        <div
-            aria-hidden
-            className={['home-card-watermark', className].filter(Boolean).join(' ')}
-            style={{
-                position: 'absolute',
-                right: -18,
-                bottom: -24,
-                width: 140,
-                height: 140,
-                borderRadius: '50%',
-                background: 'radial-gradient(circle at center, rgba(51,65,85,0.12) 0%, rgba(51,65,85,0.05) 58%, rgba(51,65,85,0) 100%)',
-                display: 'inline-flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                pointerEvents: 'none',
-                zIndex: 0,
-            }}
-        >
-            <span className="material-icons-round home-card-watermark-icon" style={{ fontSize: 78, color: 'rgba(51,65,85,0.12)' }}>
-                {icon}
-            </span>
-        </div>
+        <svg className="sparkline" viewBox={`0 0 ${w} ${h}`} width={120} height={36} aria-hidden>
+            <defs>
+                <linearGradient id={uid} x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="rgba(34,197,94,.28)" />
+                    <stop offset="100%" stopColor="rgba(34,197,94,0)" />
+                </linearGradient>
+            </defs>
+            <polyline fill="none" stroke="#22c55e" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" points={pts} />
+            <polyline fill={`url(#${uid})`} stroke="none" points={`${pts} ${w - pad},${h - pad} ${pad},${h - pad}`} />
+        </svg>
     );
 }
 
@@ -149,21 +172,16 @@ export default function HomePage() {
     const [loading, setLoading] = useState(true);
     const [staffCount, setStaffCount] = useState(0);
     const [patientCount, setPatientCount] = useState(0);
-    const [teamCount, setTeamCount] = useState(0);
-    const [departmentCount, setDepartmentCount] = useState(0);
     const [failedImports24h, setFailedImports24h] = useState(0);
     const [setupTasks, setSetupTasks] = useState(0);
     const [recent, setRecent] = useState<ActivityItem[]>([]);
     const [firstName, setFirstName] = useState('');
     const [facilityName, setFacilityName] = useState('');
-    const [lastFailedImport, setLastFailedImport] = useState<BulkUploadHistoryEntry | null>(null);
     const [twoFactorAdoption, setTwoFactorAdoption] = useState<{ enabled: number; total: number }>({ enabled: 0, total: 0 });
     const [criticalRoleFill, setCriticalRoleFill] = useState<{ filled: number; total: number; percent: number }>({ filled: 0, total: 0, percent: 0 });
     const [avgCriticalAckMinutes, setAvgCriticalAckMinutes] = useState(0);
-    const [latestAuditAt, setLatestAuditAt] = useState<string>('');
     const [activeSessions, setActiveSessions] = useState(0);
     const [signedInStaff, setSignedInStaff] = useState<SignedInStaff[]>([]);
-    /** Presence API returned 200 with an empty list (not the same as fetch failure). */
     const [presenceReportedNoOnline, setPresenceReportedNoOnline] = useState(false);
 
     const fetchHomeData = useCallback(async () => {
@@ -271,7 +289,6 @@ export default function HomePage() {
             }
             setTwoFactorAdoption({ enabled: twoFactorEnabled, total: staffItems.length });
 
-            // Currently signed in: prefer GET /presence/online, else staff last_login heuristic
             const nowMs = Date.now();
             const withLogin = staffItems
                 .map((s) => {
@@ -302,7 +319,7 @@ export default function HomePage() {
                 })
                 .filter((x): x is SignedInStaff & { _ts: number } => Boolean(x))
                 .sort((a, b) => b._ts - a._ts)
-                .slice(0, 5)
+                .slice(0, 8)
                 .map(({ _ts, ...rest }) => { void _ts; return rest; });
 
             const fromPresence = presenceReallyOk && presenceMergedPayload
@@ -315,9 +332,9 @@ export default function HomePage() {
                 setSignedInStaff(withLogin);
                 setPresenceReportedNoOnline(Boolean(presenceReallyOk) && presenceBundle.items.length === 0);
             }
+
             setPatientCount(readTotal(patientJson, patientItems.length));
-            setTeamCount(readTotal(teamsJson, teamItems.length));
-            setDepartmentCount(readTotal(departmentsJson, departmentItems.length));
+
             const teamsWithoutLead = teamItems.filter(t => !String(t.lead_id || '').trim()).length;
             const teamsWithoutMembers = teamItems.filter(t => {
                 const c = Number(t.member_count ?? 0);
@@ -338,19 +355,9 @@ export default function HomePage() {
                 return !Number.isNaN(ts) && now - ts <= 24 * 60 * 60 * 1000;
             });
             setFailedImports24h(failedRows.length);
-            setLastFailedImport(failedRows[0] || null);
 
             const auditList = getList(auditJson, ['items', 'data', 'logs']) as SimpleItem[];
-            if (auditList.length > 0) {
-                const first = auditList[0] as Record<string, unknown>;
-                const ts = String(first.timestamp || first.created_at || '');
-                if (ts) setLatestAuditAt(ts);
-            }
-
-            const sessionList = getList(sessionsJson, ['items', 'data', 'sessions']);
-            setActiveSessions(sessionList.length);
-
-            const auditRecent: ActivityItem[] = auditList.slice(0, 3).map((row, idx) => {
+            const auditRecent: ActivityItem[] = auditList.slice(0, 4).map((row, idx) => {
                 const action = String(row.action || 'update').replace(/_/g, ' ');
                 const entity = String(row.entity_type || row.category || 'record').replace(/_/g, ' ');
                 const ts = String(row.timestamp || row.created_at || '');
@@ -363,8 +370,11 @@ export default function HomePage() {
                 };
             });
 
-            const importRecent = historyRows.slice(0, 1).map(summarizeImport);
-            setRecent([...importRecent, ...auditRecent].slice(0, 3));
+            const importRecent = historyRows.slice(0, 2).map(summarizeImport);
+            setRecent([...importRecent, ...auditRecent].slice(0, 4));
+
+            const sessionList = getList(sessionsJson, ['items', 'data', 'sessions']);
+            setActiveSessions(sessionList.length);
         } finally {
             setLoading(false);
         }
@@ -372,557 +382,384 @@ export default function HomePage() {
 
     useEffect(() => { fetchHomeData(); }, [fetchHomeData]);
 
-    const facilityShort = facilityName ? facilityName : 'Your facility';
-    const kpis = useMemo(() => ([
+    const openAlerts = (failedImports24h > 0 ? 1 : 0) + (setupTasks > 0 ? 1 : 0);
+    const onlineCount = signedInStaff.filter((s) => s.status === 'online').length;
+    const facilityShort = facilityName || 'Your facility';
+
+    const workQueueTotal = staffCount + patientCount + setupTasks;
+    const goalTarget = criticalRoleFill.total > 0 ? criticalRoleFill.total : 100;
+    const goalCurrent = criticalRoleFill.filled;
+    const goalPct = goalTarget > 0 ? Math.round((goalCurrent / goalTarget) * 100) : criticalRoleFill.percent;
+
+    const twoFactorPct = twoFactorAdoption.total > 0
+        ? Math.round((twoFactorAdoption.enabled / twoFactorAdoption.total) * 100)
+        : 0;
+    const ackMin = avgCriticalAckMinutes;
+    const ackLabel = ackMin <= 0 ? '—' : ackMin < 1 ? '<1 min' : ackMin < 60 ? `${Math.round(ackMin)} min` : `${(ackMin / 60).toFixed(1)} hr`;
+
+    const healthRows = useMemo(() => [
         {
-            label: 'Active Patients',
-            subLabel: 'Currently enrolled',
-            value: patientCount,
-            icon: 'groups',
-            iconBg: '#EEF2F7', iconFg: '#334155',
-            footerLabel: 'Facility',
-            footerValue: facilityShort,
-            tone: 'default' as const,
+            icon: 'bolt',
+            label: 'Critical ack time',
+            value: loading ? '—' : ackLabel,
+            sub: '30 day avg.',
+            sem: ackMin > 0 && ackMin > 15 ? 'negative' as const : ackMin > 0 ? 'positive' as const : 'neutral' as const,
         },
         {
-            label: 'Total Staff',
-            subLabel: 'All roles',
-            value: staffCount,
-            icon: 'badge',
-            iconBg: '#EEF2F7', iconFg: '#334155',
-            footerLabel: 'Across',
-            footerValue: facilityShort,
-            tone: 'default' as const,
+            icon: 'lock',
+            label: '2FA adoption',
+            value: loading ? '—' : `${twoFactorPct}%`,
+            sub: `${twoFactorAdoption.enabled} / ${twoFactorAdoption.total} accounts`,
+            sem: twoFactorPct >= 80 ? 'positive' as const : twoFactorPct >= 50 ? 'neutral' as const : 'negative' as const,
         },
         {
-            label: 'Critical Role Fill',
-            subLabel: 'On-call coverage',
-            value: criticalRoleFill.percent,
-            valueSuffix: '%',
-            icon: 'medical_services',
-            iconBg: '#EEF2F7', iconFg: '#334155',
-            footerLabel: 'Filled',
-            footerValue: `${criticalRoleFill.filled.toLocaleString()} / ${criticalRoleFill.total.toLocaleString()} roles`,
-            tone: criticalRoleFill.total > 0 && criticalRoleFill.percent < 80 ? 'critical' as const : 'default' as const,
+            icon: 'sync',
+            label: 'Data sync',
+            value: loading ? '—' : failedImports24h > 0 ? `${failedImports24h} failed` : 'Clean',
+            sub: 'Last 24 hours',
+            sem: failedImports24h > 0 ? 'negative' as const : 'positive' as const,
         },
-    ]), [patientCount, staffCount, criticalRoleFill, facilityShort]);
+        {
+            icon: 'devices',
+            label: 'Sessions',
+            value: loading ? '—' : activeSessions.toLocaleString(),
+            sub: 'Concurrent sign-ins',
+            sem: 'neutral' as const,
+        },
+    ], [loading, ackLabel, ackMin, twoFactorPct, twoFactorAdoption, failedImports24h, activeSessions]);
 
     const quickActions = [
-        { label: 'Add role', sub: 'Roles', icon: 'badge', iconBg: '#EEF2F7', iconFg: '#334155', href: '/roles' },
-        { label: 'Add Staff Member', sub: 'Staff', icon: 'person_add', iconBg: '#EEF2F7', iconFg: '#334155', href: '/staff' },
-        { label: 'Create Provider Team', sub: 'Teams', icon: 'groups', iconBg: '#EEF2F7', iconFg: '#334155', href: '/provider-teams' },
-        { label: 'Escalation Config', sub: 'Escalation', icon: 'notifications_active', iconBg: '#EEF2F7', iconFg: '#334155', href: '/escalation' },
+        { label: 'Create role', icon: 'add_circle_outline', href: '/roles' },
+        { label: 'Invite teammate', icon: 'person_add_alt', href: '/staff' },
+        { label: 'New provider team', icon: 'groups', href: '/provider-teams' },
+        { label: 'Escalation paths', icon: 'timeline', href: '/escalation' },
     ];
 
-    const openAlerts = (failedImports24h > 0 ? 1 : 0) + (setupTasks > 0 ? 1 : 0);
+    const formatMetric = (n: number, suffix = '') => (loading ? '—' : `${n.toLocaleString()}${suffix}`);
 
     return (
-        <div className={`app-main ${montserrat.className}`}>
-            <TopBar title="Home" subtitle="Overview" />
-            <main
-                style={{
-                    position: 'relative',
-                    flex: 1,
-                    minWidth: 0,
-                    overflow: 'auto',
-                    padding: '32px 36px 48px',
-                    background: '#F8F9FB',
-                }}
-            >
-                {/* Ambient animated orbs */}
-                <div className="home-bg-layer" aria-hidden>
-                    <div className="home-orb home-orb-1" />
-                    <div className="home-orb home-orb-2" />
-                    <div className="home-orb home-orb-3" />
+        <div className={`app-main home-overview-app-main ${plusJakarta.className}`}>
+            <div className="top-bar">
+                <div className="top-bar-left">
+                    <span>Home</span>
+                    <span className="top-bar-sep">·</span>
+                    <span className="top-bar-page">Overview</span>
                 </div>
-
-                {/* Greeting header */}
-                <div className="home-fade-in" style={{ position: 'relative', zIndex: 1, animationDelay: '0ms', display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: 28 }}>
-                    <div>
-                        <p style={{ margin: 0, fontSize: 12, fontWeight: 600, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>
-                            {todayLabel()}
-                        </p>
-                        <h2 style={{ margin: 0, fontSize: 24, color: '#0F172A', fontWeight: 800, letterSpacing: '-0.02em', lineHeight: 1.2 }}>
-                            {greetingByTime()}{firstName ? `, ${firstName}` : ''}
-                        </h2>
-                        <p style={{ marginTop: 4, fontSize: 13, color: '#64748B', fontWeight: 500, lineHeight: 1.4 }}>
-                            {facilityName ? `Operational overview for ${facilityName}` : 'Operational overview for your facility'}
-                        </p>
-                    </div>
-                    <button
-                        onClick={fetchHomeData}
-                        style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 16px', background: '#FFFFFF', border: '1px solid #E2E8F0', borderRadius: 8, fontSize: 12, fontWeight: 600, color: '#475569', cursor: 'pointer', transition: 'all 0.15s' }}
-                        onMouseEnter={e => { e.currentTarget.style.borderColor = '#CBD5E1'; e.currentTarget.style.background = '#F8FAFC'; }}
-                        onMouseLeave={e => { e.currentTarget.style.borderColor = '#E2E8F0'; e.currentTarget.style.background = '#FFFFFF'; }}
-                    >
-                        <span className="material-icons-round" style={{ fontSize: 15 }}>refresh</span>
+                <div className="top-bar-actions">
+                    <span className="top-bar-date">{todayLabelShort()}</span>
+                    <button type="button" className="btn-sync" onClick={() => fetchHomeData()}>
+                        <span className="material-icons-round btn-sync-icon">sync</span>
                         Refresh
                     </button>
                 </div>
+            </div>
 
-                {/* KPI row — responsive grid + flex metric region: see .home-kpi-grid / .home-kpi-card in globals.css */}
-                <div className="home-fade-in home-kpi-grid" style={{ position: 'relative', zIndex: 1, animationDelay: '60ms', marginBottom: 20 }}>
-                    {kpis.map((kpi) => {
-                        const isCritical = kpi.tone === 'critical';
-                        return (
-                            <div
-                                key={kpi.label}
-                                className="home-kpi-card"
-                                style={{
-                                    position: 'relative',
-                                    padding: 20,
-                                    background: 'rgba(255,255,255,0.9)',
-                                    border: '1px solid #E3E8EE',
-                                    borderRadius: 16,
-                                    boxShadow: '0 8px 24px rgba(15,23,42,0.05)',
-                                    display: 'flex',
-                                    flexDirection: 'column',
-                                    gap: 12,
-                                    minHeight: 0,
-                                    minWidth: 0,
-                                    overflow: 'hidden',
-                                }}
-                            >
-                                <CardWatermark icon={kpi.icon} />
-                                {/* Header: icon + title + sub-pill */}
-                                <div style={{ position: 'relative', zIndex: 1, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 }}>
-                                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, minWidth: 0 }}>
-                                        <div
-                                            style={{
-                                                width: 40,
-                                                height: 40,
-                                                borderRadius: 12,
-                                                background: kpi.iconBg,
-                                                color: kpi.iconFg,
-                                                display: 'inline-flex',
-                                                alignItems: 'center',
-                                                justifyContent: 'center',
-                                                flexShrink: 0,
-                                            }}
-                                        >
-                                            <span className="material-icons-round" style={{ fontSize: 20, fontWeight: 900 }}>{kpi.icon}</span>
-                                        </div>
-                                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 0 }}>
-                                            <div style={{ fontSize: 14, fontWeight: 700, color: '#0F172A', lineHeight: 1.25 }}>
-                                                {kpi.label}
-                                            </div>
-                                            <span
-                                                style={{
-                                                    alignSelf: 'flex-start',
-                                                    fontSize: 11,
-                                                    fontWeight: 600,
-                                                    color: '#475569',
-                                                    background: '#EEF2F7',
-                                                    padding: '3px 10px',
-                                                    borderRadius: 999,
-                                                }}
-                                            >
-                                                {kpi.subLabel}
-                                            </span>
-                                        </div>
-                                    </div>
-                                    {isCritical && kpi.value > 0 ? (
-                                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 10.5, fontWeight: 700, color: '#B91C1C', flexShrink: 0 }}>
-                                            <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#DC2626' }} />
-                                            Active
-                                        </span>
-                                    ) : null}
-                                </div>
-
-                                {/* Metric: grows so the number stays in the middle band and clears the footer */}
-                                <div
-                                    style={{
-                                        position: 'relative',
-                                        zIndex: 1,
-                                        flex: '1 1 auto',
-                                        minHeight: '2.75rem',
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        justifyContent: 'flex-start',
-                                    }}
-                                >
-                                    <div
-                                        className="home-kpi-value"
-                                        style={{
-                                            fontWeight: 800,
-                                            color: isCritical ? '#DC2626' : '#0F172A',
-                                            lineHeight: 1.1,
-                                            letterSpacing: '-0.02em',
-                                            fontVariantNumeric: 'tabular-nums',
-                                        }}
-                                    >
-                                        {loading ? '—' : `${kpi.value.toLocaleString()}${kpi.valueSuffix ?? ''}`}
-                                    </div>
-                                </div>
-
-                                {/* Footer — stack on very narrow cards so text is not clipped */}
-                                <div
-                                    style={{
-                                        position: 'relative',
-                                        zIndex: 1,
-                                        flexShrink: 0,
-                                        borderTop: '1px dashed #E2E8F0',
-                                        paddingTop: 12,
-                                        display: 'flex',
-                                        flexWrap: 'wrap',
-                                        alignItems: 'baseline',
-                                        justifyContent: 'space-between',
-                                        gap: '6px 10px',
-                                        rowGap: 6,
-                                        minWidth: 0,
-                                    }}
-                                >
-                                    <span style={{ fontSize: 11.5, color: '#94A3B8', flex: '0 1 auto' }}>{kpi.footerLabel}</span>
-                                    <span
-                                        style={{
-                                            fontSize: 11.5,
-                                            fontWeight: 700,
-                                            color: isCritical ? '#B91C1C' : '#0F172A',
-                                            textAlign: 'right',
-                                            minWidth: 0,
-                                            flex: '1 1 120px',
-                                            wordBreak: 'break-word',
-                                        }}
-                                    >
-                                        {kpi.footerValue}
-                                    </span>
-                                </div>
-                            </div>
-                        );
-                    })}
-                </div>
-
-                {/* Attention strip */}
-                {!loading && openAlerts > 0 && (
-                    <div className="home-fade-in" style={{ position: 'relative', zIndex: 1, animationDelay: '120ms', overflow: 'hidden', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 0, background: '#FFFFFF', border: '1px solid #E2E8F0', borderRadius: 14, marginBottom: 20, boxShadow: '0 1px 3px rgba(15,23,42,0.04)' }}>
-                        <CardWatermark icon="monitor_heart" />
-                        <div style={{ position: 'relative', zIndex: 1, display: 'flex', alignItems: 'center', gap: 14, padding: '16px 20px', borderRight: '1px solid #F1F3F7' }}>
-                            <span style={{ width: 36, height: 36, borderRadius: 10, background: failedImports24h > 0 ? '#FEF2F2' : '#F0FDF4', color: failedImports24h > 0 ? '#991B1B' : '#166534', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                                <span className="material-icons-round" style={{ fontSize: 18 }}>{failedImports24h > 0 ? 'error_outline' : 'check_circle_outline'}</span>
-                            </span>
-                            <div style={{ flex: 1, minWidth: 0 }}>
-                                <div style={{ fontSize: 13, fontWeight: 700, color: '#0F172A', lineHeight: 1.3 }}>
-                                    {failedImports24h > 0 ? `${failedImports24h} failed import${failedImports24h === 1 ? '' : 's'}` : 'Imports healthy'}
-                                </div>
-                                <div style={{ fontSize: 11.5, color: '#64748B', marginTop: 2 }}>
-                                    {failedImports24h > 0
-                                        ? `Last 24h${lastFailedImport ? ` — ${lastFailedImport.file}` : ''}`
-                                        : 'No failures in the last 24 hours'}
-                                </div>
-                            </div>
-                            <button
-                                onClick={() => router.push('/staff')}
-                                style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11, fontWeight: 700, color: '#475569', background: '#F1F5F9', border: 'none', borderRadius: 8, padding: '6px 12px', cursor: 'pointer', flexShrink: 0 }}
-                            >
-                                Review
-                                <span className="material-icons-round" style={{ fontSize: 13 }}>arrow_forward</span>
+            <main className="page">
+                <div className="dash">
+                    <header className="dash-head dash-reveal">
+                        <div>
+                            <h1 className="dash-title">Dashboard overview</h1>
+                            <p className="dash-sub">
+                                {greetingByTime()}{firstName ? `, ${firstName}` : ''} · {facilityShort} ·{' '}
+                                <span className="dash-sub__muted">{todayLabelLong()}</span>
+                            </p>
+                        </div>
+                        <div className="dash-head__actions">
+                            <button type="button" className="dash-btn dash-btn--outline">
+                                <span className="material-icons-round">summarize</span>
+                                Report
+                            </button>
+                            <button type="button" className="dash-btn dash-btn--outline" onClick={() => router.push('/staff')}>
+                                <span className="material-icons-round">group_add</span>
+                                Invite
+                            </button>
+                            <button type="button" className="dash-btn dash-btn--outline">
+                                <span className="material-icons-round">swap_horiz</span>
+                                Transfer
+                            </button>
+                            <button type="button" className="dash-btn dash-btn--primary">
+                                <span className="material-icons-round">add</span>
+                                New task
                             </button>
                         </div>
-                        <div style={{ position: 'relative', zIndex: 1, display: 'flex', alignItems: 'center', gap: 14, padding: '16px 20px' }}>
-                            <span style={{ width: 36, height: 36, borderRadius: 10, background: setupTasks > 0 ? '#FFFBEB' : '#F0FDF4', color: setupTasks > 0 ? '#92400E' : '#166534', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                                <span className="material-icons-round" style={{ fontSize: 18 }}>{setupTasks > 0 ? 'tune' : 'task_alt'}</span>
-                            </span>
-                            <div style={{ flex: 1, minWidth: 0 }}>
-                                <div style={{ fontSize: 13, fontWeight: 700, color: '#0F172A', lineHeight: 1.3 }}>
-                                    {setupTasks > 0 ? `${setupTasks} setup task${setupTasks === 1 ? '' : 's'} pending` : 'Configuration complete'}
+                    </header>
+
+                    <section className="dash-wallets dash-reveal" aria-label="Key metrics">
+                        <article className="dash-wallet">
+                            <p className="dash-wallet__label">Active patients</p>
+                            <p className="dash-wallet__hint">Net enrolled</p>
+                            <p className="dash-wallet__balance">{formatMetric(patientCount)}</p>
+                            <p className="dash-wallet__foot">Compared to prior 7 days</p>
+                            <button type="button" className="dash-link" onClick={() => router.push('/patients')}>
+                                View details <span className="material-icons-round">arrow_forward</span>
+                            </button>
+                        </article>
+                        <article className="dash-wallet">
+                            <p className="dash-wallet__label">Staff accounts</p>
+                            <p className="dash-wallet__hint">Active seats</p>
+                            <p className="dash-wallet__balance">{formatMetric(staffCount)}</p>
+                            <p className="dash-wallet__foot">Included contractors &amp; locums</p>
+                            <button type="button" className="dash-link" onClick={() => router.push('/staff')}>
+                                View details <span className="material-icons-round">arrow_forward</span>
+                            </button>
+                        </article>
+                        <article className="dash-wallet">
+                            <p className="dash-wallet__label">Critical coverage</p>
+                            <p className="dash-wallet__hint">Role fill rate</p>
+                            <p className="dash-wallet__balance">{formatMetric(criticalRoleFill.percent, '%')}</p>
+                            <p className="dash-wallet__foot">
+                                Target 90% · {criticalRoleFill.filled.toLocaleString()} / {criticalRoleFill.total.toLocaleString()} roles
+                            </p>
+                            <button type="button" className="dash-link" onClick={() => router.push('/escalation')}>
+                                View details <span className="material-icons-round">arrow_forward</span>
+                            </button>
+                        </article>
+                        <article className={`dash-wallet${openAlerts > 0 ? ' dash-wallet--warn' : ''}`}>
+                            <p className="dash-wallet__label">Escalations</p>
+                            <p className="dash-wallet__hint">Open · 24h</p>
+                            <p className={`dash-wallet__balance${openAlerts > 0 ? ' dash-wallet__balance--alert' : ''}`}>
+                                {formatMetric(openAlerts)}
+                            </p>
+                            {openAlerts > 0 && (
+                                <div className="dash-wallet__row">
+                                    <span className="dash-wallet__flag">
+                                        <span className="material-icons-round">warning</span>
+                                        Needs assignment
+                                    </span>
                                 </div>
-                                <div style={{ fontSize: 11.5, color: '#64748B', marginTop: 2 }}>
-                                    {setupTasks > 0 ? 'Teams, escalations & departments' : 'All systems fully configured'}
-                                </div>
-                            </div>
-                            {setupTasks > 0 && (
-                                <button
-                                    onClick={() => router.push('/provider-teams')}
-                                    style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11, fontWeight: 700, color: '#475569', background: '#F1F5F9', border: 'none', borderRadius: 8, padding: '6px 12px', cursor: 'pointer', flexShrink: 0 }}
-                                >
-                                    Resolve
-                                    <span className="material-icons-round" style={{ fontSize: 13 }}>arrow_forward</span>
-                                </button>
                             )}
-                        </div>
-                    </div>
-                )}
-
-                {/* Quick Actions — responsive row (see .home-qa-grid) */}
-                <div className="home-fade-in home-qa-grid" style={{ position: 'relative', zIndex: 1, animationDelay: '180ms', marginBottom: 20 }}>
-                    {quickActions.map((action) => (
-                        <button
-                            key={action.label}
-                            onClick={() => router.push(action.href)}
-                            style={{
-                                position: 'relative',
-                                overflow: 'hidden',
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: 12,
-                                padding: '14px 16px',
-                                background: '#FFFFFF',
-                                border: '1px solid #E2E8F0',
-                                borderRadius: 12,
-                                cursor: 'pointer',
-                                textAlign: 'left',
-                                transition: 'border-color 0.15s, box-shadow 0.15s',
-                                boxShadow: '0 1px 3px rgba(15,23,42,0.04)',
-                            }}
-                            onMouseEnter={(e) => { e.currentTarget.style.borderColor = '#CBD5E1'; e.currentTarget.style.boxShadow = '0 4px 12px rgba(15,23,42,0.08)'; }}
-                            onMouseLeave={(e) => { e.currentTarget.style.borderColor = '#E2E8F0'; e.currentTarget.style.boxShadow = '0 1px 3px rgba(15,23,42,0.04)'; }}
-                        >
-                            <span style={{ width: 36, height: 36, borderRadius: 10, background: '#F1F5F9', color: '#334155', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                                <span className="material-icons-round" style={{ fontSize: 18 }}>{action.icon}</span>
-                            </span>
-                            <span style={{ flex: 1, minWidth: 0 }}>
-                                <span style={{ display: 'block', fontSize: 12.5, fontWeight: 700, color: '#0F172A', lineHeight: 1.3 }}>{action.label}</span>
-                                <span style={{ display: 'block', fontSize: 11, color: '#94A3B8', marginTop: 1 }}>{action.sub}</span>
-                            </span>
-                            <span className="material-icons-round" style={{ fontSize: 16, color: '#CBD5E1', flexShrink: 0 }}>chevron_right</span>
-                        </button>
-                    ))}
-                </div>
-
-                {/* Main content — two columns */}
-                <div className="home-fade-in" style={{ position: 'relative', zIndex: 1, animationDelay: '240ms', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, alignItems: 'start' }}>
-
-                    {/* Left: Currently signed in */}
-                    <div style={{ position: 'relative', overflow: 'hidden', background: '#FFFFFF', border: '1px solid #E2E8F0', borderRadius: 14, boxShadow: '0 1px 3px rgba(15,23,42,0.04)' }}>
-                        <CardWatermark icon="groups_2" />
-                        <div style={{ position: 'relative', zIndex: 1, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid #F1F3F7' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                                <span style={{ width: 34, height: 34, borderRadius: 9, background: '#F1F5F9', color: '#334155', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                                    <span className="material-icons-round" style={{ fontSize: 17 }}>groups_2</span>
-                                </span>
-                                <div>
-                                    <div style={{ fontSize: 13, fontWeight: 700, color: '#0F172A', lineHeight: 1.2 }}>Currently Signed In</div>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 3 }}>
-                                        <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#22C55E' }} />
-                                        <span style={{ fontSize: 11, fontWeight: 600, color: '#64748B' }}>
-                                            {loading ? '—' : `${signedInStaff.filter((s) => s.status === 'online').length} online`}
-                                        </span>
-                                        {!loading && signedInStaff.length > 0 && (
-                                            <span style={{ fontSize: 11, color: '#94A3B8' }}>&middot; {signedInStaff.length} total</span>
-                                        )}
-                                    </div>
-                                </div>
-                            </div>
-                            <button
-                                type="button"
-                                onClick={() => router.push('/staff')}
-                                style={{ fontSize: 11, fontWeight: 600, color: '#475569', background: 'none', border: 'none', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 3 }}
-                            >
-                                View all
-                                <span className="material-icons-round" style={{ fontSize: 14 }}>chevron_right</span>
+                            <p className="dash-wallet__foot">
+                                {setupTasks > 0 ? `${setupTasks} setup item${setupTasks === 1 ? '' : 's'}` : 'Requires assignment'}
+                            </p>
+                            <button type="button" className="dash-link" onClick={() => router.push('/escalation')}>
+                                View details <span className="material-icons-round">arrow_forward</span>
                             </button>
-                        </div>
-                        <div style={{ position: 'relative', zIndex: 1, padding: '8px 12px' }}>
-                            {loading ? (
-                                <div style={{ fontSize: 12, color: '#94A3B8', padding: '16px 8px' }}>Loading…</div>
-                            ) : signedInStaff.length === 0 ? (
-                                <div style={{ fontSize: 12, color: '#94A3B8', padding: '16px 8px' }}>
-                                    {presenceReportedNoOnline ? 'No one online right now.' : 'No recent sign-ins recorded.'}
-                                </div>
-                            ) : signedInStaff.map((s) => {
-                                const dot = s.status === 'online' ? '#22C55E' : s.status === 'recent' ? '#94A3B8' : '#CBD5E1';
-                                return (
-                                    <div
-                                        key={s.id}
-                                        style={{
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            gap: 10,
-                                            padding: '10px 8px',
-                                            borderBottom: '1px solid #F8F9FB',
-                                        }}
-                                    >
-                                        <div style={{ position: 'relative', flexShrink: 0 }}>
-                                            <span style={{
-                                                width: 32, height: 32, borderRadius: '50%',
-                                                background: '#F1F5F9', color: '#475569',
-                                                display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                                                fontSize: 11, fontWeight: 800, letterSpacing: '0.02em',
-                                            }}>
-                                                {s.initials}
-                                            </span>
-                                            <span
-                                                aria-hidden
-                                                style={{
-                                                    position: 'absolute', right: -1, bottom: -1,
-                                                    width: 10, height: 10, borderRadius: '50%',
-                                                    background: dot, border: '2px solid #FFFFFF',
-                                                }}
-                                            />
-                                        </div>
-                                        <div style={{ flex: 1, minWidth: 0 }}>
-                                            <span style={{ display: 'block', fontSize: 12.5, fontWeight: 700, color: '#0F172A', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                                                {s.name}
-                                            </span>
-                                            <span style={{ display: 'block', fontSize: 11, color: '#94A3B8', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                                                {s.role}
-                                            </span>
-                                        </div>
-                                        <span style={{ fontSize: 10.5, fontWeight: 600, color: '#94A3B8', flexShrink: 0, whiteSpace: 'nowrap' }}>
-                                            {s.when}
-                                        </span>
-                                    </div>
-                                );
-                            })}
-                        </div>
-                    </div>
+                        </article>
+                    </section>
 
-                    {/* Right column: System Health + Recent Activity */}
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-
-                        {/* System Health */}
-                        <div style={{ position: 'relative', overflow: 'hidden', background: '#FFFFFF', border: '1px solid #E2E8F0', borderRadius: 14, boxShadow: '0 1px 3px rgba(15,23,42,0.04)' }}>
-                            <CardWatermark icon="verified_user" />
-                            <div style={{ position: 'relative', zIndex: 1, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid #F1F3F7' }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                                    <span style={{ width: 34, height: 34, borderRadius: 9, background: '#F1F5F9', color: '#334155', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                                        <span className="material-icons-round" style={{ fontSize: 17 }}>shield</span>
-                                    </span>
-                                    <div style={{ fontSize: 13, fontWeight: 700, color: '#0F172A', lineHeight: 1.2 }}>System Health</div>
-                                </div>
-                                <span style={{ fontSize: 11, fontWeight: 600, color: failedImports24h > 0 ? '#B91C1C' : '#059669', background: failedImports24h > 0 ? '#FEF2F2' : '#F0FDF4', padding: '3px 10px', borderRadius: 999 }}>
-                                    {failedImports24h > 0 ? 'Attention' : 'Healthy'}
-                                </span>
+                    <section className="dash-mid dash-reveal" aria-label="Analytics">
+                        <div className="dash-card dash-card--lg">
+                            <h2 className="dash-card__title">Operational breakdown</h2>
+                            <p className="dash-card__lede">
+                                Case volume across <strong>{OPERATIONAL_MIX.length} lanes</strong> at {facilityShort}
+                            </p>
+                            <p className="dash-card__muted">Blended acuity · 30-day window</p>
+                            <div className="dash-segbar" role="img" aria-label="Share by lane">
+                                {OPERATIONAL_MIX.map((m) => (
+                                    <span key={m.label} className={`dash-seg dash-seg--${m.tone}`} style={{ width: `${m.pct}%` }} />
+                                ))}
                             </div>
-
-                            {(() => {
-                                const twoFactorPct = twoFactorAdoption.total > 0 ? Math.round((twoFactorAdoption.enabled / twoFactorAdoption.total) * 100) : 0;
-                                const ackMin = avgCriticalAckMinutes;
-                                const ackLabel = ackMin <= 0 ? '—' : ackMin < 1 ? '<1 min' : ackMin < 60 ? `${Math.round(ackMin)} min` : `${(ackMin / 60).toFixed(1)} hr`;
-
-                                const healthRows = [
-                                    {
-                                        icon: 'bolt',
-                                        label: 'Critical Ack Time',
-                                        value: loading ? '—' : ackLabel,
-                                        sub: 'Avg, last 30d',
-                                        color: ackMin > 0 && ackMin > 15 ? '#DC2626' : ackMin > 0 ? '#059669' : '#475569',
-                                    },
-                                    {
-                                        icon: 'lock',
-                                        label: '2FA Adoption',
-                                        value: loading ? '—' : `${twoFactorPct}%`,
-                                        sub: `${twoFactorAdoption.enabled}/${twoFactorAdoption.total}`,
-                                        color: twoFactorPct >= 80 ? '#059669' : twoFactorPct >= 50 ? '#D97706' : '#DC2626',
-                                    },
-                                    {
-                                        icon: 'sync',
-                                        label: 'Data Sync',
-                                        value: failedImports24h > 0 ? `${failedImports24h} failed` : 'Clean',
-                                        sub: 'Last 24h',
-                                        color: failedImports24h > 0 ? '#DC2626' : '#059669',
-                                    },
-                                    {
-                                        icon: 'devices',
-                                        label: 'Active Sessions',
-                                        value: loading ? '—' : activeSessions.toLocaleString(),
-                                        sub: activeSessions === 1 ? 'Your session' : 'Signed in',
-                                        color: '#475569',
-                                    },
-                                ];
-
-                                return (
-                                    <div style={{ position: 'relative', zIndex: 1, padding: '4px 12px' }}>
-                                        {healthRows.map((r, idx) => (
-                                            <div
-                                                key={r.label}
-                                                style={{
-                                                    display: 'flex',
-                                                    alignItems: 'center',
-                                                    gap: 10,
-                                                    padding: '12px 8px',
-                                                    borderBottom: idx < healthRows.length - 1 ? '1px solid #F8F9FB' : 'none',
-                                                }}
-                                            >
-                                                <span style={{ width: 30, height: 30, borderRadius: 8, background: '#F8F9FB', color: '#64748B', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                                                    <span className="material-icons-round" style={{ fontSize: 15 }}>{r.icon}</span>
-                                                </span>
-                                                <div style={{ flex: 1, minWidth: 0 }}>
-                                                    <span style={{ fontSize: 12, fontWeight: 600, color: '#334155' }}>{r.label}</span>
-                                                    <span style={{ fontSize: 11, color: '#94A3B8', marginLeft: 6 }}>{r.sub}</span>
-                                                </div>
-                                                <span style={{ fontSize: 12.5, fontWeight: 800, color: r.color, flexShrink: 0, fontVariantNumeric: 'tabular-nums' }}>
-                                                    {r.value}
-                                                </span>
-                                            </div>
-                                        ))}
-                                    </div>
-                                );
-                            })()}
+                            <ul className="dash-legend">
+                                {OPERATIONAL_MIX.map((m) => (
+                                    <li key={m.label}>
+                                        <span className={`dash-swatch dash-swatch--${m.tone}`} />
+                                        <span className="dash-legend__n">{m.label}</span>
+                                        <span className="dash-legend__pct">{m.pct}%</span>
+                                    </li>
+                                ))}
+                            </ul>
                         </div>
 
-                        {/* Recent Activity */}
-                        <div style={{ position: 'relative', overflow: 'hidden', background: '#FFFFFF', border: '1px solid #E2E8F0', borderRadius: 14, boxShadow: '0 1px 3px rgba(15,23,42,0.04)' }}>
-                            <CardWatermark icon="history" />
-                            <div style={{ position: 'relative', zIndex: 1, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid #F1F3F7' }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                                    <span style={{ width: 34, height: 34, borderRadius: 9, background: '#F1F5F9', color: '#334155', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                                        <span className="material-icons-round" style={{ fontSize: 17 }}>history</span>
-                                    </span>
-                                    <div style={{ fontSize: 13, fontWeight: 700, color: '#0F172A', lineHeight: 1.2 }}>Recent Activity</div>
+                        <div className="dash-card dash-card--lg">
+                            <div className="dash-sumhd">
+                                <div>
+                                    <p className="dash-sumhd__label">Open work queue</p>
+                                    <p className="dash-sumhd__val">{formatMetric(workQueueTotal)}</p>
+                                    <p className="dash-card__muted">Tasks awaiting assignment</p>
                                 </div>
-                                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11, fontWeight: 600, color: '#64748B' }}>
-                                    <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#22C55E' }} />
-                                    Live
-                                </span>
+                                <div className="dash-sumhd__acts">
+                                    <button type="button" className="dash-btn dash-btn--soft">Share</button>
+                                    <button type="button" className="dash-btn dash-btn--soft">Manage</button>
+                                </div>
+                                <Sparkline points={SPARK_POINTS} />
                             </div>
-                            <div style={{ position: 'relative', zIndex: 1, padding: '4px 20px 12px' }}>
-                                {recent.length === 0 ? (
-                                    <div style={{ padding: '16px 0', color: '#94A3B8', fontSize: 12 }}>
-                                        {loading ? 'Loading…' : 'No recent activity'}
+                            <div className="dash-goal">
+                                <div className="dash-goal__top">
+                                    <span className="dash-goal__label">Monthly stability target</span>
+                                    <span className="dash-goal__nums">
+                                        <strong>{goalCurrent.toLocaleString()}</strong> / {goalTarget.toLocaleString()}{' '}
+                                        <span className="dash-goal__pct">({goalPct}%)</span>
+                                    </span>
+                                </div>
+                                <div className="dash-goal__bar">
+                                    <span style={{ width: `${Math.min(goalPct, 100)}%` }} />
+                                </div>
+                                <p className="dash-goal__foot">Benchmark tied to critical role fill rate</p>
+                            </div>
+                        </div>
+                    </section>
+
+                    <section className="dash-smart dash-reveal" aria-label="Operational alerts">
+                        <div className="dash-smart__hd">
+                            <h2 className="dash-smart__title">Smart operational alerts</h2>
+                            <div className="dash-smart__tools">
+                                <label className="dash-search">
+                                    <span className="material-icons-round">search</span>
+                                    <input type="search" placeholder="Search alerts…" autoComplete="off" />
+                                </label>
+                                <label className="dash-sort">
+                                    Sort by{' '}
+                                    <select aria-label="Sort alerts">
+                                        <option>Urgency</option>
+                                        <option>Recency</option>
+                                        <option>Owner</option>
+                                    </select>
+                                </label>
+                            </div>
+                        </div>
+
+                        <article className="dash-spotlight">
+                            <div className="dash-spotlight__hd">
+                                <div className="dash-spotlight__who">
+                                    <span className="dash-spotlight__icon">
+                                        <span className="material-icons-round">local_hospital</span>
+                                    </span>
+                                    <div>
+                                        <p className="dash-spotlight__code">Pool #ICU-03</p>
+                                        <p className="dash-spotlight__name">ICU on-call · night window</p>
                                     </div>
+                                </div>
+                                <div className="dash-spotlight__acts">
+                                    <button type="button" className="dash-btn dash-btn--outline dash-btn--sm" onClick={() => router.push('/staff')}>
+                                        Assign staff
+                                    </button>
+                                    <button type="button" className="dash-btn dash-btn--primary dash-btn--sm" onClick={() => router.push('/escalation')}>
+                                        Review
+                                    </button>
+                                </div>
+                            </div>
+                            <h3 className="dash-spotlight__h">Coverage pressure</h3>
+                            <div className="dash-spotlight__grid">
+                                <div className="dash-mini dash-mini--risk">
+                                    <span className="material-icons-round dash-mini__ic">blur_on</span>
+                                    <span className="dash-mini__k">Risk</span>
+                                    <span className="dash-mini__v">{openAlerts > 0 || criticalRoleFill.percent < 90 ? 'Elevated' : 'Normal'}</span>
+                                </div>
+                                <div className="dash-mini">
+                                    <span className="material-icons-round dash-mini__ic">percent</span>
+                                    <span className="dash-mini__k">Fill rate</span>
+                                    <span className="dash-mini__v">{loading ? '—' : `${criticalRoleFill.percent}%`}</span>
+                                </div>
+                                <div className="dash-mini">
+                                    <span className="material-icons-round dash-mini__ic">schedule</span>
+                                    <span className="dash-mini__k">Horizon</span>
+                                    <span className="dash-mini__v">Next 6 hrs</span>
+                                </div>
+                                <div className="dash-mini">
+                                    <span className="material-icons-round dash-mini__ic">auto_awesome</span>
+                                    <span className="dash-mini__k">Confidence</span>
+                                    <span className="dash-mini__v">{loading ? '—' : `${Math.max(40, Math.min(95, criticalRoleFill.percent))}%`}</span>
+                                </div>
+                            </div>
+                            <p className="dash-spotlight__note">
+                                Escalation window influenced by recent admissions trend.
+                            </p>
+                        </article>
+                    </section>
+
+                    <div className="dash-lower dash-reveal">
+                        <section className="dash-card dash-card--table" aria-label="Team presence">
+                            <div className="dash-card__hd">
+                                <div>
+                                    <h2 className="dash-card__title">Team presence</h2>
+                                    <p className="dash-card__muted">
+                                        {loading ? '—' : `${onlineCount} online of ${signedInStaff.length} on this view`}
+                                    </p>
+                                </div>
+                                <button type="button" className="dash-btn dash-btn--outline dash-btn--sm" onClick={() => router.push('/staff')}>
+                                    View directory
+                                </button>
+                            </div>
+                            <div className="dash-tablewrap">
+                                {loading ? (
+                                    <p className="dash-empty">Loading…</p>
+                                ) : signedInStaff.length === 0 ? (
+                                    <p className="dash-empty">
+                                        {presenceReportedNoOnline ? 'No one online right now.' : 'No recent sign-ins recorded.'}
+                                    </p>
                                 ) : (
-                                    <div style={{ position: 'relative', paddingLeft: 20 }}>
-                                        <div
-                                            aria-hidden
-                                            style={{
-                                                position: 'absolute',
-                                                left: 8,
-                                                top: 20,
-                                                bottom: 20,
-                                                width: 1.5,
-                                                background: '#E6EBF2',
-                                                borderRadius: 2,
-                                            }}
-                                        />
-                                        {recent.map((item, idx) => {
-                                            const iconName = item.tone === 'critical' ? 'warning' : item.tone === 'info' ? 'shield' : 'edit';
-                                            return (
-                                                <div key={item.id} style={{ display: 'flex', gap: 10, alignItems: 'flex-start', padding: '12px 0', position: 'relative', borderBottom: idx < recent.length - 1 ? '1px solid #F8F9FB' : 'none' }}>
-                                                    <span
-                                                        style={{
-                                                            marginLeft: -20,
-                                                            width: 18,
-                                                            height: 18,
-                                                            borderRadius: '50%',
-                                                            flexShrink: 0,
-                                                            border: '2px solid #FFFFFF',
-                                                            background: '#64748B',
-                                                            color: '#FFFFFF',
-                                                            display: 'inline-flex',
-                                                            alignItems: 'center',
-                                                            justifyContent: 'center',
-                                                            zIndex: 1,
-                                                            marginTop: 2,
-                                                        }}
-                                                    >
-                                                        <span className="material-icons-round" style={{ fontSize: 10 }}>{iconName}</span>
-                                                    </span>
-                                                    <div style={{ minWidth: 0, flex: 1, display: 'flex', flexDirection: 'column', gap: 2 }}>
-                                                        <span style={{ fontSize: 12.5, fontWeight: 700, color: '#0F172A', lineHeight: 1.3 }}>{item.title}</span>
-                                                        <span style={{ fontSize: 11, color: '#94A3B8', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.detail}</span>
-                                                    </div>
-                                                    <span style={{ fontSize: 10.5, fontWeight: 600, color: '#94A3B8', flexShrink: 0, whiteSpace: 'nowrap', marginTop: 2 }}>
-                                                        {item.time}
-                                                    </span>
-                                                </div>
-                                            );
-                                        })}
-                                    </div>
+                                    <table className="dash-table">
+                                        <thead>
+                                            <tr>
+                                                <th>Member</th>
+                                                <th>Role</th>
+                                                <th className="dash-num">Last seen</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {signedInStaff.map((s) => {
+                                                const on = s.status === 'online';
+                                                return (
+                                                    <tr key={s.id}>
+                                                        <td>
+                                                            <span className="dash-member">
+                                                                <span className={`dash-presence dash-presence--${on ? 'on' : 'off'}`} />
+                                                                <span className="dash-av">{s.initials}</span>
+                                                                {s.name}
+                                                            </span>
+                                                        </td>
+                                                        <td className="td-muted">{s.role}</td>
+                                                        <td className="dash-num td-muted">{s.when}</td>
+                                                    </tr>
+                                                );
+                                            })}
+                                        </tbody>
+                                    </table>
                                 )}
                             </div>
+                        </section>
+
+                        <div className="dash-stack">
+                            <section className="dash-card" aria-label="Reliability">
+                                <h2 className="dash-card__title dash-card__title--sm">System checks</h2>
+                                <ul className="dash-health">
+                                    {healthRows.map((r) => (
+                                        <li key={r.label} className={`dash-health__row dash-health__row--${r.sem}`}>
+                                            <span className="material-icons-round">{r.icon}</span>
+                                            <div className="dash-health__mid">
+                                                <span className="dash-health__lab">{r.label}</span>
+                                                <span className="dash-health__sub">{r.sub}</span>
+                                            </div>
+                                            <span className="dash-health__val">{r.value}</span>
+                                        </li>
+                                    ))}
+                                </ul>
+                            </section>
+
+                            <section className="dash-card" aria-label="Recent activity">
+                                <h2 className="dash-card__title dash-card__title--sm">Recent activity</h2>
+                                {recent.length === 0 ? (
+                                    <p className="dash-empty">{loading ? 'Loading…' : 'No recent activity'}</p>
+                                ) : (
+                                    <ul className="dash-feed">
+                                        {recent.map((item) => (
+                                            <li key={item.id}>
+                                                <span className="dash-feed__t">{item.time}</span>
+                                                <div className="dash-feed__d">
+                                                    <strong>{item.title}</strong>
+                                                    <span className="dash-feed__meta">{item.detail}</span>
+                                                </div>
+                                            </li>
+                                        ))}
+                                    </ul>
+                                )}
+                            </section>
                         </div>
                     </div>
+
+                    <nav className="dash-quick dash-reveal" aria-label="Shortcuts">
+                        {quickActions.map((a) => (
+                            <button
+                                key={a.label}
+                                type="button"
+                                className="dash-quick__btn"
+                                onClick={() => router.push(a.href)}
+                            >
+                                <span className="material-icons-round">{a.icon}</span>
+                                {a.label}
+                            </button>
+                        ))}
+                    </nav>
                 </div>
             </main>
         </div>
