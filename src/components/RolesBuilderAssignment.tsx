@@ -22,6 +22,7 @@ import {
     ladderLevelsToPolicyPayload,
     ladderRowShowsDelay,
     policyToLadderLevels,
+    type EscalationPolicyStepPayload,
 } from '@/lib/escalation-policy-ladder';
 import {
     applyEscalationRoleOverrides,
@@ -30,6 +31,7 @@ import {
     isCriticalRole,
     normalizeRoleCriticalFields,
     resolveEscalationTargetRoleId,
+    roleNamesConflictForEscalation,
 } from '@/lib/role-escalation-ladder';
 import { fetchAllStaffPayload } from '@/lib/fetch-all-staff';
 import {
@@ -54,7 +56,7 @@ type EscalationStep = {
     target_role_name?: string;
     target_user_id?: string | null;
     target_user_name?: string;
-    timeout_seconds: number;
+    timeout_seconds: number | null;
 };
 
 type Policy = {
@@ -191,6 +193,53 @@ function apiErrorMessage(parsed: unknown, fallback: string): string {
     const rec = parsed as Record<string, unknown>;
     const msg = String(rec.message || rec.detail || rec.error || '').trim();
     return msg || fallback;
+}
+
+function roleIdFromApiPayload(parsed: unknown): string {
+    const flat = unwrapRoleApiPayload(parsed);
+    if (!flat) return '';
+    return String(flat.id ?? flat.role_id ?? '').trim();
+}
+
+function policyIdFromApiPayload(parsed: unknown): string {
+    const flat = unwrapRoleApiPayload(parsed);
+    if (!flat) return '';
+    return String(flat.id ?? flat.policy_id ?? '').trim();
+}
+
+function additionalEscalationTargets(levels: EscalationLevel[]): EscalationLevel[] {
+    return clampEscalationLevels(levels).filter(l => l.level >= 2 && String(l.target || '').trim());
+}
+
+function findDuplicateRoleName(candidate: string, existing: Role[]): string | undefined {
+    const trimmed = candidate.trim();
+    if (!trimmed) return undefined;
+    const roleNameToIdLower = new Map<string, string>();
+    for (const r of existing) {
+        if (r.name?.trim()) roleNameToIdLower.set(r.name.trim().toLowerCase(), r.id);
+    }
+    for (const r of existing) {
+        if (!r.name?.trim()) continue;
+        if (roleNamesConflictForEscalation(trimmed, r.name, roleNameToIdLower)) return r.name;
+    }
+    return undefined;
+}
+
+async function postEscalationStepsBulk(
+    policyId: string,
+    steps: EscalationPolicyStepPayload[],
+): Promise<{ ok: boolean; message: string }> {
+    if (steps.length === 0) return { ok: true, message: '' };
+    const res = await fetch(`/api/proxy/escalation-policies/${policyId}/steps/bulk`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ steps }),
+    });
+    const parsed = parseFetchJsonBody(await res.text());
+    if (!res.ok) {
+        return { ok: false, message: apiErrorMessage(parsed, 'Failed to save escalation steps') };
+    }
+    return { ok: true, message: '' };
 }
 
 function normalizeRoleForUi<T extends Role>(role: T, deptIdToName: Map<string, string> = new Map()): T {
@@ -546,6 +595,9 @@ export default function RolesBuilderAssignment() {
     const [newAllowedUserIds, setNewAllowedUserIds] = useState<string[]>([]);
     const [newRouting, setNewRouting] = useState<RoutingRule[]>([]);
     const [newEscLevels, setNewEscLevels] = useState<EscalationLevel[]>([]);
+    /** Role created on step 2 before escalation-only save on step 3. */
+    const [pendingNewRole, setPendingNewRole] = useState<Role | null>(null);
+    const [addRoleSaving, setAddRoleSaving] = useState(false);
 
     // Edit modal state
     const [editingRole, setEditingRole] = useState<Role | null>(null);
@@ -882,6 +934,7 @@ export default function RolesBuilderAssignment() {
         setNewAllowedUserIds([]);
         setNewRouting([]);
         setNewEscLevels([]);
+        setPendingNewRole(null);
         setAddStep(2);
         setShowAddForm(false);
     };
@@ -957,21 +1010,18 @@ export default function RolesBuilderAssignment() {
                             return roleId ? { target_role_id: roleId, tr } : null;
                         })
                         .filter((row): row is { target_role_id: string; tr: (typeof selectedTemplate.roles)[number] } => Boolean(row));
-                    // Level 1 is the policy primary role; only subsequent roles are escalation steps.
-                    const escalationRows = stepRows.slice(1);
-                    const steps = escalationRows.map((row, idx) => ({
+                    const steps = stepRows.map((row, idx) => ({
                         target_role_id: row.target_role_id,
-                        timeout_seconds: idx < escalationRows.length - 1
+                        step_order: idx + 1,
+                        timeout_seconds: idx < stepRows.length - 1
                             ? clampEscalationDelaySeconds(delayToSeconds(row.tr.delay))
                             : MIN_ESCALATION_DELAY_SEC,
-                        step_order: idx + 1,
                     }));
-                    if (steps.length > 0) {
-                        await fetch(`/api/proxy/escalation-policies/${policy.id}/steps/bulk`, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ steps }),
-                        });
+                    const bulkResult = await postEscalationStepsBulk(policy.id, steps);
+                    if (!bulkResult.ok) {
+                        showToast(bulkResult.message, 'error');
+                        setTemplateCreating(false);
+                        return;
                     }
                 }
             }
@@ -989,99 +1039,373 @@ export default function RolesBuilderAssignment() {
         setTemplateCreating(false);
     };
 
-    const handleAddRole = async (withEscalations = true) => {
-        if (!newRoleName.trim()) return;
-        const fullRoleName = buildRoleName('', newRoleName);
-        const ladderLevels = clampEscalationLevels(newEscLevels);
+    const persistEscalationForRole = async (
+        roleId: string,
+        roleName: string,
+        ladderLevels: EscalationLevel[],
+        rolesForResolve: Role[],
+        options?: { existingPolicyId?: string | null; replaceExistingSteps?: boolean },
+    ): Promise<{ ok: true; levels: EscalationLevel[] } | { ok: false; message: string }> => {
         const filledEscalationLevels = getFilledEscalationLevels(ladderLevels);
-        if (withEscalations && newRoleMandatory && escalationLevelMissingTarget(ladderLevels, fullRoleName)) {
-            showToast('Select a role for each additional escalation level before saving.', 'info');
+        if (filledEscalationLevels.length === 0) {
+            return { ok: true, levels: ladderLevels };
+        }
+
+        const nonCriticalTarget = findNonCriticalEscalationTarget(ladderLevels, rolesForResolve);
+        if (nonCriticalTarget) {
+            return {
+                ok: false,
+                message: `"${nonCriticalTarget}" is not Critical. Only Critical roles can be in an escalation ladder.`,
+            };
+        }
+
+        const { role_id, initial_timeout_seconds, steps } = ladderLevelsToPolicyPayload(
+            ladderLevels,
+            roleId,
+            roleName,
+            (targetName) => {
+                if (targetName.trim().toLowerCase() === roleName.trim().toLowerCase()) return roleId;
+                return resolveEscalationTargetRoleId(targetName, rolesForResolve);
+            },
+        );
+        const extraTargets = additionalEscalationTargets(ladderLevels);
+        if (extraTargets.length > 0 && steps.length < extraTargets.length) {
+            return {
+                ok: false,
+                message: 'Could not match an escalation target to a role. Select a role from the dropdown.',
+            };
+        }
+
+        let policyId = options?.existingPolicyId?.trim() || null;
+
+        if (policyId) {
+            const putRes = await fetch(`/api/proxy/escalation-policies/${policyId}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ role_id, initial_timeout_seconds }),
+            });
+            const putText = await putRes.text();
+            const putParsed = parseFetchJsonBody(putText);
+            if (!putRes.ok) {
+                return {
+                    ok: false,
+                    message: apiErrorMessage(putParsed, 'Failed to update escalation policy'),
+                };
+            }
+            if (options?.replaceExistingSteps) {
+                const existingPolicyRes = await fetch(`/api/proxy/escalation-policies/by-role/${roleId}`);
+                if (existingPolicyRes.ok) {
+                    const existingPolicy = await existingPolicyRes.json();
+                    if (existingPolicy?.steps) {
+                        for (const step of existingPolicy.steps) {
+                            if (step.id) {
+                                await fetch(`/api/proxy/escalation-policies/${policyId}/steps/${step.id}`, { method: 'DELETE' });
+                            }
+                        }
+                    }
+                }
+            }
+        } else {
+            const policyRes = await fetch('/api/proxy/escalation-policies', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ role_id, initial_timeout_seconds }),
+            });
+            const policyText = await policyRes.text();
+            const policyParsed = parseFetchJsonBody(policyText);
+            if (!policyRes.ok) {
+                const byRoleRes = await fetch(`/api/proxy/escalation-policies/by-role/${roleId}`);
+                if (byRoleRes.ok) {
+                    const existingPolicy = await byRoleRes.json();
+                    policyId = policyIdFromApiPayload(existingPolicy) || String(existingPolicy?.id || '').trim() || null;
+                    if (policyId) {
+                        const putRes = await fetch(`/api/proxy/escalation-policies/${policyId}`, {
+                            method: 'PUT',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ role_id, initial_timeout_seconds }),
+                        });
+                        if (!putRes.ok) {
+                            const putParsed = parseFetchJsonBody(await putRes.text());
+                            return {
+                                ok: false,
+                                message: apiErrorMessage(putParsed, 'Failed to update escalation policy'),
+                            };
+                        }
+                        if (options?.replaceExistingSteps !== false) {
+                            const stepsToClear = Array.isArray(existingPolicy?.steps) ? existingPolicy.steps : [];
+                            for (const step of stepsToClear) {
+                                if (step?.id) {
+                                    await fetch(`/api/proxy/escalation-policies/${policyId}/steps/${step.id}`, { method: 'DELETE' });
+                                }
+                            }
+                        }
+                    }
+                }
+                if (!policyId) {
+                    return {
+                        ok: false,
+                        message: apiErrorMessage(policyParsed, 'Failed to create escalation policy'),
+                    };
+                }
+            } else {
+                policyId = policyIdFromApiPayload(policyParsed) || null;
+                if (!policyId) {
+                    return { ok: false, message: 'Escalation policy response was invalid.' };
+                }
+            }
+        }
+
+        const bulkResult = await postEscalationStepsBulk(policyId, steps);
+        if (!bulkResult.ok) {
+            return { ok: false, message: bulkResult.message };
+        }
+
+        const updatedPolicyRes = await fetch(`/api/proxy/escalation-policies/by-role/${roleId}`);
+        if (!updatedPolicyRes.ok) {
+            return { ok: true, levels: ladderLevels };
+        }
+        const updatedPolicy = await updatedPolicyRes.json();
+        const roleNameMap = new Map(rolesForResolve.map(r => [r.id, r.name]));
+        return {
+            ok: true,
+            levels: policyToLadderLevels(
+                roleId,
+                roleName,
+                updatedPolicy.initial_timeout_seconds ?? initial_timeout_seconds,
+                updatedPolicy.steps || [],
+                roleNameMap,
+            ),
+        };
+    };
+
+    const buildNewRolePayload = () => {
+        const fullRoleName = buildRoleName('', newRoleName);
+        return {
+            fullRoleName,
+            body: {
+                name: fullRoleName,
+                description: newRoleDesc.trim(),
+                department_id: deptIdMap.get(newRoleDept) || undefined,
+                department: newRoleDept || undefined,
+                priority: newRoleMandatory ? 'critical' : 'standard',
+                mandatory: newRoleMandatory,
+                enabled: true,
+                sign_in_allowed_user_ids: newRestricted ? newAllowedUserIds : undefined,
+                external_messaging: newRoleExternalMessaging,
+                is_transfer_role: newRoleIsTransferRole,
+            },
+        };
+    };
+
+    const findExistingRoleByName = (name: string): Role | undefined => {
+        const trimmed = name.trim();
+        if (!trimmed) return undefined;
+        const roleNameToIdLower = new Map<string, string>();
+        for (const r of roles) {
+            if (r.name?.trim()) roleNameToIdLower.set(r.name.trim().toLowerCase(), r.id);
+        }
+        return roles.find(r => r.name?.trim() && roleNamesConflictForEscalation(trimmed, r.name, roleNameToIdLower));
+    };
+
+    const resolveRoleForEscalationSave = (): Role | null => {
+        if (pendingNewRole?.id) return pendingNewRole;
+        const fullRoleName = buildRoleName('', newRoleName);
+        const existing = findExistingRoleByName(fullRoleName);
+        return existing?.id ? existing : null;
+    };
+
+    const handleCreateRoleForEscalation = async () => {
+        if (!newRoleName.trim()) return;
+        if (!newRoleMandatory) {
+            showToast('Escalation is only available for Critical roles. Turn on “This role must always be filled” first.', 'info');
             return;
         }
+        const { fullRoleName, body } = buildNewRolePayload();
+        const existingRole = findExistingRoleByName(fullRoleName);
+        if (existingRole?.id) {
+            setPendingNewRole(existingRole);
+            setNewEscLevels(prev => ensurePrimaryEscalationLevel(prev, fullRoleName));
+            setAddStep(3);
+            showToast(`Using existing role "${existingRole.name}". Add escalation levels below.`, 'info');
+            return;
+        }
+
+        setAddRoleSaving(true);
         try {
             const res = await fetch('/api/proxy/roles', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    name: fullRoleName,
-                    description: newRoleDesc.trim(),
-                    department_id: deptIdMap.get(newRoleDept) || undefined,
-                department: newRoleDept || undefined,
-                    priority: newRoleMandatory ? 'critical' : 'standard',
-                mandatory: newRoleMandatory,
-                enabled: true,
-                    sign_in_allowed_user_ids: newRestricted ? newAllowedUserIds : undefined,
-                external_messaging: newRoleExternalMessaging,
-                is_transfer_role: newRoleIsTransferRole,
-                }),
+                body: JSON.stringify(body),
             });
             const addResponseText = await res.text();
             const addParsed = parseFetchJsonBody(addResponseText);
-            if (!res.ok) { showToast('Failed to add role', 'error'); return; }
-            const role = (addParsed && typeof addParsed === 'object' ? addParsed : {}) as Role;
-
-            // Create escalation policy + steps for critical/mandatory roles (max 3 levels)
-            let policyLevels = ladderLevels;
-            if (withEscalations && newRoleMandatory && filledEscalationLevels.length > 0) {
-                const nonCriticalTarget = findNonCriticalEscalationTarget(ladderLevels, roles);
-                if (nonCriticalTarget) {
-                    showToast(`"${nonCriticalTarget}" is not Critical. Only Critical roles can be in an escalation ladder.`, 'error');
-                    return;
+            if (!res.ok) {
+                if (res.status === 409) {
+                    try {
+                        const listRes = await fetch('/api/proxy/roles');
+                        if (listRes.ok) {
+                            const listJson = await listRes.json();
+                            const listRaw = Array.isArray(listJson)
+                                ? listJson
+                                : (listJson as { data?: unknown })?.data;
+                            const list = Array.isArray(listRaw) ? (listRaw as Role[]) : [];
+                            const roleNameToIdLower = new Map(
+                                list.filter(r => r?.name?.trim()).map(r => [r.name.trim().toLowerCase(), r.id]),
+                            );
+                            const match = list.find(
+                                r => r?.name?.trim() && roleNamesConflictForEscalation(fullRoleName, r.name, roleNameToIdLower),
+                            );
+                            if (match?.id) {
+                                const existing = normalizeRoleForUi(match, departmentIdToName);
+                                setPendingNewRole(existing);
+                                setNewEscLevels(prev => ensurePrimaryEscalationLevel(prev, fullRoleName));
+                                setAddStep(3);
+                                showToast(`"${existing.name}" already exists — add escalation levels below.`, 'info');
+                                return;
+                            }
+                        }
+                    } catch {
+                        // fall through to generic error
+                    }
                 }
-                const { role_id, initial_timeout_seconds, steps } = ladderLevelsToPolicyPayload(
-                    ladderLevels,
-                    role.id,
-                    fullRoleName,
-                    (targetName) => {
-                        if (targetName.trim().toLowerCase() === fullRoleName.trim().toLowerCase()) return role.id;
-                        return resolveEscalationTargetRoleId(targetName, roles);
-                    },
+                const msg = apiErrorMessage(
+                    addParsed,
+                    res.status === 409 ? 'Role already exists at this facility' : 'Failed to add role',
                 );
-                const policyRes = await fetch('/api/proxy/escalation-policies', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        role_id,
-                        initial_timeout_seconds,
-                    }),
-                });
-                if (policyRes.ok) {
-                    const policy = await policyRes.json();
-                    if (steps.length > 0) {
-                        await fetch(`/api/proxy/escalation-policies/${policy.id}/steps/bulk`, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ steps }),
-                        });
-                    }
-                    const updatedPolicyRes = await fetch(`/api/proxy/escalation-policies/by-role/${role.id}`);
-                    if (updatedPolicyRes.ok) {
-                        const updatedPolicy = await updatedPolicyRes.json();
-                        const roleNameMap = new Map([...roles, { id: role.id, name: fullRoleName } as Role].map(r => [r.id, r.name]));
-                        policyLevels = policyToLadderLevels(
-                            role.id,
-                            fullRoleName,
-                            updatedPolicy.initial_timeout_seconds ?? initial_timeout_seconds,
-                            updatedPolicy.steps || [],
-                            roleNameMap,
-                        );
-                    }
-                }
+                showToast(msg, 'error');
+                return;
             }
-
-            setRoles(prev => [...prev, {
-                ...normalizeRoleForUi(role as Role, departmentIdToName),
+            const createdId = roleIdFromApiPayload(addParsed);
+            if (!createdId) {
+                showToast('Role was created but the response did not include an id. Refresh and try Save Escalation again.', 'error');
+                await fetchData();
+                return;
+            }
+            const flat = unwrapRoleApiPayload(addParsed) || {};
+            const role = normalizeRoleForUi({ ...flat, id: createdId } as Role, departmentIdToName);
+            const roleWithMeta: Role = {
+                ...role,
+                id: createdId,
                 sign_in_restricted: Boolean(role.sign_in_restricted),
                 sign_in_allowed_user_ids: Array.isArray(role.sign_in_allowed_user_ids) ? role.sign_in_allowed_user_ids : [],
-                external_messaging: Boolean((role as Role).external_messaging ?? newRoleExternalMessaging),
-                is_transfer_role: Boolean((role as Role).is_transfer_role ?? newRoleIsTransferRole),
+                external_messaging: Boolean(role.external_messaging ?? newRoleExternalMessaging),
+                is_transfer_role: Boolean(role.is_transfer_role ?? newRoleIsTransferRole),
                 escalation_routing: role.escalation_routing || newRouting,
-                escalation_levels: policyLevels,
+                escalation_levels: [],
+            };
+            setPendingNewRole(roleWithMeta);
+            setRoles(prev => (prev.some(r => r.id === roleWithMeta.id) ? prev : [...prev, roleWithMeta]));
+            setNewEscLevels(prev => ensurePrimaryEscalationLevel(prev, fullRoleName));
+            setAddStep(3);
+            showToast(`"${fullRoleName}" created — add escalation levels below.`, 'info');
+        } catch {
+            showToast('Failed to add role', 'error');
+        } finally {
+            setAddRoleSaving(false);
+        }
+    };
+
+    const handleSaveNewRoleEscalation = async () => {
+        const roleForSave = resolveRoleForEscalationSave();
+        if (!roleForSave?.id) {
+            showToast('Go back one step and click Next: Escalation Settings to create the role first.', 'info');
+            return;
+        }
+        const fullRoleName = buildRoleName('', newRoleName) || roleForSave.name;
+        const ladderLevels = clampEscalationLevels(newEscLevels);
+        if (escalationLevelMissingTarget(ladderLevels, fullRoleName)) {
+            showToast('Select a role for each additional escalation level before saving.', 'info');
+            return;
+        }
+
+        setAddRoleSaving(true);
+        try {
+            const rolesForResolve = roles.some(r => r.id === roleForSave.id)
+                ? roles
+                : [...roles, roleForSave];
+            const escalationResult = await persistEscalationForRole(
+                roleForSave.id,
+                fullRoleName,
+                ladderLevels,
+                rolesForResolve,
+                { replaceExistingSteps: true },
+            );
+            if (!escalationResult.ok) {
+                showToast(escalationResult.message, 'error');
+                return;
+            }
+
+            setRoles(prev => prev.map(r => (
+                r.id === roleForSave.id
+                    ? { ...r, escalation_levels: escalationResult.levels }
+                    : r
+            )));
+            showToast(`Escalation saved for "${fullRoleName}"`);
+            resetAddForm();
+            fetchData();
+        } catch {
+            showToast('Failed to save escalation', 'error');
+        } finally {
+            setAddRoleSaving(false);
+        }
+    };
+
+    /** Create role only (step 2 — skip escalation). */
+    const handleAddRoleWithoutEscalation = async () => {
+        if (!newRoleName.trim()) return;
+        const { fullRoleName, body } = buildNewRolePayload();
+        const duplicateName = findDuplicateRoleName(fullRoleName, roles);
+        if (duplicateName) {
+            showToast(
+                `"${duplicateName}" already exists. Use a different name, or edit that role to add an escalation ladder.`,
+                'error',
+            );
+            return;
+        }
+
+        setAddRoleSaving(true);
+        try {
+            const res = await fetch('/api/proxy/roles', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body),
+            });
+            const addResponseText = await res.text();
+            const addParsed = parseFetchJsonBody(addResponseText);
+            if (!res.ok) {
+                showToast(
+                    apiErrorMessage(
+                        addParsed,
+                        res.status === 409 ? 'Role already exists at this facility' : 'Failed to add role',
+                    ),
+                    'error',
+                );
+                return;
+            }
+            const createdId = roleIdFromApiPayload(addParsed);
+            const flat = unwrapRoleApiPayload(addParsed) || {};
+            const role = normalizeRoleForUi(
+                { ...flat, id: createdId || String(flat.id ?? '') } as Role,
+                departmentIdToName,
+            );
+            setRoles(prev => [...prev, {
+                ...role,
+                id: createdId || role.id,
+                sign_in_restricted: Boolean(role.sign_in_restricted),
+                sign_in_allowed_user_ids: Array.isArray(role.sign_in_allowed_user_ids) ? role.sign_in_allowed_user_ids : [],
+                external_messaging: Boolean(role.external_messaging ?? newRoleExternalMessaging),
+                is_transfer_role: Boolean(role.is_transfer_role ?? newRoleIsTransferRole),
+                escalation_routing: role.escalation_routing || newRouting,
+                escalation_levels: [],
             }]);
             showToast(`"${fullRoleName}" created`);
             resetAddForm();
             fetchData();
-        } catch { showToast('Failed to add role', 'error'); }
+        } catch {
+            showToast('Failed to add role', 'error');
+        } finally {
+            setAddRoleSaving(false);
+        }
     };
 
     const handleRemoveRole = async (role: Role) => {
@@ -1285,6 +1609,12 @@ export default function RolesBuilderAssignment() {
                         return resolveEscalationTargetRoleId(targetName, rolesForEscalation);
                     },
                 );
+                const extraTargets = additionalEscalationTargets(ladderLevels);
+                if (extraTargets.length > 0 && steps.length < extraTargets.length) {
+                    showToast('Could not match an escalation target to a role. Select a role from the dropdown.', 'error');
+                    setEditSaving(false);
+                    return;
+                }
 
                 const existingPolicyRes = await fetch(`/api/proxy/escalation-policies/by-role/${editingRole.id}`);
                 let policyId: string | null = null;
@@ -1322,12 +1652,11 @@ export default function RolesBuilderAssignment() {
                 }
 
                 if (policyId) {
-                    if (steps.length > 0) {
-                        await fetch(`/api/proxy/escalation-policies/${policyId}/steps/bulk`, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ steps }),
-                        });
+                    const bulkResult = await postEscalationStepsBulk(policyId, steps);
+                    if (!bulkResult.ok) {
+                        showToast(bulkResult.message, 'error');
+                        setEditSaving(false);
+                        return;
                     }
                     const refreshRes = await fetch(`/api/proxy/escalation-policies/by-role/${editingRole.id}`);
                     if (refreshRes.ok) {
@@ -2119,23 +2448,20 @@ export default function RolesBuilderAssignment() {
                                             Cancel
                                         </button>
                                             <div style={{ display: 'flex', gap: 8 }}>
-                                                <button className="btn btn-secondary btn-sm" onClick={() => handleAddRole(false)} disabled={!newRoleName.trim()}>
+                                                <button
+                                                    className="btn btn-secondary btn-sm"
+                                                    onClick={() => { void handleAddRoleWithoutEscalation(); }}
+                                                    disabled={!newRoleName.trim() || addRoleSaving}
+                                                >
                                                     <span className="material-icons-round" style={{ fontSize: 14 }}>skip_next</span>
-                                                    Skip Escalation
+                                                    {addRoleSaving ? 'Creating…' : 'Skip Escalation'}
                                                 </button>
                                             <button
                                                 className="btn btn-primary btn-sm"
-                                                onClick={() => {
-                                                    if (!newRoleMandatory) {
-                                                        showToast('Escalation is only available for Critical roles. Turn on “This role must always be filled” first.', 'info');
-                                                        return;
-                                                    }
-                                                    setNewEscLevels(prev => ensurePrimaryEscalationLevel(prev, buildRoleName('', newRoleName)));
-                                                    setAddStep(3);
-                                                }}
-                                                disabled={!newRoleName.trim()}
+                                                onClick={() => { void handleCreateRoleForEscalation(); }}
+                                                disabled={!newRoleName.trim() || addRoleSaving}
                                             >
-                                                    Next: Escalation Settings
+                                                    {addRoleSaving ? 'Creating…' : 'Next: Escalation Settings'}
                                                     <span className="material-icons-round" style={{ fontSize: 14 }}>arrow_forward</span>
                                                 </button>
                                             </div>
@@ -2146,16 +2472,25 @@ export default function RolesBuilderAssignment() {
                             {/* Step 3: Custom Role — Escalation Settings */}
                             {addStep === 3 && (
                                 <>
+                                    {pendingNewRole ? (
+                                        <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 0, marginBottom: 12 }}>
+                                            Role <strong>{pendingNewRole.name}</strong> is created. Save escalation settings below (PUT policy + steps only).
+                                        </p>
+                                    ) : null}
                                     {renderEscalationLadder(newEscLevels, setNewEscLevels, buildRoleName('', newRoleName))}
 
                                     <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginTop: 20 }}>
-                                        <button className="btn btn-secondary btn-sm" onClick={() => setAddStep(2)}>
+                                        <button className="btn btn-secondary btn-sm" onClick={() => setAddStep(2)} disabled={addRoleSaving}>
                                             <span className="material-icons-round" style={{ fontSize: 14 }}>arrow_back</span>
                                             Back
                                         </button>
-                                        <button className="btn btn-primary btn-sm" onClick={() => handleAddRole()} disabled={!newRoleName.trim()}>
+                                        <button
+                                            className="btn btn-primary btn-sm"
+                                            onClick={() => { void handleSaveNewRoleEscalation(); }}
+                                            disabled={!newRoleName.trim() || addRoleSaving}
+                                        >
                                             <span className="material-icons-round" style={{ fontSize: 14 }}>check</span>
-                                            Create Role
+                                            {addRoleSaving ? 'Saving…' : 'Save Escalation'}
                                         </button>
                                     </div>
                                 </>

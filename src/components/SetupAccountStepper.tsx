@@ -3,15 +3,7 @@
 import Link from 'next/link';
 import { useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { useRouter } from 'next/navigation';
-import CustomSelect from '@/components/CustomSelect';
 import { API_ENDPOINTS } from '@/lib/config';
-import {
-    PHONE_COUNTRIES,
-    formatPhoneByCountry,
-    getPhoneCountryByCode,
-    isValidPhoneByCountry,
-    splitPhoneForCountryInput,
-} from '@/lib/phone';
 import { SETUP_ACCOUNT_MOBILE_CSS } from '@/components/setupAccountMobileStyles';
 import SetupAccountSecurityStep from '@/components/SetupAccountSecurityStep';
 
@@ -53,8 +45,6 @@ export default function SetupAccountStepper({ token, step }: { token: string; st
     const [lastName, setLastName] = useState('');
     const [middleName, setMiddleName] = useState('');
     const [email, setEmail] = useState('');
-    const [phoneCountry, setPhoneCountry] = useState('GH');
-    const [phoneLocal, setPhoneLocal] = useState('');
     const [password, setPassword] = useState('');
     const [confirmPassword, setConfirmPassword] = useState('');
     const [showPassword, setShowPassword] = useState(false);
@@ -66,20 +56,10 @@ export default function SetupAccountStepper({ token, step }: { token: string; st
     const [completed, setCompleted] = useState(false);
     const [facilityCode, setFacilityCode] = useState('');
 
-    const countryOptions = useMemo(
-        () => PHONE_COUNTRIES.map(c => ({ label: c.label, value: c.code })),
-        []
-    );
-    const accountCountryMeta = useMemo(() => getPhoneCountryByCode(phoneCountry), [phoneCountry]);
-    const formattedPhone = useMemo(() => formatPhoneByCountry(phoneLocal, phoneCountry), [phoneLocal, phoneCountry]);
     const identityReady = useMemo(
         () => Boolean(firstName.trim()) && Boolean(lastName.trim()),
         [firstName, lastName]
     );
-    const phoneReady = useMemo(() => {
-        if (!phoneLocal.trim()) return false;
-        return isValidPhoneByCountry(formattedPhone, phoneCountry);
-    }, [phoneLocal, formattedPhone, phoneCountry]);
     const passwordChecks = [
         { id: 'length', label: 'At least 8 characters', met: password.length >= 8 },
         { id: 'upper', label: 'At least one uppercase letter (A-Z)', met: /[A-Z]/.test(password) },
@@ -103,11 +83,6 @@ export default function SetupAccountStepper({ token, step }: { token: string; st
                 if (typeof data.last_name === 'string') setLastName(data.last_name);
                 if (typeof data.middle_name === 'string') setMiddleName(data.middle_name);
                 if (typeof data.email === 'string') setEmail(data.email.trim());
-                if (typeof data.phone === 'string' && data.phone.trim()) {
-                    const split = splitPhoneForCountryInput(String(data.phone));
-                    setPhoneCountry(prev => prev || split.countryCode);
-                    setPhoneLocal(prev => prev || split.local);
-                }
                 const codeFromApi = extractFacilityCode(data);
                 if (codeFromApi) setFacilityCode(prev => prev || codeFromApi);
             } finally {
@@ -127,8 +102,6 @@ export default function SetupAccountStepper({ token, step }: { token: string; st
             const raw = window.sessionStorage.getItem(`setup-account:${token}`);
             if (!raw) return;
             const saved = JSON.parse(raw) as Record<string, unknown>;
-            if (typeof saved.phoneCountry === 'string') setPhoneCountry(saved.phoneCountry);
-            if (typeof saved.phoneLocal === 'string') setPhoneLocal(saved.phoneLocal);
             if (typeof saved.firstName === 'string' && saved.firstName.trim()) setFirstName(saved.firstName);
             if (typeof saved.lastName === 'string' && saved.lastName.trim()) setLastName(saved.lastName);
             if (typeof saved.middleName === 'string') setMiddleName(saved.middleName);
@@ -142,16 +115,9 @@ export default function SetupAccountStepper({ token, step }: { token: string; st
         if (!token) return;
         window.sessionStorage.setItem(
             `setup-account:${token}`,
-            JSON.stringify({
-                phoneCountry,
-                phoneLocal,
-                firstName,
-                lastName,
-                middleName,
-                email,
-            }),
+            JSON.stringify({ firstName, lastName, middleName, email }),
         );
-    }, [token, phoneCountry, phoneLocal, firstName, lastName, middleName, email]);
+    }, [token, firstName, lastName, middleName, email]);
 
     const moveStep = (next: SetupStep) => {
         router.push(buildStepHref(next, token));
@@ -167,15 +133,6 @@ export default function SetupAccountStepper({ token, step }: { token: string; st
         if (!identityReady) {
             setError('Your invitation details are still loading or missing. Reopen the link from your email, or go back to the profile step.');
             if (step === 'security' && !prefillLoading) moveStep('info');
-            return;
-        }
-        if (!phoneReady) {
-            setError(
-                !phoneLocal.trim()
-                    ? 'Please go back and enter your phone number on the profile step.'
-                    : `Please go back and enter a valid phone number for ${accountCountryMeta.label} (${accountCountryMeta.dialCode} + ${accountCountryMeta.digits} digits).`,
-            );
-            if (step === 'security') moveStep('info');
             return;
         }
         if (!password.trim()) {
@@ -199,7 +156,6 @@ export default function SetupAccountStepper({ token, step }: { token: string; st
                     first_name: firstName.trim(),
                     ...(middleName.trim() ? { middle_name: middleName.trim() } : {}),
                     last_name: lastName.trim(),
-                    phone: formattedPhone,
                     password,
                     token,
                 }),
@@ -223,7 +179,7 @@ export default function SetupAccountStepper({ token, step }: { token: string; st
 
     const stepIndex = STEP_ORDER.indexOf(step);
     const isCleanFlowStep = step === 'security';
-    const profileReady = Boolean(token) && identityReady && phoneReady;
+    const profileReady = Boolean(token) && identityReady;
     const alertBox: CSSProperties = { padding: '8px 10px', borderRadius: 8, fontSize: 12, marginBottom: 10 };
     const shellRootStyle: CSSProperties = {
         position: 'relative',
@@ -498,38 +454,12 @@ export default function SetupAccountStepper({ token, step }: { token: string; st
                                 <input className="input" value={lastName} readOnly tabIndex={-1} style={readOnlyInputStyle} />
                             </div>
                         </div>
-                        <div style={{ ...sectionCard }}>
-                            <label className="label" style={{ fontSize: 11, marginBottom: 4 }}>Phone</label>
-                            <div className="setup-phone-row">
-                                <div className="setup-country-wrap">
-                                    <CustomSelect
-                                        value={phoneCountry}
-                                        onChange={v => setPhoneCountry(v)}
-                                        options={countryOptions}
-                                        placeholder="Country"
-                                    />
-                                </div>
-                                <input
-                                    className="input setup-phone-input"
-                                    value={phoneLocal}
-                                    onChange={e => setPhoneLocal(e.target.value.replace(/\D/g, '').slice(0, accountCountryMeta.digits))}
-                                    placeholder={`${accountCountryMeta.digits} digits`}
-                                    maxLength={accountCountryMeta.digits}
-                                    autoComplete="tel-national"
-                                    aria-label="Phone number"
-                                    style={inputStyle}
-                                />
-                            </div>
-                            <p style={{ marginTop: 4, fontSize: 10.5, color: 'var(--text-muted)' }}>
-                                {`Format: ${accountCountryMeta.dialCode} + ${accountCountryMeta.digits} digits`}
-                            </p>
-                        </div>
                         <button
                             className="btn btn-primary"
                             type="button"
                             style={{ ...primaryButtonStyle, width: '100%', marginTop: 16 }}
                             onClick={() => moveStep('security')}
-                            disabled={!identityReady || !phoneReady || !token}
+                            disabled={!identityReady || !token}
                         >
                             Continue to password
                         </button>

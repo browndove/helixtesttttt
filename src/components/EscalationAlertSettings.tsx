@@ -53,7 +53,7 @@ type EscalationStep = {
     target_role_name: string;
     target_user_id?: string;
     target_user_name?: string;
-    timeout_seconds: number;
+    timeout_seconds: number | null;
 };
 
 type Policy = {

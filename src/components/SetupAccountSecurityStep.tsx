@@ -143,7 +143,7 @@ export default function SetupAccountSecurityStep({
             ) : null}
             {!prefillLoading && !profileReady && passwordsMatch && passwordIsValid ? (
                 <p className="setup-security-status">
-                    Go back to the previous step to confirm your profile and phone number, then return here to finish.
+                    Go back to the previous step to confirm your profile, then return here to finish.
                 </p>
             ) : null}
             {error ? (
