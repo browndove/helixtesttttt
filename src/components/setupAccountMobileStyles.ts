@@ -566,6 +566,22 @@ export const SETUP_ACCOUNT_MOBILE_CSS = `
 .setup-dot-progress span.is-done {
   background: #93c5fd;
 }
+.setup-security-status {
+  margin: 0 0 12px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #64748b;
+}
+.setup-security-error {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--critical, #b42318);
+  background: var(--critical-bg, #fef3f2);
+  border: 1px solid rgba(140, 90, 94, 0.2);
+}
 .setup-security-continue {
   width: 100%;
   min-height: 52px;

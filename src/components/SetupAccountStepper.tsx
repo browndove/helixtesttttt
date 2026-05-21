@@ -129,6 +129,10 @@ export default function SetupAccountStepper({ token, step }: { token: string; st
             const saved = JSON.parse(raw) as Record<string, unknown>;
             if (typeof saved.phoneCountry === 'string') setPhoneCountry(saved.phoneCountry);
             if (typeof saved.phoneLocal === 'string') setPhoneLocal(saved.phoneLocal);
+            if (typeof saved.firstName === 'string' && saved.firstName.trim()) setFirstName(saved.firstName);
+            if (typeof saved.lastName === 'string' && saved.lastName.trim()) setLastName(saved.lastName);
+            if (typeof saved.middleName === 'string') setMiddleName(saved.middleName);
+            if (typeof saved.email === 'string' && saved.email.trim()) setEmail(saved.email);
         } catch {
             // Ignore invalid persisted data.
         }
@@ -138,9 +142,16 @@ export default function SetupAccountStepper({ token, step }: { token: string; st
         if (!token) return;
         window.sessionStorage.setItem(
             `setup-account:${token}`,
-            JSON.stringify({ phoneCountry, phoneLocal }),
+            JSON.stringify({
+                phoneCountry,
+                phoneLocal,
+                firstName,
+                lastName,
+                middleName,
+                email,
+            }),
         );
-    }, [token, phoneCountry, phoneLocal]);
+    }, [token, phoneCountry, phoneLocal, firstName, lastName, middleName, email]);
 
     const moveStep = (next: SetupStep) => {
         router.push(buildStepHref(next, token));
@@ -154,15 +165,17 @@ export default function SetupAccountStepper({ token, step }: { token: string; st
             return;
         }
         if (!identityReady) {
-            setError('Your invitation details are missing. Reopen the link from your email.');
+            setError('Your invitation details are still loading or missing. Reopen the link from your email, or go back to the profile step.');
+            if (step === 'security' && !prefillLoading) moveStep('info');
             return;
         }
         if (!phoneReady) {
             setError(
                 !phoneLocal.trim()
-                    ? 'Please enter your phone number.'
-                    : `Please enter a valid phone number for ${accountCountryMeta.label} (${accountCountryMeta.dialCode} + ${accountCountryMeta.digits} digits).`,
+                    ? 'Please go back and enter your phone number on the profile step.'
+                    : `Please go back and enter a valid phone number for ${accountCountryMeta.label} (${accountCountryMeta.dialCode} + ${accountCountryMeta.digits} digits).`,
             );
+            if (step === 'security') moveStep('info');
             return;
         }
         if (!password.trim()) {
@@ -210,6 +223,7 @@ export default function SetupAccountStepper({ token, step }: { token: string; st
 
     const stepIndex = STEP_ORDER.indexOf(step);
     const isCleanFlowStep = step === 'security';
+    const profileReady = Boolean(token) && identityReady && phoneReady;
     const alertBox: CSSProperties = { padding: '8px 10px', borderRadius: 8, fontSize: 12, marginBottom: 10 };
     const shellRootStyle: CSSProperties = {
         position: 'relative',
@@ -534,7 +548,10 @@ export default function SetupAccountStepper({ token, step }: { token: string; st
                         onToggleShowConfirmPassword={() => setShowConfirmPassword(p => !p)}
                         passwordChecks={passwordChecks}
                         passwordIsValid={passwordIsValid}
+                        profileReady={profileReady}
+                        prefillLoading={prefillLoading}
                         loading={loading}
+                        error={error}
                         stepIndex={stepIndex}
                         onBack={() => moveStep('info')}
                         onSubmit={() => { void handleSubmit(); }}

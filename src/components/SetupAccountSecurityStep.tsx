@@ -15,7 +15,10 @@ type SetupAccountSecurityStepProps = {
     onToggleShowConfirmPassword: () => void;
     passwordChecks: PasswordCheck[];
     passwordIsValid: boolean;
+    profileReady: boolean;
+    prefillLoading: boolean;
     loading: boolean;
+    error: string;
     stepIndex: number;
     onBack: () => void;
     onSubmit: () => void;
@@ -34,13 +37,16 @@ export default function SetupAccountSecurityStep({
     onToggleShowConfirmPassword,
     passwordChecks,
     passwordIsValid,
+    profileReady,
+    prefillLoading,
     loading,
+    error,
     stepIndex,
     onBack,
     onSubmit,
 }: SetupAccountSecurityStepProps) {
     const passwordsMatch = password === confirmPassword && confirmPassword.length > 0;
-    const canSubmit = !loading && passwordIsValid && passwordsMatch;
+    const canSubmit = !loading && !prefillLoading && profileReady && passwordIsValid && passwordsMatch;
     const showHints = password.length > 0 || confirmPassword.length > 0;
 
     return (
@@ -129,6 +135,22 @@ export default function SetupAccountSecurityStep({
                     </ul>
                 </div>
             )}
+
+            {prefillLoading ? (
+                <p className="setup-security-status" role="status">
+                    Loading invitation details…
+                </p>
+            ) : null}
+            {!prefillLoading && !profileReady && passwordsMatch && passwordIsValid ? (
+                <p className="setup-security-status">
+                    Go back to the previous step to confirm your profile and phone number, then return here to finish.
+                </p>
+            ) : null}
+            {error ? (
+                <div className="setup-security-error" role="alert">
+                    {error}
+                </div>
+            ) : null}
 
             <div className="setup-dot-progress" aria-hidden>
                 {Array.from({ length: STEP_COUNT }, (_, idx) => (
