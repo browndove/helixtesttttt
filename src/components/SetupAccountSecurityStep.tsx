@@ -15,15 +15,13 @@ type SetupAccountSecurityStepProps = {
     onToggleShowConfirmPassword: () => void;
     passwordChecks: PasswordCheck[];
     passwordIsValid: boolean;
-    verifiedPhoneE164: string;
     loading: boolean;
-    phoneVerifiedForSubmit: boolean;
     stepIndex: number;
     onBack: () => void;
     onSubmit: () => void;
 };
 
-const STEP_COUNT = 3;
+const STEP_COUNT = 2;
 
 export default function SetupAccountSecurityStep({
     password,
@@ -36,15 +34,13 @@ export default function SetupAccountSecurityStep({
     onToggleShowConfirmPassword,
     passwordChecks,
     passwordIsValid,
-    verifiedPhoneE164,
     loading,
-    phoneVerifiedForSubmit,
     stepIndex,
     onBack,
     onSubmit,
 }: SetupAccountSecurityStepProps) {
     const passwordsMatch = password === confirmPassword && confirmPassword.length > 0;
-    const canSubmit = !loading && phoneVerifiedForSubmit && passwordIsValid && passwordsMatch;
+    const canSubmit = !loading && passwordIsValid && passwordsMatch;
     const showHints = password.length > 0 || confirmPassword.length > 0;
 
     return (
@@ -53,7 +49,7 @@ export default function SetupAccountSecurityStep({
                 <button
                     type="button"
                     className="setup-security-back"
-                    aria-label="Back to phone verification"
+                    aria-label="Back to profile"
                     onClick={onBack}
                 >
                     <span className="material-icons-round" style={{ fontSize: 22 }}>chevron_left</span>
@@ -67,12 +63,6 @@ export default function SetupAccountSecurityStep({
             <p className="setup-security-subtitle">
                 Required information to complete your account setup.
             </p>
-
-            {verifiedPhoneE164 ? (
-                <p className="setup-security-verified">
-                    Verified mobile: <strong>{verifiedPhoneE164}</strong>
-                </p>
-            ) : null}
 
             <div className="setup-security-fields">
                 <div className="setup-security-field-wrap">

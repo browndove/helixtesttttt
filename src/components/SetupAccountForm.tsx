@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { API_ENDPOINTS } from '@/lib/config';
 import {
     PHONE_COUNTRIES,
@@ -126,11 +126,6 @@ const readOnlyFieldStyle: CSSProperties = {
     borderColor: 'var(--border-subtle)',
 };
 
-/** Display-only block (not an input) so the value cannot be edited. */
-function setupApiMessage(data: Record<string, unknown>): string {
-    return String(data.message || data.detail || data.error || '').trim() || 'Request failed';
-}
-
 const readOnlyDisplayStyle: CSSProperties = {
     ...readOnlyFieldStyle,
     outline: 'none',
@@ -166,16 +161,6 @@ export default function SetupAccountForm({
     /** Display name for facility flow — from JWT and/or prefill, never from first/last name fields. */
     const [facilityName, setFacilityName] = useState('');
     const [facilityCode, setFacilityCode] = useState('');
-    /** Staff setup: SMS OTP must succeed before POST /auth/setup; same E.164 string for request, verify, setup. */
-    const [phoneVerified, setPhoneVerified] = useState(false);
-    const [verifiedPhoneE164, setVerifiedPhoneE164] = useState('');
-    const [smsOtp, setSmsOtp] = useState('');
-    const [otpCooldownSeconds, setOtpCooldownSeconds] = useState(0);
-    const [requestingSmsOtp, setRequestingSmsOtp] = useState(false);
-    const [verifyingSmsOtp, setVerifyingSmsOtp] = useState(false);
-    const [smsHint, setSmsHint] = useState('');
-    const otpInputRef = useRef<HTMLInputElement | null>(null);
-
     const isFacilitySetup = variant === 'facility' || prefillFacility;
 
     const passwordChecks = [
@@ -210,13 +195,9 @@ export default function SetupAccountForm({
         () => identityReady && phoneReady,
         [identityReady, phoneReady]
     );
-    const staffPhoneVerifiedForSubmit = useMemo(
-        () => phoneVerified && verifiedPhoneE164 !== '' && verifiedPhoneE164 === formattedAccountPhone,
-        [phoneVerified, verifiedPhoneE164, formattedAccountPhone],
-    );
     const staffSetupReady = useMemo(
-        () => isFacilitySetup || (profileReady && staffPhoneVerifiedForSubmit),
-        [isFacilitySetup, profileReady, staffPhoneVerifiedForSubmit],
+        () => isFacilitySetup || profileReady,
+        [isFacilitySetup, profileReady],
     );
     useEffect(() => {
         if (!token) return;
@@ -225,24 +206,6 @@ export default function SetupAccountForm({
         const codeFromToken = extractFacilityCode(decodeJwtPayload(token));
         if (codeFromToken) setFacilityCode(prev => prev || codeFromToken);
     }, [token]);
-
-    useEffect(() => {
-        if (otpCooldownSeconds <= 0) return;
-        const id = setInterval(() => {
-            setOtpCooldownSeconds(s => (s <= 1 ? 0 : s - 1));
-        }, 1000);
-        return () => clearInterval(id);
-    }, [otpCooldownSeconds]);
-
-    useEffect(() => {
-        if (isFacilitySetup) return;
-        if (verifiedPhoneE164 && formattedAccountPhone !== verifiedPhoneE164) {
-            setPhoneVerified(false);
-            setVerifiedPhoneE164('');
-            setSmsOtp('');
-            setSmsHint('');
-        }
-    }, [formattedAccountPhone, verifiedPhoneE164, isFacilitySetup]);
 
     useEffect(() => {
         if (!token) return;
@@ -283,78 +246,6 @@ export default function SetupAccountForm({
         return () => { canceled = true; };
     }, [token]);
 
-    const handleRequestSetupSmsOtp = async () => {
-        setError('');
-        setSmsHint('');
-        if (!token) {
-            setError('Open this page from the setup link in your invitation email, then try again.');
-            return;
-        }
-        if (!phoneReady) {
-            setError(
-                !phoneLocal.trim()
-                    ? 'Enter your phone number before requesting a code.'
-                    : `Enter a valid number for ${accountCountryMeta.label} (${accountCountryMeta.dialCode} + ${accountCountryMeta.digits} digits).`,
-            );
-            return;
-        }
-        setRequestingSmsOtp(true);
-        try {
-            const res = await fetch(API_ENDPOINTS.SETUP_PHONE_REQUEST_OTP, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ token, phone: formattedAccountPhone }),
-            });
-            const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
-            if (res.status === 429 || res.ok) {
-                setOtpCooldownSeconds(60);
-            }
-            if (!res.ok) {
-                setError(setupApiMessage(data));
-                return;
-            }
-            setPhoneVerified(false);
-            setVerifiedPhoneE164('');
-            setSmsOtp('');
-            setSmsHint('We sent a 6-digit code. It expires in 5 minutes. Enter it below.');
-            setTimeout(() => otpInputRef.current?.focus(), 80);
-        } catch {
-            setError('Network error. Please try again.');
-        } finally {
-            setRequestingSmsOtp(false);
-        }
-    };
-
-    const handleVerifySetupSmsOtp = async () => {
-        setError('');
-        const code = smsOtp.replace(/\D/g, '').slice(0, 6);
-        if (code.length !== 6) {
-            setError('Enter the 6-digit code from your SMS.');
-            return;
-        }
-        if (!token || !phoneReady) return;
-        setVerifyingSmsOtp(true);
-        try {
-            const res = await fetch(API_ENDPOINTS.SETUP_PHONE_VERIFY, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ token, phone: formattedAccountPhone, otp: code }),
-            });
-            const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
-            if (!res.ok) {
-                setError(setupApiMessage(data));
-                return;
-            }
-            setPhoneVerified(true);
-            setVerifiedPhoneE164(formattedAccountPhone);
-            setSmsHint(String(data.message || 'Phone verified. You can complete setup below.'));
-        } catch {
-            setError('Network error. Please try again.');
-        } finally {
-            setVerifyingSmsOtp(false);
-        }
-    };
-
     const handleSubmit = async () => {
         setError('');
         setSuccess('');
@@ -374,10 +265,6 @@ export default function SetupAccountForm({
                     ? 'Please enter your phone number with country code.'
                     : `Please enter a valid phone number for ${accountCountryMeta.label} (${accountCountryMeta.dialCode} + ${accountCountryMeta.digits} digits).`
             );
-            return;
-        }
-        if (!isFacilitySetup && !staffPhoneVerifiedForSubmit) {
-            setError('Verify your phone number first using the SMS code.');
             return;
         }
         if (!password.trim()) {
@@ -418,7 +305,7 @@ export default function SetupAccountForm({
 
             setSuccess(
                 data?.message
-                || (isFacilitySetup ? 'Facility admin access is ready' : 'Account activated successfully')
+                || (isFacilitySetup ? 'Facility admin access is ready' : 'Your account is ready.')
             );
             const responseFacilityCode = extractFacilityCode(data);
             if (responseFacilityCode) setFacilityCode(responseFacilityCode);
@@ -493,7 +380,7 @@ export default function SetupAccountForm({
 
                     {!opts.facilityMode && (
                         <p style={{ fontSize: 11, color: 'var(--text-muted)', margin: '0 0 8px', lineHeight: 1.4 }}>
-                            Name and email come from your invite. Enter your mobile number, verify it with the SMS code, then choose a password.
+                            Name and email come from your invite. Enter your mobile number, then choose a password.
                         </p>
                     )}
 
@@ -561,65 +448,6 @@ export default function SetupAccountForm({
                                 <div style={{ marginTop: 4, fontSize: 10.5, color: 'var(--text-muted)' }}>
                                     {`Format: ${accountCountryMeta.dialCode} + ${accountCountryMeta.digits} digits (saved as ${formattedAccountPhone || '…'})`}
                                 </div>
-                            </div>
-                            <div
-                                style={{
-                                    gridColumn: '1 / -1',
-                                    marginTop: 4,
-                                    padding: '10px 10px',
-                                    borderRadius: 'var(--radius-md)',
-                                    border: '1px solid var(--border-subtle)',
-                                    background: 'var(--surface-2)',
-                                }}
-                            >
-                                <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>
-                                    Phone verification (SMS)
-                                </div>
-                                {staffPhoneVerifiedForSubmit ? (
-                                    <div style={{ fontSize: 12, color: 'var(--success)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}>
-                                        <span className="material-icons-round" style={{ fontSize: 16 }}>check_circle</span>
-                                        Phone verified for {formattedAccountPhone}
-                                    </div>
-                                ) : (
-                                    <>
-                                        <button
-                                            type="button"
-                                            className="btn btn-secondary btn-sm setup-sms-send-btn"
-                                            style={{ marginBottom: 8 }}
-                                            onClick={() => { void handleRequestSetupSmsOtp(); }}
-                                            disabled={!phoneReady || requestingSmsOtp || otpCooldownSeconds > 0 || !token}
-                                        >
-                                            {requestingSmsOtp ? 'Sending…' : otpCooldownSeconds > 0 ? `Resend in ${otpCooldownSeconds}s` : 'Send verification code'}
-                                        </button>
-                                        <div className="setup-otp-row">
-                                            <input
-                                                ref={otpInputRef}
-                                                className="input setup-otp-input"
-                                                inputMode="numeric"
-                                                autoComplete="one-time-code"
-                                                placeholder="6-digit code"
-                                                value={smsOtp}
-                                                maxLength={6}
-                                                onChange={e => setSmsOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                                                style={{ fontSize: 14, letterSpacing: '0.2em', textAlign: 'center' }}
-                                            />
-                                            <button
-                                                type="button"
-                                                className="btn btn-primary btn-sm setup-otp-verify-btn"
-                                                onClick={() => { void handleVerifySetupSmsOtp(); }}
-                                                disabled={verifyingSmsOtp || smsOtp.replace(/\D/g, '').length !== 6 || !token || !phoneReady}
-                                            >
-                                                {verifyingSmsOtp ? 'Verifying…' : 'Verify'}
-                                            </button>
-                                        </div>
-                                        <p style={{ fontSize: 10, color: 'var(--text-muted)', margin: '8px 0 0', lineHeight: 1.4 }}>
-                                            Code is valid 5 minutes. After too many wrong attempts, request a new code. If your number is already in use at this facility, contact your administrator.
-                                        </p>
-                                    </>
-                                )}
-                                {smsHint && !error ? (
-                                    <p style={{ fontSize: 11, color: 'var(--text-secondary)', margin: '8px 0 0', lineHeight: 1.4 }}>{smsHint}</p>
-                                ) : null}
                             </div>
                         </div>
                     )}
@@ -898,7 +726,7 @@ export default function SetupAccountForm({
                         <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-primary)' }}>{displayFacilityTitle} is ready</div>
                     </div>
                     <p style={{ fontSize: 10, color: 'var(--text-secondary)', lineHeight: 1.4, margin: '0 0 6px' }}>
-                        Open the Helix Admin Portal and sign in with the email above and your new password.
+                        You&apos;re ready to log in. Open the Helix Admin Portal with the email above and your new password to start using it.
                     </p>
                     <div
                         style={{
@@ -932,13 +760,13 @@ export default function SetupAccountForm({
                 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
                         <span className="material-icons-round" style={{ fontSize: 16, color: 'var(--success)' }}>task_alt</span>
-                        <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-primary)' }}>Account is ready</div>
+                        <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-primary)' }}>You&apos;re all set</div>
                     </div>
                     <p style={{ fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.45, margin: 0 }}>
-                        Open the Helix app and sign in with your email and new password.
-                    </p>
-                    <p style={{ fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.45, margin: '6px 0 0' }}>
-                        Your facility code is <strong>{displayFacilityCode}</strong>.
+                        Your account is ready. Download the Helix app from the <strong>App Store</strong> or <strong>Google Play</strong>, then sign in with your email and the password you just created.
+                        {displayFacilityCode !== 'Unavailable' ? (
+                            <> Your facility code is <strong>{displayFacilityCode}</strong>.</>
+                        ) : null}
                     </p>
                 </div>
             )}

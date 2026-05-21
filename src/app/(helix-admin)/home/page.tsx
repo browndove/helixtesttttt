@@ -473,13 +473,9 @@ export default function HomePage() {
                                 <span className="material-icons-round">group_add</span>
                                 Invite
                             </button>
-                            <button type="button" className="dash-btn dash-btn--outline">
+                            <button type="button" className="dash-btn dash-btn--outline" onClick={() => router.push('/external-communication')}>
                                 <span className="material-icons-round">swap_horiz</span>
                                 Transfer
-                            </button>
-                            <button type="button" className="dash-btn dash-btn--primary">
-                                <span className="material-icons-round">add</span>
-                                New task
                             </button>
                         </div>
                     </header>

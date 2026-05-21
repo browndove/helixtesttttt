@@ -1,12 +1,12 @@
 import SetupAccountStepper from '@/components/SetupAccountStepper';
 import { redirect } from 'next/navigation';
 
-type SetupStep = 'info' | 'phone' | 'security';
+type SetupStep = 'info' | 'security';
 
 function normalizeStepFromSearch(raw: string | string[] | undefined): SetupStep {
     const v = Array.isArray(raw) ? raw[0] : raw;
     const s = String(v || '').toLowerCase();
-    if (s === 'phone' || s === 'security') return s;
+    if (s === 'security') return 'security';
     return 'info';
 }
 
@@ -41,6 +41,19 @@ export default async function SetupAccountPage({
 
     const rawToken = params.token;
     const token = Array.isArray(rawToken) ? (rawToken[0] || '') : (rawToken || '');
+    const rawStep = params.step;
+    const stepParam = Array.isArray(rawStep) ? rawStep[0] : rawStep;
+    if (String(stepParam || '').toLowerCase() === 'phone') {
+        const sp = new URLSearchParams();
+        Object.entries(params).forEach(([key, value]) => {
+            if (key === 'step') return;
+            if (Array.isArray(value)) value.forEach(v => sp.append(key, v));
+            else if (typeof value === 'string') sp.set(key, value);
+        });
+        sp.set('step', 'security');
+        redirect(sp.toString() ? `/setup-account?${sp}` : '/setup-account?step=security');
+    }
+
     const step = normalizeStepFromSearch(params.step);
 
     return <SetupAccountStepper token={token.trim()} step={step} />;
