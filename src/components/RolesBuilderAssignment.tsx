@@ -18,7 +18,9 @@ import {
     secondsToDelay,
 } from '@/lib/escalation-delays';
 import {
+    ladderLevelReactKey,
     ladderLevelsToPolicyPayload,
+    ladderRowShowsDelay,
     policyToLadderLevels,
 } from '@/lib/escalation-policy-ladder';
 import {
@@ -957,11 +959,12 @@ export default function RolesBuilderAssignment() {
                         .filter((row): row is { target_role_id: string; tr: (typeof selectedTemplate.roles)[number] } => Boolean(row));
                     // Level 1 is the policy primary role; only subsequent roles are escalation steps.
                     const escalationRows = stepRows.slice(1);
-                    const steps = escalationRows.map((row, idx, arr) => ({
+                    const steps = escalationRows.map((row, idx) => ({
                         target_role_id: row.target_role_id,
-                        timeout_seconds: arr.length > 1 && idx === arr.length - 1
-                            ? MIN_ESCALATION_DELAY_SEC
-                            : clampEscalationDelaySeconds(delayToSeconds(row.tr.delay)),
+                        timeout_seconds: idx < escalationRows.length - 1
+                            ? clampEscalationDelaySeconds(delayToSeconds(row.tr.delay))
+                            : MIN_ESCALATION_DELAY_SEC,
+                        step_order: idx + 1,
                     }));
                     if (steps.length > 0) {
                         await fetch(`/api/proxy/escalation-policies/${policy.id}/steps/bulk`, {
@@ -1025,7 +1028,7 @@ export default function RolesBuilderAssignment() {
                     showToast(`"${nonCriticalTarget}" is not Critical. Only Critical roles can be in an escalation ladder.`, 'error');
                     return;
                 }
-                const { initial_timeout_seconds, steps } = ladderLevelsToPolicyPayload(
+                const { role_id, initial_timeout_seconds, steps } = ladderLevelsToPolicyPayload(
                     ladderLevels,
                     role.id,
                     fullRoleName,
@@ -1038,7 +1041,7 @@ export default function RolesBuilderAssignment() {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        role_id: role.id,
+                        role_id,
                         initial_timeout_seconds,
                     }),
                 });
@@ -1273,7 +1276,7 @@ export default function RolesBuilderAssignment() {
                     setEditSaving(false);
                     return;
                 }
-                const { initial_timeout_seconds, steps } = ladderLevelsToPolicyPayload(
+                const { role_id, initial_timeout_seconds, steps } = ladderLevelsToPolicyPayload(
                     ladderLevels,
                     editingRole.id,
                     editRoleFullName,
@@ -1293,7 +1296,7 @@ export default function RolesBuilderAssignment() {
                         await fetch(`/api/proxy/escalation-policies/${policyId}`, {
                             method: 'PUT',
                             headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ initial_timeout_seconds }),
+                            body: JSON.stringify({ role_id, initial_timeout_seconds }),
                         });
                         if (existingPolicy.steps) {
                             for (const step of existingPolicy.steps) {
@@ -1515,24 +1518,17 @@ export default function RolesBuilderAssignment() {
             if (lvl.level === 1 && primaryName) return true;
             return Boolean(lvl.target?.trim());
         };
-        let lastFilledSortedIndex = -1;
-        sorted.forEach((lvl, idx) => {
-            if (rowHasEscalationTarget(lvl)) lastFilledSortedIndex = idx;
-        });
-        const filledRowCount = sorted.filter(rowHasEscalationTarget).length;
-
         return (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 16 }}>
                 <div style={{ marginBottom: 2 }}>
                     <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 2 }}>Escalation Ladder</div>
                     <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-                        Level 1 is always this role (cannot be changed). Use <strong style={{ fontWeight: 600, color: 'var(--text-secondary)' }}>Add escalation level</strong> for up to two more <strong style={{ fontWeight: 600, color: 'var(--text-secondary)' }}>Critical</strong> targets — select a role for each added level before saving.
+                        Level 1 is always this role (cannot be changed). Use <strong style={{ fontWeight: 600, color: 'var(--text-secondary)' }}>Add escalation level</strong> for up to two more <strong style={{ fontWeight: 600, color: 'var(--text-secondary)' }}>Critical</strong> targets. The <strong style={{ fontWeight: 600, color: 'var(--text-secondary)' }}>last role</strong> in the chain has no timer — only roles above it do.
                     </div>
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
                     {sorted.map((lvl, i) => {
-                        const hideDelayRow = !rowHasEscalationTarget(lvl)
-                            || (filledRowCount > 1 && i === lastFilledSortedIndex);
+                        const showDelay = ladderRowShowsDelay(sorted, i, (_, idx) => rowHasEscalationTarget(sorted[idx]));
                         const occupiedForRow = [
                             ...(primaryName ? [primaryName] : []),
                             ...levels
@@ -1540,7 +1536,7 @@ export default function RolesBuilderAssignment() {
                                 .map(l => l.target.trim()),
                         ];
                         return (
-                        <div key={lvl.level} style={{ display: 'flex', alignItems: 'stretch', gap: 10 }}>
+                        <div key={ladderLevelReactKey(lvl, i)} style={{ display: 'flex', alignItems: 'stretch', gap: 10 }}>
                             {/* Level number + connector line */}
                             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: 28, flexShrink: 0 }}>
                                 <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 26, height: 26, borderRadius: '50%', background: 'var(--helix-primary)', color: '#fff', fontSize: 11, fontWeight: 700, flexShrink: 0, zIndex: 1 }}>{lvl.level}</span>
@@ -1594,8 +1590,8 @@ export default function RolesBuilderAssignment() {
                                         dropdownMinWidth={380}
                                     />
                                 )}
-                                {hideDelayRow ? (
-                                    <span style={{ fontSize: 10, color: 'var(--text-muted)', width: 100, flexShrink: 0, textAlign: 'center' }} title="No delay after the final target">—</span>
+                                {!showDelay ? (
+                                    <span style={{ fontSize: 10, color: 'var(--text-muted)', width: 100, flexShrink: 0, textAlign: 'center' }} title="Final role — no timer">—</span>
                                 ) : (
                                 <CustomSelect
                                     value={lvl.delay}
@@ -2628,7 +2624,7 @@ export default function RolesBuilderAssignment() {
                                             {levels.map((lvl, i, arr) => {
                                                 const isCurrentRole = lvl.target.toLowerCase() === roleName;
                                                 return (
-                                                    <div key={lvl.level} style={{ display: 'flex', alignItems: 'stretch', gap: 10 }}>
+                                                    <div key={ladderLevelReactKey(lvl, i)} style={{ display: 'flex', alignItems: 'stretch', gap: 10 }}>
                                                         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: 26, flexShrink: 0 }}>
                                                             <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 24, height: 24, borderRadius: '50%', background: isCurrentRole ? 'var(--helix-primary)' : 'var(--surface-3)', color: isCurrentRole ? '#fff' : 'var(--text-secondary)', fontSize: 10, fontWeight: 700, flexShrink: 0, zIndex: 1 }}>{lvl.level}</span>
                                                             {i < arr.length - 1 && (
@@ -2640,8 +2636,10 @@ export default function RolesBuilderAssignment() {
                                                                 {lvl.target}
                                                                 {isCurrentRole && <span style={{ fontSize: 10, fontWeight: 400, marginLeft: 6, color: 'var(--text-muted)' }}>(this role)</span>}
                                                             </span>
-                                                            {i < arr.length - 1 ? (
-                                                                <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>+{lvl.delay}</span>
+                                                            {ladderRowShowsDelay(arr, i, (_, idx) => Boolean(arr[idx]?.target?.trim())) && lvl.delay ? (
+                                                                <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                                                                    {lvl.level === 1 ? lvl.delay : `+${lvl.delay}`}
+                                                                </span>
                                                             ) : null}
                                                         </div>
                                                     </div>

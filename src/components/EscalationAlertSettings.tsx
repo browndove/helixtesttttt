@@ -14,11 +14,12 @@ import {
     clampEscalationDelaySeconds,
     delayToSeconds,
     ESCALATION_DELAY_OPTIONS,
-    MIN_ESCALATION_DELAY_SEC,
     secondsToDelay,
 } from '@/lib/escalation-delays';
 import {
+    ladderLevelReactKey,
     ladderLevelsToPolicyPayload,
+    ladderRowShowsDelay,
     policyToLadderLevels,
 } from '@/lib/escalation-policy-ladder';
 import {
@@ -487,7 +488,7 @@ export default function EscalationAlertSettings() {
                 return;
             }
 
-            const { initial_timeout_seconds, steps } = ladderLevelsToPolicyPayload(
+            const { role_id, initial_timeout_seconds, steps } = ladderLevelsToPolicyPayload(
                 newLevels,
                 createPrimaryRoleId,
                 primaryRole.name,
@@ -498,7 +499,7 @@ export default function EscalationAlertSettings() {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    role_id: createPrimaryRoleId,
+                    role_id,
                     initial_timeout_seconds,
                 }),
             });
@@ -564,7 +565,7 @@ export default function EscalationAlertSettings() {
                 };
             }
 
-            const { initial_timeout_seconds, steps } = ladderLevelsToPolicyPayload(
+            const { role_id, initial_timeout_seconds, steps } = ladderLevelsToPolicyPayload(
                 levelsNormalized,
                 editRole?.id || '',
                 editRole?.name || editName,
@@ -574,7 +575,7 @@ export default function EscalationAlertSettings() {
             const putRes = await fetch(`/api/proxy/escalation-policies/${editPolicyId}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ initial_timeout_seconds }),
+                body: JSON.stringify({ role_id, initial_timeout_seconds }),
             });
             if (!putRes.ok) { showToast('Failed to update policy timeout', 'error'); setEditSaving(false); return; }
 
@@ -674,12 +675,6 @@ export default function EscalationAlertSettings() {
             if (opts?.lockFirstLevelRole && index === 0) return Boolean(lvl.target?.trim());
             return Boolean(lvl.target?.trim());
         };
-        let lastFilledSortedIndex = -1;
-        sorted.forEach((lvl, idx) => {
-            if (rowHasEscalationTarget(lvl, idx)) lastFilledSortedIndex = idx;
-        });
-        const filledRowCount = sorted.filter((lvl, idx) => rowHasEscalationTarget(lvl, idx)).length;
-
         // Exclude roles already used elsewhere in the chain (same name, id, or facility-prefixed duplicate).
         const getAvailable = (levelNum: number, currentTarget: string) => {
             return allRolesForSelect.filter(r => {
@@ -707,8 +702,7 @@ export default function EscalationAlertSettings() {
                 </div>
                 {sorted.map((lvl, i) => {
                     const lockPrimary = Boolean(opts?.lockFirstLevelRole && i === 0);
-                    const hideDelayRow = !rowHasEscalationTarget(lvl, i)
-                        || (filledRowCount > 1 && i === lastFilledSortedIndex);
+                    const showDelay = ladderRowShowsDelay(sorted, i, rowHasEscalationTarget);
                     const available = getAvailable(lvl.level, lvl.target);
                     const roleQuery = (levelRoleSearch[lvl.level] || '').trim().toLowerCase();
                     const filteredAvailable = roleQuery
@@ -718,7 +712,7 @@ export default function EscalationAlertSettings() {
                         : available;
                     const autoCompleteMatches = roleQuery ? filteredAvailable.slice(0, 6) : [];
                     return (
-                        <div key={lvl.level} style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+                        <div key={ladderLevelReactKey(lvl, i)} style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
                             {/* Level indicator */}
                             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: 30, flexShrink: 0, paddingTop: 10 }}>
                                 <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 28, height: 28, borderRadius: '50%', background: levelColor(i), color: '#fff', fontSize: 12, fontWeight: 700, zIndex: 1 }}>{lvl.level}</span>
@@ -839,10 +833,13 @@ export default function EscalationAlertSettings() {
                                         </div>
                                     ) : null}
                                 </div>
-                                {/* Delay (hidden for final target when there is more than one level) */}
-                                {hideDelayRow ? (
+                                {!showDelay ? (
                                     <div style={{ padding: '8px 12px', background: 'var(--surface-2)', borderTop: '1px solid var(--border-subtle)' }}>
-                                        <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>Final escalation target — no delay before another role.</span>
+                                        <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                                            {rowHasEscalationTarget(lvl, i)
+                                                ? 'Final role in chain — no timer.'
+                                                : 'Select a role to set escalation delay.'}
+                                        </span>
                                     </div>
                                 ) : (
                                     <div style={{ padding: '8px 12px', display: 'flex', alignItems: 'center', gap: 8, background: 'var(--surface-2)' }}>
@@ -891,11 +888,6 @@ export default function EscalationAlertSettings() {
         const sorted = [...levels].sort((a, b) => a.level - b.level);
         const effective = sorted.map((lvl, i) => (i === 0 && !lvl.target ? { ...lvl, target: name } : lvl));
         const summaryRowFilled = (lvl: EscalationLevel) => Boolean(lvl.target?.trim());
-        let summaryLastFilledIdx = -1;
-        effective.forEach((lvl, idx) => {
-            if (summaryRowFilled(lvl)) summaryLastFilledIdx = idx;
-        });
-        const summaryFilledCount = effective.filter(summaryRowFilled).length;
         return (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                 <div style={{ marginBottom: 4 }}>
@@ -906,7 +898,7 @@ export default function EscalationAlertSettings() {
                 {/* Visual chain */}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 0, padding: '12px 0' }}>
                     {effective.map((lvl, i) => (
-                        <div key={lvl.level} style={{ display: 'flex', alignItems: 'stretch', gap: 14 }}>
+                        <div key={ladderLevelReactKey(lvl, i)} style={{ display: 'flex', alignItems: 'stretch', gap: 14 }}>
                             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: 36, flexShrink: 0 }}>
                                 <span style={{
                                     display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
@@ -927,7 +919,7 @@ export default function EscalationAlertSettings() {
                                     <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>{lvl.target || '(not set)'}</span>
                                 </div>
                                 <div style={{ display: 'flex', gap: 12, fontSize: 11, color: 'var(--text-muted)' }}>
-                                    {summaryRowFilled(lvl) && !(summaryFilledCount > 1 && i === summaryLastFilledIdx) && (
+                                    {summaryRowFilled(lvl) && ladderRowShowsDelay(effective, i, (_, idx) => summaryRowFilled(effective[idx])) && lvl.delay && (
                                         <span>Delay: <strong style={{ color: 'var(--text-secondary)' }}>{lvl.delay}</strong></span>
                                     )}
                                     <span style={{ color: levelColor(i), fontWeight: 600 }}>
@@ -961,16 +953,16 @@ export default function EscalationAlertSettings() {
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
                     {sorted.map((lvl, i) => (
-                        <div key={lvl.level} style={{ display: 'flex', alignItems: 'stretch', gap: 10 }}>
+                        <div key={ladderLevelReactKey(lvl, i)} style={{ display: 'flex', alignItems: 'stretch', gap: 10 }}>
                             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: 30, flexShrink: 0 }}>
                                 <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 28, height: 28, borderRadius: '50%', background: levelColor(i), color: '#fff', fontSize: 12, fontWeight: 700, flexShrink: 0, zIndex: 1, boxShadow: `0 1px 4px ${levelColor(i)}30` }}>{lvl.level}</span>
                                 {i < sorted.length - 1 && <div style={{ width: 2, flex: 1, background: 'var(--border-default)', minHeight: 12 }} />}
                             </div>
                             <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderRadius: 'var(--radius-md)', background: 'var(--surface-2)', border: '1px solid var(--border-subtle)', marginTop: i === 0 ? 0 : 4 }}>
                                 <span style={{ fontSize: 12.5, fontWeight: 600, flex: 1, color: 'var(--text-primary)' }}>{lvl.target}</span>
-                                {!(sorted.length > 1 && i === sorted.length - 1) && (
-                                    <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>+{lvl.delay}</span>
-                                )}
+                                {ladderRowShowsDelay(sorted, i, (_, idx) => Boolean(sorted[idx]?.target?.trim())) && lvl.delay ? (
+                                    <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{i === 0 ? lvl.delay : `+${lvl.delay}`}</span>
+                                ) : null}
                             </div>
                         </div>
                     ))}
