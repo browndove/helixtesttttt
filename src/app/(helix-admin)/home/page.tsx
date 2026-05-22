@@ -17,14 +17,92 @@ const plusJakarta = Plus_Jakarta_Sans({
     variable: '--font-plus-jakarta',
 });
 
-const OPERATIONAL_MIX = [
-    { label: 'Wards & units', pct: 44, tone: 'm1' as const },
-    { label: 'Outpatient', pct: 28, tone: 'm2' as const },
-    { label: 'On-call pools', pct: 18, tone: 'm3' as const },
-    { label: 'Corporate', pct: 10, tone: 'm4' as const },
-];
+type DeptMessageMixTone = 'm1' | 'm2' | 'm3' | 'm4';
+
+type DeptMessageMixRow = {
+    label: string;
+    count: number;
+    pct: number;
+    tone: DeptMessageMixTone;
+};
+
+const DEPT_MIX_TONES: DeptMessageMixTone[] = ['m1', 'm2', 'm3', 'm4'];
 
 const SPARK_POINTS = [22, 24, 23, 28, 31, 30, 34, 33, 36, 40, 38, 41];
+
+const TEAM_PRESENCE_MAX = 10;
+
+function buildDepartmentMessageMix(analytics: Record<string, unknown>): {
+    rows: DeptMessageMixRow[];
+    total: number;
+    windowDays: number;
+} {
+    const windowDays = Number(analytics.window_days ?? 30);
+    const safeWindowDays = Number.isFinite(windowDays) && windowDays > 0 ? Math.round(windowDays) : 30;
+
+    const byDept = new Map<string, number>();
+
+    const roleMetrics = Array.isArray(analytics.role_metrics) ? analytics.role_metrics : [];
+    for (const row of roleMetrics) {
+        if (!row || typeof row !== 'object') continue;
+        const rec = row as Record<string, unknown>;
+        const name = String(rec.department_name || rec.department || '').trim() || 'Unassigned';
+        const n = Number(rec.total_messages ?? 0);
+        if (!Number.isFinite(n) || n <= 0) continue;
+        byDept.set(name, (byDept.get(name) || 0) + n);
+    }
+
+    if (byDept.size === 0) {
+        const deptMetrics = Array.isArray(analytics.department_metrics) ? analytics.department_metrics : [];
+        for (const row of deptMetrics) {
+            if (!row || typeof row !== 'object') continue;
+            const rec = row as Record<string, unknown>;
+            const name = String(rec.department_name || '').trim() || 'Unassigned';
+            const n = Number(
+                rec.total_messages
+                ?? rec.messages_sent
+                ?? rec.critical_messages_sent
+                ?? 0,
+            );
+            if (!Number.isFinite(n) || n <= 0) continue;
+            byDept.set(name, (byDept.get(name) || 0) + n);
+        }
+    }
+
+    const sorted = [...byDept.entries()].sort((a, b) => b[1] - a[1]);
+    const total = sorted.reduce((sum, [, count]) => sum + count, 0);
+    if (total <= 0) {
+        return { rows: [], total: 0, windowDays: safeWindowDays };
+    }
+
+    const topN = 3;
+    const top = sorted.slice(0, topN);
+    const otherCount = sorted.slice(topN).reduce((sum, [, count]) => sum + count, 0);
+    const entries: { label: string; count: number }[] = top.map(([label, count]) => ({ label, count }));
+    if (otherCount > 0) {
+        entries.push({ label: 'Other', count: otherCount });
+    } else if (entries.length === 0 && sorted.length > 0) {
+        entries.push({ label: sorted[0][0], count: sorted[0][1] });
+    }
+
+    const capped = entries.slice(0, 4);
+    const pcts = capped.map((e) => Math.round((e.count / total) * 100));
+    const pctSum = pcts.reduce((a, b) => a + b, 0);
+    if (pctSum !== 100 && pcts.length > 0) {
+        pcts[0] += 100 - pctSum;
+    }
+
+    return {
+        rows: capped.map((e, i) => ({
+            label: e.label,
+            count: e.count,
+            pct: pcts[i] ?? 0,
+            tone: DEPT_MIX_TONES[i % DEPT_MIX_TONES.length],
+        })),
+        total,
+        windowDays: safeWindowDays,
+    };
+}
 
 function getList(raw: unknown, keys: string[]): unknown[] {
     if (Array.isArray(raw)) return raw;
@@ -51,7 +129,7 @@ function readTotal(raw: unknown, fallback: number): number {
 function parsePresenceOnlineToSignedIn(raw: unknown, max: number): SignedInStaff[] {
     const list = getList(raw, ['data', 'items', 'online', 'staff', 'users', 'results', 'presence', 'records']);
     if (!Array.isArray(list) || list.length === 0) return [];
-    const rows: SignedInStaff[] = [];
+    const rows: (SignedInStaff & { _ts: number })[] = [];
     for (let idx = 0; idx < list.length; idx++) {
         const item = list[idx];
         if (!item || typeof item !== 'object') continue;
@@ -80,6 +158,7 @@ function parsePresenceOnlineToSignedIn(raw: unknown, max: number): SignedInStaff
             || rec.updated_at
             || '',
         ).trim();
+        const ts = whenRaw ? Date.parse(whenRaw) : Date.now();
         const id = String(rec.id || rec.staff_id || rec.user_id || `presence-${idx}`);
         rows.push({
             id,
@@ -88,9 +167,13 @@ function parsePresenceOnlineToSignedIn(raw: unknown, max: number): SignedInStaff
             role,
             when: whenRaw ? toWhenLabel(whenRaw) : 'Active now',
             status: 'online',
+            _ts: Number.isFinite(ts) ? ts : 0,
         });
     }
-    return rows.slice(0, max);
+    return rows
+        .sort((a, b) => b._ts - a._ts)
+        .slice(0, max)
+        .map(({ _ts, ...rest }) => { void _ts; return rest; });
 }
 
 function toWhenLabel(dateLike: string): string {
@@ -183,6 +266,12 @@ export default function HomePage() {
     const [activeSessions, setActiveSessions] = useState(0);
     const [signedInStaff, setSignedInStaff] = useState<SignedInStaff[]>([]);
     const [presenceReportedNoOnline, setPresenceReportedNoOnline] = useState(false);
+    const [departmentMessageMix, setDepartmentMessageMix] = useState<DeptMessageMixRow[]>([]);
+    const [departmentMessagesTotal, setDepartmentMessagesTotal] = useState(0);
+    const [analyticsWindowDays, setAnalyticsWindowDays] = useState(30);
+    const [escalatedCriticalMessages, setEscalatedCriticalMessages] = useState(0);
+    const [escalationRatePercent, setEscalationRatePercent] = useState(0);
+    const [incompleteEscalationPolicies, setIncompleteEscalationPolicies] = useState(0);
 
     const fetchHomeData = useCallback(async () => {
         setLoading(true);
@@ -255,6 +344,22 @@ export default function HomePage() {
                 });
                 const ack = Number(a.avg_critical_ack_minutes ?? 0);
                 setAvgCriticalAckMinutes(Number.isFinite(ack) ? ack : 0);
+
+                const escalated = Number(a.escalated_critical_messages ?? 0);
+                const escRate = Number(a.escalation_rate_percent ?? 0);
+                setEscalatedCriticalMessages(Number.isFinite(escalated) ? escalated : 0);
+                setEscalationRatePercent(Number.isFinite(escRate) ? escRate : 0);
+
+                const deptMix = buildDepartmentMessageMix(a);
+                setDepartmentMessageMix(deptMix.rows);
+                setDepartmentMessagesTotal(deptMix.total);
+                setAnalyticsWindowDays(deptMix.windowDays);
+            } else {
+                setDepartmentMessageMix([]);
+                setDepartmentMessagesTotal(0);
+                setAnalyticsWindowDays(30);
+                setEscalatedCriticalMessages(0);
+                setEscalationRatePercent(0);
             }
 
             const presenceBundle = await fetchMergedFacilityPresenceOnline();
@@ -319,11 +424,11 @@ export default function HomePage() {
                 })
                 .filter((x): x is SignedInStaff & { _ts: number } => Boolean(x))
                 .sort((a, b) => b._ts - a._ts)
-                .slice(0, 8)
+                .slice(0, TEAM_PRESENCE_MAX)
                 .map(({ _ts, ...rest }) => { void _ts; return rest; });
 
             const fromPresence = presenceReallyOk && presenceMergedPayload
-                ? parsePresenceOnlineToSignedIn(presenceMergedPayload, 8)
+                ? parsePresenceOnlineToSignedIn(presenceMergedPayload, TEAM_PRESENCE_MAX)
                 : [];
             if (fromPresence.length > 0) {
                 setSignedInStaff(fromPresence);
@@ -342,6 +447,7 @@ export default function HomePage() {
             }).length;
             const departmentsWithoutName = departmentItems.filter(d => !String(d.name || d.department_name || '').trim()).length;
             const escalationsMissingSteps = escalationItems.filter(p => !Array.isArray(p.steps) || p.steps.length === 0).length;
+            setIncompleteEscalationPolicies(escalationsMissingSteps);
             setSetupTasks(teamsWithoutLead + teamsWithoutMembers + escalationsMissingSteps + departmentsWithoutName);
 
             const historyRows = [
@@ -382,7 +488,7 @@ export default function HomePage() {
 
     useEffect(() => { fetchHomeData(); }, [fetchHomeData]);
 
-    const openAlerts = (failedImports24h > 0 ? 1 : 0) + (setupTasks > 0 ? 1 : 0);
+    const escalationNeedsAttention = incompleteEscalationPolicies > 0;
     const onlineCount = signedInStaff.filter((s) => s.status === 'online').length;
     const facilityShort = facilityName || 'Your facility';
 
@@ -436,6 +542,11 @@ export default function HomePage() {
     ];
 
     const formatMetric = (n: number, suffix = '') => (loading ? '—' : `${n.toLocaleString()}${suffix}`);
+
+    const deptMixCount = departmentMessageMix.length;
+    const deptMixAria = departmentMessageMix
+        .map((m) => `${m.label}: ${m.count.toLocaleString()} messages (${m.pct}%)`)
+        .join(', ');
 
     return (
         <div className={`app-main home-overview-app-main ${plusJakarta.className}`}>
@@ -510,22 +621,28 @@ export default function HomePage() {
                                 View details <span className="material-icons-round">arrow_forward</span>
                             </button>
                         </article>
-                        <article className={`dash-wallet${openAlerts > 0 ? ' dash-wallet--warn' : ''}`}>
+                        <article className={`dash-wallet${escalationNeedsAttention ? ' dash-wallet--warn' : ''}`}>
                             <p className="dash-wallet__label">Escalations</p>
-                            <p className="dash-wallet__hint">Open · 24h</p>
-                            <p className={`dash-wallet__balance${openAlerts > 0 ? ' dash-wallet__balance--alert' : ''}`}>
-                                {formatMetric(openAlerts)}
+                            <p className="dash-wallet__hint">Critical messages · {analyticsWindowDays} days</p>
+                            <p className={`dash-wallet__balance${escalationNeedsAttention ? ' dash-wallet__balance--alert' : ''}`}>
+                                {formatMetric(escalatedCriticalMessages)}
                             </p>
-                            {openAlerts > 0 && (
+                            {escalationNeedsAttention && (
                                 <div className="dash-wallet__row">
                                     <span className="dash-wallet__flag">
                                         <span className="material-icons-round">warning</span>
-                                        Needs assignment
+                                        {incompleteEscalationPolicies} ladder{incompleteEscalationPolicies === 1 ? '' : 's'} need steps
                                     </span>
                                 </div>
                             )}
                             <p className="dash-wallet__foot">
-                                {setupTasks > 0 ? `${setupTasks} setup item${setupTasks === 1 ? '' : 's'}` : 'Requires assignment'}
+                                {loading
+                                    ? '—'
+                                    : escalatedCriticalMessages > 0
+                                        ? `${escalationRatePercent.toFixed(1)}% of critical messages escalated`
+                                        : escalationNeedsAttention
+                                            ? 'Finish escalation ladders in config'
+                                            : 'No critical escalations in this period'}
                             </p>
                             <button type="button" className="dash-link" onClick={() => router.push('/escalation')}>
                                 View details <span className="material-icons-round">arrow_forward</span>
@@ -535,24 +652,63 @@ export default function HomePage() {
 
                     <section className="dash-mid dash-reveal" aria-label="Analytics">
                         <div className="dash-card dash-card--lg">
-                            <h2 className="dash-card__title">Operational breakdown</h2>
+                            <h2 className="dash-card__title">Messages by department</h2>
                             <p className="dash-card__lede">
-                                Case volume across <strong>{OPERATIONAL_MIX.length} lanes</strong> at {facilityShort}
+                                {loading ? (
+                                    <>Loading message breakdown…</>
+                                ) : deptMixCount > 0 ? (
+                                    <>
+                                        <strong>{departmentMessagesTotal.toLocaleString()} messages</strong> across{' '}
+                                        <strong>{deptMixCount} department{deptMixCount === 1 ? '' : 's'}</strong> at {facilityShort}
+                                    </>
+                                ) : (
+                                    <>No department message data for {facilityShort}</>
+                                )}
                             </p>
-                            <p className="dash-card__muted">Blended acuity · 30-day window</p>
-                            <div className="dash-segbar" role="img" aria-label="Share by lane">
-                                {OPERATIONAL_MIX.map((m) => (
-                                    <span key={m.label} className={`dash-seg dash-seg--${m.tone}`} style={{ width: `${m.pct}%` }} />
-                                ))}
+                            <p className="dash-card__muted">
+                                {analyticsWindowDays}-day window · share of facility volume
+                            </p>
+                            <div
+                                className="dash-segbar"
+                                role="img"
+                                aria-label={deptMixAria || 'No department message data'}
+                            >
+                                {loading ? (
+                                    <span className="dash-seg dash-seg--empty" style={{ width: '100%' }} />
+                                ) : deptMixCount > 0 ? (
+                                    departmentMessageMix.map((m) => (
+                                        <span
+                                            key={m.label}
+                                            className={`dash-seg dash-seg--${m.tone}`}
+                                            style={{ width: `${Math.max(m.pct, 4)}%` }}
+                                            title={`${m.label}: ${m.count.toLocaleString()} (${m.pct}%)`}
+                                        />
+                                    ))
+                                ) : (
+                                    <span className="dash-seg dash-seg--empty" style={{ width: '100%' }} />
+                                )}
                             </div>
                             <ul className="dash-legend">
-                                {OPERATIONAL_MIX.map((m) => (
-                                    <li key={m.label}>
-                                        <span className={`dash-swatch dash-swatch--${m.tone}`} />
-                                        <span className="dash-legend__n">{m.label}</span>
-                                        <span className="dash-legend__pct">{m.pct}%</span>
+                                {loading ? (
+                                    <li>
+                                        <span className="dash-swatch dash-swatch--m4" />
+                                        <span className="dash-legend__n">Loading…</span>
                                     </li>
-                                ))}
+                                ) : deptMixCount > 0 ? (
+                                    departmentMessageMix.map((m) => (
+                                        <li key={m.label}>
+                                            <span className={`dash-swatch dash-swatch--${m.tone}`} />
+                                            <span className="dash-legend__n">{m.label}</span>
+                                            <span className="dash-legend__count">{m.count.toLocaleString()}</span>
+                                            <span className="dash-legend__pct">{m.pct}%</span>
+                                        </li>
+                                    ))
+                                ) : (
+                                    <li>
+                                        <span className="dash-swatch dash-swatch--m4" />
+                                        <span className="dash-legend__n">No messages in this period</span>
+                                    </li>
+                                )}
                             </ul>
                         </div>
 
@@ -585,81 +741,20 @@ export default function HomePage() {
                         </div>
                     </section>
 
-                    <section className="dash-smart dash-reveal" aria-label="Operational alerts">
-                        <div className="dash-smart__hd">
-                            <h2 className="dash-smart__title">Smart operational alerts</h2>
-                            <div className="dash-smart__tools">
-                                <label className="dash-search">
-                                    <span className="material-icons-round">search</span>
-                                    <input type="search" placeholder="Search alerts…" autoComplete="off" />
-                                </label>
-                                <label className="dash-sort">
-                                    Sort by{' '}
-                                    <select aria-label="Sort alerts">
-                                        <option>Urgency</option>
-                                        <option>Recency</option>
-                                        <option>Owner</option>
-                                    </select>
-                                </label>
-                            </div>
-                        </div>
-
-                        <article className="dash-spotlight">
-                            <div className="dash-spotlight__hd">
-                                <div className="dash-spotlight__who">
-                                    <span className="dash-spotlight__icon">
-                                        <span className="material-icons-round">local_hospital</span>
-                                    </span>
-                                    <div>
-                                        <p className="dash-spotlight__code">Pool #ICU-03</p>
-                                        <p className="dash-spotlight__name">ICU on-call · night window</p>
-                                    </div>
-                                </div>
-                                <div className="dash-spotlight__acts">
-                                    <button type="button" className="dash-btn dash-btn--outline dash-btn--sm" onClick={() => router.push('/staff')}>
-                                        Assign staff
-                                    </button>
-                                    <button type="button" className="dash-btn dash-btn--primary dash-btn--sm" onClick={() => router.push('/escalation')}>
-                                        Review
-                                    </button>
-                                </div>
-                            </div>
-                            <h3 className="dash-spotlight__h">Coverage pressure</h3>
-                            <div className="dash-spotlight__grid">
-                                <div className="dash-mini dash-mini--risk">
-                                    <span className="material-icons-round dash-mini__ic">blur_on</span>
-                                    <span className="dash-mini__k">Risk</span>
-                                    <span className="dash-mini__v">{openAlerts > 0 || criticalRoleFill.percent < 90 ? 'Elevated' : 'Normal'}</span>
-                                </div>
-                                <div className="dash-mini">
-                                    <span className="material-icons-round dash-mini__ic">percent</span>
-                                    <span className="dash-mini__k">Fill rate</span>
-                                    <span className="dash-mini__v">{loading ? '—' : `${criticalRoleFill.percent}%`}</span>
-                                </div>
-                                <div className="dash-mini">
-                                    <span className="material-icons-round dash-mini__ic">schedule</span>
-                                    <span className="dash-mini__k">Horizon</span>
-                                    <span className="dash-mini__v">Next 6 hrs</span>
-                                </div>
-                                <div className="dash-mini">
-                                    <span className="material-icons-round dash-mini__ic">auto_awesome</span>
-                                    <span className="dash-mini__k">Confidence</span>
-                                    <span className="dash-mini__v">{loading ? '—' : `${Math.max(40, Math.min(95, criticalRoleFill.percent))}%`}</span>
-                                </div>
-                            </div>
-                            <p className="dash-spotlight__note">
-                                Escalation window influenced by recent admissions trend.
-                            </p>
-                        </article>
-                    </section>
-
                     <div className="dash-lower dash-reveal">
-                        <section className="dash-card dash-card--table" aria-label="Team presence">
+                        <section
+                            className={`dash-card dash-card--table${!loading && signedInStaff.length === 0 ? ' dash-card--table-empty' : ''}`}
+                            aria-label="Team presence"
+                        >
                             <div className="dash-card__hd">
                                 <div>
                                     <h2 className="dash-card__title">Team presence</h2>
                                     <p className="dash-card__muted">
-                                        {loading ? '—' : `${onlineCount} online of ${signedInStaff.length} on this view`}
+                                        {loading
+                                            ? '—'
+                                            : signedInStaff.length === 0
+                                                ? 'No recent activity'
+                                                : `${onlineCount} online · ${signedInStaff.length} most recent (up to ${TEAM_PRESENCE_MAX})`}
                                     </p>
                                 </div>
                                 <button type="button" className="dash-btn dash-btn--outline dash-btn--sm" onClick={() => router.push('/staff')}>

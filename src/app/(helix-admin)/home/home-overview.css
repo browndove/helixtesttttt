@@ -457,6 +457,10 @@
   background: #d1d5db;
 }
 
+.home-overview-app-main .dash-seg--empty {
+  background: var(--line2);
+}
+
 .home-overview-app-main .dash-legend {
   list-style: none;
   display: flex;
@@ -487,6 +491,12 @@
 
 .home-overview-app-main .dash-legend__n {
   color: var(--text);
+}
+
+.home-overview-app-main .dash-legend__count {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  color: var(--ink);
 }
 
 .home-overview-app-main .dash-legend__pct {
@@ -795,6 +805,7 @@
   grid-template-columns: 1.25fr 1fr;
   gap: 16px;
   margin-bottom: 20px;
+  align-items: start;
 }
 
 .home-overview-app-main .dash-stack {
@@ -811,6 +822,19 @@
 .home-overview-app-main .dash-card--table .dash-card__hd {
   padding: 20px 22px 0;
   margin-bottom: 14px;
+}
+
+.home-overview-app-main .dash-card--table-empty .dash-card__hd {
+  margin-bottom: 0;
+  padding-bottom: 4px;
+}
+
+.home-overview-app-main .dash-card--table-empty .dash-tablewrap {
+  min-height: 0;
+}
+
+.home-overview-app-main .dash-card--table-empty .dash-empty {
+  padding: 10px 22px 16px;
 }
 
 .home-overview-app-main .dash-tablewrap {
