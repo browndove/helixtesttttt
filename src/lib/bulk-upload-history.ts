@@ -1,6 +1,12 @@
 /** Query value for GET /api/v1/bulk-upload-history */
 export type BulkUploadHistoryKind = 'staff' | 'patient';
 
+export type BulkUploadHistoryRowError = {
+    row: number;
+    email: string;
+    message: string;
+};
+
 export type BulkUploadHistoryEntry = {
     id: string;
     file: string;
@@ -9,6 +15,7 @@ export type BulkUploadHistoryEntry = {
     warnings: number;
     date: string;
     user: string;
+    errors: BulkUploadHistoryRowError[];
 };
 
 function readNumber(value: unknown): number {
@@ -28,11 +35,34 @@ function formatHistoryDate(v: unknown): string {
     if (typeof v === 'string' && v.trim()) {
         const t = Date.parse(v);
         if (!Number.isNaN(t)) {
-            return new Date(t).toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' });
+            return new Date(t).toLocaleString('en-US', {
+                month: 'short',
+                day: '2-digit',
+                year: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit',
+                hour12: false,
+            });
         }
         return v.trim();
     }
     return '—';
+}
+
+function parseHistoryErrors(raw: unknown): BulkUploadHistoryRowError[] {
+    if (!Array.isArray(raw)) return [];
+    const out: BulkUploadHistoryRowError[] = [];
+    for (let i = 0; i < raw.length; i++) {
+        const item = raw[i];
+        if (!item || typeof item !== 'object') continue;
+        const r = item as Record<string, unknown>;
+        const row = readNumber(r.row) || i + 1;
+        const message = S(r.message || r.error || r.detail, 'Unknown error');
+        const email = S(r.email, '');
+        if (!message) continue;
+        out.push({ row, email, message });
+    }
+    return out;
 }
 
 function extractHistoryRows(raw: unknown): unknown[] {
@@ -66,9 +96,11 @@ function parseHistoryRow(row: unknown, idx: number): BulkUploadHistoryEntry | nu
         r.records ?? r.records_count ?? r.record_count ?? r.rows_imported ?? r.imported_count ?? r.success_count
     );
     const failed = readNumber(r.failed_count ?? r.errors_count ?? r.error_count ?? r.failed_rows);
+    const errors = parseHistoryErrors(r.errors ?? r.row_errors ?? r.failures ?? r.failed_rows_detail);
     const warnings = readNumber(
         r.warnings ?? r.warning_count ?? r.warnings_count ?? failed
     );
+    const warningCount = Math.max(warnings, errors.length);
     const statusRaw = S(r.status, '').toLowerCase();
     let status: 'success' | 'error' = 'success';
     if (statusRaw === 'error' || statusRaw === 'failed' || statusRaw === 'failure') {
@@ -89,10 +121,11 @@ function parseHistoryRow(row: unknown, idx: number): BulkUploadHistoryEntry | nu
         id: id || `hist-${idx}`,
         file: file || '—',
         records,
-        status,
-        warnings: warnings || failed,
+        status: status === 'success' && errors.length > 0 && records > 0 ? 'success' : status,
+        warnings: warningCount,
         date,
         user: user || '—',
+        errors,
     };
 }
 

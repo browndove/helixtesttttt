@@ -79,6 +79,9 @@
   --accent-orange: #e89b00;
   --shadow-soft: 0px 4px 20.2px 0px rgba(0, 0, 0, 0.05);
   --shadow-input: 0px 0.5px 1.9px 0px rgba(0, 0, 0, 0.13);
+
+  --font-sans: 'Montserrat', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
 @theme inline {

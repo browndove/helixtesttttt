@@ -7,6 +7,7 @@ import {
     parseBulkUploadHistoryResponse,
     type BulkUploadHistoryEntry,
 } from '@/lib/bulk-upload-history';
+import ImportHistoryLedger from '@/components/ImportHistoryLedger';
 import { MacVibrancyToast, MacVibrancyToastPortal } from '@/components/MacVibrancyToast';
 import { BulkImportErrorsSheet } from '@/components/BulkImportErrorsSheet';
 import { patientBulkImportToastHeadline } from '@/lib/bulk-import-toast';
@@ -645,58 +646,13 @@ export default function PatientsDirectoryManagement() {
                 </div>
             )}
 
-            <div className="fade-in delay-3 card" style={{ marginTop: 8 }}>
-                <h3 style={{ margin: '0 0 14px' }}>Import history</h3>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                    {bulkHistoryLoading && (
-                        <div style={{ padding: 24, textAlign: 'center', color: 'var(--text-muted)', fontSize: 13 }}>Loading history…</div>
-                    )}
-                    {!bulkHistoryLoading && bulkHistory.length === 0 && (
-                        <div style={{ padding: 20, textAlign: 'center', color: 'var(--text-muted)', fontSize: 13 }}>No patient bulk imports yet.</div>
-                    )}
-                    {!bulkHistoryLoading &&
-                        bulkHistory.map(h => (
-                            <div
-                                key={h.id}
-                                style={{
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: 14,
-                                    padding: '12px 14px',
-                                    borderRadius: 'var(--radius-md)',
-                                    background: 'var(--surface-2)',
-                                    border: '1px solid var(--border-subtle)',
-                                }}
-                            >
-                                <div
-                                    style={{
-                                        width: 36,
-                                        height: 36,
-                                        borderRadius: 9,
-                                        flexShrink: 0,
-                                        background: h.status === 'success' ? 'var(--success-bg)' : 'var(--error-bg)',
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        justifyContent: 'center',
-                                    }}
-                                >
-                                    <span
-                                        className="material-icons-round"
-                                        style={{ fontSize: 18, color: h.status === 'success' ? 'var(--success)' : 'var(--error)' }}
-                                    >
-                                        {h.status === 'success' ? 'check_circle' : 'error'}
-                                    </span>
-                                </div>
-                                <div style={{ flex: 1, minWidth: 0 }}>
-                                    <div style={{ fontWeight: 600, fontSize: 13, wordBreak: 'break-word' }}>{h.file}</div>
-                                    <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 1 }}>
-                                        {h.records} records · {h.date} · {h.user}
-                                    </div>
-                                </div>
-                                {h.warnings > 0 && <span className="badge badge-warning">{h.warnings} warnings</span>}
-                            </div>
-                        ))}
-                </div>
+            <div className="fade-in delay-3" style={{ marginTop: 8 }}>
+                <ImportHistoryLedger
+                    entries={bulkHistory}
+                    loading={bulkHistoryLoading}
+                    emptyMessage="No patient bulk imports yet."
+                    kindLabel="Patient"
+                />
             </div>
         </main>
     );
