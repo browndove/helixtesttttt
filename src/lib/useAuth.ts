@@ -1,5 +1,6 @@
 import { useRouter } from 'next/navigation';
 import { API_ENDPOINTS } from '@/lib/config';
+import { clearClientFacilityIdCache } from '@/lib/facility-client';
 import { clearAdminSidebarSession } from '@/lib/facilityDisplayCache';
 
 export function useAuth() {
@@ -27,6 +28,7 @@ export function useAuth() {
             const errMsg = err instanceof Error ? err.message : 'Network error';
             onToast?.(errMsg, 'error');
         } finally {
+            clearClientFacilityIdCache();
             clearAdminSidebarSession();
             // Full navigation so we always leave the admin shell and land on login, even if the API errored.
             if (typeof window !== 'undefined') {

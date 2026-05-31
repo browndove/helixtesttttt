@@ -1,51 +1,49 @@
 import { API_ENDPOINTS } from '@/lib/config';
-import { appendFacilityIdToProxyUrl, resolveClientFacilityId } from '@/lib/facility-client';
+import { isClientInternalSupportMode, resolveClientFacilityId } from '@/lib/facility-client';
 
 /**
- * GET /api/v1/presence/online is scoped by WebSocket `client` (defaults to app).
- * Admin UI users connect as client=admin; mobile/app users as client=app.
- * We merge both so directory and home show everyone currently online in the facility.
+ * GET /api/v1/presence/online — app/admin online users for a facility.
+ * Response: { facility_id, users: [{ user_id, first_name, last_name, username, job_title, online_on }] }
  */
 
-const PRESENCE_CLIENTS = ['admin', 'app'] as const;
+export type PresenceOnlineUser = {
+    user_id: string;
+    first_name?: string;
+    last_name?: string;
+    username?: string;
+    job_title?: string;
+    online_on?: string[];
+    online?: boolean;
+};
 
-function presenceListFromPayload(raw: unknown): unknown[] {
+function isRecordOnline(rec: Record<string, unknown>): boolean {
+    if (rec.online === false || rec.is_online === false || rec.connected === false) return false;
+    const on = rec.online_on;
+    if (Array.isArray(on) && on.length === 0) return false;
+    return true;
+}
+
+/** Extract user rows from REST / WS presence payloads. */
+export function presenceListFromPayload(raw: unknown): unknown[] {
     if (Array.isArray(raw)) return raw;
     if (!raw || typeof raw !== 'object') return [];
     const rec = raw as Record<string, unknown>;
 
-    for (const k of ['data', 'items', 'online', 'staff', 'users', 'results', 'presence', 'records', 'online_users', 'rows']) {
+    const users = rec.users;
+    if (Array.isArray(users)) return users;
+
+    for (const k of ['data', 'items', 'online', 'staff', 'results', 'presence', 'records', 'online_users', 'rows']) {
         const v = rec[k];
         if (Array.isArray(v)) return v;
     }
 
-    const mergedTop: unknown[] = [];
-    const ou = rec.online_users;
-    if (ou && typeof ou === 'object' && !Array.isArray(ou)) {
-        for (const v of Object.values(ou)) {
-            if (Array.isArray(v)) mergedTop.push(...v);
-        }
-    }
-    for (const k of ['admin', 'app']) {
-        const v = rec[k];
-        if (Array.isArray(v)) mergedTop.push(...v);
-    }
-    if (mergedTop.length) return mergedTop;
-
     const data = rec.data;
     if (data && typeof data === 'object' && !Array.isArray(data)) {
         const d = data as Record<string, unknown>;
+        if (Array.isArray(d.users)) return d.users;
         for (const k of ['users', 'online', 'staff', 'items', 'online_users', 'records']) {
             const v = d[k];
             if (Array.isArray(v)) return v;
-        }
-        const nestedOu = d.online_users;
-        if (nestedOu && typeof nestedOu === 'object' && !Array.isArray(nestedOu)) {
-            const nestedMerged: unknown[] = [];
-            for (const v of Object.values(nestedOu)) {
-                if (Array.isArray(v)) nestedMerged.push(...v);
-            }
-            if (nestedMerged.length) return nestedMerged;
         }
     }
 
@@ -53,9 +51,9 @@ function presenceListFromPayload(raw: unknown): unknown[] {
 }
 
 const PRESENCE_ID_FIELDS = [
+    'user_id',
     'id',
     'staff_id',
-    'user_id',
     'auth_user_id',
     'account_id',
     'employee_id',
@@ -66,7 +64,7 @@ const PRESENCE_ID_FIELDS = [
 ] as const;
 
 function addPresenceKeysFromRecord(rec: Record<string, unknown>, set: Set<string>): void {
-    if (rec.online === false || rec.is_online === false || rec.connected === false) return;
+    if (!isRecordOnline(rec)) return;
 
     for (const k of PRESENCE_ID_FIELDS) {
         const v = String(rec[k] ?? '').trim();
@@ -83,7 +81,7 @@ function addPresenceKeysFromRecord(rec: Record<string, unknown>, set: Set<string
     }
 }
 
-/** Lowercase ids and emails for matching directory rows to presence payloads. */
+/** Lowercase ids, usernames, and emails for matching directory rows to presence payloads. */
 export function extractOnlineStaffIdSet(raw: unknown): Set<string> {
     const list = presenceListFromPayload(raw);
     const set = new Set<string>();
@@ -105,41 +103,71 @@ function presenceDedupeKey(item: unknown): string {
     }
     if (!item || typeof item !== 'object') return '';
     const rec = item as Record<string, unknown>;
-    return String(rec.id || rec.staff_id || rec.user_id || rec.email || '').trim().toLowerCase();
+    return String(rec.user_id || rec.id || rec.staff_id || rec.username || rec.email || '').trim().toLowerCase();
 }
 
-export async function fetchMergedFacilityPresenceOnline(): Promise<{ ok: boolean; items: unknown[] }> {
-    const merged: unknown[] = [];
-    const seen = new Set<string>();
-    let ok = false;
-    const base = API_ENDPOINTS.PRESENCE_ONLINE.split('?')[0];
-    const facilityId = await resolveClientFacilityId();
+/**
+ * Initial online roster for the admin portal (REST).
+ * Tenant admins omit facility_id — the proxy resolves it from the session token.
+ */
+export async function fetchFacilityPresenceOnline(): Promise<{
+    ok: boolean;
+    items: PresenceOnlineUser[];
+    facility_id?: string;
+}> {
+    const params = new URLSearchParams({ client: 'admin' });
 
-    for (const client of PRESENCE_CLIENTS) {
-        try {
-            const params = new URLSearchParams({ client });
-            if (facilityId) params.set('facility_id', facilityId);
-            const url = appendFacilityIdToProxyUrl(`${base}?${params.toString()}`, facilityId);
-            const res = await fetch(url, { credentials: 'include' });
-            if (!res.ok) continue;
-            ok = true;
-            const json: unknown = await res.json();
-            for (const item of presenceListFromPayload(json)) {
-                const dk = presenceDedupeKey(item);
-                if (dk) {
-                    if (seen.has(dk)) continue;
-                    seen.add(dk);
-                } else if (item && typeof item === 'object') {
-                    const sig = JSON.stringify(item).slice(0, 160);
-                    if (seen.has(sig)) continue;
-                    seen.add(sig);
-                }
-                merged.push(item);
-            }
-        } catch {
-            /* ignore */
-        }
+    if (await isClientInternalSupportMode()) {
+        const facilityId = await resolveClientFacilityId();
+        if (facilityId) params.set('facility_id', facilityId);
     }
 
-    return { ok, items: merged };
+    const base = API_ENDPOINTS.PRESENCE_ONLINE.split('?')[0];
+    const url = `${base}?${params.toString()}`;
+
+    try {
+        const res = await fetch(url, { credentials: 'include' });
+        if (!res.ok) return { ok: false, items: [] };
+
+        const json: unknown = await res.json();
+        const facility_id =
+            json && typeof json === 'object' && !Array.isArray(json)
+                ? String((json as Record<string, unknown>).facility_id || '').trim() || undefined
+                : undefined;
+
+        const merged: PresenceOnlineUser[] = [];
+        const seen = new Set<string>();
+
+        for (const item of presenceListFromPayload(json)) {
+            if (!item || typeof item !== 'object') continue;
+            const rec = item as Record<string, unknown>;
+            if (!isRecordOnline(rec)) continue;
+
+            const dk = presenceDedupeKey(rec);
+            if (dk) {
+                if (seen.has(dk)) continue;
+                seen.add(dk);
+            }
+
+            merged.push({
+                user_id: String(rec.user_id || rec.id || rec.staff_id || dk || ''),
+                first_name: String(rec.first_name || '').trim() || undefined,
+                last_name: String(rec.last_name || '').trim() || undefined,
+                username: String(rec.username || '').trim() || undefined,
+                job_title: String(rec.job_title || '').trim() || undefined,
+                online_on: Array.isArray(rec.online_on) ? rec.online_on.map(String) : undefined,
+                online: true,
+            });
+        }
+
+        return { ok: true, items: merged, facility_id };
+    } catch {
+        return { ok: false, items: [] };
+    }
+}
+
+/** @deprecated Use fetchFacilityPresenceOnline — kept for existing imports. */
+export async function fetchMergedFacilityPresenceOnline(): Promise<{ ok: boolean; items: unknown[] }> {
+    const result = await fetchFacilityPresenceOnline();
+    return { ok: result.ok, items: result.items };
 }

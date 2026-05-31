@@ -10,7 +10,7 @@ import ImportHistoryLedger from '@/components/ImportHistoryLedger';
 import { MacVibrancyToast, MacVibrancyToastPortal } from '@/components/MacVibrancyToast';
 import { BulkImportErrorsSheet } from '@/components/BulkImportErrorsSheet';
 import { readCachedJson, writeCachedJson } from '@/lib/getJsonCache';
-import { extractOnlineStaffIdSet, fetchMergedFacilityPresenceOnline } from '@/lib/presence-online';
+import { useFacilityPresence } from '@/lib/useFacilityPresence';
 import { API_ENDPOINTS } from '@/lib/config';
 import {
     extractStaffIdFromBulkCreated,
@@ -21,7 +21,9 @@ import { bulkImportToastHeadline } from '@/lib/bulk-import-toast';
 import { fetchAllStaffPayload, STAFF_CACHE_LIST_KEY } from '@/lib/fetch-all-staff';
 import {
     appendFacilityIdToProxyUrl,
+    clearClientFacilityIdCache,
     getCachedClientFacilityId,
+    readClientSupportModeFromDocument,
     readHelixFacilityIdFromDocument,
     resolveClientFacilityId,
 } from '@/lib/facility-client';
@@ -30,8 +32,9 @@ const STAFF_PAGE_CACHE_TTL_MS = 120_000;
 const STAFF_CACHE_LIST = STAFF_CACHE_LIST_KEY;
 const STAFF_CACHE_DEPTS = '/api/proxy/departments';
 
-/** Appends ?facility_id= when known (required for internal act-as proxy calls). */
+/** Appends ?facility_id= only for internal act-as; tenant admins use session-scoped proxy auth. */
 function staffUrl(path: string): string {
+    if (!readClientSupportModeFromDocument()) return path;
     const fid = getCachedClientFacilityId() || readHelixFacilityIdFromDocument();
     return appendFacilityIdToProxyUrl(path, fid);
 }
@@ -551,8 +554,13 @@ function resolveHelixSignedInRoleName(activePayload: unknown, staff: StaffMember
 }
 
 function isStaffOnline(s: StaffMember, online: Set<string>): boolean {
-    const candidates = [s.id, s.email, s.employee_id, s.user_id].filter(Boolean) as string[];
+    const candidates = [s.user_id, s.id, s.email, s.employee_id].filter(Boolean) as string[];
     return candidates.some(c => online.has(c.trim().toLowerCase()));
+}
+
+function canSendStaffInviteEmail(s: StaffMember): boolean {
+    if (s.status === 'active') return false;
+    return Boolean(s.email?.trim());
 }
 
 /** Clinical / professional rank presets (optional field); custom values allowed via CustomSelect. */
@@ -808,8 +816,6 @@ const staffBodyCell: CSSProperties = {
 
 export default function StaffDirectoryManagement() {
     const [staff, setStaff] = useState<StaffMember[]>([]);
-    /** Lowercase staff id / email keys from GET /presence/online */
-    const [onlineIdSet, setOnlineIdSet] = useState<Set<string>>(() => new Set());
     const [loading, setLoading] = useState(true);
     const [fetchError, setFetchError] = useState(false);
     const [search, setSearch] = useState('');
@@ -866,6 +872,7 @@ export default function StaffDirectoryManagement() {
     const [departmentOptions, setDepartmentOptions] = useState<string[]>([]);
     const [deptIdToName, setDeptIdToName] = useState<Map<string, string>>(() => new Map());
     const fileInputRef = useRef<HTMLInputElement | null>(null);
+    const { onlineIdSet } = useFacilityPresence({ enabled: activeTab === 'directory' });
 
     const dismissToast = useCallback(() => {
         setToast(null);
@@ -1132,16 +1139,6 @@ export default function StaffDirectoryManagement() {
         return rest > 0 ? `Missing: ${head} (+${rest} more)` : `Missing: ${head}`;
     }, []);
 
-    const fetchOnlinePresence = useCallback(async () => {
-        try {
-            const { ok, items } = await fetchMergedFacilityPresenceOnline();
-            if (!ok) return;
-            setOnlineIdSet(extractOnlineStaffIdSet({ data: items }));
-        } catch {
-            /* keep last known presence on transient errors */
-        }
-    }, []);
-
     const fetchStaff = useCallback(async () => {
         setFetchError(false);
         try {
@@ -1157,7 +1154,6 @@ export default function StaffDirectoryManagement() {
                         return old ? mergeStaffListRowIntoDetail(old, s) : s;
                     });
                 });
-                void fetchOnlinePresence();
             } else {
                 setFetchError(true);
             }
@@ -1165,12 +1161,11 @@ export default function StaffDirectoryManagement() {
             setFetchError(true);
         }
         setLoading(false);
-    }, [fetchOnlinePresence]);
+    }, []);
 
     const fetchDepartments = useCallback(async () => {
         try {
-            const facilityId = await resolveClientFacilityId();
-            const res = await fetch(appendFacilityIdToProxyUrl(STAFF_CACHE_DEPTS, facilityId));
+            const res = await fetch(staffUrl(STAFF_CACHE_DEPTS));
             if (!res.ok) return;
             const data = await res.json();
             writeCachedJson(STAFF_CACHE_DEPTS, data);
@@ -1217,10 +1212,15 @@ export default function StaffDirectoryManagement() {
     }, []);
 
     useLayoutEffect(() => {
-        void resolveClientFacilityId();
+        if (readClientSupportModeFromDocument()) {
+            void resolveClientFacilityId();
+        } else {
+            clearClientFacilityIdCache();
+            void resolveClientFacilityId();
+        }
     }, []);
 
-    useEffect(() => { fetchStaff(); }, [fetchStaff]);
+    useEffect(() => { void fetchStaff(); }, [fetchStaff]);
     useEffect(() => { fetchDepartments(); }, [fetchDepartments]);
 
     useEffect(() => {
@@ -1243,14 +1243,6 @@ export default function StaffDirectoryManagement() {
         return () => document.removeEventListener('visibilitychange', onVisible);
     }, [activeTab, fetchStaff]);
 
-    useEffect(() => {
-        if (activeTab !== 'directory') return;
-        void fetchOnlinePresence();
-        const id = window.setInterval(() => {
-            void fetchOnlinePresence();
-        }, 45_000);
-        return () => window.clearInterval(id);
-    }, [activeTab, fetchOnlinePresence]);
     useEffect(() => {
         if (!newDept && departmentOptions.length > 0) setNewDept(departmentOptions[0]);
     }, [newDept, departmentOptions]);
@@ -2373,14 +2365,30 @@ export default function StaffDirectoryManagement() {
                                                             <button
                                                                 type="button"
                                                                 className="btn btn-ghost btn-xs"
-                                                                title="Send invite email"
-                                                                disabled={sendingInvites || !s.email.trim()}
+                                                                title={
+                                                                    s.status === 'active'
+                                                                        ? 'Account already activated'
+                                                                        : !s.email.trim()
+                                                                            ? 'No email on file'
+                                                                            : 'Send invite email'
+                                                                }
+                                                                disabled={sendingInvites || !canSendStaffInviteEmail(s)}
                                                                 onClick={e => {
                                                                     e.stopPropagation();
                                                                     void handleSendInviteEmails([s.id]);
                                                                 }}
                                                             >
-                                                                <span className="material-icons-round" style={{ fontSize: 14, color: 'var(--helix-primary)' }}>mail</span>
+                                                                <span
+                                                                    className="material-icons-round"
+                                                                    style={{
+                                                                        fontSize: 14,
+                                                                        color: canSendStaffInviteEmail(s)
+                                                                            ? 'var(--helix-primary)'
+                                                                            : 'var(--text-disabled)',
+                                                                    }}
+                                                                >
+                                                                    mail
+                                                                </span>
                                                             </button>
                                                             <button type="button" className="btn btn-ghost btn-xs" onClick={e => { e.stopPropagation(); requestRemove(s.id); }}>
                                                                 <span className="material-icons-round" style={{ fontSize: 14, color: 'var(--text-muted)' }}>delete</span>

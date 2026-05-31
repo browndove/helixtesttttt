@@ -12,12 +12,11 @@ export async function GET(req: NextRequest) {
         searchParams.forEach((value, key) => {
             query[key] = value;
         });
-        // REST defaults to app-sourced presence; admin Next.js must pass client=admin (see fetchMergedFacilityPresenceOnline).
         if (!query.client) {
             query.client = 'admin';
         }
 
-        const upstream = await buildTenantUpstreamUrl(req, API_BASE_URL, `/api/v1/presence/online`, query);
+        const upstream = await buildTenantUpstreamUrl(req, API_BASE_URL, '/api/v1/presence/online', query);
         if (upstream instanceof NextResponse) return upstream;
 
         const res = await fetch(upstream.url, {

@@ -1,4 +1,4 @@
-import { appendFacilityIdToProxyUrl, resolveClientFacilityId } from '@/lib/facility-client';
+import { isClientInternalSupportMode, resolveClientFacilityId } from '@/lib/facility-client';
 
 /** Page size for each GET /staff request while loading the full directory. */
 export const STAFF_LIST_PAGE_SIZE = 100;
@@ -82,13 +82,12 @@ export async function fetchAllStaffPayload(
     const allRows: unknown[] = [];
     let pageId = 1;
     let reportedTotal: number | undefined;
-    const facilityId = await resolveClientFacilityId();
+    const facilityId = (await isClientInternalSupportMode())
+        ? await resolveClientFacilityId()
+        : undefined;
 
     while (pageId <= MAX_STAFF_PAGES) {
-        const pageUrl = appendFacilityIdToProxyUrl(
-            staffListPageUrl(pageId, STAFF_LIST_PAGE_SIZE, facilityId),
-            facilityId,
-        );
+        const pageUrl = staffListPageUrl(pageId, STAFF_LIST_PAGE_SIZE, facilityId);
         const res = await fetch(pageUrl, init);
         if (!res.ok) {
             if (pageId === 1) return { ok: false, data: null };

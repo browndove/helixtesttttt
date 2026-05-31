@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server';
-import { getInternalTokenFromCookie, getTokenFromCookie } from '@/lib/proxy-auth';
+import { extractFacilityIdFromPayload } from '@/lib/facility-id';
+import { getInternalTokenFromCookie, getTokenFromCookie, isInternalScopedRequest } from '@/lib/proxy-auth';
 
 const FACILITY_CACHE_TTL_MS = 60_000;
 const facilityIdCache = new Map<string, { facilityId: string; expiresAt: number }>();
@@ -21,56 +22,7 @@ function setCachedFacilityId(token: string, facilityId: string): void {
     });
 }
 
-/**
- * Extract a facility id from an object that may contain facility fields.
- */
-function extractFacilityIdFromObject(source: Record<string, unknown>): string | undefined {
-    const id = String(source.facility_id || source.facilityId || source.current_facility_id || source.currentFacilityId || '').trim();
-    if (id) return id;
-
-    // Check nested facility object
-    if (source.facility && typeof source.facility === 'object') {
-        const f = source.facility as Record<string, unknown>;
-        const nestedId = String(f.id || f.facility_id || '').trim();
-        if (nestedId) return nestedId;
-    }
-    return undefined;
-}
-
-/**
- * Extract facility id from common backend payload shapes.
- */
-export function extractFacilityIdFromPayload(payload: unknown): string | undefined {
-    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return undefined;
-    const root = payload as Record<string, unknown>;
-
-    const topLevel = extractFacilityIdFromObject(root);
-    if (topLevel) return topLevel;
-
-    const data = root.data && typeof root.data === 'object' && !Array.isArray(root.data)
-        ? root.data as Record<string, unknown>
-        : undefined;
-
-    const candidates: unknown[] = [
-        root.user,
-        root.staff,
-        root.admin,
-        root.facility,
-        data,
-        data?.user,
-        data?.staff,
-        data?.admin,
-        data?.facility,
-    ];
-
-    for (const candidate of candidates) {
-        if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) continue;
-        const id = extractFacilityIdFromObject(candidate as Record<string, unknown>);
-        if (id) return id;
-    }
-
-    return undefined;
-}
+export { extractFacilityIdFromPayload } from '@/lib/facility-id';
 
 /** Read facility id from request cookies/query (no upstream call). */
 export function readFacilityIdFromRequest(req: NextRequest): string | undefined {
@@ -87,60 +39,79 @@ export function readFacilityIdFromRequest(req: NextRequest): string | undefined 
     );
 }
 
-/**
- * Best-effort helper that resolves facility_id from the authenticated user context.
- * Priority: 1) explicit facility cookie  2) /auth/me user.facility_id
- * Returns undefined if not resolvable; callers should decide fallback behavior.
- */
-export async function resolveFacilityId(req: NextRequest, apiBaseUrl: string): Promise<string | undefined> {
-    const fromRequest = readFacilityIdFromRequest(req);
-    if (fromRequest) {
-        const token = getTokenFromCookie(req) || getInternalTokenFromCookie(req);
-        if (token) setCachedFacilityId(token, fromRequest);
-        return fromRequest;
-    }
-
-    const token = getTokenFromCookie(req) || getInternalTokenFromCookie(req);
-    if (!token) return undefined;
-
-    // 1.5 Try short-lived in-memory cache to avoid repeated auth/me calls.
-    const cachedFacilityId = getCachedFacilityId(token);
-    if (cachedFacilityId) {
-        return cachedFacilityId;
-    }
-
+async function fetchFacilityIdFromAuthMe(token: string, apiBaseUrl: string): Promise<string | undefined> {
     const headers = {
         Authorization: `Bearer ${token}`,
         'Content-Type': 'application/json',
     };
 
-    // 2. Try to get facility_id from the authenticated user's profile
     try {
         const meRes = await fetch(`${apiBaseUrl}/api/v1/auth/me`, {
             method: 'GET',
             headers,
         });
-        if (meRes.ok) {
-            const meData = await meRes.json();
-            const fid = extractFacilityIdFromPayload(meData);
-            if (fid) {
-                console.log('[resolveFacilityId] Resolved from auth/me:', fid);
-                setCachedFacilityId(token, fid);
-                return fid;
-            }
-            // Log for debugging if nothing found
-            if (meData?.staff && typeof meData.staff === 'object') {
-                console.log('[resolveFacilityId] staff keys:', JSON.stringify(Object.keys(meData.staff)));
-            }
-            console.log('[resolveFacilityId] No facility_id found in auth/me');
-        } else {
+        if (!meRes.ok) {
             console.log('[resolveFacilityId] auth/me status:', meRes.status);
+            return undefined;
         }
+        const meData = await meRes.json();
+        const fid = extractFacilityIdFromPayload(meData);
+        if (fid) {
+            console.log('[resolveFacilityId] Resolved from auth/me:', fid);
+            return fid;
+        }
+        if (meData?.staff && typeof meData.staff === 'object') {
+            console.log('[resolveFacilityId] staff keys:', JSON.stringify(Object.keys(meData.staff)));
+        }
+        console.log('[resolveFacilityId] No facility_id found in auth/me');
     } catch {
         return undefined;
     }
 
     return undefined;
+}
+
+/**
+ * Resolves facility_id for proxy → upstream calls.
+ * Internal act-as: cookie/query wins.
+ * Tenant admins: session facility from auth/me wins over stale client query params.
+ */
+export async function resolveFacilityId(req: NextRequest, apiBaseUrl: string): Promise<string | undefined> {
+    const token = getTokenFromCookie(req) || getInternalTokenFromCookie(req);
+    const fromRequest = readFacilityIdFromRequest(req);
+
+    if (isInternalScopedRequest(req)) {
+        if (fromRequest) {
+            if (token) setCachedFacilityId(token, fromRequest);
+            return fromRequest;
+        }
+        if (token) {
+            const cached = getCachedFacilityId(token);
+            if (cached) return cached;
+        }
+        return undefined;
+    }
+
+    if (token) {
+        const fromMe = await fetchFacilityIdFromAuthMe(token, apiBaseUrl);
+        if (fromMe) {
+            setCachedFacilityId(token, fromMe);
+            if (fromRequest && fromRequest !== fromMe) {
+                console.warn(
+                    '[resolveFacilityId] Ignoring client facility_id',
+                    fromRequest,
+                    '— using session facility',
+                    fromMe,
+                );
+            }
+            return fromMe;
+        }
+
+        const cached = getCachedFacilityId(token);
+        if (cached) return cached;
+    }
+
+    return fromRequest;
 }
 
 /** Upstream Helix API expects ?facility_id= for internal-admin (support-mode) requests. */

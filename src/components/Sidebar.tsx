@@ -118,10 +118,11 @@ export default function Sidebar({
             })
             .then((ctx) => {
                 if (!ctx) return;
-                setSupportMode(Boolean(ctx.support_mode));
+                const inSupport = Boolean(ctx.support_mode);
+                setSupportMode(inSupport);
                 setSupportFacilityName(ctx.facility_name || null);
                 const fid = String((ctx as { facility_id?: string }).facility_id || '').trim();
-                if (fid) primeClientFacilityId(fid);
+                if (inSupport && fid) primeClientFacilityId(fid);
             })
             .catch(() => {
                 setSupportMode(false);

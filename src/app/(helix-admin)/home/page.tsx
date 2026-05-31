@@ -5,7 +5,8 @@ import { useRouter } from 'next/navigation';
 import { Plus_Jakarta_Sans } from 'next/font/google';
 import './home-overview.css';
 import { parseBulkUploadHistoryResponse, type BulkUploadHistoryEntry } from '@/lib/bulk-upload-history';
-import { fetchMergedFacilityPresenceOnline } from '@/lib/presence-online';
+import { fetchAllStaffPayload } from '@/lib/fetch-all-staff';
+import { useTeamPresenceRoster } from '@/lib/useTeamPresenceRoster';
 
 type SimpleItem = Record<string, unknown>;
 type ActivityItem = { id: string; title: string; detail: string; time: string; tone?: 'default' | 'critical' | 'info' };
@@ -126,54 +127,19 @@ function readTotal(raw: unknown, fallback: number): number {
     return fallback;
 }
 
-function parsePresenceOnlineToSignedIn(raw: unknown, max: number): SignedInStaff[] {
-    const list = getList(raw, ['data', 'items', 'online', 'staff', 'users', 'results', 'presence', 'records']);
-    if (!Array.isArray(list) || list.length === 0) return [];
-    const rows: (SignedInStaff & { _ts: number })[] = [];
-    for (let idx = 0; idx < list.length; idx++) {
-        const item = list[idx];
-        if (!item || typeof item !== 'object') continue;
-        const rec = item as Record<string, unknown>;
-        const first = String(rec.first_name || '').trim();
-        const last = String(rec.last_name || '').trim();
-        const fullName = String(
-            rec.name
-            || rec.display_name
-            || `${first} ${last}`.trim()
-            || rec.email
-            || 'Staff member',
-        );
-        const initials = (first && last
-            ? `${first[0]}${last[0]}`
-            : String(fullName).split(/\s+/).map((p) => p[0] || '').slice(0, 2).join('')
-        ).toUpperCase() || 'S';
-        const roleRaw = String(rec.job_title || rec.title || rec.system_role || rec.role || 'Staff').trim();
-        const role = roleRaw.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
-        const whenRaw = String(
-            rec.last_seen_at
-            || rec.last_activity_at
-            || rec.last_login_at
-            || rec.online_since
-            || rec.signed_in_at
-            || rec.updated_at
-            || '',
-        ).trim();
-        const ts = whenRaw ? Date.parse(whenRaw) : Date.now();
-        const id = String(rec.id || rec.staff_id || rec.user_id || `presence-${idx}`);
-        rows.push({
-            id,
-            name: fullName,
-            initials,
-            role,
-            when: whenRaw ? toWhenLabel(whenRaw) : 'Active now',
-            status: 'online',
-            _ts: Number.isFinite(ts) ? ts : 0,
-        });
+/** Active (enabled) staff accounts vs total directory rows — all-time, not a rolling window. */
+function countStaffAccountMetrics(staffItems: unknown[]): { active: number; total: number; percent: number } {
+    let active = 0;
+    let total = 0;
+    for (const row of staffItems) {
+        if (!row || typeof row !== 'object') continue;
+        total += 1;
+        const rec = row as Record<string, unknown>;
+        const status = String(rec.status || rec.account_status || '').trim().toLowerCase();
+        if (status === 'active') active += 1;
     }
-    return rows
-        .sort((a, b) => b._ts - a._ts)
-        .slice(0, max)
-        .map(({ _ts, ...rest }) => { void _ts; return rest; });
+    const percent = total > 0 ? Math.round((active / total) * 100) : 0;
+    return { active, total, percent };
 }
 
 function toWhenLabel(dateLike: string): string {
@@ -264,14 +230,22 @@ export default function HomePage() {
     const [criticalRoleFill, setCriticalRoleFill] = useState<{ filled: number; total: number; percent: number }>({ filled: 0, total: 0, percent: 0 });
     const [avgCriticalAckMinutes, setAvgCriticalAckMinutes] = useState(0);
     const [activeSessions, setActiveSessions] = useState(0);
-    const [signedInStaff, setSignedInStaff] = useState<SignedInStaff[]>([]);
-    const [presenceReportedNoOnline, setPresenceReportedNoOnline] = useState(false);
+    const {
+        members: signedInStaff,
+        onlineCount,
+        loading: teamPresenceLoading,
+    } = useTeamPresenceRoster({ max: TEAM_PRESENCE_MAX });
     const [departmentMessageMix, setDepartmentMessageMix] = useState<DeptMessageMixRow[]>([]);
     const [departmentMessagesTotal, setDepartmentMessagesTotal] = useState(0);
     const [analyticsWindowDays, setAnalyticsWindowDays] = useState(30);
     const [escalatedCriticalMessages, setEscalatedCriticalMessages] = useState(0);
     const [escalationRatePercent, setEscalationRatePercent] = useState(0);
     const [incompleteEscalationPolicies, setIncompleteEscalationPolicies] = useState(0);
+    const [staffAccountMetric, setStaffAccountMetric] = useState<{ active: number; total: number; percent: number }>({
+        active: 0,
+        total: 0,
+        percent: 0,
+    });
 
     const fetchHomeData = useCallback(async () => {
         setLoading(true);
@@ -279,7 +253,7 @@ export default function HomePage() {
             const [
                 meRes,
                 hospitalRes,
-                staffRes,
+                staffBundleRes,
                 patientRes,
                 teamsRes,
                 departmentsRes,
@@ -292,7 +266,7 @@ export default function HomePage() {
             ] = await Promise.all([
                 fetch('/api/proxy/auth/me', { credentials: 'include' }),
                 fetch('/api/proxy/hospital', { credentials: 'include' }),
-                fetch('/api/proxy/staff?page_size=100&page_id=1', { credentials: 'include' }),
+                fetchAllStaffPayload({ credentials: 'include' }),
                 fetch('/api/proxy/patients?page_size=20&page_id=1', { credentials: 'include' }),
                 fetch('/api/proxy/teams', { credentials: 'include' }),
                 fetch('/api/proxy/departments', { credentials: 'include' }),
@@ -307,7 +281,7 @@ export default function HomePage() {
             const [
                 meJson,
                 hospitalJson,
-                staffJson,
+                staffBundle,
                 patientJson,
                 teamsJson,
                 departmentsJson,
@@ -320,7 +294,7 @@ export default function HomePage() {
             ] = await Promise.all([
                 meRes.ok ? meRes.json() : Promise.resolve(null),
                 hospitalRes.ok ? hospitalRes.json() : Promise.resolve(null),
-                staffRes.ok ? staffRes.json() : Promise.resolve(null),
+                Promise.resolve(staffBundleRes),
                 patientRes.ok ? patientRes.json() : Promise.resolve(null),
                 teamsRes.ok ? teamsRes.json() : Promise.resolve(null),
                 departmentsRes.ok ? departmentsRes.json() : Promise.resolve(null),
@@ -362,10 +336,6 @@ export default function HomePage() {
                 setEscalationRatePercent(0);
             }
 
-            const presenceBundle = await fetchMergedFacilityPresenceOnline();
-            const presenceReallyOk = presenceBundle.ok;
-            const presenceMergedPayload = presenceBundle.items.length > 0 ? { data: presenceBundle.items } : null;
-
             if (meJson && typeof meJson === 'object') {
                 const root = meJson as Record<string, unknown>;
                 const user = (root.user && typeof root.user === 'object' ? root.user : root) as Record<string, unknown>;
@@ -379,13 +349,18 @@ export default function HomePage() {
                 if (name) setFacilityName(name);
             }
 
-            const staffItems = getList(staffJson, ['items', 'data', 'staff']);
+            const staffPayload =
+                staffBundle && typeof staffBundle === 'object' && (staffBundle as { ok?: boolean }).ok
+                    ? (staffBundle as { data: unknown }).data
+                    : null;
+            const staffItems = getList(staffPayload, ['items', 'data', 'staff']);
             const patientItems = getList(patientJson, ['items', 'data', 'patients']);
             const teamItems = getList(teamsJson, ['items', 'data', 'teams']) as SimpleItem[];
             const departmentItems = getList(departmentsJson, ['items', 'data', 'departments']) as SimpleItem[];
             const escalationItems = getList(escalationJson, ['items', 'data', 'policies', 'results']) as SimpleItem[];
 
-            setStaffCount(readTotal(staffJson, staffItems.length));
+            setStaffCount(readTotal(staffPayload, staffItems.length));
+            setStaffAccountMetric(countStaffAccountMetrics(staffItems));
 
             let twoFactorEnabled = 0;
             for (const s of staffItems) {
@@ -393,50 +368,6 @@ export default function HomePage() {
                 if (rec.otp_enabled === true || rec.two_factor_enabled === true || rec.twoFactorEnabled === true) twoFactorEnabled += 1;
             }
             setTwoFactorAdoption({ enabled: twoFactorEnabled, total: staffItems.length });
-
-            const nowMs = Date.now();
-            const withLogin = staffItems
-                .map((s) => {
-                    const rec = s as Record<string, unknown>;
-                    const loginRaw = String(rec.last_login_at || rec.last_login || rec.last_seen_at || '').trim();
-                    const ts = loginRaw ? Date.parse(loginRaw) : NaN;
-                    if (!loginRaw || Number.isNaN(ts)) return null;
-                    const first = String(rec.first_name || '').trim();
-                    const last = String(rec.last_name || '').trim();
-                    const fullName = String(rec.name || `${first} ${last}`.trim() || rec.email || 'Staff member');
-                    const initials = (first && last
-                        ? `${first[0]}${last[0]}`
-                        : String(fullName).split(/\s+/).map((p) => p[0] || '').slice(0, 2).join('')
-                    ).toUpperCase() || 'S';
-                    const roleRaw = String(rec.job_title || rec.system_role || rec.role || 'Staff').trim();
-                    const role = roleRaw.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
-                    const diffMin = (nowMs - ts) / 60000;
-                    const status: SignedInStaff['status'] = diffMin <= 15 ? 'online' : diffMin <= 120 ? 'recent' : 'away';
-                    return {
-                        id: String(rec.id || rec.staff_id || rec.user_id || fullName),
-                        name: fullName,
-                        initials,
-                        role,
-                        when: toWhenLabel(loginRaw),
-                        status,
-                        _ts: ts,
-                    } as SignedInStaff & { _ts: number };
-                })
-                .filter((x): x is SignedInStaff & { _ts: number } => Boolean(x))
-                .sort((a, b) => b._ts - a._ts)
-                .slice(0, TEAM_PRESENCE_MAX)
-                .map(({ _ts, ...rest }) => { void _ts; return rest; });
-
-            const fromPresence = presenceReallyOk && presenceMergedPayload
-                ? parsePresenceOnlineToSignedIn(presenceMergedPayload, TEAM_PRESENCE_MAX)
-                : [];
-            if (fromPresence.length > 0) {
-                setSignedInStaff(fromPresence);
-                setPresenceReportedNoOnline(false);
-            } else {
-                setSignedInStaff(withLogin);
-                setPresenceReportedNoOnline(Boolean(presenceReallyOk) && presenceBundle.items.length === 0);
-            }
 
             setPatientCount(readTotal(patientJson, patientItems.length));
 
@@ -489,8 +420,8 @@ export default function HomePage() {
     useEffect(() => { fetchHomeData(); }, [fetchHomeData]);
 
     const escalationNeedsAttention = incompleteEscalationPolicies > 0;
-    const onlineCount = signedInStaff.filter((s) => s.status === 'online').length;
     const facilityShort = facilityName || 'Your facility';
+    const teamPresenceLoadingCombined = loading || teamPresenceLoading;
 
     const workQueueTotal = staffCount + patientCount + setupTasks;
     const goalTarget = criticalRoleFill.total > 0 ? criticalRoleFill.total : 100;
@@ -602,10 +533,14 @@ export default function HomePage() {
                             </button>
                         </article>
                         <article className="dash-wallet">
-                            <p className="dash-wallet__label">Staff accounts</p>
-                            <p className="dash-wallet__hint">Active seats</p>
-                            <p className="dash-wallet__balance">{formatMetric(staffCount)}</p>
-                            <p className="dash-wallet__foot">Included contractors &amp; locums</p>
+                            <p className="dash-wallet__label">Active staff</p>
+                            <p className="dash-wallet__hint">Active rate</p>
+                            <p className="dash-wallet__balance">{formatMetric(staffAccountMetric.percent, '%')}</p>
+                            <p className="dash-wallet__foot">
+                                {loading
+                                    ? '—'
+                                    : `${staffAccountMetric.active.toLocaleString()} / ${staffAccountMetric.total.toLocaleString()} staff accounts · All time`}
+                            </p>
                             <button type="button" className="dash-link" onClick={() => router.push('/staff')}>
                                 View details <span className="material-icons-round">arrow_forward</span>
                             </button>
@@ -743,18 +678,18 @@ export default function HomePage() {
 
                     <div className="dash-lower dash-reveal">
                         <section
-                            className={`dash-card dash-card--table${!loading && signedInStaff.length === 0 ? ' dash-card--table-empty' : ''}`}
+                            className={`dash-card dash-card--table${!teamPresenceLoadingCombined && signedInStaff.length === 0 ? ' dash-card--table-empty' : ''}`}
                             aria-label="Team presence"
                         >
                             <div className="dash-card__hd">
                                 <div>
                                     <h2 className="dash-card__title">Team presence</h2>
                                     <p className="dash-card__muted">
-                                        {loading
+                                        {teamPresenceLoadingCombined
                                             ? '—'
                                             : signedInStaff.length === 0
                                                 ? 'No recent activity'
-                                                : `${onlineCount} online · ${signedInStaff.length} most recent (up to ${TEAM_PRESENCE_MAX})`}
+                                                : `${onlineCount} online · ${signedInStaff.length} most recent`}
                                     </p>
                                 </div>
                                 <button type="button" className="dash-btn dash-btn--outline dash-btn--sm" onClick={() => router.push('/staff')}>
@@ -762,12 +697,10 @@ export default function HomePage() {
                                 </button>
                             </div>
                             <div className="dash-tablewrap">
-                                {loading ? (
+                                {teamPresenceLoadingCombined ? (
                                     <p className="dash-empty">Loading…</p>
                                 ) : signedInStaff.length === 0 ? (
-                                    <p className="dash-empty">
-                                        {presenceReportedNoOnline ? 'No one online right now.' : 'No recent sign-ins recorded.'}
-                                    </p>
+                                    <p className="dash-empty">No staff activity recorded yet.</p>
                                 ) : (
                                     <table className="dash-table">
                                         <thead>

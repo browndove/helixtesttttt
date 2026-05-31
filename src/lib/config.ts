@@ -48,8 +48,10 @@ export const API_ENDPOINTS = {
   FACILITY: (id: string) => `/api/proxy/facilities/${id}`,
 
   // Presence
-  /** Proxies GET /api/v1/presence/online — pass ?client=admin|app (see `fetchMergedFacilityPresenceOnline`). */
+  /** Proxies GET /api/v1/presence/online — pass ?client=admin|app. */
   PRESENCE_ONLINE: `/api/proxy/presence/online`,
+  /** Returns WebSocket URL for GET /api/v1/ws (session token from cookie). */
+  PRESENCE_WS_URL: `/api/proxy/presence/ws-url`,
 
   // Roles
   ROLES: `/api/proxy/roles`,
