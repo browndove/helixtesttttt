@@ -559,7 +559,7 @@ function isStaffOnline(s: StaffMember, online: Set<string>): boolean {
 }
 
 function canSendStaffInviteEmail(s: StaffMember): boolean {
-    if (s.status === 'active') return false;
+    if (String(s.status || '').trim().toLowerCase() === 'active') return false;
     return Boolean(s.email?.trim());
 }
 
@@ -1445,6 +1445,15 @@ export default function StaffDirectoryManagement() {
         [filtered, onlineIdSet]
     );
 
+    const invitableSelectedIds = useMemo(() => {
+        const ids: string[] = [];
+        for (const id of selectedStaffIds) {
+            const member = staff.find(s => s.id === id);
+            if (member && canSendStaffInviteEmail(member)) ids.push(id);
+        }
+        return ids;
+    }, [selectedStaffIds, staff]);
+
     useEffect(() => {
         setStaffPage(1);
     }, [search, deptFilter, statusFilter, sortKey, sortDir]);
@@ -2049,19 +2058,19 @@ export default function StaffDirectoryManagement() {
                                 </button>
                             ))}
                         </div>
-                        {selectedStaffIds.size > 0 && (
+                        {selectedStaffIds.size > 0 && invitableSelectedIds.length > 0 && (
                             <button
                                 type="button"
                                 className="btn btn-primary btn-xs"
                                 disabled={sendingInvites}
                                 onClick={() => {
-                                    void handleSendInviteEmails([...selectedStaffIds], { clearSelection: true });
+                                    void handleSendInviteEmails(invitableSelectedIds, { clearSelection: true });
                                 }}
                             >
                                 <span className="material-icons-round" style={{ fontSize: 14 }}>
                                     {sendingInvites ? 'hourglass_empty' : 'mail'}
                                 </span>
-                                {sendingInvites ? 'Sending…' : `Send invites (${selectedStaffIds.size})`}
+                                {sendingInvites ? 'Sending…' : `Send invites (${invitableSelectedIds.length})`}
                             </button>
                         )}
                         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-muted)' }}>
@@ -2695,18 +2704,54 @@ export default function StaffDirectoryManagement() {
                                                 {requestPhoneUpdatePending ? 'Sending…' : 'Update'}
                                             </button>
                                         </div>
-                                        <button
-                                            type="button"
-                                            className="btn btn-secondary btn-sm"
-                                            disabled={sendingInvites || !(selected.email || editEmail || '').trim()}
-                                            onClick={() => { void handleSendInviteEmails([selected.id]); }}
-                                            style={{ width: '100%', justifyContent: 'center', marginTop: 2, borderRadius: 8, fontSize: 12, padding: '7px 12px' }}
-                                        >
-                                            <span className="material-icons-round" style={{ fontSize: 15 }}>
-                                                {sendingInvites ? 'hourglass_empty' : 'mail'}
-                                            </span>
-                                            {sendingInvites ? 'Sending invite…' : 'Send invite email'}
-                                        </button>
+                                        {(() => {
+                                            const inviteEnabled = canSendStaffInviteEmail({
+                                                ...selected,
+                                                email: (selected.email || editEmail || '').trim(),
+                                            });
+                                            return (
+                                                <button
+                                                    type="button"
+                                                    className="btn btn-secondary btn-sm"
+                                                    disabled={sendingInvites || !inviteEnabled}
+                                                    title={
+                                                        String(selected.status || '').trim().toLowerCase() === 'active'
+                                                            ? 'Account already activated'
+                                                            : !inviteEnabled
+                                                                ? 'No email on file'
+                                                                : 'Send invite email'
+                                                    }
+                                                    onClick={() => { void handleSendInviteEmails([selected.id]); }}
+                                                    style={{
+                                                        width: '100%',
+                                                        justifyContent: 'center',
+                                                        marginTop: 2,
+                                                        borderRadius: 8,
+                                                        fontSize: 12,
+                                                        padding: '7px 12px',
+                                                        opacity: inviteEnabled ? 1 : 0.42,
+                                                        cursor: inviteEnabled && !sendingInvites ? 'pointer' : 'not-allowed',
+                                                        color: inviteEnabled ? undefined : 'var(--text-disabled)',
+                                                        borderColor: inviteEnabled ? undefined : 'var(--border-subtle)',
+                                                    }}
+                                                >
+                                                    <span
+                                                        className="material-icons-round"
+                                                        style={{
+                                                            fontSize: 15,
+                                                            color: inviteEnabled ? undefined : 'var(--text-disabled)',
+                                                        }}
+                                                    >
+                                                        {sendingInvites ? 'hourglass_empty' : 'mail'}
+                                                    </span>
+                                                    {sendingInvites
+                                                        ? 'Sending invite…'
+                                                        : String(selected.status || '').trim().toLowerCase() === 'active'
+                                                            ? 'Invite not needed'
+                                                            : 'Send invite email'}
+                                                </button>
+                                            );
+                                        })()}
                                     </div>
                                 </div>
                                 )}
