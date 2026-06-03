@@ -859,6 +859,9 @@ export default function StaffDirectoryManagement() {
     const [bulkResultCreated, setBulkResultCreated] = useState<unknown[]>([]);
     const [bulkResultErrors, setBulkResultErrors] = useState<StaffBulkImportRowError[]>([]);
     const [pendingDelete, setPendingDelete] = useState<StaffMember | null>(null);
+    const [pendingRemoteWipe, setPendingRemoteWipe] = useState<StaffMember | null>(null);
+    const [remoteWipePending, setRemoteWipePending] = useState(false);
+    const [remoteWipeConfirmText, setRemoteWipeConfirmText] = useState('');
     const [pendingInviteSend, setPendingInviteSend] = useState<StaffMember | null>(null);
     const [pendingPhoneUpdate, setPendingPhoneUpdate] = useState(false);
     const [processing, setProcessing] = useState(false);
@@ -954,7 +957,10 @@ export default function StaffDirectoryManagement() {
     useEffect(() => {
         const onKey = (e: KeyboardEvent) => {
             if (e.key !== 'Escape') return;
-            if (pendingDelete) {
+            if (pendingRemoteWipe) {
+                setPendingRemoteWipe(null);
+                setRemoteWipeConfirmText('');
+            } else if (pendingDelete) {
                 setPendingDelete(null);
             } else if (pendingInviteSend) {
                 setPendingInviteSend(null);
@@ -970,7 +976,7 @@ export default function StaffDirectoryManagement() {
         };
         window.addEventListener('keydown', onKey);
         return () => window.removeEventListener('keydown', onKey);
-    }, [toast, dismissToast, bulkResultErrors.length, dismissBulkErrors, inviteSendErrors.length, dismissInviteSendErrors, pendingDelete, pendingInviteSend, pendingPhoneUpdate]);
+    }, [toast, dismissToast, bulkResultErrors.length, dismissBulkErrors, inviteSendErrors.length, dismissInviteSendErrors, pendingRemoteWipe, pendingDelete, pendingInviteSend, pendingPhoneUpdate]);
 
     useEffect(() => {
         if (!selected) {
@@ -1568,6 +1574,42 @@ export default function StaffDirectoryManagement() {
         const member = staff.find(s => s.id === id);
         if (!member) return;
         setPendingDelete(member);
+    };
+
+    const requestRemoteWipe = (member: StaffMember) => {
+        setRemoteWipeConfirmText('');
+        setPendingRemoteWipe(member);
+    };
+
+    const confirmRemoteWipe = async () => {
+        if (!pendingRemoteWipe || remoteWipeConfirmText.trim().toUpperCase() !== 'WIPE') return;
+        setRemoteWipePending(true);
+        try {
+            const res = await fetch(staffUrl(API_ENDPOINTS.STAFF_REMOTE_WIPE(pendingRemoteWipe.id)), {
+                method: 'POST',
+                credentials: 'include',
+            });
+            const data = (await res.json().catch(() => ({}))) as {
+                message?: string;
+                error?: string;
+                reason?: string;
+            };
+            if (!res.ok) {
+                const msg = data.message || data.error || data.reason || 'Remote wipe failed';
+                showToast(msg, 'error');
+                return;
+            }
+            showToast(
+                data.message || 'Remote wipe initiated. The user\'s devices will be signed out and must clear local data.',
+                'success',
+            );
+            setPendingRemoteWipe(null);
+            setRemoteWipeConfirmText('');
+        } catch {
+            showToast('Remote wipe failed', 'error');
+        } finally {
+            setRemoteWipePending(false);
+        }
     };
 
     const handleRemove = async () => {
@@ -2444,8 +2486,7 @@ export default function StaffDirectoryManagement() {
                                     maxWidth: 400,
                                     width: '100%',
                                     minHeight: 0,
-                                    height: 'min(calc(100vh - 88px), calc(100dvh - 88px))',
-                                    maxHeight: 'min(calc(100vh - 88px), calc(100dvh - 88px))',
+                                    maxHeight: 'min(calc(100dvh - 100px), calc(100vh - 100px))',
                                     display: 'flex',
                                     flexDirection: 'column',
                                     overflow: 'hidden',
@@ -2529,7 +2570,7 @@ export default function StaffDirectoryManagement() {
                                 <div
                                     className="staff-detail-scroll"
                                     style={{
-                                        flex: 1,
+                                        flex: '1 1 0',
                                         minHeight: 0,
                                         overflowY: 'auto',
                                         overflowX: 'hidden',
@@ -2538,11 +2579,11 @@ export default function StaffDirectoryManagement() {
                                         display: 'flex',
                                         flexDirection: 'column',
                                         gap: 12,
-                                        padding: 10,
+                                        padding: '10px 10px 12px',
                                         boxSizing: 'border-box',
                                     }}
                                     role="region"
-                                    aria-label="Staff profile and actions"
+                                    aria-label="Staff profile details"
                                 >
                                 {!editingSelected && (
                                 <div
@@ -2891,14 +2932,18 @@ export default function StaffDirectoryManagement() {
                                     </div>
                                 </div>
                                 )}
+                                </div>
 
                                 {!editingSelected && (
                                 <div
+                                    className="staff-detail-actions"
                                     style={{
+                                        flexShrink: 0,
                                         background: '#FFFFFF',
                                         borderRadius: 14,
                                         border: '1px solid #E4E7EC',
                                         padding: '12px 14px',
+                                        margin: '0 10px 10px',
                                         boxShadow: '0 1px 2px rgba(15, 23, 42, 0.04)',
                                     }}
                                 >
@@ -2934,6 +2979,15 @@ export default function StaffDirectoryManagement() {
                                         </button>
                                         <button
                                             type="button"
+                                            className="btn btn-danger btn-sm"
+                                            style={{ justifyContent: 'flex-start', borderRadius: 8, fontSize: 12, padding: '7px 12px' }}
+                                            onClick={() => requestRemoteWipe(selected)}
+                                        >
+                                            <span className="material-icons-round" style={{ fontSize: 15 }}>phonelink_erase</span>
+                                            Remote wipe devices
+                                        </button>
+                                        <button
+                                            type="button"
                                             className="btn btn-secondary btn-sm"
                                             style={{
                                                 justifyContent: 'flex-start',
@@ -2951,7 +3005,6 @@ export default function StaffDirectoryManagement() {
                                     </div>
                                 </div>
                                 )}
-                                </div>
                             </div>
                         )}
                     </div>
@@ -3386,6 +3439,123 @@ export default function StaffDirectoryManagement() {
                                 onClick={confirmSendInviteAfterCreate}
                             >
                                 {sendingInvites ? 'Sending…' : 'Send invite email'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+            {pendingRemoteWipe && (
+                <div
+                    role="dialog"
+                    aria-modal="true"
+                    aria-labelledby="staff-remote-wipe-title"
+                    aria-describedby="staff-remote-wipe-desc"
+                    onClick={() => {
+                        if (remoteWipePending) return;
+                        setPendingRemoteWipe(null);
+                        setRemoteWipeConfirmText('');
+                    }}
+                    style={{
+                        position: 'fixed',
+                        inset: 0,
+                        background: 'rgba(8, 12, 20, 0.45)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        zIndex: 1200,
+                        padding: 16,
+                    }}
+                >
+                    <div
+                        onClick={e => e.stopPropagation()}
+                        style={{
+                            width: '100%',
+                            maxWidth: 480,
+                            background: 'var(--surface-card)',
+                            border: '1px solid var(--border-default)',
+                            borderRadius: 'var(--radius-lg)',
+                            boxShadow: '0 24px 64px rgba(0,0,0,0.25)',
+                            padding: '18px 18px 14px',
+                        }}
+                    >
+                        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+                            <div
+                                style={{
+                                    width: 32,
+                                    height: 32,
+                                    borderRadius: 10,
+                                    background: 'rgba(198, 40, 40, 0.12)',
+                                    color: '#c62828',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    flexShrink: 0,
+                                }}
+                            >
+                                <span className="material-icons-round" style={{ fontSize: 18 }}>phonelink_erase</span>
+                            </div>
+                            <div style={{ minWidth: 0 }}>
+                                <div id="staff-remote-wipe-title" style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)' }}>
+                                    Remote wipe mobile devices?
+                                </div>
+                                <div id="staff-remote-wipe-desc" style={{ marginTop: 8, fontSize: 12.5, color: 'var(--text-secondary)', lineHeight: 1.55 }}>
+                                    <p style={{ margin: '0 0 8px' }}>
+                                        This will affect{' '}
+                                        <strong>
+                                            {[pendingRemoteWipe.first_name, pendingRemoteWipe.last_name].filter(Boolean).join(' ').trim() || 'this staff member'}
+                                        </strong>
+                                        :
+                                    </p>
+                                    <ul style={{ margin: 0, paddingLeft: 18 }}>
+                                        <li>Signs the user out on every registered device</li>
+                                        <li>Sends an immediate wipe signal to the Helix mobile app (local cache must be cleared on the device)</li>
+                                        <li>Revokes all sessions and push tokens</li>
+                                        <li>Does not disable the staff account — they may sign in again on a trusted device</li>
+                                    </ul>
+                                </div>
+                            </div>
+                        </div>
+                        <label style={{ display: 'block', marginTop: 14, fontSize: 12, color: 'var(--text-secondary)' }}>
+                            Type <strong>WIPE</strong> to confirm
+                            <input
+                                type="text"
+                                value={remoteWipeConfirmText}
+                                onChange={e => setRemoteWipeConfirmText(e.target.value)}
+                                autoComplete="off"
+                                disabled={remoteWipePending}
+                                placeholder="WIPE"
+                                style={{
+                                    display: 'block',
+                                    width: '100%',
+                                    marginTop: 6,
+                                    padding: '8px 10px',
+                                    fontSize: 13,
+                                    borderRadius: 8,
+                                    border: '1px solid var(--border-default)',
+                                    fontFamily: 'inherit',
+                                }}
+                            />
+                        </label>
+                        <div style={{ marginTop: 14, display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+                            <button
+                                type="button"
+                                className="btn btn-secondary btn-sm"
+                                disabled={remoteWipePending}
+                                onClick={() => {
+                                    setPendingRemoteWipe(null);
+                                    setRemoteWipeConfirmText('');
+                                }}
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                type="button"
+                                className="btn btn-danger btn-sm"
+                                disabled={remoteWipePending || remoteWipeConfirmText.trim().toUpperCase() !== 'WIPE'}
+                                aria-label="Confirm remote wipe of mobile devices"
+                                onClick={() => { void confirmRemoteWipe(); }}
+                            >
+                                {remoteWipePending ? 'Wiping…' : 'Wipe devices'}
                             </button>
                         </div>
                     </div>

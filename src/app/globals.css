@@ -807,6 +807,28 @@ tbody td:first-child {
   position: relative;
 }
 
+/* Staff detail side panel: scrollable profile + pinned actions footer */
+.staff-detail-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.staff-detail-scroll {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+.staff-detail-actions {
+  flex-shrink: 0;
+}
+
 /* Avatar */
 .avatar {
   width: 34px;
