@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent } from 'react';
+import { useEffect, useRef, useState, type ClipboardEvent, type CSSProperties, type KeyboardEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import { API_ENDPOINTS } from '@/lib/config';
 import { MacVibrancyToast, MacVibrancyToastPortal } from '@/components/MacVibrancyToast';
@@ -41,12 +41,29 @@ export default function InternalAdminLogin() {
         return () => clearInterval(t);
     }, [step, resendTimer]);
 
+    const applyOtpFromString = (raw: string, startIndex = 0) => {
+        const digits = raw.replace(/\D/g, '').slice(0, 6 - startIndex);
+        if (!digits.length) return;
+        const copied = [...otpDigits];
+        for (let i = 0; i < digits.length && startIndex + i < 6; i += 1) {
+            copied[startIndex + i] = digits[i]!;
+        }
+        setOtpDigits(copied);
+        const focusIndex = Math.min(startIndex + digits.length, 5);
+        otpRefs.current[focusIndex]?.focus();
+    };
+
     const updateOtpDigit = (index: number, next: string) => {
         if (!/^\d?$/.test(next)) return;
         const copied = [...otpDigits];
         copied[index] = next;
         setOtpDigits(copied);
         if (next && index < 5) otpRefs.current[index + 1]?.focus();
+    };
+
+    const handleOtpPaste = (index: number, e: ClipboardEvent<HTMLInputElement>) => {
+        e.preventDefault();
+        applyOtpFromString(e.clipboardData.getData('text'), index);
     };
 
     const handleOtpKeyDown = (index: number, e: KeyboardEvent<HTMLInputElement>) => {
@@ -239,7 +256,15 @@ export default function InternalAdminLogin() {
                                             inputMode="numeric"
                                             maxLength={1}
                                             value={digit}
-                                            onChange={e => updateOtpDigit(i, e.target.value.replace(/\D/g, '').slice(-1))}
+                                            onChange={e => {
+                                                const digitsOnly = e.target.value.replace(/\D/g, '');
+                                                if (digitsOnly.length > 1) {
+                                                    applyOtpFromString(digitsOnly, i);
+                                                    return;
+                                                }
+                                                updateOtpDigit(i, digitsOnly.slice(-1));
+                                            }}
+                                            onPaste={e => handleOtpPaste(i, e)}
                                             onKeyDown={e => handleOtpKeyDown(i, e)}
                                             style={{ width: 48, textAlign: 'center', fontSize: 20, fontWeight: 700, padding: '10px 0' }}
                                         />
