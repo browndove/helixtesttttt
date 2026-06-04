@@ -814,6 +814,53 @@ const staffBodyCell: CSSProperties = {
     color: 'var(--text-secondary)',
 };
 
+const staffDetailActionBtn: CSSProperties = {
+    width: '100%',
+    display: 'flex',
+    alignItems: 'center',
+    gap: 8,
+    justifyContent: 'flex-start',
+    borderRadius: 8,
+    fontSize: 12,
+    fontWeight: 600,
+    padding: '7px 12px',
+    fontFamily: 'inherit',
+    cursor: 'pointer',
+    border: '1px solid #E5E7EB',
+    background: '#F9FAFB',
+    color: '#111827',
+};
+
+const staffDetailActionBtnDanger: CSSProperties = {
+    ...staffDetailActionBtn,
+    background: '#FEF2F2',
+    border: '1px solid #FECACA',
+    color: '#DC2626',
+};
+
+function StaffDetailFieldRow({
+    icon,
+    label,
+    value,
+}: {
+    icon: string;
+    label: string;
+    value?: string | null;
+}) {
+    const display = (value ?? '').trim() || '—';
+    return (
+        <div className="staff-detail-field-row">
+            <span className="material-icons-round staff-detail-field-icon" aria-hidden>
+                {icon}
+            </span>
+            <span className="staff-detail-field-label">{label}</span>
+            <span className="staff-detail-field-value" title={display === '—' ? undefined : display}>
+                {display}
+            </span>
+        </div>
+    );
+}
+
 export default function StaffDirectoryManagement() {
     const [staff, setStaff] = useState<StaffMember[]>([]);
     const [loading, setLoading] = useState(true);
@@ -1599,10 +1646,7 @@ export default function StaffDirectoryManagement() {
                 showToast(msg, 'error');
                 return;
             }
-            showToast(
-                data.message || 'Remote wipe initiated. The user\'s devices will be signed out and must clear local data.',
-                'success',
-            );
+            showToast(data.message || 'Wipe started. Devices will sign out shortly.', 'success');
             setPendingRemoteWipe(null);
             setRemoteWipeConfirmText('');
         } catch {
@@ -2486,7 +2530,8 @@ export default function StaffDirectoryManagement() {
                                     maxWidth: 400,
                                     width: '100%',
                                     minHeight: 0,
-                                    maxHeight: 'min(calc(100dvh - 100px), calc(100vh - 100px))',
+                                    height: 'min(calc(100dvh - 88px), calc(100vh - 88px))',
+                                    maxHeight: 'min(calc(100dvh - 88px), calc(100vh - 88px))',
                                     display: 'flex',
                                     flexDirection: 'column',
                                     overflow: 'hidden',
@@ -2602,12 +2647,6 @@ export default function StaffDirectoryManagement() {
                                             <div style={{ fontSize: 12, color: '#6B7280', marginTop: 2 }}>
                                                 {selected.dept || 'Department'}{selected.employee_id ? ` · ${selected.employee_id}` : ''}
                                             </div>
-                                            {isStaffOnline(selected, onlineIdSet) && (
-                                                <div style={{ marginTop: 4, fontSize: 11, fontWeight: 600, color: '#059669', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-                                                    <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#10B981' }} aria-hidden />
-                                                    Online now
-                                                </div>
-                                            )}
                                         </div>
                                         <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
                                             <button
@@ -2638,8 +2677,8 @@ export default function StaffDirectoryManagement() {
                                             <span style={{ width: 6, height: 6, borderRadius: '50%', background: selected.status === 'active' ? '#22C55E' : '#EF4444' }} aria-hidden />
                                             {selected.status === 'active' ? 'Active' : 'Disabled'}
                                         </span>
-                                        <span style={{ fontSize: 11, fontWeight: 600, padding: '4px 10px', borderRadius: 999, background: '#FEF9C3', color: '#854D0E', border: '1px solid #FDE047', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 160 }} title={editJobTitle || selected.job_title}>
-                                            {editJobTitle || selected.job_title || 'Role'}
+                                        <span style={{ fontSize: 11, fontWeight: 600, padding: '4px 10px', borderRadius: 999, background: '#FEF9C3', color: '#854D0E', border: '1px solid #FDE047', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 160 }} title={selected.job_title}>
+                                            {selected.job_title || 'Role'}
                                         </span>
                                         {detailSignedInRoleLoading ? (
                                             <span style={{ fontSize: 11, fontWeight: 600, padding: '4px 10px', borderRadius: 999, background: '#F3F4F6', color: '#64748B', border: '1px solid #E5E7EB' }}>Loading…</span>
@@ -2680,11 +2719,12 @@ export default function StaffDirectoryManagement() {
                                                 { icon: 'cake', label: 'Date of birth', value: selected.dob },
                                                 { icon: 'wc', label: 'Gender', value: selected.gender ? (selected.gender.charAt(0).toUpperCase() + selected.gender.slice(1)) : '' },
                                             ].map(row => (
-                                                <div key={row.label} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '4px 0' }}>
-                                                    <span className="material-icons-round" style={{ fontSize: 16, color: '#94A3B8', flexShrink: 0 }}>{row.icon}</span>
-                                                    <span style={{ fontSize: 12, color: '#6B7280', minWidth: 80 }}>{row.label}</span>
-                                                    <span style={{ fontSize: 13, fontWeight: 600, color: '#111827' }}>{row.value || '—'}</span>
-                                                </div>
+                                                <StaffDetailFieldRow
+                                                    key={row.label}
+                                                    icon={row.icon}
+                                                    label={row.label}
+                                                    value={row.value}
+                                                />
                                             ))}
                                         </div>
                                     ) : (
@@ -2800,7 +2840,7 @@ export default function StaffDirectoryManagement() {
                                 {/* Employment */}
                                 <div style={{ background: '#FFFFFF', borderRadius: 14, border: '1px solid #E4E7EC', boxShadow: '0 1px 2px rgba(15, 23, 42, 0.04)', padding: '12px 14px' }}>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: editingSelected ? 10 : 6 }}>
-                                        <span className="material-icons-round" style={{ fontSize: 16, color: '#94A3B8' }}>work</span>
+                                        <span className="material-icons-round" style={{ fontSize: 16, color: '#94A3B8' }}>business_center</span>
                                         <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', color: '#9CA3AF' }}>EMPLOYMENT</span>
                                     </div>
                                     {!editingSelected ? (
@@ -2810,11 +2850,12 @@ export default function StaffDirectoryManagement() {
                                                 { icon: 'military_tech', label: 'Rank', value: selected.job_title },
                                                 { icon: 'school', label: 'Qualification', value: selected.highest_qualification },
                                             ].map(row => (
-                                                <div key={row.label} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '4px 0' }}>
-                                                    <span className="material-icons-round" style={{ fontSize: 16, color: '#94A3B8', flexShrink: 0 }}>{row.icon}</span>
-                                                    <span style={{ fontSize: 12, color: '#6B7280', minWidth: 80 }}>{row.label}</span>
-                                                    <span style={{ fontSize: 13, fontWeight: 600, color: '#111827' }}>{row.value || '—'}</span>
-                                                </div>
+                                                <StaffDetailFieldRow
+                                                    key={row.label}
+                                                    icon={row.icon}
+                                                    label={row.label}
+                                                    value={row.value}
+                                                />
                                             ))}
                                         </div>
                                     ) : (
@@ -2932,18 +2973,14 @@ export default function StaffDirectoryManagement() {
                                     </div>
                                 </div>
                                 )}
-                                </div>
 
                                 {!editingSelected && (
                                 <div
-                                    className="staff-detail-actions"
                                     style={{
-                                        flexShrink: 0,
                                         background: '#FFFFFF',
                                         borderRadius: 14,
                                         border: '1px solid #E4E7EC',
                                         padding: '12px 14px',
-                                        margin: '0 10px 10px',
                                         boxShadow: '0 1px 2px rgba(15, 23, 42, 0.04)',
                                     }}
                                 >
@@ -2951,18 +2988,10 @@ export default function StaffDirectoryManagement() {
                                         <span className="material-icons-round" style={{ fontSize: 16, color: '#94A3B8' }}>settings</span>
                                         <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', color: '#9CA3AF' }}>ACTIONS</span>
                                     </div>
-                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, flexShrink: 0 }}>
                                         <button
                                             type="button"
-                                            className="btn btn-secondary btn-sm"
-                                            style={{
-                                                justifyContent: 'flex-start',
-                                                borderRadius: 8,
-                                                background: '#F9FAFB',
-                                                border: '1px solid #E5E7EB',
-                                                fontSize: 12,
-                                                padding: '7px 12px',
-                                            }}
+                                            style={staffDetailActionBtn}
                                             onClick={() => showToast('Password reset email sent')}
                                         >
                                             <span className="material-icons-round" style={{ fontSize: 15 }}>lock_reset</span>
@@ -2970,8 +2999,7 @@ export default function StaffDirectoryManagement() {
                                         </button>
                                         <button
                                             type="button"
-                                            className={`btn ${selected.status === 'active' ? 'btn-danger' : 'btn-secondary'} btn-sm`}
-                                            style={{ justifyContent: 'flex-start', borderRadius: 8, fontSize: 12, padding: '7px 12px' }}
+                                            style={selected.status === 'active' ? staffDetailActionBtnDanger : staffDetailActionBtn}
                                             onClick={() => { toggleStatus(selected.id); setSelected(prev => prev ? { ...prev, status: prev.status === 'active' ? 'disabled' : 'active' } : null); }}
                                         >
                                             <span className="material-icons-round" style={{ fontSize: 15 }}>{selected.status === 'active' ? 'block' : 'check_circle'}</span>
@@ -2979,8 +3007,7 @@ export default function StaffDirectoryManagement() {
                                         </button>
                                         <button
                                             type="button"
-                                            className="btn btn-danger btn-sm"
-                                            style={{ justifyContent: 'flex-start', borderRadius: 8, fontSize: 12, padding: '7px 12px' }}
+                                            style={staffDetailActionBtnDanger}
                                             onClick={() => requestRemoteWipe(selected)}
                                         >
                                             <span className="material-icons-round" style={{ fontSize: 15 }}>phonelink_erase</span>
@@ -2988,15 +3015,7 @@ export default function StaffDirectoryManagement() {
                                         </button>
                                         <button
                                             type="button"
-                                            className="btn btn-secondary btn-sm"
-                                            style={{
-                                                justifyContent: 'flex-start',
-                                                borderRadius: 8,
-                                                background: '#F9FAFB',
-                                                border: '1px solid #E5E7EB',
-                                                fontSize: 12,
-                                                padding: '7px 12px',
-                                            }}
+                                            style={staffDetailActionBtn}
                                             onClick={() => { requestRemove(selected.id); }}
                                         >
                                             <span className="material-icons-round" style={{ fontSize: 15 }}>delete</span>
@@ -3005,6 +3024,7 @@ export default function StaffDirectoryManagement() {
                                     </div>
                                 </div>
                                 )}
+                                </div>
                             </div>
                         )}
                     </div>
@@ -3444,7 +3464,13 @@ export default function StaffDirectoryManagement() {
                     </div>
                 </div>
             )}
-            {pendingRemoteWipe && (
+            {pendingRemoteWipe && (() => {
+                const wipeTargetName =
+                    [pendingRemoteWipe.first_name, pendingRemoteWipe.last_name].filter(Boolean).join(' ').trim()
+                    || 'this staff member';
+                const remoteWipeCanConfirm =
+                    !remoteWipePending && remoteWipeConfirmText.trim().toUpperCase() === 'WIPE';
+                return (
                 <div
                     role="dialog"
                     aria-modal="true"
@@ -3496,23 +3522,14 @@ export default function StaffDirectoryManagement() {
                             </div>
                             <div style={{ minWidth: 0 }}>
                                 <div id="staff-remote-wipe-title" style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)' }}>
-                                    Remote wipe mobile devices?
+                                    Wipe devices for {wipeTargetName}?
                                 </div>
-                                <div id="staff-remote-wipe-desc" style={{ marginTop: 8, fontSize: 12.5, color: 'var(--text-secondary)', lineHeight: 1.55 }}>
-                                    <p style={{ margin: '0 0 8px' }}>
-                                        This will affect{' '}
-                                        <strong>
-                                            {[pendingRemoteWipe.first_name, pendingRemoteWipe.last_name].filter(Boolean).join(' ').trim() || 'this staff member'}
-                                        </strong>
-                                        :
-                                    </p>
-                                    <ul style={{ margin: 0, paddingLeft: 18 }}>
-                                        <li>Signs the user out on every registered device</li>
-                                        <li>Sends an immediate wipe signal to the Helix mobile app (local cache must be cleared on the device)</li>
-                                        <li>Revokes all sessions and push tokens</li>
-                                        <li>Does not disable the staff account — they may sign in again on a trusted device</li>
-                                    </ul>
-                                </div>
+                                <p
+                                    id="staff-remote-wipe-desc"
+                                    style={{ margin: '8px 0 0', fontSize: 12.5, color: 'var(--text-secondary)', lineHeight: 1.5 }}
+                                >
+                                    Signs them out on all phones and clears local Helix app data. Their staff account stays active.
+                                </p>
                             </div>
                         </div>
                         <label style={{ display: 'block', marginTop: 14, fontSize: 12, color: 'var(--text-secondary)' }}>
@@ -3550,17 +3567,25 @@ export default function StaffDirectoryManagement() {
                             </button>
                             <button
                                 type="button"
-                                className="btn btn-danger btn-sm"
-                                disabled={remoteWipePending || remoteWipeConfirmText.trim().toUpperCase() !== 'WIPE'}
+                                className="btn btn-sm"
+                                disabled={!remoteWipeCanConfirm}
                                 aria-label="Confirm remote wipe of mobile devices"
+                                aria-disabled={!remoteWipeCanConfirm}
                                 onClick={() => { void confirmRemoteWipe(); }}
+                                style={{
+                                    ...(remoteWipeCanConfirm ? staffDetailActionBtnDanger : staffDetailActionBtn),
+                                    width: 'auto',
+                                    opacity: remoteWipeCanConfirm ? 1 : 0.42,
+                                    cursor: remoteWipeCanConfirm ? 'pointer' : 'not-allowed',
+                                }}
                             >
                                 {remoteWipePending ? 'Wiping…' : 'Wipe devices'}
                             </button>
                         </div>
                     </div>
                 </div>
-            )}
+                );
+            })()}
             {pendingDelete && (
                 <div
                     role="dialog"

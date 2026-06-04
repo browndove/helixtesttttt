@@ -807,7 +807,7 @@ tbody td:first-child {
   position: relative;
 }
 
-/* Staff detail side panel: scrollable profile + pinned actions footer */
+/* Staff detail side panel: single scroll for all cards */
 .staff-detail-panel {
   display: flex;
   flex-direction: column;
@@ -825,8 +825,46 @@ tbody td:first-child {
   scrollbar-gutter: stable;
 }
 
-.staff-detail-actions {
+/* Flex column scroll: cards keep full height so ACTIONS buttons are not clipped */
+.staff-detail-scroll > * {
   flex-shrink: 0;
+}
+
+.staff-detail-field-row {
+  display: grid;
+  grid-template-columns: 18px 6.5rem minmax(0, 1fr);
+  column-gap: 10px;
+  align-items: start;
+  padding: 4px 0;
+}
+
+.staff-detail-field-icon {
+  grid-column: 1;
+  font-size: 16px !important;
+  color: #94a3b8;
+  margin-top: 1px;
+}
+
+.staff-detail-field-label {
+  grid-column: 2;
+  font-size: 12px;
+  line-height: 1.4;
+  color: #6b7280;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.staff-detail-field-value {
+  grid-column: 3;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.4;
+  color: #111827;
+  min-width: 0;
+  word-break: normal;
+  overflow-wrap: break-word;
+  hyphens: none;
 }
 
 /* Avatar */
