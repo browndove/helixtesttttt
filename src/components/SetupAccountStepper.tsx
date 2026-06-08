@@ -55,6 +55,7 @@ export default function SetupAccountStepper({ token, step }: { token: string; st
     const [success, setSuccess] = useState('');
     const [completed, setCompleted] = useState(false);
     const [facilityCode, setFacilityCode] = useState('');
+    const [isAdminPasswordReset, setIsAdminPasswordReset] = useState(false);
 
     const identityReady = useMemo(
         () => Boolean(firstName.trim()) && Boolean(lastName.trim()),
@@ -83,6 +84,10 @@ export default function SetupAccountStepper({ token, step }: { token: string; st
                 if (typeof data.last_name === 'string') setLastName(data.last_name);
                 if (typeof data.middle_name === 'string') setMiddleName(data.middle_name);
                 if (typeof data.email === 'string') setEmail(data.email.trim());
+                const hasExistingProfile =
+                    typeof data.first_name === 'string' && data.first_name.trim()
+                    && typeof data.last_name === 'string' && data.last_name.trim();
+                if (hasExistingProfile) setIsAdminPasswordReset(true);
                 const codeFromApi = extractFacilityCode(data);
                 if (codeFromApi) setFacilityCode(prev => prev || codeFromApi);
             } finally {
@@ -327,10 +332,12 @@ export default function SetupAccountStepper({ token, step }: { token: string; st
                             Helix
                         </h1>
                         <p style={{ margin: '10px 0 0', fontSize: 'clamp(1.12rem, 2.4vw, 1.45rem)', fontWeight: 800, lineHeight: 1.15, letterSpacing: '-0.02em', color: '#7FB2F0' }}>
-                            Invite Activation
+                            {isAdminPasswordReset ? 'Password reset' : 'Invite Activation'}
                         </p>
                         <p style={{ marginTop: 22, fontSize: 13, lineHeight: 1.6, color: '#c5d0e3', maxWidth: 360 }}>
-                            Complete your account in two quick steps: confirm your profile and set a secure password.
+                            {isAdminPasswordReset
+                                ? 'Your administrator sent a secure link so you can set a new password and sign in again.'
+                                : 'Complete your account in two quick steps: confirm your profile and set a secure password.'}
                         </p>
                         <ol className="setup-aside-steps" aria-label="Setup progress">
                             {STEP_ORDER.map((item, idx) => {
@@ -415,6 +422,11 @@ export default function SetupAccountStepper({ token, step }: { token: string; st
                                 )}
 
                 {prefillLoading && <p style={{ fontSize: 11, color: 'var(--text-muted)', margin: '0 0 8px' }}>Loading invitation details…</p>}
+                {isAdminPasswordReset && !prefillLoading && (
+                    <div style={{ ...alertBox, background: 'rgba(37, 99, 235, 0.08)', border: '1px solid rgba(37, 99, 235, 0.22)', color: '#1e3a8a', marginBottom: 10 }}>
+                        Your organization remotely wiped your devices for security. Set a new password below, then sign in to the Helix app with this password.
+                    </div>
+                )}
                 {!token && (
                     <div style={{ ...alertBox, background: 'var(--critical-bg)', border: '1px solid rgba(140,90,94,0.2)', color: 'var(--critical)' }}>
                         Use the invitation link from your email to open this page.

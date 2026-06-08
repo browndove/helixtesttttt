@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useState, useRef, useCallback, useEffect, useLayoutEffect, type CSSProperties, type FocusEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import { API_ENDPOINTS } from '@/lib/config';
@@ -709,18 +710,19 @@ export default function HospitalAdminLogin() {
                             </div>
 
                             <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', marginTop: -4 }}>
-                                <button
-                                    type="button"
+                                <Link
+                                    href={email.trim() ? `/forgot-password?email=${encodeURIComponent(email.trim())}` : '/forgot-password'}
                                     style={{
                                         ...ghostBtnSm,
                                         padding: '2px 0',
                                         fontSize: 12,
                                         fontWeight: 600,
                                         color: '#1d4ed8',
+                                        textDecoration: 'none',
                                     }}
                                 >
                                     Forgot password?
-                                </button>
+                                </Link>
                             </div>
 
                             <button

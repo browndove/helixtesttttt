@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useId, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Plus_Jakarta_Sans } from 'next/font/google';
 import './home-overview.css';
@@ -29,7 +29,6 @@ type DeptMessageMixRow = {
 
 const DEPT_MIX_TONES: DeptMessageMixTone[] = ['m1', 'm2', 'm3', 'm4'];
 
-const SPARK_POINTS = [22, 24, 23, 28, 31, 30, 34, 33, 36, 40, 38, 41];
 
 const TEAM_PRESENCE_MAX = 10;
 
@@ -189,32 +188,6 @@ function summarizeImport(entry: BulkUploadHistoryEntry): ActivityItem {
     };
 }
 
-function Sparkline({ points }: { points: number[] }) {
-    const uid = useId().replace(/:/g, '');
-    const w = 120;
-    const h = 36;
-    const pad = 4;
-    const max = Math.max(...points);
-    const min = Math.min(...points);
-    const coords = points.map((v, i) => {
-        const x = pad + (i / (points.length - 1)) * (w - pad * 2);
-        const y = pad + (1 - (v - min) / (max - min || 1)) * (h - pad * 2);
-        return `${x},${y}`;
-    });
-    const pts = coords.join(' ');
-    return (
-        <svg className="sparkline" viewBox={`0 0 ${w} ${h}`} width={120} height={36} aria-hidden>
-            <defs>
-                <linearGradient id={uid} x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="rgba(34,197,94,.28)" />
-                    <stop offset="100%" stopColor="rgba(34,197,94,0)" />
-                </linearGradient>
-            </defs>
-            <polyline fill="none" stroke="#22c55e" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" points={pts} />
-            <polyline fill={`url(#${uid})`} stroke="none" points={`${pts} ${w - pad},${h - pad} ${pad},${h - pad}`} />
-        </svg>
-    );
-}
 
 export default function HomePage() {
     const router = useRouter();
@@ -222,7 +195,9 @@ export default function HomePage() {
     const [staffCount, setStaffCount] = useState(0);
     const [patientCount, setPatientCount] = useState(0);
     const [failedImports24h, setFailedImports24h] = useState(0);
-    const [setupTasks, setSetupTasks] = useState(0);
+    const [teamsWithoutLeadCount, setTeamsWithoutLeadCount] = useState(0);
+    const [teamsWithoutMembersCount, setTeamsWithoutMembersCount] = useState(0);
+    const [deptsWithoutNameCount, setDeptsWithoutNameCount] = useState(0);
     const [recent, setRecent] = useState<ActivityItem[]>([]);
     const [firstName, setFirstName] = useState('');
     const [facilityName, setFacilityName] = useState('');
@@ -379,7 +354,9 @@ export default function HomePage() {
             const departmentsWithoutName = departmentItems.filter(d => !String(d.name || d.department_name || '').trim()).length;
             const escalationsMissingSteps = escalationItems.filter(p => !Array.isArray(p.steps) || p.steps.length === 0).length;
             setIncompleteEscalationPolicies(escalationsMissingSteps);
-            setSetupTasks(teamsWithoutLead + teamsWithoutMembers + escalationsMissingSteps + departmentsWithoutName);
+            setTeamsWithoutLeadCount(teamsWithoutLead);
+            setTeamsWithoutMembersCount(teamsWithoutMembers);
+            setDeptsWithoutNameCount(departmentsWithoutName);
 
             const historyRows = [
                 ...parseBulkUploadHistoryResponse(historyStaffJson),
@@ -423,10 +400,6 @@ export default function HomePage() {
     const facilityShort = facilityName || 'Your facility';
     const teamPresenceLoadingCombined = loading || teamPresenceLoading;
 
-    const workQueueTotal = staffCount + patientCount + setupTasks;
-    const goalTarget = criticalRoleFill.total > 0 ? criticalRoleFill.total : 100;
-    const goalCurrent = criticalRoleFill.filled;
-    const goalPct = goalTarget > 0 ? Math.round((goalCurrent / goalTarget) * 100) : criticalRoleFill.percent;
 
     const twoFactorPct = twoFactorAdoption.total > 0
         ? Math.round((twoFactorAdoption.enabled / twoFactorAdoption.total) * 100)
@@ -650,28 +623,54 @@ export default function HomePage() {
                         <div className="dash-card dash-card--lg">
                             <div className="dash-sumhd">
                                 <div>
-                                    <p className="dash-sumhd__label">Open work queue</p>
-                                    <p className="dash-sumhd__val">{formatMetric(workQueueTotal)}</p>
-                                    <p className="dash-card__muted">Tasks awaiting assignment</p>
+                                    <p className="dash-sumhd__label">Staff onboarding</p>
+                                    <p className="dash-sumhd__val">
+                                        {loading ? '—' : `${staffAccountMetric.total - staffAccountMetric.active}`}
+                                    </p>
+                                    <p className="dash-card__muted">Accounts pending activation</p>
                                 </div>
                                 <div className="dash-sumhd__acts">
-                                    <button type="button" className="dash-btn dash-btn--soft">Share</button>
-                                    <button type="button" className="dash-btn dash-btn--soft">Manage</button>
+                                    <button type="button" className="dash-btn dash-btn--soft" onClick={() => router.push('/staff')}>
+                                        View staff
+                                    </button>
                                 </div>
-                                <Sparkline points={SPARK_POINTS} />
                             </div>
+                            {(incompleteEscalationPolicies > 0 || teamsWithoutLeadCount > 0 || teamsWithoutMembersCount > 0 || deptsWithoutNameCount > 0) && (
+                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, margin: '12px 0 4px' }}>
+                                    {incompleteEscalationPolicies > 0 && (
+                                        <span style={{ background: '#FEF3C7', color: '#92400E', borderRadius: 6, padding: '3px 8px', fontSize: 11, fontWeight: 600 }}>
+                                            {incompleteEscalationPolicies} escalation{incompleteEscalationPolicies === 1 ? '' : 's'} need steps
+                                        </span>
+                                    )}
+                                    {teamsWithoutLeadCount > 0 && (
+                                        <span style={{ background: '#F1F5F9', color: '#475569', borderRadius: 6, padding: '3px 8px', fontSize: 11, fontWeight: 600 }}>
+                                            {teamsWithoutLeadCount} team{teamsWithoutLeadCount === 1 ? '' : 's'} without a lead
+                                        </span>
+                                    )}
+                                    {teamsWithoutMembersCount > 0 && (
+                                        <span style={{ background: '#F1F5F9', color: '#475569', borderRadius: 6, padding: '3px 8px', fontSize: 11, fontWeight: 600 }}>
+                                            {teamsWithoutMembersCount} empty team{teamsWithoutMembersCount === 1 ? '' : 's'}
+                                        </span>
+                                    )}
+                                    {deptsWithoutNameCount > 0 && (
+                                        <span style={{ background: '#F1F5F9', color: '#475569', borderRadius: 6, padding: '3px 8px', fontSize: 11, fontWeight: 600 }}>
+                                            {deptsWithoutNameCount} dept{deptsWithoutNameCount === 1 ? '' : 's'} unnamed
+                                        </span>
+                                    )}
+                                </div>
+                            )}
                             <div className="dash-goal">
                                 <div className="dash-goal__top">
-                                    <span className="dash-goal__label">Monthly stability target</span>
+                                    <span className="dash-goal__label">Staff activation rate</span>
                                     <span className="dash-goal__nums">
-                                        <strong>{goalCurrent.toLocaleString()}</strong> / {goalTarget.toLocaleString()}{' '}
-                                        <span className="dash-goal__pct">({goalPct}%)</span>
+                                        <strong>{staffAccountMetric.active.toLocaleString()}</strong> / {staffAccountMetric.total.toLocaleString()}{' '}
+                                        <span className="dash-goal__pct">({staffAccountMetric.percent}%)</span>
                                     </span>
                                 </div>
                                 <div className="dash-goal__bar">
-                                    <span style={{ width: `${Math.min(goalPct, 100)}%` }} />
+                                    <span style={{ width: `${Math.min(staffAccountMetric.percent, 100)}%` }} />
                                 </div>
-                                <p className="dash-goal__foot">Benchmark tied to critical role fill rate</p>
+                                <p className="dash-goal__foot">Active accounts vs total directory</p>
                             </div>
                         </div>
                     </section>

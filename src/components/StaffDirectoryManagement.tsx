@@ -909,6 +909,8 @@ export default function StaffDirectoryManagement() {
     const [pendingRemoteWipe, setPendingRemoteWipe] = useState<StaffMember | null>(null);
     const [remoteWipePending, setRemoteWipePending] = useState(false);
     const [remoteWipeConfirmText, setRemoteWipeConfirmText] = useState('');
+    const [pendingPasswordReset, setPendingPasswordReset] = useState<StaffMember | null>(null);
+    const [passwordResetPending, setPasswordResetPending] = useState(false);
     const [pendingInviteSend, setPendingInviteSend] = useState<StaffMember | null>(null);
     const [pendingPhoneUpdate, setPendingPhoneUpdate] = useState(false);
     const [processing, setProcessing] = useState(false);
@@ -1007,6 +1009,8 @@ export default function StaffDirectoryManagement() {
             if (pendingRemoteWipe) {
                 setPendingRemoteWipe(null);
                 setRemoteWipeConfirmText('');
+            } else if (pendingPasswordReset) {
+                setPendingPasswordReset(null);
             } else if (pendingDelete) {
                 setPendingDelete(null);
             } else if (pendingInviteSend) {
@@ -1023,7 +1027,7 @@ export default function StaffDirectoryManagement() {
         };
         window.addEventListener('keydown', onKey);
         return () => window.removeEventListener('keydown', onKey);
-    }, [toast, dismissToast, bulkResultErrors.length, dismissBulkErrors, inviteSendErrors.length, dismissInviteSendErrors, pendingRemoteWipe, pendingDelete, pendingInviteSend, pendingPhoneUpdate]);
+    }, [toast, dismissToast, bulkResultErrors.length, dismissBulkErrors, inviteSendErrors.length, dismissInviteSendErrors, pendingRemoteWipe, pendingPasswordReset, pendingDelete, pendingInviteSend, pendingPhoneUpdate]);
 
     useEffect(() => {
         if (!selected) {
@@ -1626,6 +1630,52 @@ export default function StaffDirectoryManagement() {
     const requestRemoteWipe = (member: StaffMember) => {
         setRemoteWipeConfirmText('');
         setPendingRemoteWipe(member);
+    };
+
+    const requestPasswordReset = (member: StaffMember) => {
+        const email = (member.email || '').trim();
+        if (!email) {
+            showToast('No email on file for this staff member.', 'error');
+            return;
+        }
+        setPendingPasswordReset(member);
+    };
+
+    const confirmStaffPasswordReset = async () => {
+        if (!pendingPasswordReset || passwordResetPending) return;
+        const email = (pendingPasswordReset.email || '').trim().toLowerCase();
+        if (!email) {
+            showToast('No email on file for this staff member.', 'error');
+            setPendingPasswordReset(null);
+            return;
+        }
+        setPasswordResetPending(true);
+        try {
+            const res = await fetch(staffUrl(API_ENDPOINTS.ADMIN_RESET(pendingPasswordReset.id)), {
+                method: 'POST',
+                credentials: 'include',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({}),
+            });
+            const data = (await res.json().catch(() => ({}))) as {
+                message?: string;
+                error?: string;
+                reason?: string;
+            };
+            if (!res.ok) {
+                showToast(data.message || data.error || data.reason || 'Could not send password reset email.', 'error');
+                return;
+            }
+            showToast(
+                data.message || `Setup email sent to ${email}. They can set a new password from the web link.`,
+                'success',
+            );
+            setPendingPasswordReset(null);
+        } catch {
+            showToast('Could not send password reset email.', 'error');
+        } finally {
+            setPasswordResetPending(false);
+        }
     };
 
     const confirmRemoteWipe = async () => {
@@ -2991,8 +3041,14 @@ export default function StaffDirectoryManagement() {
                                     <div style={{ display: 'flex', flexDirection: 'column', gap: 6, flexShrink: 0 }}>
                                         <button
                                             type="button"
-                                            style={staffDetailActionBtn}
-                                            onClick={() => showToast('Password reset email sent')}
+                                            style={{
+                                                ...staffDetailActionBtn,
+                                                opacity: (selected.email || '').trim() ? 1 : 0.42,
+                                                cursor: (selected.email || '').trim() ? 'pointer' : 'not-allowed',
+                                            }}
+                                            disabled={!(selected.email || '').trim()}
+                                            title={(selected.email || '').trim() ? 'Send password reset code to staff email' : 'No email on file'}
+                                            onClick={() => requestPasswordReset(selected)}
                                         >
                                             <span className="material-icons-round" style={{ fontSize: 15 }}>lock_reset</span>
                                             Reset password
@@ -3459,6 +3515,87 @@ export default function StaffDirectoryManagement() {
                                 onClick={confirmSendInviteAfterCreate}
                             >
                                 {sendingInvites ? 'Sending…' : 'Send invite email'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+            {pendingPasswordReset && (
+                <div
+                    role="dialog"
+                    aria-modal="true"
+                    aria-labelledby="staff-password-reset-title"
+                    onClick={() => { if (!passwordResetPending) setPendingPasswordReset(null); }}
+                    style={{
+                        position: 'fixed',
+                        inset: 0,
+                        background: 'rgba(8, 12, 20, 0.45)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        zIndex: 1200,
+                        padding: 16,
+                    }}
+                >
+                    <div
+                        onClick={e => e.stopPropagation()}
+                        style={{
+                            width: '100%',
+                            maxWidth: 440,
+                            background: 'var(--surface-card)',
+                            border: '1px solid var(--border-default)',
+                            borderRadius: 'var(--radius-lg)',
+                            boxShadow: '0 24px 64px rgba(0,0,0,0.25)',
+                            padding: '18px 18px 14px',
+                        }}
+                    >
+                        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+                            <div
+                                style={{
+                                    width: 32,
+                                    height: 32,
+                                    borderRadius: 10,
+                                    background: 'rgba(37, 99, 235, 0.12)',
+                                    color: '#2563eb',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    flexShrink: 0,
+                                }}
+                            >
+                                <span className="material-icons-round" style={{ fontSize: 18 }}>lock_reset</span>
+                            </div>
+                            <div style={{ minWidth: 0 }}>
+                                <div id="staff-password-reset-title" style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)' }}>
+                                    Send password reset email?
+                                </div>
+                                <div style={{ marginTop: 6, fontSize: 12.5, color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+                                    Helix will email a setup link to{' '}
+                                    <strong>{(pendingPasswordReset.email || '').trim()}</strong>{' '}
+                                    so{' '}
+                                    <strong>
+                                        {[pendingPasswordReset.first_name, pendingPasswordReset.last_name].filter(Boolean).join(' ').trim() || 'this staff member'}
+                                    </strong>{' '}
+                                    can set a new password on the web (valid 72 hours).
+                                </div>
+                            </div>
+                        </div>
+                        <div style={{ marginTop: 14, display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+                            <button
+                                type="button"
+                                className="btn btn-secondary btn-sm"
+                                disabled={passwordResetPending}
+                                onClick={() => setPendingPasswordReset(null)}
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                type="button"
+                                className="btn btn-primary btn-sm"
+                                disabled={passwordResetPending}
+                                onClick={() => { void confirmStaffPasswordReset(); }}
+                            >
+                                {passwordResetPending ? 'Sending…' : 'Send reset email'}
                             </button>
                         </div>
                     </div>

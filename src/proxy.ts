@@ -4,7 +4,7 @@ const COOKIE_NAME = 'helix-session';
 const INTERNAL_COOKIE_NAME = 'helix-internal-session';
 const SUPPORT_MODE_COOKIE = 'helix-support-mode';
 
-const PUBLIC_PATHS = ['/', '/login', '/setup-account', '/setup-facility', '/setup', '/internal/login'];
+const PUBLIC_PATHS = ['/', '/login', '/forgot-password', '/reset-password', '/setup-account', '/setup-facility', '/setup', '/internal/login'];
 const PUBLIC_PREFIXES = ['/api/auth', '/api/proxy', '/_next', '/favicon.ico', '/assets'];
 const PUBLIC_FILE_EXTENSIONS = /\.(png|jpg|jpeg|gif|webp|svg|ico)$/i;
 
