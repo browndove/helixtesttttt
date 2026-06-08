@@ -9,21 +9,6 @@ export async function resolveDepartmentIdByName(
     departmentName?: string
 ): Promise<string | undefined> {
     if (!departmentName?.trim()) {
-        // #region agent log
-        void fetch('http://127.0.0.1:7426/ingest/00cfa10c-d013-4384-9106-545095334c7e', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': 'f12e6f' },
-            body: JSON.stringify({
-                sessionId: 'f12e6f',
-                runId: 'staff-dept-update',
-                hypothesisId: 'H-B',
-                location: 'proxy-resolve-department.ts:resolveDepartmentIdByName',
-                message: 'dept-name-empty-skip',
-                data: { skipped: true },
-                timestamp: Date.now(),
-            }),
-        }).catch(() => {});
-        // #endregion
         return undefined;
     }
 
@@ -55,47 +40,8 @@ export async function resolveDepartmentIdByName(
             return name === normalizedName;
         }) as { id?: string; department_id?: string } | undefined;
 
-        const resolvedId = matched?.id || matched?.department_id;
-        // #region agent log
-        void fetch('http://127.0.0.1:7426/ingest/00cfa10c-d013-4384-9106-545095334c7e', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': 'f12e6f' },
-            body: JSON.stringify({
-                sessionId: 'f12e6f',
-                runId: 'staff-dept-update',
-                hypothesisId: 'H-B',
-                location: 'proxy-resolve-department.ts:resolveDepartmentIdByName',
-                message: 'dept-name-resolve',
-                data: {
-                    facilityIdLen: facilityId?.length ?? 0,
-                    normalizedNameLen: normalizedName.length,
-                    departmentsFetchOk: res.ok,
-                    listLen: list.length,
-                    matched: Boolean(matched),
-                    resolvedIdLen: resolvedId?.length ?? 0,
-                },
-                timestamp: Date.now(),
-            }),
-        }).catch(() => {});
-        // #endregion
-
-        return resolvedId;
+        return matched?.id || matched?.department_id;
     } catch {
-        // #region agent log
-        void fetch('http://127.0.0.1:7426/ingest/00cfa10c-d013-4384-9106-545095334c7e', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': 'f12e6f' },
-            body: JSON.stringify({
-                sessionId: 'f12e6f',
-                runId: 'staff-dept-update',
-                hypothesisId: 'H-B',
-                location: 'proxy-resolve-department.ts:resolveDepartmentIdByName',
-                message: 'dept-name-resolve-catch',
-                data: { error: true },
-                timestamp: Date.now(),
-            }),
-        }).catch(() => {});
-        // #endregion
         return undefined;
     }
 }

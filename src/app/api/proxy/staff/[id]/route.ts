@@ -68,35 +68,36 @@ export async function PUT(
                     ? await resolveDepartmentIdByName(req, sessionFacilityId, deptLabel)
                     : undefined;
 
-        const forward: Record<string, unknown> = { ...body };
-        if (resolvedDeptId) {
-            forward.department_id = resolvedDeptId;
-            forward.departmentId = resolvedDeptId;
-            forward.departments = [{ id: resolvedDeptId }];
-        }
+        const email = String(body.email || '').trim();
+        const phone = String(body.phone || '').trim();
+        const hq = String(body.highest_qualification || body.highest_qualifications || '').trim();
+        const departmentId = resolvedDeptId
+            || String(body.department_id || body.departmentId || '').trim()
+            || undefined;
 
-        // #region agent log
-        void fetch('http://127.0.0.1:7426/ingest/00cfa10c-d013-4384-9106-545095334c7e', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': 'f12e6f' },
-            body: JSON.stringify({
-                sessionId: 'f12e6f',
-                runId: 'staff-dept-update',
-                hypothesisId: 'H-C',
-                location: 'proxy/staff/[id]/route.ts:PUT',
-                message: 'forward-after-dept-resolve',
-                data: {
-                    staffIdSuffix: String(id).slice(-10),
-                    hasExplicitDeptId,
-                    deptLabelLen: deptLabel.length,
-                    hasSessionFacilityId: Boolean(sessionFacilityId),
-                    resolvedDeptId: Boolean(resolvedDeptId),
-                    forwardKeys: Object.keys(forward).slice(0, 24),
-                },
-                timestamp: Date.now(),
-            }),
-        }).catch(() => {});
-        // #endregion
+        const forward: Record<string, unknown> = {};
+        const copyString = (key: string, value: unknown) => {
+            const v = String(value ?? '').trim();
+            if (v) forward[key] = v;
+        };
+        copyString('first_name', body.first_name);
+        copyString('middle_name', body.middle_name);
+        copyString('last_name', body.last_name);
+        if (email) forward.email = email;
+        if (phone) forward.phone = phone;
+        copyString('job_title', body.job_title || body.title);
+        if (hq) forward.highest_qualification = hq;
+        copyString('dob', body.dob);
+        copyString('gender', body.gender);
+        copyString('employee_id', body.employee_id);
+        copyString('additional_title', body.additional_title);
+        if (departmentId) forward.department_id = departmentId;
+        if (body.patient_access !== undefined || body.can_access_patients !== undefined) {
+            forward.patient_access = Boolean(body.patient_access ?? body.can_access_patients);
+        }
+        if (body.is_doctor !== undefined) {
+            forward.is_doctor = Boolean(body.is_doctor);
+        }
 
         const upstream = await buildTenantUpstreamUrl(req, API_BASE_URL, `/api/v1/staff/${id}`);
 
@@ -115,27 +116,6 @@ export async function PUT(
 
         const text = await res.text();
         console.log('Backend response status:', res.status);
-
-        // #region agent log
-        void fetch('http://127.0.0.1:7426/ingest/00cfa10c-d013-4384-9106-545095334c7e', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': 'f12e6f' },
-            body: JSON.stringify({
-                sessionId: 'f12e6f',
-                runId: 'staff-dept-update',
-                hypothesisId: 'H-E',
-                location: 'proxy/staff/[id]/route.ts:PUT',
-                message: 'upstream-put-response',
-                data: {
-                    staffIdSuffix: String(id).slice(-10),
-                    status: res.status,
-                    responseBodyLen: text.length,
-                    ok: res.ok,
-                },
-                timestamp: Date.now(),
-            }),
-        }).catch(() => {});
-        // #endregion
 
         let data;
         try {

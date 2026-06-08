@@ -124,9 +124,15 @@ const STAFF_PHONE_KEYS = [
 
 /** Directory list/detail: email may live on nested `user` / profile objects. */
 function pickStaffEmail(r: Record<string, unknown>): string {
+    const userRec = asRecord(r.user);
+    const userEmail = userRec
+        ? String(userRec.email || userRec.work_email || userRec.contact_email || '').trim()
+        : '';
+    if (userEmail) return userEmail;
     const top = String(r.email || r.work_email || r.contact_email || r.primary_email || '').trim();
     if (top) return top;
     for (const k of STAFF_DEPT_NEST_KEYS) {
+        if (k === 'user') continue;
         const n = asRecord(r[k]);
         if (!n) continue;
         const nested = String(n.email || n.work_email || n.contact_email || '').trim();
@@ -151,10 +157,25 @@ function pickStaffPhone(r: Record<string, unknown>): string {
     return '';
 }
 
+/** Match UUID-shaped strings some APIs put in `department` instead of a nested object. */
+const DEPT_ID_STRING_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 /**
  * GET list (and some PUT bodies) often omit phone/email. Merging the refreshed row into the
  * open detail panel must not wipe contact fields the user already had loaded.
  */
+function isUuidLike(value: string): boolean {
+    return DEPT_ID_STRING_RE.test(value.trim());
+}
+
+/** parseStaffList uses row `id` when employee_id is omitted — treat that as "missing". */
+function pickEmployeeId(prev: StaffMember, fromApi: StaffMember): string {
+    const from = (fromApi.employee_id || '').trim();
+    const prior = (prev.employee_id || '').trim();
+    if (from && from !== fromApi.id) return from;
+    return prior || from;
+}
+
 function mergeStaffListRowIntoDetail(prev: StaffMember, fromList: StaffMember): StaffMember {
     const email = (fromList.email || '').trim() || (prev.email || '').trim();
     const phone = (fromList.phone || '').trim() || (prev.phone || '').trim();
@@ -162,16 +183,34 @@ function mergeStaffListRowIntoDetail(prev: StaffMember, fromList: StaffMember): 
         (fromList.signed_in_role_name || '').trim()
         || (prev.signed_in_role_name || '').trim()
         || undefined;
+    const dept =
+        (fromList.dept || '').trim() === 'Unassigned' && (prev.dept || '').trim()
+            ? prev.dept
+            : (fromList.dept || '').trim() || prev.dept;
     return {
         ...fromList,
+        first_name: (fromList.first_name || '').trim() && fromList.first_name !== 'Unknown'
+            ? fromList.first_name
+            : prev.first_name,
+        last_name: (fromList.last_name || '').trim() && fromList.last_name !== 'Staff'
+            ? fromList.last_name
+            : prev.last_name,
+        job_title: (fromList.job_title || '').trim() && fromList.job_title !== 'Staff'
+            ? fromList.job_title
+            : prev.job_title,
         email,
         phone: phone || undefined,
         signed_in_role_name: signed,
+        employee_id: pickEmployeeId(prev, fromList),
+        dept,
+        department_id: (fromList.department_id || '').trim() || prev.department_id,
     };
 }
 
-/** Match UUID-shaped strings some APIs put in `department` instead of a nested object. */
-const DEPT_ID_STRING_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+/** Merge PUT/GET-by-id body into open detail without wiping list-only fields the API omitted. */
+function mergeStaffPutResponse(prev: StaffMember, fromApi: StaffMember): StaffMember {
+    return mergeStaffListRowIntoDetail(prev, fromApi);
+}
 
 function gatherStaffDeptSources(r: Record<string, unknown>): Record<string, unknown>[] {
     const out: Record<string, unknown>[] = [r];
@@ -366,7 +405,10 @@ function parseStaffList(raw: unknown): StaffMember[] {
                 dept: deptFromApi,
                 status: normalizedStatus,
                 access: String(r.system_role || r.access || 'Staff'),
-                employee_id: String(r.employee_id || r.username || id),
+                employee_id: (() => {
+                    const fromApi = String(r.employee_id || r.username || '').trim();
+                    return fromApi || (isUuidLike(id) ? '' : id);
+                })(),
                 patient_access: Boolean(r.patient_access ?? r.can_access_patients ?? false),
                 role: String(r.system_role || r.role || 'staff').toLowerCase().includes('admin') ? 'admin' as const : 'staff' as const,
                 phone: pickStaffPhone(r),
@@ -1070,92 +1112,6 @@ export default function StaffDirectoryManagement() {
         return m;
     }, [deptIdToName]);
 
-    // #region agent log
-    useEffect(() => {
-        if (typeof window === 'undefined') return;
-        const runId = 'post-fix-4-unified-scroll';
-        const post = (hypothesisId: string, message: string, data: Record<string, unknown>) => {
-            fetch('http://127.0.0.1:7426/ingest/00cfa10c-d013-4384-9106-545095334c7e', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': 'f12e6f' },
-                body: JSON.stringify({
-                    sessionId: 'f12e6f',
-                    runId,
-                    hypothesisId,
-                    location: 'StaffDirectoryManagement.tsx:staff-table-debug',
-                    message,
-                    data,
-                    timestamp: Date.now(),
-                }),
-            }).catch(() => {});
-        };
-        const raf = requestAnimationFrame(() => {
-            if (!selected) {
-                post('H3', 'selection-cleared', { selectedNull: true });
-                return;
-            }
-            const row = document.querySelector('.staff-split-row[data-selected="true"]');
-            const c1 = row?.children[0] as HTMLElement | undefined;
-            const c3 = row?.children[2] as HTMLElement | undefined;
-            const c4 = row?.children[3] as HTMLElement | undefined;
-            post('H3', 'dom-after-select', {
-                selectedId: selected.id,
-                hasRow: Boolean(row),
-                dataSelectedAttr: row?.getAttribute('data-selected') ?? null,
-                layout: 'unified-scroll',
-            });
-            if (!row || !c1 || !c3 || !c4) {
-                post('H1', 'missing-row-or-cells', { hasRow: Boolean(row), hasC1: Boolean(c1), hasC3: Boolean(c3), hasC4: Boolean(c4) });
-                return;
-            }
-            const s1 = window.getComputedStyle(c1);
-            const s3 = window.getComputedStyle(c3);
-            const s4 = window.getComputedStyle(c4);
-            const str = row ? window.getComputedStyle(row) : null;
-            post('H1', 'computed-style-frozen-vs-email', {
-                bg1: s1.backgroundColor,
-                bg3: s3.backgroundColor,
-                bg4: s4.backgroundColor,
-                z1: s1.zIndex,
-                z3: s3.zIndex,
-                z4: s4.zIndex,
-                pos1: s1.position,
-                pos3: s3.position,
-                pos4: s4.position,
-                overflow4: s4.overflow,
-                whiteSpace4: s4.whiteSpace,
-                textOverflow4: s4.textOverflow,
-                rowBg: str?.backgroundColor ?? null,
-            });
-            const r1 = c1.getBoundingClientRect();
-            const r3 = c3.getBoundingClientRect();
-            const r4 = c4.getBoundingClientRect();
-            post('H5', 'cell-geometry', {
-                w1: r1.width,
-                w3: r3.width,
-                w4: r4.width,
-                right3: r3.right,
-                left4: r4.left,
-                gapPx: r4.left - r3.right,
-            });
-            const root = document.querySelector('.staff-table-scroll');
-            const transforms: { depth: number; tag: string; cls: string; t: string }[] = [];
-            let el: HTMLElement | null = root?.parentElement ?? null;
-            let depth = 0;
-            while (el && depth < 14) {
-                const st = window.getComputedStyle(el);
-                if (st.transform && st.transform !== 'none') {
-                    transforms.push({ depth, tag: el.tagName, cls: String(el.className).slice(0, 100), t: st.transform.slice(0, 80) });
-                }
-                el = el.parentElement;
-                depth += 1;
-            }
-            post('H4', 'ancestors-with-transform', { count: transforms.length, transforms });
-        });
-        return () => cancelAnimationFrame(raf);
-    }, [selected]);
-    // #endregion
-
     const isAddFormComplete = useMemo(() => (
         Boolean(newFirstName.trim())
         && Boolean(newLastName.trim())
@@ -1307,22 +1263,27 @@ export default function StaffDirectoryManagement() {
         if (!newDept && departmentOptions.length > 0) setNewDept(departmentOptions[0]);
     }, [newDept, departmentOptions]);
     useEffect(() => {
+        setEditingContactEmail(false);
+    }, [selected?.id]);
+
+    useEffect(() => {
         if (!selected) {
             setEditingSelected(false);
             setEditingContactEmail(false);
             return;
         }
-        setEditingContactEmail(false);
         setEditFirstName(selected.first_name || '');
         setEditMiddleName(selected.middle_name || '');
         setEditLastName(selected.last_name || '');
-        setEditEmail(selected.email || '');
+        if (!editingContactEmail) {
+            setEditEmail(selected.email || '');
+        }
         setEditDob(selected.dob || '');
         setEditGender(selected.gender || '');
         setEditJobTitle(selected.title || selected.job_title || '');
         setEditHighestQualification(selected.highest_qualification || '');
         setEditDept(selected.dept || '');
-    }, [selected]);
+    }, [selected, editingContactEmail]);
 
     const toggleSort = (key: ColumnSortKey) => {
         if (sortKey === key) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
@@ -1796,24 +1757,43 @@ export default function StaffDirectoryManagement() {
 
         setSavingContactEmail(true);
         try {
-            const payload = {
-                first_name: (selected.first_name || '').trim(),
-                middle_name: selected.middle_name?.trim() || undefined,
-                last_name: (selected.last_name || '').trim(),
+            const getRes = await fetch(staffUrl(`/api/proxy/staff/${selected.id}`), { credentials: 'include' });
+            let existing: Record<string, unknown> = {};
+            if (getRes.ok) {
+                const raw = await getRes.json().catch(() => ({}));
+                existing = raw && typeof raw === 'object' && !Array.isArray(raw)
+                    ? (raw as Record<string, unknown>)
+                    : {};
+            }
+
+            const employeeFromExisting = String(existing.employee_id || '').trim();
+            const employeeId = employeeFromExisting && !isUuidLike(employeeFromExisting)
+                ? employeeFromExisting
+                : (selected.employee_id && !isUuidLike(selected.employee_id) ? selected.employee_id : undefined);
+            const hq = String(
+                existing.highest_qualification || existing.highest_qualifications || selected.highest_qualification || '',
+            ).trim();
+            const payload: Record<string, unknown> = {
+                first_name: String(existing.first_name || selected.first_name || '').trim(),
+                middle_name: String(existing.middle_name || selected.middle_name || '').trim() || undefined,
+                last_name: String(existing.last_name || selected.last_name || '').trim(),
                 email: normalized,
-                dob: selected.dob?.trim() || undefined,
-                gender: selected.gender?.trim() || undefined,
-                title: (selected.title || selected.job_title || '').trim(),
-                job_title: (selected.title || selected.job_title || '').trim(),
-                highest_qualification: selected.highest_qualification?.trim() || undefined,
-                is_doctor: isDoctorFromHighestQualification(selected.highest_qualification || ''),
-                department: (selected.dept || '').trim(),
-                status: selected.status,
-                role: selected.role,
-                patient_access: selected.patient_access,
+                phone: String(existing.phone || selected.phone || '').trim() || undefined,
+                dob: String(existing.dob || selected.dob || '').trim() || undefined,
+                gender: String(existing.gender || selected.gender || '').trim() || undefined,
+                job_title: String(existing.job_title || existing.title || selected.job_title || selected.title || '').trim(),
+                highest_qualification: hq || undefined,
+                department_id: selected.department_id || String(existing.department_id || '').trim() || undefined,
+                patient_access: Boolean(
+                    existing.patient_access ?? existing.can_access_patients ?? selected.patient_access ?? false,
+                ),
             };
+            if (employeeId) payload.employee_id = employeeId;
+            if (hq) payload.is_doctor = Boolean(existing.is_doctor ?? isDoctorFromHighestQualification(hq));
+
             const res = await fetch(staffUrl(`/api/proxy/staff/${selected.id}`), {
                 method: 'PUT',
+                credentials: 'include',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(payload),
             });
@@ -1822,15 +1802,26 @@ export default function StaffDirectoryManagement() {
                 showToast(String(err.message || err.detail || err.error || 'Could not update email'), 'error');
                 return;
             }
-            const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
-            const mergedLocal: StaffMember = {
-                ...selected,
-                email: normalized,
-                ...(typeof data.email === 'string' ? { email: data.email.trim() } : {}),
-            };
-            setStaff(prev => prev.map(s => (s.id === selected.id ? { ...s, ...mergedLocal } : s)));
+
+            let confirmedEmail = normalized;
+            const verifyRes = await fetch(staffUrl(`/api/proxy/staff/${selected.id}`), { credentials: 'include' });
+            if (verifyRes.ok) {
+                const verifyRaw = await verifyRes.json().catch(() => ({}));
+                const rec = verifyRaw && typeof verifyRaw === 'object' && !Array.isArray(verifyRaw)
+                    ? (verifyRaw as Record<string, unknown>)
+                    : {};
+                const verifiedEmail = pickStaffEmail(rec).trim().toLowerCase();
+                if (verifiedEmail && verifiedEmail !== normalized) {
+                    showToast('Email could not be saved. Please try again.', 'error');
+                    return;
+                }
+                if (verifiedEmail) confirmedEmail = verifiedEmail;
+            }
+
+            const mergedLocal: StaffMember = { ...selected, email: confirmedEmail };
+            setStaff(prev => prev.map(s => (s.id === selected.id ? { ...s, email: confirmedEmail } : s)));
             setSelected(mergedLocal);
-            setEditEmail(mergedLocal.email || normalized);
+            setEditEmail(confirmedEmail);
             setEditingContactEmail(false);
             showToast('Email updated', 'success');
         } catch {
@@ -1899,47 +1890,25 @@ export default function StaffDirectoryManagement() {
         setSavingEdit(true);
         try {
             const editDerivedIsDoctor = isDoctorFromHighestQualification(editHighestQualification);
-            const payload = {
+            const resolvedDeptId =
+                deptNameToId.get(editDept.trim().toLowerCase()) || selected.department_id;
+            const trimmedHq = editHighestQualification.trim();
+            const payload: Record<string, unknown> = {
                 first_name: editFirstName.trim(),
                 middle_name: editMiddleName.trim() || undefined,
                 last_name: editLastName.trim(),
                 email: editEmail.trim(),
                 dob: editDob.trim() || undefined,
                 gender: editGender.trim() || undefined,
-                title: editJobTitle.trim(),
                 job_title: editJobTitle.trim(),
-                highest_qualification: editHighestQualification.trim() || undefined,
-                is_doctor: editDerivedIsDoctor,
-                department: editDept.trim(),
-                status: selected.status,
-                role: selected.role,
+                highest_qualification: trimmedHq || undefined,
+                department_id: resolvedDeptId || undefined,
                 patient_access: selected.patient_access,
             };
-            // #region agent log
-            {
-                const dk = editDept.trim().toLowerCase();
-                fetch('http://127.0.0.1:7426/ingest/00cfa10c-d013-4384-9106-545095334c7e', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': 'f12e6f' },
-                    body: JSON.stringify({
-                        sessionId: 'f12e6f',
-                        runId: 'staff-dept-update',
-                        hypothesisId: 'H-A',
-                        location: 'StaffDirectoryManagement.tsx:handleSaveSelected',
-                        message: 'client-put-payload',
-                        data: {
-                            staffIdSuffix: selected.id.slice(-10),
-                            departmentFieldLen: editDept.trim().length,
-                            deptNameInLocalMap: deptNameToId.has(dk),
-                            mapSize: deptNameToId.size,
-                            payloadHasDepartmentKey: 'department' in payload && Boolean(String(payload.department || '').trim()),
-                            selectedHadDepartmentId: Boolean(selected.department_id?.trim()),
-                        },
-                        timestamp: Date.now(),
-                    }),
-                }).catch(() => {});
+            if (selected.employee_id && !isUuidLike(selected.employee_id)) {
+                payload.employee_id = selected.employee_id;
             }
-            // #endregion
+            if (trimmedHq) payload.is_doctor = editDerivedIsDoctor;
             const res = await fetch(staffUrl(`/api/proxy/staff/${selected.id}`), {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
@@ -1947,24 +1916,6 @@ export default function StaffDirectoryManagement() {
             });
             if (!res.ok) {
                 const err = await res.json().catch(() => ({} as { message?: string; detail?: string; error?: string }));
-                // #region agent log
-                fetch('http://127.0.0.1:7426/ingest/00cfa10c-d013-4384-9106-545095334c7e', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': 'f12e6f' },
-                    body: JSON.stringify({
-                        sessionId: 'f12e6f',
-                        runId: 'staff-dept-update',
-                        hypothesisId: 'H-E',
-                        location: 'StaffDirectoryManagement.tsx:handleSaveSelected',
-                        message: 'client-put-not-ok',
-                        data: {
-                            status: res.status,
-                            errKeys: err && typeof err === 'object' ? Object.keys(err as object) : [],
-                        },
-                        timestamp: Date.now(),
-                    }),
-                }).catch(() => {});
-                // #endregion
                 showToast(String(err.message || err.detail || err.error || 'Failed to update staff'), 'error');
                 return;
             }
@@ -1972,82 +1923,37 @@ export default function StaffDirectoryManagement() {
             const data = await res.json();
             const parsedRows = parseStaffList(data);
             const fromApi = parsedRows.find(s => s.id === selected.id);
-            // #region agent log
-            fetch('http://127.0.0.1:7426/ingest/00cfa10c-d013-4384-9106-545095334c7e', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': 'f12e6f' },
-                body: JSON.stringify({
-                    sessionId: 'f12e6f',
-                    runId: 'staff-dept-update',
-                    hypothesisId: 'H-D',
-                    location: 'StaffDirectoryManagement.tsx:handleSaveSelected',
-                    message: 'client-after-put-parse',
-                    data: {
-                        parsedRowsLen: parsedRows.length,
-                        fromApiFound: Boolean(fromApi),
-                        fromApiDeptLen: fromApi?.dept?.length ?? 0,
-                        fromApiHasDeptId: Boolean(fromApi?.department_id?.trim()),
-                        dataTopKeys: data && typeof data === 'object' ? Object.keys(data as object).slice(0, 20) : [],
-                    },
-                    timestamp: Date.now(),
-                }),
-            }).catch(() => {});
-            // #endregion
-            const resolvedDeptId =
-                deptNameToId.get(editDept.trim().toLowerCase()) || selected.department_id;
+            const trimmedEditDept = editDept.trim();
             const fallbackLocal: StaffMember = {
                 ...selected,
-                first_name: payload.first_name,
-                middle_name: payload.middle_name || '',
-                last_name: payload.last_name,
-                email: payload.email,
+                first_name: String(payload.first_name || '').trim(),
+                middle_name: String(payload.middle_name || '').trim(),
+                last_name: String(payload.last_name || '').trim(),
+                email: String(payload.email || '').trim(),
                 phone: selected.phone || '',
-                dob: payload.dob || '',
-                gender: payload.gender || '',
-                title: payload.title || selected.title || '',
-                job_title: payload.job_title || selected.job_title,
-                highest_qualification: payload.highest_qualification || selected.highest_qualification || '',
-                is_doctor: payload.is_doctor,
-                dept: editDept.trim() || selected.dept,
+                dob: String(payload.dob || '').trim(),
+                gender: String(payload.gender || '').trim(),
+                title: String(payload.job_title || '').trim() || selected.title || '',
+                job_title: String(payload.job_title || '').trim() || selected.job_title,
+                highest_qualification: String(payload.highest_qualification || '').trim() || selected.highest_qualification || '',
+                is_doctor: Boolean(payload.is_doctor ?? selected.is_doctor),
+                dept: trimmedEditDept || selected.dept,
                 department_id: resolvedDeptId,
             };
-            const updatedLocal: StaffMember = fromApi
-                ? {
-                    ...selected,
+            let mergedLocal: StaffMember = fromApi
+                ? mergeStaffPutResponse(selected, {
                     ...fromApi,
-                    middle_name: fromApi.middle_name || payload.middle_name || selected.middle_name || '',
-                    email: (fromApi.email || '').trim() || selected.email,
+                    middle_name: fromApi.middle_name || String(payload.middle_name || '').trim() || selected.middle_name || '',
+                    email: (fromApi.email || '').trim() || String(payload.email || '').trim() || selected.email,
                     phone: (fromApi.phone || '').trim() || (selected.phone || '').trim() || undefined,
                     signed_in_role_name: fromApi.signed_in_role_name ?? selected.signed_in_role_name,
-                }
+                })
                 : fallbackLocal;
-            // Backend PUT 200 body often omits department fields; parseStaffList defaults dept to "Unassigned".
-            const trimmedEditDept = editDept.trim();
             const apiReturnedDepartmentId = Boolean(fromApi?.department_id?.trim());
-            const mergedLocal: StaffMember =
-                fromApi && trimmedEditDept && !apiReturnedDepartmentId
-                    ? { ...updatedLocal, dept: trimmedEditDept, department_id: resolvedDeptId }
-                    : updatedLocal;
-            // #region agent log
-            fetch('http://127.0.0.1:7426/ingest/00cfa10c-d013-4384-9106-545095334c7e', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': 'f12e6f' },
-                body: JSON.stringify({
-                    sessionId: 'f12e6f',
-                    runId: 'staff-dept-update',
-                    hypothesisId: 'H-D',
-                    location: 'StaffDirectoryManagement.tsx:handleSaveSelected',
-                    message: 'client-merge-dept-overlay',
-                    data: {
-                        overlayApplied: Boolean(fromApi && trimmedEditDept && !apiReturnedDepartmentId),
-                        apiReturnedDepartmentId,
-                        trimmedEditDeptLen: trimmedEditDept.length,
-                    },
-                    timestamp: Date.now(),
-                }),
-            }).catch(() => {});
-            // #endregion
-            setStaff(prev => prev.map(s => (s.id === selected.id ? { ...s, ...mergedLocal } : s)));
+            if (fromApi && trimmedEditDept && !apiReturnedDepartmentId) {
+                mergedLocal = { ...mergedLocal, dept: trimmedEditDept, department_id: resolvedDeptId };
+            }
+            setStaff(prev => prev.map(s => (s.id === selected.id ? mergeStaffPutResponse(s, mergedLocal) : s)));
             setSelected(mergedLocal);
             setEditingSelected(false);
             showToast('Staff updated', 'success');
