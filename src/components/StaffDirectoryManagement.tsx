@@ -916,6 +916,9 @@ export default function StaffDirectoryManagement() {
     const [passwordResetPending, setPasswordResetPending] = useState(false);
     const [pendingInviteSend, setPendingInviteSend] = useState<StaffMember | null>(null);
     const [pendingPhoneUpdate, setPendingPhoneUpdate] = useState(false);
+    const [editingContactEmail, setEditingContactEmail] = useState(false);
+    const [contactEmailDraft, setContactEmailDraft] = useState('');
+    const [savingContactEmail, setSavingContactEmail] = useState(false);
     const [processing, setProcessing] = useState(false);
     const [requestPhoneUpdatePending, setRequestPhoneUpdatePending] = useState(false);
     const [detailSignedInRole, setDetailSignedInRole] = useState<string | null>(null);
@@ -1309,8 +1312,10 @@ export default function StaffDirectoryManagement() {
     useEffect(() => {
         if (!selected) {
             setEditingSelected(false);
+            setEditingContactEmail(false);
             return;
         }
+        setEditingContactEmail(false);
         setEditFirstName(selected.first_name || '');
         setEditMiddleName(selected.middle_name || '');
         setEditLastName(selected.last_name || '');
@@ -1778,6 +1783,64 @@ export default function StaffDirectoryManagement() {
             setStaff(prev => prev.map(s => s.id === id ? { ...s, role: oldRole } : s));
             setSelected(prev => prev && prev.id === id ? { ...prev, role: oldRole } : prev);
             showToast('Failed to assign role', 'error');
+        }
+    };
+
+    const saveContactEmail = async () => {
+        if (!selected || savingContactEmail) return;
+        const normalized = contactEmailDraft.trim().toLowerCase();
+        if (!normalized) {
+            showToast('Email is required', 'error');
+            return;
+        }
+        if (normalized === (selected.email || '').trim().toLowerCase()) {
+            setEditingContactEmail(false);
+            return;
+        }
+
+        setSavingContactEmail(true);
+        try {
+            const payload = {
+                first_name: (selected.first_name || '').trim(),
+                middle_name: selected.middle_name?.trim() || undefined,
+                last_name: (selected.last_name || '').trim(),
+                email: normalized,
+                dob: selected.dob?.trim() || undefined,
+                gender: selected.gender?.trim() || undefined,
+                title: (selected.title || selected.job_title || '').trim(),
+                job_title: (selected.title || selected.job_title || '').trim(),
+                highest_qualification: selected.highest_qualification?.trim() || undefined,
+                is_doctor: isDoctorFromHighestQualification(selected.highest_qualification || ''),
+                department: (selected.dept || '').trim(),
+                status: selected.status,
+                role: selected.role,
+                patient_access: selected.patient_access,
+            };
+            const res = await fetch(staffUrl(`/api/proxy/staff/${selected.id}`), {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+            });
+            if (!res.ok) {
+                const err = await res.json().catch(() => ({} as { message?: string; detail?: string; error?: string }));
+                showToast(String(err.message || err.detail || err.error || 'Could not update email'), 'error');
+                return;
+            }
+            const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+            const mergedLocal: StaffMember = {
+                ...selected,
+                email: normalized,
+                ...(typeof data.email === 'string' ? { email: data.email.trim() } : {}),
+            };
+            setStaff(prev => prev.map(s => (s.id === selected.id ? { ...s, ...mergedLocal } : s)));
+            setSelected(mergedLocal);
+            setEditEmail(mergedLocal.email || normalized);
+            setEditingContactEmail(false);
+            showToast('Email updated', 'success');
+        } catch {
+            showToast('Could not update email', 'error');
+        } finally {
+            setSavingContactEmail(false);
         }
     };
 
@@ -2812,19 +2875,79 @@ export default function StaffDirectoryManagement() {
                                 </div>
 
                                 {/* Contact */}
-                                {!editingSelected && (
                                 <div style={{ background: '#FFFFFF', borderRadius: 14, border: '1px solid #E4E7EC', boxShadow: '0 1px 2px rgba(15, 23, 42, 0.04)', padding: '12px 14px' }}>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
                                         <span className="material-icons-round" style={{ fontSize: 16, color: '#94A3B8' }}>contact_mail</span>
                                         <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', color: '#9CA3AF' }}>CONTACT</span>
                                     </div>
                                     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                                            <span className="material-icons-round" style={{ fontSize: 16, color: '#94A3B8', flexShrink: 0 }}>mail</span>
-                                            <span style={{ fontSize: 13, fontWeight: 500, color: '#111827', wordBreak: 'break-word', minWidth: 0, flex: 1 }}>
-                                                {(selected.email || editEmail || '').trim() || '—'}
-                                            </span>
+                                        <div style={{ display: 'flex', alignItems: editingSelected || editingContactEmail ? 'stretch' : 'center', gap: 10, flexDirection: editingSelected || editingContactEmail ? 'column' : 'row' }}>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0, flex: 1 }}>
+                                                <span className="material-icons-round" style={{ fontSize: 16, color: '#94A3B8', flexShrink: 0 }}>mail</span>
+                                                {editingSelected ? (
+                                                    <input
+                                                        className="input"
+                                                        type="email"
+                                                        value={editEmail}
+                                                        onChange={e => setEditEmail(e.target.value)}
+                                                        disabled={savingEdit}
+                                                        placeholder="Work email"
+                                                        style={{ fontSize: 13, width: '100%', boxSizing: 'border-box', background: '#F5F6F8', border: '1px solid #E8EBF0', borderRadius: 8, padding: '7px 10px', minWidth: 0 }}
+                                                    />
+                                                ) : editingContactEmail ? (
+                                                    <input
+                                                        className="input"
+                                                        type="email"
+                                                        value={contactEmailDraft}
+                                                        onChange={e => setContactEmailDraft(e.target.value)}
+                                                        disabled={savingContactEmail}
+                                                        placeholder="Work email"
+                                                        autoFocus
+                                                        style={{ fontSize: 13, width: '100%', boxSizing: 'border-box', background: '#F5F6F8', border: '1px solid #E8EBF0', borderRadius: 8, padding: '7px 10px', minWidth: 0 }}
+                                                    />
+                                                ) : (
+                                                    <span style={{ fontSize: 13, fontWeight: 500, color: '#111827', wordBreak: 'break-word', minWidth: 0, flex: 1 }}>
+                                                        {(selected.email || editEmail || '').trim() || '—'}
+                                                    </span>
+                                                )}
+                                                {!editingSelected && !editingContactEmail && (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => {
+                                                            setContactEmailDraft((selected.email || editEmail || '').trim());
+                                                            setEditingContactEmail(true);
+                                                        }}
+                                                        disabled={savingContactEmail}
+                                                        style={{ flexShrink: 0, border: 'none', background: 'none', padding: '2px 4px', fontSize: 12, fontWeight: 600, color: savingContactEmail ? '#CBD5E1' : '#2563EB', cursor: savingContactEmail ? 'default' : 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap' }}
+                                                    >
+                                                        Edit
+                                                    </button>
+                                                )}
+                                            </div>
+                                            {editingContactEmail && !editingSelected && (
+                                                <div style={{ display: 'flex', gap: 8, paddingLeft: 26 }}>
+                                                    <button
+                                                        type="button"
+                                                        className="btn btn-secondary btn-sm"
+                                                        onClick={() => setEditingContactEmail(false)}
+                                                        disabled={savingContactEmail}
+                                                        style={{ fontSize: 12, padding: '5px 10px' }}
+                                                    >
+                                                        Cancel
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        className="btn btn-primary btn-sm"
+                                                        onClick={() => { void saveContactEmail(); }}
+                                                        disabled={savingContactEmail}
+                                                        style={{ fontSize: 12, padding: '5px 10px' }}
+                                                    >
+                                                        {savingContactEmail ? 'Saving…' : 'Save'}
+                                                    </button>
+                                                </div>
+                                            )}
                                         </div>
+                                        {!editingSelected && (
                                         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                                             <span className="material-icons-round" style={{ fontSize: 16, color: '#94A3B8', flexShrink: 0 }}>phone</span>
                                             <span style={{ fontSize: 13, fontWeight: 500, color: (selected.phone || '').trim() ? '#111827' : '#9CA3AF', fontStyle: (selected.phone || '').trim() ? 'normal' : 'italic', minWidth: 0, flex: 1 }}>
@@ -2839,7 +2962,8 @@ export default function StaffDirectoryManagement() {
                                                 {requestPhoneUpdatePending ? 'Sending…' : 'Update'}
                                             </button>
                                         </div>
-                                        {(() => {
+                                        )}
+                                        {!editingSelected && (() => {
                                             const inviteEnabled = canSendStaffInviteEmail({
                                                 ...selected,
                                                 email: (selected.email || editEmail || '').trim(),
@@ -2889,7 +3013,6 @@ export default function StaffDirectoryManagement() {
                                         })()}
                                     </div>
                                 </div>
-                                )}
 
                                 {/* Employment */}
                                 <div style={{ background: '#FFFFFF', borderRadius: 14, border: '1px solid #E4E7EC', boxShadow: '0 1px 2px rgba(15, 23, 42, 0.04)', padding: '12px 14px' }}>
