@@ -8,6 +8,8 @@ export default async function ResetPasswordPage({
     const params = await searchParams;
     const raw = params.reset_token ?? params.token;
     const resetToken = (Array.isArray(raw) ? raw[0] : raw) || '';
+    const rawEmail = params.email;
+    const initialEmail = (Array.isArray(rawEmail) ? rawEmail[0] : rawEmail) || '';
 
-    return <HospitalAdminResetPassword resetToken={resetToken.trim()} />;
+    return <HospitalAdminResetPassword resetToken={resetToken.trim()} initialEmail={initialEmail.trim()} />;
 }

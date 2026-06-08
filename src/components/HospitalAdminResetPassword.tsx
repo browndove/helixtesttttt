@@ -6,6 +6,7 @@ import { useState, type CSSProperties } from 'react';
 import {
     AdminAuthShell,
     adminAuthErrorBox,
+    adminAuthInputBase,
     adminAuthInputFocusHandlers,
     adminAuthInputWithToggle,
     adminAuthLabelStyle,
@@ -17,12 +18,6 @@ import {
 } from '@/components/AdminAuthShell';
 import { MacVibrancyToast, MacVibrancyToastPortal } from '@/components/MacVibrancyToast';
 import { API_ENDPOINTS } from '@/lib/config';
-import {
-    buildResetPasswordBody,
-    clearStoredResetOtp,
-    extractEmailFromResetToken,
-    resolveResetOtp,
-} from '@/lib/reset-auth';
 
 const passwordChecksDef = (password: string) => [
     { id: 'length', label: 'At least 8 characters', met: password.length >= 8 },
@@ -51,10 +46,12 @@ const toggleBtnStyle: CSSProperties = {
 
 type HospitalAdminResetPasswordProps = {
     resetToken: string;
+    initialEmail?: string;
 };
 
-export default function HospitalAdminResetPassword({ resetToken }: HospitalAdminResetPasswordProps) {
+export default function HospitalAdminResetPassword({ resetToken, initialEmail = '' }: HospitalAdminResetPasswordProps) {
     const router = useRouter();
+    const [email, setEmail] = useState(initialEmail);
     const [password, setPassword] = useState('');
     const [confirmPassword, setConfirmPassword] = useState('');
     const [showPassword, setShowPassword] = useState(false);
@@ -66,7 +63,7 @@ export default function HospitalAdminResetPassword({ resetToken }: HospitalAdmin
     const passwordChecks = passwordChecksDef(password);
     const passwordIsValid = passwordChecks.every(c => c.met);
     const passwordsMatch = password === confirmPassword && confirmPassword.length > 0;
-    const canSubmit = Boolean(resetToken.trim()) && passwordIsValid && passwordsMatch && !loading;
+    const canSubmit = Boolean(resetToken.trim()) && Boolean(email.trim()) && passwordIsValid && passwordsMatch && !loading;
 
     const showToast = (message: string, type: 'success' | 'error' = 'success') => {
         setToast({ message, type });
@@ -79,14 +76,9 @@ export default function HospitalAdminResetPassword({ resetToken }: HospitalAdmin
             setError('This reset link is invalid. Request a new one from your administrator.');
             return;
         }
-        const email = extractEmailFromResetToken(resetToken);
-        if (!email) {
-            setError('This reset link is invalid or expired. Start again from Forgot password.');
-            return;
-        }
-        const otp = resolveResetOtp(resetToken);
-        if (!otp) {
-            setError('Your verification session expired. Start again from Forgot password.');
+        const normalizedEmail = email.trim().toLowerCase();
+        if (!normalizedEmail) {
+            setError('Enter your work email.');
             return;
         }
         if (!passwordIsValid) {
@@ -102,7 +94,11 @@ export default function HospitalAdminResetPassword({ resetToken }: HospitalAdmin
             const res = await fetch(API_ENDPOINTS.RESET_PASSWORD, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(buildResetPasswordBody(resetToken, password)),
+                body: JSON.stringify({
+                    email: normalizedEmail,
+                    reset_token: resetToken.trim(),
+                    new_password: password,
+                }),
             });
             const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
             if (!res.ok) {
@@ -111,7 +107,6 @@ export default function HospitalAdminResetPassword({ resetToken }: HospitalAdmin
                 showToast(msg, 'error');
                 return;
             }
-            clearStoredResetOtp();
             showToast(String(data.message || 'Password updated. Sign in with your new password.'), 'success');
             setTimeout(() => {
                 if (typeof window !== 'undefined') window.location.assign('/login');
@@ -161,6 +156,35 @@ export default function HospitalAdminResetPassword({ resetToken }: HospitalAdmin
             </div>
             {error && <div style={adminAuthErrorBox}>{error}</div>}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                <div>
+                    <label htmlFor="reset-email" style={adminAuthLabelStyle}>Work email</label>
+                    <div style={{ position: 'relative' }}>
+                        <span
+                            className="material-icons-round"
+                            style={{
+                                position: 'absolute',
+                                left: 10,
+                                top: '50%',
+                                transform: 'translateY(-50%)',
+                                fontSize: 17,
+                                color: C_MUTED_LABEL,
+                                pointerEvents: 'none',
+                            }}
+                        >
+                            mail
+                        </span>
+                        <input
+                            id="reset-email"
+                            type="email"
+                            value={email}
+                            onChange={e => setEmail(e.target.value)}
+                            onKeyDown={e => e.key === 'Enter' && void handleResetPassword()}
+                            {...adminAuthInputFocusHandlers}
+                            style={{ ...adminAuthInputBase, paddingLeft: 38 }}
+                            autoComplete="email"
+                        />
+                    </div>
+                </div>
                 {[
                     { id: 'new-password', label: 'New password', value: password, set: setPassword, show: showPassword, toggle: () => setShowPassword(v => !v) },
                     { id: 'confirm-password', label: 'Confirm password', value: confirmPassword, set: setConfirmPassword, show: showConfirmPassword, toggle: () => setShowConfirmPassword(v => !v) },

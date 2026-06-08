@@ -3047,7 +3047,7 @@ export default function StaffDirectoryManagement() {
                                                 cursor: (selected.email || '').trim() ? 'pointer' : 'not-allowed',
                                             }}
                                             disabled={!(selected.email || '').trim()}
-                                            title={(selected.email || '').trim() ? 'Send password reset code to staff email' : 'No email on file'}
+                                            title={(selected.email || '').trim() ? 'Send password reset email via admin-reset' : 'No email on file'}
                                             onClick={() => requestPasswordReset(selected)}
                                         >
                                             <span className="material-icons-round" style={{ fontSize: 15 }}>lock_reset</span>
