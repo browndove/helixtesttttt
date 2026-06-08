@@ -162,3 +162,41 @@ export function findEscalationConflictingTargetLabels(
     }
     return [...bad];
 }
+
+type EscalationPolicyRef = {
+    role_id?: string;
+    role_name?: string;
+    roleName?: string;
+    steps?: unknown[];
+};
+
+type RoleRef = {
+    id?: string;
+    name?: string;
+    role_name?: string;
+    priority?: string;
+    mandatory?: boolean;
+};
+
+function roleHasEscalationLadder(role: RoleRef, policies: EscalationPolicyRef[]): boolean {
+    const roleId = String(role.id || '').trim();
+    const roleName = String(role.name || role.role_name || '').trim().toLowerCase();
+    return policies.some(policy => {
+        const policyRoleId = String(policy.role_id || '').trim();
+        const policyRoleName = String(policy.role_name || policy.roleName || '').trim().toLowerCase();
+        const idMatch = Boolean(roleId && policyRoleId && roleId === policyRoleId);
+        const nameMatch = Boolean(roleName && policyRoleName && roleName === policyRoleName);
+        if (!idMatch && !nameMatch) return false;
+        return Array.isArray(policy.steps) && policy.steps.length > 0;
+    });
+}
+
+/** Critical roles with no escalation policy row or an empty ladder (zero steps). */
+export function countCriticalRolesWithoutEscalation(
+    roles: RoleRef[],
+    policies: EscalationPolicyRef[],
+): { withoutEscalation: number; criticalTotal: number } {
+    const criticalRoles = roles.filter(isCriticalRole);
+    const withoutEscalation = criticalRoles.filter(r => !roleHasEscalationLadder(r, policies)).length;
+    return { withoutEscalation, criticalTotal: criticalRoles.length };
+}

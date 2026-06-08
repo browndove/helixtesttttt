@@ -6,6 +6,7 @@ import { Plus_Jakarta_Sans } from 'next/font/google';
 import './home-overview.css';
 import { parseBulkUploadHistoryResponse, type BulkUploadHistoryEntry } from '@/lib/bulk-upload-history';
 import { fetchAllStaffPayload } from '@/lib/fetch-all-staff';
+import { countCriticalRolesWithoutEscalation } from '@/lib/role-escalation-ladder';
 import { useTeamPresenceRoster } from '@/lib/useTeamPresenceRoster';
 
 type SimpleItem = Record<string, unknown>;
@@ -213,9 +214,8 @@ export default function HomePage() {
     const [departmentMessageMix, setDepartmentMessageMix] = useState<DeptMessageMixRow[]>([]);
     const [departmentMessagesTotal, setDepartmentMessagesTotal] = useState(0);
     const [analyticsWindowDays, setAnalyticsWindowDays] = useState(30);
-    const [escalatedCriticalMessages, setEscalatedCriticalMessages] = useState(0);
-    const [escalationRatePercent, setEscalationRatePercent] = useState(0);
-    const [incompleteEscalationPolicies, setIncompleteEscalationPolicies] = useState(0);
+    const [criticalRolesWithoutEscalation, setCriticalRolesWithoutEscalation] = useState(0);
+    const [criticalRolesTotal, setCriticalRolesTotal] = useState(0);
     const [staffAccountMetric, setStaffAccountMetric] = useState<{ active: number; total: number; percent: number }>({
         active: 0,
         total: 0,
@@ -233,6 +233,7 @@ export default function HomePage() {
                 teamsRes,
                 departmentsRes,
                 escalationRes,
+                rolesRes,
                 auditRes,
                 historyStaffRes,
                 historyPatientRes,
@@ -246,6 +247,7 @@ export default function HomePage() {
                 fetch('/api/proxy/teams', { credentials: 'include' }),
                 fetch('/api/proxy/departments', { credentials: 'include' }),
                 fetch('/api/proxy/escalation-policies', { credentials: 'include' }),
+                fetch('/api/proxy/roles', { credentials: 'include' }),
                 fetch('/api/proxy/audit-logs?page_size=5&page_id=1', { credentials: 'include' }),
                 fetch('/api/proxy/bulk-upload-history?kind=staff&page_size=20', { credentials: 'include' }),
                 fetch('/api/proxy/bulk-upload-history?kind=patient&page_size=20', { credentials: 'include' }),
@@ -261,6 +263,7 @@ export default function HomePage() {
                 teamsJson,
                 departmentsJson,
                 escalationJson,
+                rolesJson,
                 auditJson,
                 historyStaffJson,
                 historyPatientJson,
@@ -274,6 +277,7 @@ export default function HomePage() {
                 teamsRes.ok ? teamsRes.json() : Promise.resolve(null),
                 departmentsRes.ok ? departmentsRes.json() : Promise.resolve(null),
                 escalationRes.ok ? escalationRes.json() : Promise.resolve(null),
+                rolesRes.ok ? rolesRes.json() : Promise.resolve(null),
                 auditRes.ok ? auditRes.json() : Promise.resolve(null),
                 historyStaffRes.ok ? historyStaffRes.json() : Promise.resolve(null),
                 historyPatientRes.ok ? historyPatientRes.json() : Promise.resolve(null),
@@ -294,11 +298,6 @@ export default function HomePage() {
                 const ack = Number(a.avg_critical_ack_minutes ?? 0);
                 setAvgCriticalAckMinutes(Number.isFinite(ack) ? ack : 0);
 
-                const escalated = Number(a.escalated_critical_messages ?? 0);
-                const escRate = Number(a.escalation_rate_percent ?? 0);
-                setEscalatedCriticalMessages(Number.isFinite(escalated) ? escalated : 0);
-                setEscalationRatePercent(Number.isFinite(escRate) ? escRate : 0);
-
                 const deptMix = buildDepartmentMessageMix(a);
                 setDepartmentMessageMix(deptMix.rows);
                 setDepartmentMessagesTotal(deptMix.total);
@@ -307,8 +306,6 @@ export default function HomePage() {
                 setDepartmentMessageMix([]);
                 setDepartmentMessagesTotal(0);
                 setAnalyticsWindowDays(30);
-                setEscalatedCriticalMessages(0);
-                setEscalationRatePercent(0);
             }
 
             if (meJson && typeof meJson === 'object') {
@@ -333,6 +330,10 @@ export default function HomePage() {
             const teamItems = getList(teamsJson, ['items', 'data', 'teams']) as SimpleItem[];
             const departmentItems = getList(departmentsJson, ['items', 'data', 'departments']) as SimpleItem[];
             const escalationItems = getList(escalationJson, ['items', 'data', 'policies', 'results']) as SimpleItem[];
+            const roleItems = getList(rolesJson, ['items', 'data', 'roles', 'results']) as SimpleItem[];
+            const escalationGap = countCriticalRolesWithoutEscalation(roleItems, escalationItems);
+            setCriticalRolesWithoutEscalation(escalationGap.withoutEscalation);
+            setCriticalRolesTotal(escalationGap.criticalTotal);
 
             setStaffCount(readTotal(staffPayload, staffItems.length));
             setStaffAccountMetric(countStaffAccountMetrics(staffItems));
@@ -352,8 +353,6 @@ export default function HomePage() {
                 return !Number.isFinite(c) || c <= 0;
             }).length;
             const departmentsWithoutName = departmentItems.filter(d => !String(d.name || d.department_name || '').trim()).length;
-            const escalationsMissingSteps = escalationItems.filter(p => !Array.isArray(p.steps) || p.steps.length === 0).length;
-            setIncompleteEscalationPolicies(escalationsMissingSteps);
             setTeamsWithoutLeadCount(teamsWithoutLead);
             setTeamsWithoutMembersCount(teamsWithoutMembers);
             setDeptsWithoutNameCount(departmentsWithoutName);
@@ -396,7 +395,7 @@ export default function HomePage() {
 
     useEffect(() => { fetchHomeData(); }, [fetchHomeData]);
 
-    const escalationNeedsAttention = incompleteEscalationPolicies > 0;
+    const escalationNeedsAttention = criticalRolesWithoutEscalation > 0;
     const facilityShort = facilityName || 'Your facility';
     const teamPresenceLoadingCombined = loading || teamPresenceLoading;
 
@@ -531,26 +530,26 @@ export default function HomePage() {
                         </article>
                         <article className={`dash-wallet${escalationNeedsAttention ? ' dash-wallet--warn' : ''}`}>
                             <p className="dash-wallet__label">Escalations</p>
-                            <p className="dash-wallet__hint">Critical messages · {analyticsWindowDays} days</p>
+                            <p className="dash-wallet__hint">Critical roles · no ladder</p>
                             <p className={`dash-wallet__balance${escalationNeedsAttention ? ' dash-wallet__balance--alert' : ''}`}>
-                                {formatMetric(escalatedCriticalMessages)}
+                                {formatMetric(criticalRolesWithoutEscalation)}
                             </p>
                             {escalationNeedsAttention && (
                                 <div className="dash-wallet__row">
                                     <span className="dash-wallet__flag">
                                         <span className="material-icons-round">warning</span>
-                                        {incompleteEscalationPolicies} ladder{incompleteEscalationPolicies === 1 ? '' : 's'} need steps
+                                        {criticalRolesWithoutEscalation} critical role{criticalRolesWithoutEscalation === 1 ? '' : 's'} need ladders
                                     </span>
                                 </div>
                             )}
                             <p className="dash-wallet__foot">
                                 {loading
                                     ? '—'
-                                    : escalatedCriticalMessages > 0
-                                        ? `${escalationRatePercent.toFixed(1)}% of critical messages escalated`
-                                        : escalationNeedsAttention
-                                            ? 'Finish escalation ladders in config'
-                                            : 'No critical escalations in this period'}
+                                    : criticalRolesTotal > 0
+                                        ? criticalRolesWithoutEscalation > 0
+                                            ? `${criticalRolesWithoutEscalation} of ${criticalRolesTotal.toLocaleString()} critical roles without escalation ladders`
+                                            : `All ${criticalRolesTotal.toLocaleString()} critical roles have ladders`
+                                        : 'No critical roles configured'}
                             </p>
                             <button type="button" className="dash-link" onClick={() => router.push('/escalation')}>
                                 View details <span className="material-icons-round">arrow_forward</span>
@@ -635,11 +634,11 @@ export default function HomePage() {
                                     </button>
                                 </div>
                             </div>
-                            {(incompleteEscalationPolicies > 0 || teamsWithoutLeadCount > 0 || teamsWithoutMembersCount > 0 || deptsWithoutNameCount > 0) && (
+                            {(criticalRolesWithoutEscalation > 0 || teamsWithoutLeadCount > 0 || teamsWithoutMembersCount > 0 || deptsWithoutNameCount > 0) && (
                                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, margin: '12px 0 4px' }}>
-                                    {incompleteEscalationPolicies > 0 && (
+                                    {criticalRolesWithoutEscalation > 0 && (
                                         <span style={{ background: '#FEF3C7', color: '#92400E', borderRadius: 6, padding: '3px 8px', fontSize: 11, fontWeight: 600 }}>
-                                            {incompleteEscalationPolicies} escalation{incompleteEscalationPolicies === 1 ? '' : 's'} need steps
+                                            {criticalRolesWithoutEscalation} critical role{criticalRolesWithoutEscalation === 1 ? '' : 's'} without ladders
                                         </span>
                                     )}
                                     {teamsWithoutLeadCount > 0 && (
