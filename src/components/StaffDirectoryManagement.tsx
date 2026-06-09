@@ -32,6 +32,9 @@ const STAFF_PAGE_CACHE_TTL_MS = 120_000;
 const STAFF_CACHE_LIST = STAFF_CACHE_LIST_KEY;
 const STAFF_CACHE_DEPTS = '/api/proxy/departments';
 
+/** helix-admin1/main (production): muted until reset-password is live. */
+const STAFF_PASSWORD_RESET_ENABLED = false;
+
 /** Appends ?facility_id= only for internal act-as; tenant admins use session-scoped proxy auth. */
 function staffUrl(path: string): string {
     if (!readClientSupportModeFromDocument()) return path;
@@ -1272,6 +1275,7 @@ export default function StaffDirectoryManagement() {
             setEditingContactEmail(false);
             return;
         }
+        setEditingContactEmail(false);
         setEditFirstName(selected.first_name || '');
         setEditMiddleName(selected.middle_name || '');
         setEditLastName(selected.last_name || '');
@@ -1599,6 +1603,7 @@ export default function StaffDirectoryManagement() {
     };
 
     const requestPasswordReset = (member: StaffMember) => {
+        if (!STAFF_PASSWORD_RESET_ENABLED) return;
         const email = (member.email || '').trim();
         if (!email) {
             showToast('No email on file for this staff member.', 'error');
@@ -3068,20 +3073,34 @@ export default function StaffDirectoryManagement() {
                                         <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', color: '#9CA3AF' }}>ACTIONS</span>
                                     </div>
                                     <div style={{ display: 'flex', flexDirection: 'column', gap: 6, flexShrink: 0 }}>
+                                        {(() => {
+                                            const hasEmail = Boolean((selected.email || '').trim());
+                                            const passwordResetEnabled = STAFF_PASSWORD_RESET_ENABLED && hasEmail;
+                                            return (
                                         <button
                                             type="button"
                                             style={{
                                                 ...staffDetailActionBtn,
-                                                opacity: (selected.email || '').trim() ? 1 : 0.42,
-                                                cursor: (selected.email || '').trim() ? 'pointer' : 'not-allowed',
+                                                opacity: passwordResetEnabled ? 1 : 0.42,
+                                                cursor: passwordResetEnabled ? 'pointer' : 'not-allowed',
+                                                color: passwordResetEnabled ? undefined : 'var(--text-disabled)',
+                                                borderColor: passwordResetEnabled ? undefined : 'var(--border-subtle)',
                                             }}
-                                            disabled={!(selected.email || '').trim()}
-                                            title={(selected.email || '').trim() ? 'Send password reset email via admin-reset' : 'No email on file'}
+                                            disabled={!passwordResetEnabled}
+                                            title={
+                                                !STAFF_PASSWORD_RESET_ENABLED
+                                                    ? 'Password reset unavailable in production'
+                                                    : hasEmail
+                                                        ? 'Send password reset email via admin-reset'
+                                                        : 'No email on file'
+                                            }
                                             onClick={() => requestPasswordReset(selected)}
                                         >
                                             <span className="material-icons-round" style={{ fontSize: 15 }}>lock_reset</span>
                                             Reset password
                                         </button>
+                                            );
+                                        })()}
                                         <button
                                             type="button"
                                             style={selected.status === 'active' ? staffDetailActionBtnDanger : staffDetailActionBtn}
