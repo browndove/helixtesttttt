@@ -78,7 +78,9 @@ function parseSessions(raw: unknown): SessionEntry[] {
         .map((s: unknown, idx): SessionEntry | null => {
             if (!s || typeof s !== 'object') return null;
             const rec = s as Record<string, unknown>;
-            const device = String(rec.device || rec.user_agent || rec.device_name || 'Unknown Device');
+            const device = String(
+                rec.device_label || rec.deviceLabel || rec.device || rec.device_name || rec.user_agent || '',
+            ).trim() || 'Unknown Device';
             const location = String(rec.location || rec.ip || rec.ip_address || 'Unknown Location');
             const time = formatSessionTime(String(rec.last_active_at || rec.updated_at || rec.created_at || ''));
             const current = Boolean(rec.current ?? rec.is_current ?? false);

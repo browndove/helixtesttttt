@@ -409,7 +409,7 @@ export default function HomePage() {
     const healthRows = useMemo(() => [
         {
             icon: 'bolt',
-            label: 'Critical ack time',
+            label: 'Critical Acknowledgment Time',
             value: loading ? '—' : ackLabel,
             sub: '30 day avg.',
             sem: ackMin > 0 && ackMin > 15 ? 'negative' as const : ackMin > 0 ? 'positive' as const : 'neutral' as const,
