@@ -32,8 +32,7 @@ const STAFF_PAGE_CACHE_TTL_MS = 120_000;
 const STAFF_CACHE_LIST = STAFF_CACHE_LIST_KEY;
 const STAFF_CACHE_DEPTS = '/api/proxy/departments';
 
-/** helix-admin1/main (production): muted until reset-password is live. */
-const STAFF_PASSWORD_RESET_ENABLED = false;
+const STAFF_PASSWORD_RESET_ENABLED = true;
 
 /** Appends ?facility_id= only for internal act-as; tenant admins use session-scoped proxy auth. */
 function staffUrl(path: string): string {
@@ -1275,7 +1274,6 @@ export default function StaffDirectoryManagement() {
             setEditingContactEmail(false);
             return;
         }
-        setEditingContactEmail(false);
         setEditFirstName(selected.first_name || '');
         setEditMiddleName(selected.middle_name || '');
         setEditLastName(selected.last_name || '');
@@ -3088,11 +3086,9 @@ export default function StaffDirectoryManagement() {
                                             }}
                                             disabled={!passwordResetEnabled}
                                             title={
-                                                !STAFF_PASSWORD_RESET_ENABLED
-                                                    ? 'Password reset unavailable in production'
-                                                    : hasEmail
-                                                        ? 'Send password reset email via admin-reset'
-                                                        : 'No email on file'
+                                                hasEmail
+                                                    ? 'Send password reset email via admin-reset'
+                                                    : 'No email on file'
                                             }
                                             onClick={() => requestPasswordReset(selected)}
                                         >
