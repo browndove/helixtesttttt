@@ -8,6 +8,7 @@ import { parseBulkUploadHistoryResponse, type BulkUploadHistoryEntry } from '@/l
 import { fetchAllStaffPayload } from '@/lib/fetch-all-staff';
 import { countCriticalRolesWithoutEscalation } from '@/lib/role-escalation-ladder';
 import { useTeamPresenceRoster } from '@/lib/useTeamPresenceRoster';
+import { generateDashboardPdf, type DashboardReportData } from '@/lib/generate-dashboard-report';
 
 type SimpleItem = Record<string, unknown>;
 type ActivityItem = { id: string; title: string; detail: string; time: string; tone?: 'default' | 'critical' | 'info' };
@@ -221,6 +222,7 @@ export default function HomePage() {
         total: 0,
         percent: 0,
     });
+    const [jobTitleBreakdown, setJobTitleBreakdown] = useState<{ title: string; count: number }[]>([]);
 
     const fetchHomeData = useCallback(async () => {
         setLoading(true);
@@ -338,6 +340,20 @@ export default function HomePage() {
             setStaffCount(readTotal(staffPayload, staffItems.length));
             setStaffAccountMetric(countStaffAccountMetrics(staffItems));
 
+            const titleMap = new Map<string, number>();
+            for (const s of staffItems) {
+                const rec = s as Record<string, unknown>;
+                const raw = String(rec.job_title || rec.role || rec.designation || '').trim();
+                const title = raw
+                    ? raw.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
+                    : 'Unassigned';
+                titleMap.set(title, (titleMap.get(title) || 0) + 1);
+            }
+            const titleRows = [...titleMap.entries()]
+                .map(([title, count]) => ({ title, count }))
+                .sort((a, b) => b.count - a.count);
+            setJobTitleBreakdown(titleRows);
+
             let twoFactorEnabled = 0;
             for (const s of staffItems) {
                 const rec = s as Record<string, unknown>;
@@ -451,6 +467,43 @@ export default function HomePage() {
         .map((m) => `${m.label}: ${m.count.toLocaleString()} messages (${m.pct}%)`)
         .join(', ');
 
+    const handleDownloadReport = useCallback(() => {
+        const reportData: DashboardReportData = {
+            facilityName: facilityName || 'Helix Health',
+            generatedBy: firstName || 'Administrator',
+            patientCount,
+            staffActive: staffAccountMetric.active,
+            staffTotal: staffAccountMetric.total,
+            staffActivePercent: staffAccountMetric.percent,
+            criticalFilled: criticalRoleFill.filled,
+            criticalTotal: criticalRoleFill.total,
+            criticalPercent: criticalRoleFill.percent,
+            criticalRolesWithoutEscalation,
+            criticalRolesTotal,
+            ackLabel,
+            twoFactorPct,
+            twoFactorEnabled: twoFactorAdoption.enabled,
+            twoFactorTotal: twoFactorAdoption.total,
+            failedImports24h,
+            activeSessions,
+            departmentMix: departmentMessageMix,
+            departmentMessagesTotal,
+            analyticsWindowDays,
+            teamsWithoutLead: teamsWithoutLeadCount,
+            teamsWithoutMembers: teamsWithoutMembersCount,
+            deptsWithoutName: deptsWithoutNameCount,
+            incompleteEscalations: criticalRolesWithoutEscalation,
+        };
+        generateDashboardPdf(reportData);
+    }, [
+        facilityName, firstName, patientCount, staffAccountMetric,
+        criticalRoleFill, criticalRolesWithoutEscalation, criticalRolesTotal,
+        ackLabel, twoFactorPct, twoFactorAdoption, failedImports24h,
+        activeSessions, departmentMessageMix, departmentMessagesTotal,
+        analyticsWindowDays, teamsWithoutLeadCount, teamsWithoutMembersCount,
+        deptsWithoutNameCount, criticalRolesWithoutEscalation,
+    ]);
+
     return (
         <div className={`app-main home-overview-app-main ${plusJakarta.className}`}>
             <div className="top-bar">
@@ -479,7 +532,7 @@ export default function HomePage() {
                             </p>
                         </div>
                         <div className="dash-head__actions">
-                            <button type="button" className="dash-btn dash-btn--outline">
+                            <button type="button" className="dash-btn dash-btn--outline" onClick={handleDownloadReport} disabled={loading}>
                                 <span className="material-icons-round">summarize</span>
                                 Report
                             </button>
@@ -558,119 +611,113 @@ export default function HomePage() {
                     </section>
 
                     <section className="dash-mid dash-reveal" aria-label="Analytics">
-                        <div className="dash-card dash-card--lg">
-                            <h2 className="dash-card__title">Messages by department</h2>
-                            <p className="dash-card__lede">
-                                {loading ? (
-                                    <>Loading message breakdown…</>
-                                ) : deptMixCount > 0 ? (
-                                    <>
-                                        <strong>{departmentMessagesTotal.toLocaleString()} messages</strong> across{' '}
-                                        <strong>{deptMixCount} department{deptMixCount === 1 ? '' : 's'}</strong> at {facilityShort}
-                                    </>
-                                ) : (
-                                    <>No department message data for {facilityShort}</>
-                                )}
-                            </p>
-                            <p className="dash-card__muted">
-                                {analyticsWindowDays}-day window · share of facility volume
-                            </p>
-                            <div
-                                className="dash-segbar"
-                                role="img"
-                                aria-label={deptMixAria || 'No department message data'}
-                            >
-                                {loading ? (
-                                    <span className="dash-seg dash-seg--empty" style={{ width: '100%' }} />
-                                ) : deptMixCount > 0 ? (
-                                    departmentMessageMix.map((m) => (
-                                        <span
-                                            key={m.label}
-                                            className={`dash-seg dash-seg--${m.tone}`}
-                                            style={{ width: `${Math.max(m.pct, 4)}%` }}
-                                            title={`${m.label}: ${m.count.toLocaleString()} (${m.pct}%)`}
-                                        />
-                                    ))
-                                ) : (
-                                    <span className="dash-seg dash-seg--empty" style={{ width: '100%' }} />
-                                )}
+                        <div className="dash-card dash-card--lg" style={{ display: 'flex', flexDirection: 'column' }}>
+                            <div style={{ marginBottom: 16 }}>
+                                <h2 className="dash-card__title" style={{ margin: 0 }}>Messages by department</h2>
+                                <p className="dash-card__muted" style={{ margin: '3px 0 0' }}>
+                                    {loading
+                                        ? '—'
+                                        : deptMixCount > 0
+                                            ? `${departmentMessagesTotal.toLocaleString()} messages · ${analyticsWindowDays}-day window`
+                                            : 'No message data this period'}
+                                </p>
                             </div>
-                            <ul className="dash-legend">
-                                {loading ? (
-                                    <li>
-                                        <span className="dash-swatch dash-swatch--m4" />
-                                        <span className="dash-legend__n">Loading…</span>
-                                    </li>
-                                ) : deptMixCount > 0 ? (
-                                    departmentMessageMix.map((m) => (
-                                        <li key={m.label}>
-                                            <span className={`dash-swatch dash-swatch--${m.tone}`} />
-                                            <span className="dash-legend__n">{m.label}</span>
-                                            <span className="dash-legend__count">{m.count.toLocaleString()}</span>
-                                            <span className="dash-legend__pct">{m.pct}%</span>
-                                        </li>
-                                    ))
-                                ) : (
-                                    <li>
-                                        <span className="dash-swatch dash-swatch--m4" />
-                                        <span className="dash-legend__n">No messages in this period</span>
-                                    </li>
-                                )}
-                            </ul>
+                            {loading ? (
+                                <p style={{ fontSize: 13, color: '#94a3b8' }}>Loading…</p>
+                            ) : deptMixCount === 0 ? (
+                                <p style={{ fontSize: 13, color: '#94a3b8' }}>No department message data for {facilityShort}.</p>
+                            ) : (
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 16, flex: 1 }}>
+                                    {(() => {
+                                        const deptBarPalette = ['#6366f1', '#0ea5e9', '#8b5cf6', '#64748b', '#ec4899', '#14b8a6'];
+                                        return departmentMessageMix.map((m, i) => {
+                                            const maxCount = departmentMessageMix[0]?.count || 1;
+                                            const barPct = Math.round((m.count / maxCount) * 100);
+                                            const color = deptBarPalette[i % deptBarPalette.length];
+                                            return (
+                                                <div key={m.label}>
+                                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 5 }}>
+                                                        <span style={{ fontSize: 13, fontWeight: 600, color: '#1e293b' }}>
+                                                            {m.label}
+                                                        </span>
+                                                        <span style={{ fontSize: 15, fontWeight: 700, color: '#0f172a', marginLeft: 12 }}>
+                                                            {m.count.toLocaleString()}
+                                                        </span>
+                                                    </div>
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                                        <div style={{ flex: 1, height: 8, borderRadius: 4, background: '#f1f5f9', overflow: 'hidden' }}>
+                                                            <div style={{ height: '100%', borderRadius: 4, background: color, opacity: 0.7, width: `${barPct}%`, transition: 'width 0.4s ease' }} />
+                                                        </div>
+                                                        <span style={{ fontSize: 11, fontWeight: 500, color: '#94a3b8', minWidth: 28 }}>
+                                                            {m.pct}%
+                                                        </span>
+                                                    </div>
+                                                </div>
+                                            );
+                                        });
+                                    })()}
+                                </div>
+                            )}
                         </div>
 
-                        <div className="dash-card dash-card--lg">
-                            <div className="dash-sumhd">
+                        <div className="dash-card dash-card--lg" style={{ display: 'flex', flexDirection: 'column' }}>
+                            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 16 }}>
                                 <div>
-                                    <p className="dash-sumhd__label">Staff onboarding</p>
-                                    <p className="dash-sumhd__val">
-                                        {loading ? '—' : `${staffAccountMetric.total - staffAccountMetric.active}`}
+                                    <h2 className="dash-card__title" style={{ margin: 0 }}>Staff by role</h2>
+                                    <p className="dash-card__muted" style={{ margin: '3px 0 0' }}>
+                                        {loading ? '—' : `${staffAccountMetric.total.toLocaleString()} total · ${jobTitleBreakdown.length} role${jobTitleBreakdown.length === 1 ? '' : 's'}`}
                                     </p>
-                                    <p className="dash-card__muted">Accounts pending activation</p>
                                 </div>
-                                <div className="dash-sumhd__acts">
-                                    <button type="button" className="dash-btn dash-btn--soft" onClick={() => router.push('/staff')}>
-                                        View staff
-                                    </button>
-                                </div>
+                                <button type="button" className="dash-btn dash-btn--outline dash-btn--sm" onClick={() => router.push('/staff')}>
+                                    View all
+                                </button>
                             </div>
-                            {(criticalRolesWithoutEscalation > 0 || teamsWithoutLeadCount > 0 || teamsWithoutMembersCount > 0 || deptsWithoutNameCount > 0) && (
-                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, margin: '12px 0 4px' }}>
-                                    {criticalRolesWithoutEscalation > 0 && (
-                                        <span style={{ background: '#FEF3C7', color: '#92400E', borderRadius: 6, padding: '3px 8px', fontSize: 11, fontWeight: 600 }}>
-                                            {criticalRolesWithoutEscalation} critical role{criticalRolesWithoutEscalation === 1 ? '' : 's'} without ladders
-                                        </span>
-                                    )}
-                                    {teamsWithoutLeadCount > 0 && (
-                                        <span style={{ background: '#F1F5F9', color: '#475569', borderRadius: 6, padding: '3px 8px', fontSize: 11, fontWeight: 600 }}>
-                                            {teamsWithoutLeadCount} team{teamsWithoutLeadCount === 1 ? '' : 's'} without a lead
-                                        </span>
-                                    )}
-                                    {teamsWithoutMembersCount > 0 && (
-                                        <span style={{ background: '#F1F5F9', color: '#475569', borderRadius: 6, padding: '3px 8px', fontSize: 11, fontWeight: 600 }}>
-                                            {teamsWithoutMembersCount} empty team{teamsWithoutMembersCount === 1 ? '' : 's'}
-                                        </span>
-                                    )}
-                                    {deptsWithoutNameCount > 0 && (
-                                        <span style={{ background: '#F1F5F9', color: '#475569', borderRadius: 6, padding: '3px 8px', fontSize: 11, fontWeight: 600 }}>
-                                            {deptsWithoutNameCount} dept{deptsWithoutNameCount === 1 ? '' : 's'} unnamed
-                                        </span>
+                            {loading ? (
+                                <p style={{ fontSize: 13, color: '#94a3b8' }}>Loading…</p>
+                            ) : jobTitleBreakdown.length === 0 ? (
+                                <p style={{ fontSize: 13, color: '#94a3b8' }}>No staff data available.</p>
+                            ) : (
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 16, flex: 1 }}>
+                                    {(() => {
+                                        const roleBarPalette = ['#0ea5e9', '#6366f1', '#f59e0b', '#64748b'];
+                                        return jobTitleBreakdown.slice(0, 4).map((row, i) => {
+                                            const pct = staffAccountMetric.total > 0 ? Math.round((row.count / staffAccountMetric.total) * 100) : 0;
+                                            const maxCount = jobTitleBreakdown[0].count;
+                                            const barPct = maxCount > 0 ? Math.round((row.count / maxCount) * 100) : 0;
+                                            const color = roleBarPalette[i % roleBarPalette.length];
+                                            return (
+                                                <div key={row.title}>
+                                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 5 }}>
+                                                        <span style={{ fontSize: 13, fontWeight: 600, color: '#1e293b' }}>
+                                                            {row.title}
+                                                        </span>
+                                                        <span style={{ fontSize: 15, fontWeight: 700, color: '#0f172a', marginLeft: 12 }}>
+                                                            {row.count}
+                                                        </span>
+                                                    </div>
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                                        <div style={{ flex: 1, height: 8, borderRadius: 4, background: '#f1f5f9', overflow: 'hidden' }}>
+                                                            <div style={{ height: '100%', borderRadius: 4, background: color, opacity: 0.7, width: `${barPct}%`, transition: 'width 0.4s ease' }} />
+                                                        </div>
+                                                        <span style={{ fontSize: 11, fontWeight: 500, color: '#94a3b8', minWidth: 28 }}>
+                                                            {pct}%
+                                                        </span>
+                                                    </div>
+                                                </div>
+                                            );
+                                        });
+                                    })()}
+                                    {jobTitleBreakdown.length > 4 && (
+                                        <button
+                                            type="button"
+                                            onClick={() => router.push('/staff')}
+                                            style={{ fontSize: 13, fontWeight: 500, color: '#64748b', background: 'none', border: 'none', padding: 0, cursor: 'pointer', textAlign: 'left' }}
+                                        >
+                                            Show {jobTitleBreakdown.length - 4} more →
+                                        </button>
                                     )}
                                 </div>
                             )}
-                            <div className="dash-goal">
-                                <div className="dash-goal__top">
-                                    <span className="dash-goal__label">Staff activation rate</span>
-                                    <span className="dash-goal__nums">
-                                        <strong>{staffAccountMetric.active.toLocaleString()}</strong> / {staffAccountMetric.total.toLocaleString()}{' '}
-                                        <span className="dash-goal__pct">({staffAccountMetric.percent}%)</span>
-                                    </span>
-                                </div>
-                                <div className="dash-goal__bar">
-                                    <span style={{ width: `${Math.min(staffAccountMetric.percent, 100)}%` }} />
-                                </div>
-                                <p className="dash-goal__foot">Active accounts vs total directory</p>
-                            </div>
                         </div>
                     </section>
 
