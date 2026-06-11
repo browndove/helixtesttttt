@@ -663,7 +663,7 @@ export default function HomePage() {
                         <div className="dash-card dash-card--lg" style={{ display: 'flex', flexDirection: 'column' }}>
                             <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 16 }}>
                                 <div>
-                                    <h2 className="dash-card__title" style={{ margin: 0 }}>Staff by role</h2>
+                                    <h2 className="dash-card__title" style={{ margin: 0, fontWeight: 700 }}>Staff Breakdown</h2>
                                     <p className="dash-card__muted" style={{ margin: '3px 0 0' }}>
                                         {loading ? '—' : `${staffAccountMetric.total.toLocaleString()} total · ${jobTitleBreakdown.length} role${jobTitleBreakdown.length === 1 ? '' : 's'}`}
                                     </p>
