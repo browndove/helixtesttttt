@@ -62,6 +62,10 @@ export const API_ENDPOINTS = {
   ROLE_SIGN_IN_USER: (id: string) => `/api/proxy/roles/${id}/sign-in-user`,
 
   // Escalation Policies
+  // Staff Invites
+  STAFF_INVITES: `/api/proxy/staff/invites`,
+  STAFF_INVITE_ACTIONS: `/api/proxy/staff/invites/actions`,
+
   ESCALATION_POLICIES: `/api/proxy/escalation-policies`,
   ESCALATION_POLICY: (id: string) => `/api/proxy/escalation-policies/${id}`,
   ESCALATION_POLICY_BY_ROLE: (roleId: string) => `/api/proxy/escalation-policies/by-role/${roleId}`,

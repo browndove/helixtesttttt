@@ -11,6 +11,7 @@ import { MacVibrancyToast, MacVibrancyToastPortal } from '@/components/MacVibran
 import { BulkImportErrorsSheet } from '@/components/BulkImportErrorsSheet';
 import { readCachedJson, writeCachedJson } from '@/lib/getJsonCache';
 import { useFacilityPresence } from '@/lib/useFacilityPresence';
+import { formatLastSeenAgo, lastSeenIndexFromStaffMembers, looksLikeEmployeeId, pickEmployeeIdFromRecord, pickLastActivityFromRecord, staffLastSeenMs } from '@/lib/presence-store';
 import { API_ENDPOINTS } from '@/lib/config';
 import {
     extractStaffIdFromBulkCreated,
@@ -58,6 +59,10 @@ type StaffMember = {
     status: string;
     access: string;
     employee_id: string;
+    /** Login username — used for presence matching, not shown as employee ID. */
+    username?: string;
+    /** Best-effort last activity from staff list API. */
+    last_activity_at?: string;
     patient_access: boolean;
     role: 'staff' | 'admin';
     phone?: string;
@@ -174,8 +179,21 @@ function isUuidLike(value: string): boolean {
 function pickEmployeeId(prev: StaffMember, fromApi: StaffMember): string {
     const from = (fromApi.employee_id || '').trim();
     const prior = (prev.employee_id || '').trim();
-    if (from && from !== fromApi.id) return from;
-    return prior || from;
+    if (from && looksLikeEmployeeId(from) && from !== fromApi.id) return from;
+    if (prior && looksLikeEmployeeId(prior)) return prior;
+    return '';
+}
+
+function renderEmployeeIdCell(employeeId: string) {
+    if (employeeId) return employeeId;
+    return (
+        <span
+            title="No employee ID on file for this staff member"
+            style={{ color: 'var(--text-muted)', fontStyle: 'italic', fontWeight: 500 }}
+        >
+            Not assigned
+        </span>
+    );
 }
 
 function mergeStaffListRowIntoDetail(prev: StaffMember, fromList: StaffMember): StaffMember {
@@ -389,9 +407,10 @@ function parseStaffList(raw: unknown): StaffMember[] {
                 || userRec?.user_id
                 || ''
             ).trim();
-            const statusRaw = String(r.status || r.account_status || 'active').toLowerCase();
-            const normalizedStatus = statusRaw.includes('disable') || statusRaw.includes('inactive') || statusRaw.includes('suspend')
-                ? 'disabled'
+            const statusRaw = String(r.status || r.account_status || 'active').toLowerCase().trim();
+            const VALID_STATUSES = ['invited', 'expired', 'revoked', 'registered', 'active', 'suspended', 'disabled'];
+            const normalizedStatus = statusRaw === 'inactive' ? 'invited'
+                : VALID_STATUSES.includes(statusRaw) ? statusRaw
                 : 'active';
             const deptSources = gatherStaffDeptSources(r);
             const { id: department_id, name: deptFromApi } = findDepartmentIdAndName(deptSources);
@@ -407,10 +426,9 @@ function parseStaffList(raw: unknown): StaffMember[] {
                 dept: deptFromApi,
                 status: normalizedStatus,
                 access: String(r.system_role || r.access || 'Staff'),
-                employee_id: (() => {
-                    const fromApi = String(r.employee_id || r.username || '').trim();
-                    return fromApi || (isUuidLike(id) ? '' : id);
-                })(),
+                employee_id: pickEmployeeIdFromRecord(r),
+                username: String(r.username || '').trim() || undefined,
+                last_activity_at: pickLastActivityFromRecord(r) || undefined,
                 patient_access: Boolean(r.patient_access ?? r.can_access_patients ?? false),
                 role: String(r.system_role || r.role || 'staff').toLowerCase().includes('admin') ? 'admin' as const : 'staff' as const,
                 phone: pickStaffPhone(r),
@@ -603,8 +621,9 @@ function isStaffOnline(s: StaffMember, online: Set<string>): boolean {
 }
 
 function canSendStaffInviteEmail(s: StaffMember): boolean {
-    if (String(s.status || '').trim().toLowerCase() === 'active') return false;
-    return Boolean(s.email?.trim());
+    if (!s.email?.trim()) return false;
+    const st = String(s.status || '').trim().toLowerCase();
+    return !['active', 'registered', 'suspended', 'disabled'].includes(st);
 }
 
 /** Clinical / professional rank presets (optional field); custom values allowed via CustomSelect. */
@@ -637,10 +656,111 @@ function isDoctorFromHighestQualification(raw: string): boolean {
 }
 
 const statusColors: Record<string, { color: string; bg: string; label: string }> = {
+    invited: { color: 'var(--info)', bg: 'var(--info-bg)', label: 'Invited' },
+    expired: { color: 'var(--warning)', bg: 'var(--warning-bg)', label: 'Expired' },
+    revoked: { color: 'var(--text-muted)', bg: '#f3f4f6', label: 'Revoked' },
+    registered: { color: '#7c3aed', bg: '#f5f3ff', label: 'Registered' },
     active: { color: 'var(--success)', bg: 'var(--success-bg)', label: 'Active' },
+    suspended: { color: '#b45309', bg: '#fffbeb', label: 'Suspended' },
     disabled: { color: 'var(--critical)', bg: 'var(--critical-bg)', label: 'Disabled' },
 };
 
+const LIFECYCLE_STATUSES = ['invited', 'expired', 'revoked', 'registered'] as const;
+const ADMIN_PATCHABLE_STATUSES = ['active', 'suspended', 'disabled'] as const;
+const STATUS_FILTER_KEYS = ['all', ...LIFECYCLE_STATUSES, ...ADMIN_PATCHABLE_STATUSES] as const;
+
+type InviteRowFlags = { can_reinvite?: boolean; can_revoke?: boolean; can_push?: boolean };
+type InviteSummaryCounts = Partial<Record<(typeof STATUS_FILTER_KEYS)[number], number>>;
+
+function isInviteLifecycleStatus(status: string): boolean {
+    return (LIFECYCLE_STATUSES as readonly string[]).includes(String(status || '').trim().toLowerCase());
+}
+
+function isAdminPatchableStatus(status: string): boolean {
+    return (ADMIN_PATCHABLE_STATUSES as readonly string[]).includes(String(status || '').trim().toLowerCase());
+}
+
+function statusBadgeStyle(status: string): { color: string; bg: string; label: string } {
+    return statusColors[String(status || '').trim().toLowerCase()] || statusColors.active;
+}
+
+function parseInviteSummary(raw: unknown): InviteSummaryCounts {
+    if (!raw || typeof raw !== 'object') return {};
+    const root = raw as Record<string, unknown>;
+    const summary = root.summary && typeof root.summary === 'object' && !Array.isArray(root.summary)
+        ? (root.summary as Record<string, unknown>)
+        : root;
+    const out: InviteSummaryCounts = {};
+    for (const key of STATUS_FILTER_KEYS) {
+        if (key === 'all') continue;
+        const n = readNumber(summary[key]);
+        if (n > 0) out[key] = n;
+    }
+    const explicitAll = readNumber(summary.all ?? summary.total ?? root.total);
+    out.all = explicitAll > 0
+        ? explicitAll
+        : STATUS_FILTER_KEYS.slice(1).reduce((sum, k) => sum + (out[k] ?? 0), 0);
+    return out;
+}
+
+function parseInviteFlagsByStaffId(raw: unknown): Map<string, InviteRowFlags> {
+    const map = new Map<string, InviteRowFlags>();
+    if (!raw || typeof raw !== 'object') return map;
+    const root = raw as Record<string, unknown>;
+    const list = Array.isArray(root.data)
+        ? root.data
+        : Array.isArray(root.items)
+            ? root.items
+            : [];
+    for (const row of list) {
+        if (!row || typeof row !== 'object') continue;
+        const rec = row as Record<string, unknown>;
+        const id = String(rec.staff_id || rec.id || rec.user_id || '').trim();
+        if (!id) continue;
+        map.set(id, {
+            can_reinvite: rec.can_reinvite === undefined ? undefined : Boolean(rec.can_reinvite),
+            can_revoke: rec.can_revoke === undefined ? undefined : Boolean(rec.can_revoke),
+            can_push: rec.can_push === undefined ? undefined : Boolean(rec.can_push),
+        });
+    }
+    return map;
+}
+
+function statusAllowsReinvite(status: string): boolean {
+    return ['invited', 'expired', 'revoked'].includes(String(status || '').trim().toLowerCase());
+}
+
+function statusAllowsRevoke(status: string): boolean {
+    return ['invited', 'expired'].includes(String(status || '').trim().toLowerCase());
+}
+
+function canReinviteStaff(s: StaffMember, flags?: InviteRowFlags): boolean {
+    if (flags?.can_reinvite !== undefined) return flags.can_reinvite;
+    return statusAllowsReinvite(s.status);
+}
+
+function canRevokeStaffInvite(s: StaffMember, flags?: InviteRowFlags): boolean {
+    if (flags?.can_revoke !== undefined) return flags.can_revoke;
+    return statusAllowsRevoke(s.status);
+}
+
+function canPushStaffInvite(s: StaffMember, flags?: InviteRowFlags): boolean {
+    if (flags?.can_push !== undefined) return flags.can_push;
+    return statusAllowsReinvite(s.status);
+}
+
+function inviteEmailTooltip(s: StaffMember): string {
+    if (!s.email?.trim()) return 'No email on file';
+    const st = String(s.status || '').trim().toLowerCase();
+    if (st === 'active') return 'Account already activated';
+    if (st === 'registered') return 'Already registered — invite not needed';
+    if (st === 'suspended') return 'Account suspended';
+    if (st === 'disabled') return 'Account disabled';
+    if (st === 'expired') return 'Send invite email (expired)';
+    if (st === 'revoked') return 'Send invite email (revoked)';
+    if (st === 'invited') return 'Resend invite email';
+    return 'Send invite email';
+}
 
 function readNumber(value: unknown): number {
     if (typeof value === 'number' && Number.isFinite(value)) return value;
@@ -968,10 +1088,13 @@ export default function StaffDirectoryManagement() {
     const [sendingInvites, setSendingInvites] = useState(false);
     const [selectedStaffIds, setSelectedStaffIds] = useState<Set<string>>(() => new Set());
     const [inviteSendErrors, setInviteSendErrors] = useState<StaffInviteEmailError[]>([]);
+    const [inviteSummary, setInviteSummary] = useState<InviteSummaryCounts>({});
+    const [inviteFlagsByStaffId, setInviteFlagsByStaffId] = useState<Map<string, InviteRowFlags>>(() => new Map());
+    const [inviteActionPending, setInviteActionPending] = useState(false);
     const [departmentOptions, setDepartmentOptions] = useState<string[]>([]);
     const [deptIdToName, setDeptIdToName] = useState<Map<string, string>>(() => new Map());
     const fileInputRef = useRef<HTMLInputElement | null>(null);
-    const { onlineIdSet } = useFacilityPresence({ enabled: activeTab === 'directory' });
+    const { onlineIdSet, lastSeenByKey } = useFacilityPresence({ enabled: activeTab === 'directory' });
 
     const dismissToast = useCallback(() => {
         setToast(null);
@@ -1005,41 +1128,6 @@ export default function StaffDirectoryManagement() {
     const dismissInviteSendErrors = useCallback(() => {
         setInviteSendErrors([]);
     }, []);
-
-    const reportInviteSendResult = useCallback((result: Awaited<ReturnType<typeof sendStaffInviteEmails>>) => {
-        if (result.emailNotConfigured) {
-            showToast('Invite email is not configured on the server. Contact your administrator.', 'error');
-            return;
-        }
-        if (result.errors.length > 0) {
-            setInviteSendErrors(result.errors);
-        }
-        if (result.queued > 0) {
-            const errNote = result.errors.length > 0 ? ` · ${result.errors.length} could not be queued` : '';
-            showToast(`Queued ${result.queued} invite${result.queued === 1 ? '' : 's'}${errNote}`, result.errors.length > 0 ? 'info' : 'success');
-        } else if (result.errors.length > 0) {
-            showToast('No invites were queued. See errors in the panel.', 'error');
-        } else if (!result.ok) {
-            showToast('Failed to send invite emails', 'error');
-        }
-    }, [showToast]);
-
-    const handleSendInviteEmails = useCallback(async (staffIds: string[], options?: { clearSelection?: boolean }) => {
-        const ids = staffIds.map(id => id.trim()).filter(Boolean);
-        if (ids.length === 0) return;
-        setSendingInvites(true);
-        try {
-            const result = await sendStaffInviteEmails(ids);
-            reportInviteSendResult(result);
-            if (options?.clearSelection && result.queued > 0) {
-                setSelectedStaffIds(new Set());
-            }
-        } catch {
-            showToast('Failed to send invite emails', 'error');
-        } finally {
-            setSendingInvites(false);
-        }
-    }, [reportInviteSendResult, showToast]);
 
     const toggleStaffRowSelected = useCallback((id: string, checked: boolean) => {
         setSelectedStaffIds(prev => {
@@ -1181,6 +1269,55 @@ export default function StaffDirectoryManagement() {
         setLoading(false);
     }, []);
 
+    const fetchInvites = useCallback(async () => {
+        try {
+            const res = await fetch(staffUrl(API_ENDPOINTS.STAFF_INVITES), { credentials: 'include' });
+            if (!res.ok) return;
+            const data = await res.json();
+            setInviteSummary(parseInviteSummary(data));
+            setInviteFlagsByStaffId(parseInviteFlagsByStaffId(data));
+        } catch {
+            // best effort
+        }
+    }, []);
+
+    const reportInviteSendResult = useCallback((result: Awaited<ReturnType<typeof sendStaffInviteEmails>>) => {
+        if (result.emailNotConfigured) {
+            showToast('Invite email is not configured on the server. Contact your administrator.', 'error');
+            return;
+        }
+        if (result.errors.length > 0) {
+            setInviteSendErrors(result.errors);
+        }
+        if (result.queued > 0) {
+            const errNote = result.errors.length > 0 ? ` · ${result.errors.length} could not be queued` : '';
+            showToast(`Queued ${result.queued} invite${result.queued === 1 ? '' : 's'}${errNote}`, result.errors.length > 0 ? 'info' : 'success');
+            void fetchStaff();
+            void fetchInvites();
+        } else if (result.errors.length > 0) {
+            showToast('No invites were queued. See errors in the panel.', 'error');
+        } else if (!result.ok) {
+            showToast('Failed to send invite emails', 'error');
+        }
+    }, [fetchInvites, fetchStaff, showToast]);
+
+    const handleSendInviteEmails = useCallback(async (staffIds: string[], options?: { clearSelection?: boolean }) => {
+        const ids = staffIds.map(id => id.trim()).filter(Boolean);
+        if (ids.length === 0) return;
+        setSendingInvites(true);
+        try {
+            const result = await sendStaffInviteEmails(ids);
+            reportInviteSendResult(result);
+            if (options?.clearSelection && result.queued > 0) {
+                setSelectedStaffIds(new Set());
+            }
+        } catch {
+            showToast('Failed to send invite emails', 'error');
+        } finally {
+            setSendingInvites(false);
+        }
+    }, [reportInviteSendResult, showToast]);
+
     const fetchDepartments = useCallback(async () => {
         try {
             const res = await fetch(staffUrl(STAFF_CACHE_DEPTS));
@@ -1239,6 +1376,7 @@ export default function StaffDirectoryManagement() {
     }, []);
 
     useEffect(() => { void fetchStaff(); }, [fetchStaff]);
+    useEffect(() => { void fetchInvites(); }, [fetchInvites]);
     useEffect(() => { fetchDepartments(); }, [fetchDepartments]);
 
     useEffect(() => {
@@ -1256,6 +1394,7 @@ export default function StaffDirectoryManagement() {
         const onVisible = () => {
             if (document.visibilityState !== 'visible') return;
             void fetchStaff();
+            void fetchInvites();
         };
         document.addEventListener('visibilitychange', onVisible);
         return () => document.removeEventListener('visibilitychange', onVisible);
@@ -1470,6 +1609,15 @@ export default function StaffDirectoryManagement() {
         [filtered, onlineIdSet]
     );
 
+    const mergedLastSeenByKey = useMemo(() => {
+        const map = new Map(lastSeenByKey);
+        for (const [k, v] of lastSeenIndexFromStaffMembers(staff)) {
+            const prev = map.get(k);
+            if (prev === undefined || v > prev) map.set(k, v);
+        }
+        return map;
+    }, [staff, lastSeenByKey]);
+
     const invitableSelectedIds = useMemo(() => {
         const ids: string[] = [];
         for (const id of selectedStaffIds) {
@@ -1478,6 +1626,21 @@ export default function StaffDirectoryManagement() {
         }
         return ids;
     }, [selectedStaffIds, staff]);
+
+    const statusCounts = useMemo(() => {
+        const local: InviteSummaryCounts = { all: staff.length };
+        for (const s of staff) {
+            const key = String(s.status || '').trim().toLowerCase();
+            if (!key) continue;
+            local[key as keyof InviteSummaryCounts] = (local[key as keyof InviteSummaryCounts] ?? 0) + 1;
+        }
+        if (Object.keys(inviteSummary).length === 0) return local;
+        return {
+            ...local,
+            ...inviteSummary,
+            all: inviteSummary.all ?? local.all ?? staff.length,
+        };
+    }, [staff, inviteSummary]);
 
     useEffect(() => {
         setStaffPage(1);
@@ -1688,18 +1851,54 @@ export default function StaffDirectoryManagement() {
         } catch { /* optimistic — already removed locally */ }
     };
 
-    const toggleStatus = async (id: string) => {
+    const setAdminStatus = async (id: string, newStatus: 'active' | 'suspended' | 'disabled') => {
         const member = staff.find(s => s.id === id);
-        const newStatus = member?.status === 'active' ? 'disabled' : 'active';
-        setStaff(prev => prev.map(s => s.id === id ? { ...s, status: newStatus } : s));
-        showToast(newStatus === 'disabled' ? `${member?.first_name} ${member?.last_name} disabled` : `${member?.first_name} ${member?.last_name} enabled`, 'success');
+        if (!member || member.status === newStatus) return;
+        const prevStatus = member.status;
+        setStaff(prev => prev.map(s => (s.id === id ? { ...s, status: newStatus } : s)));
+        setSelected(prev => (prev && prev.id === id ? { ...prev, status: newStatus } : prev));
+        const label = statusBadgeStyle(newStatus).label;
+        showToast(`${member.first_name} ${member.last_name} set to ${label}`, 'success');
         try {
-            await fetch(staffUrl(`/api/proxy/staff/${id}`), {
+            const res = await fetch(staffUrl(`/api/proxy/staff/${id}`), {
                 method: 'PUT',
+                credentials: 'include',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ status: newStatus }),
             });
-        } catch { /* optimistic — already updated locally */ }
+            if (!res.ok) throw new Error('status update failed');
+            void fetchInvites();
+        } catch {
+            setStaff(prev => prev.map(s => (s.id === id ? { ...s, status: prevStatus } : s)));
+            setSelected(prev => (prev && prev.id === id ? { ...prev, status: prevStatus } : prev));
+            showToast('Failed to update status', 'error');
+        }
+    };
+
+    const runInviteAction = async (action: 'revoke' | 'reinvite' | 'push', staffIds: string[]) => {
+        if (staffIds.length === 0 || inviteActionPending) return;
+        setInviteActionPending(true);
+        try {
+            const res = await fetch(staffUrl(API_ENDPOINTS.STAFF_INVITE_ACTIONS), {
+                method: 'POST',
+                credentials: 'include',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action, staff_ids: staffIds }),
+            });
+            const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+            if (!res.ok) {
+                showToast(String(data.message || data.detail || data.error || 'Invite action failed'), 'error');
+                return;
+            }
+            const actionLabel = action === 'revoke' ? 'Revoked' : action === 'reinvite' ? 'Reinvited' : 'Reminder sent';
+            showToast(String(data.message || `${actionLabel} successfully`), 'success');
+            void fetchStaff();
+            void fetchInvites();
+        } catch {
+            showToast('Invite action failed', 'error');
+        } finally {
+            setInviteActionPending(false);
+        }
     };
 
     const togglePatientAccess = async (id: string, currentAccess: boolean) => {
@@ -2158,13 +2357,44 @@ export default function StaffDirectoryManagement() {
                                 {onlineInFiltered} online now
                             </div>
                         )}
-                        <div style={{ display: 'flex', gap: 5 }}>
-                            {['all', 'active', 'disabled'].map(s => (
-                                <button key={s} className="btn btn-secondary btn-xs" onClick={() => setStatusFilter(s)}
-                                    style={{ background: statusFilter === s ? '#edf1f7' : undefined, borderColor: statusFilter === s ? 'var(--helix-primary)' : undefined, color: statusFilter === s ? 'var(--helix-primary)' : undefined, fontWeight: statusFilter === s ? 600 : 400 }}>
-                                    {s === 'all' ? 'All Status' : s.charAt(0).toUpperCase() + s.slice(1)}
-                                </button>
-                            ))}
+                        <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
+                            {STATUS_FILTER_KEYS.map(key => {
+                                const active = statusFilter === key;
+                                const label = key === 'all' ? 'All' : (statusColors[key]?.label || key);
+                                const count = statusCounts[key] ?? 0;
+                                return (
+                                    <button
+                                        key={key}
+                                        type="button"
+                                        className="btn btn-secondary btn-xs"
+                                        onClick={() => setStatusFilter(key)}
+                                        style={{
+                                            background: active ? '#edf1f7' : undefined,
+                                            borderColor: active ? 'var(--helix-primary)' : undefined,
+                                            color: active ? 'var(--helix-primary)' : undefined,
+                                            fontWeight: active ? 600 : 400,
+                                            display: 'inline-flex',
+                                            alignItems: 'center',
+                                            gap: 6,
+                                        }}
+                                    >
+                                        {label}
+                                        <span
+                                            style={{
+                                                fontSize: 10,
+                                                fontWeight: 700,
+                                                lineHeight: 1,
+                                                padding: '2px 6px',
+                                                borderRadius: 999,
+                                                background: active ? 'rgba(37, 99, 235, 0.12)' : 'rgba(15, 23, 42, 0.06)',
+                                                color: active ? 'var(--helix-primary)' : 'var(--text-muted)',
+                                            }}
+                                        >
+                                            {count}
+                                        </span>
+                                    </button>
+                                );
+                            })}
                         </div>
                         {selectedStaffIds.size > 0 && invitableSelectedIds.length > 0 && (
                             <button
@@ -2344,6 +2574,7 @@ export default function StaffDirectoryManagement() {
                                             const isSelected = selected?.id === s.id;
                                             const rowBg = isSelected ? '#edf1f7' : '#ffffff';
                                             const online = isStaffOnline(s, onlineIdSet);
+                                            const lastSeenLabel = formatLastSeenAgo(staffLastSeenMs(s, mergedLastSeenByKey));
                                             return (
                                                 <tr
                                                     key={s.id}
@@ -2388,7 +2619,7 @@ export default function StaffDirectoryManagement() {
                                                             borderBottom: '1px solid var(--border-subtle)',
                                                         }}
                                                     >
-                                                        {s.employee_id}
+                                                        {renderEmployeeIdCell(s.employee_id)}
                                                     </td>
                                                     <td
                                                         style={{
@@ -2474,7 +2705,12 @@ export default function StaffDirectoryManagement() {
                                                                 Online
                                                             </span>
                                                         ) : (
-                                                            <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>Offline</span>
+                                                            <span
+                                                                style={{ fontSize: 11, color: 'var(--text-muted)' }}
+                                                                title={lastSeenLabel === 'Never' ? 'No recorded activity' : `Last seen ${lastSeenLabel}`}
+                                                            >
+                                                                {lastSeenLabel}
+                                                            </span>
                                                         )}
                                                     </td>
                                                     <td style={{ ...staffBodyCell, width: 72, minWidth: 72, textAlign: 'center', background: rowBg, borderBottom: '1px solid var(--border-subtle)' }}>
@@ -2482,13 +2718,7 @@ export default function StaffDirectoryManagement() {
                                                             <button
                                                                 type="button"
                                                                 className="btn btn-ghost btn-xs"
-                                                                title={
-                                                                    s.status === 'active'
-                                                                        ? 'Account already activated'
-                                                                        : !s.email.trim()
-                                                                            ? 'No email on file'
-                                                                            : 'Send invite email'
-                                                                }
+                                                                title={inviteEmailTooltip(s)}
                                                                 disabled={sendingInvites || !canSendStaffInviteEmail(s)}
                                                                 onClick={e => {
                                                                     e.stopPropagation();
@@ -2695,10 +2925,15 @@ export default function StaffDirectoryManagement() {
                                         </div>
                                     </div>
                                     <div style={{ padding: '0 14px 12px', display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11, fontWeight: 600, padding: '4px 10px', borderRadius: 999, border: selected.status === 'active' ? '1px solid #6EE7B7' : '1px solid #FECACA', background: selected.status === 'active' ? '#DCFCE7' : '#FEE2E2', color: selected.status === 'active' ? '#166534' : '#991B1B' }}>
-                                            <span style={{ width: 6, height: 6, borderRadius: '50%', background: selected.status === 'active' ? '#22C55E' : '#EF4444' }} aria-hidden />
-                                            {selected.status === 'active' ? 'Active' : 'Disabled'}
+                                        {(() => {
+                                            const st = statusBadgeStyle(selected.status);
+                                            return (
+                                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11, fontWeight: 600, padding: '4px 10px', borderRadius: 999, border: `1px solid ${st.color}`, background: st.bg, color: st.color }}>
+                                            <span style={{ width: 6, height: 6, borderRadius: '50%', background: st.color }} aria-hidden />
+                                            {st.label}
                                         </span>
+                                            );
+                                        })()}
                                         <span style={{ fontSize: 11, fontWeight: 600, padding: '4px 10px', borderRadius: 999, background: '#FEF9C3', color: '#854D0E', border: '1px solid #FDE047', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 160 }} title={selected.job_title}>
                                             {selected.job_title || 'Role'}
                                         </span>
@@ -3072,39 +3307,110 @@ export default function StaffDirectoryManagement() {
                                     </div>
                                     <div style={{ display: 'flex', flexDirection: 'column', gap: 6, flexShrink: 0 }}>
                                         {(() => {
+                                            const flags = inviteFlagsByStaffId.get(selected.id);
+                                            const showInviteActions = isInviteLifecycleStatus(selected.status);
+                                            const reinviteEnabled = showInviteActions && canReinviteStaff(selected, flags);
+                                            const revokeEnabled = showInviteActions && canRevokeStaffInvite(selected, flags);
+                                            const pushEnabled = showInviteActions && canPushStaffInvite(selected, flags);
                                             const hasEmail = Boolean((selected.email || '').trim());
                                             const passwordResetEnabled = STAFF_PASSWORD_RESET_ENABLED && hasEmail;
                                             return (
-                                        <button
-                                            type="button"
-                                            style={{
-                                                ...staffDetailActionBtn,
-                                                opacity: passwordResetEnabled ? 1 : 0.42,
-                                                cursor: passwordResetEnabled ? 'pointer' : 'not-allowed',
-                                                color: passwordResetEnabled ? undefined : 'var(--text-disabled)',
-                                                borderColor: passwordResetEnabled ? undefined : 'var(--border-subtle)',
-                                            }}
-                                            disabled={!passwordResetEnabled}
-                                            title={
-                                                hasEmail
-                                                    ? 'Send password reset email via admin-reset'
-                                                    : 'No email on file'
-                                            }
-                                            onClick={() => requestPasswordReset(selected)}
-                                        >
-                                            <span className="material-icons-round" style={{ fontSize: 15 }}>lock_reset</span>
-                                            Reset password
-                                        </button>
+                                                <>
+                                                    {reinviteEnabled && (
+                                                        <button
+                                                            type="button"
+                                                            style={staffDetailActionBtn}
+                                                            disabled={inviteActionPending}
+                                                            onClick={() => { void runInviteAction('reinvite', [selected.id]); }}
+                                                        >
+                                                            <span className="material-icons-round" style={{ fontSize: 15 }}>mail</span>
+                                                            {inviteActionPending ? 'Sending…' : 'Reinvite'}
+                                                        </button>
+                                                    )}
+                                                    {revokeEnabled && (
+                                                        <button
+                                                            type="button"
+                                                            style={staffDetailActionBtnDanger}
+                                                            disabled={inviteActionPending}
+                                                            onClick={() => { void runInviteAction('revoke', [selected.id]); }}
+                                                        >
+                                                            <span className="material-icons-round" style={{ fontSize: 15 }}>block</span>
+                                                            {inviteActionPending ? 'Working…' : 'Revoke invite'}
+                                                        </button>
+                                                    )}
+                                                    {pushEnabled && (
+                                                        <button
+                                                            type="button"
+                                                            style={staffDetailActionBtn}
+                                                            disabled={inviteActionPending}
+                                                            onClick={() => { void runInviteAction('push', [selected.id]); }}
+                                                        >
+                                                            <span className="material-icons-round" style={{ fontSize: 15 }}>notifications_active</span>
+                                                            {inviteActionPending ? 'Sending…' : 'Push reminder'}
+                                                        </button>
+                                                    )}
+                                                    <button
+                                                        type="button"
+                                                        style={{
+                                                            ...staffDetailActionBtn,
+                                                            opacity: passwordResetEnabled ? 1 : 0.42,
+                                                            cursor: passwordResetEnabled ? 'pointer' : 'not-allowed',
+                                                            color: passwordResetEnabled ? undefined : 'var(--text-disabled)',
+                                                            borderColor: passwordResetEnabled ? undefined : 'var(--border-subtle)',
+                                                        }}
+                                                        disabled={!passwordResetEnabled}
+                                                        title={
+                                                            hasEmail
+                                                                ? 'Send password reset email via admin-reset'
+                                                                : 'No email on file'
+                                                        }
+                                                        onClick={() => requestPasswordReset(selected)}
+                                                    >
+                                                        <span className="material-icons-round" style={{ fontSize: 15 }}>lock_reset</span>
+                                                        Reset password
+                                                    </button>
+                                                    {isAdminPatchableStatus(selected.status) && (
+                                                        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, paddingTop: 2 }}>
+                                                            <span style={{ fontSize: 11, fontWeight: 600, color: '#9CA3AF', letterSpacing: '0.04em' }}>
+                                                                Account status
+                                                            </span>
+                                                            <div style={{ display: 'flex', gap: 4, background: '#F3F4F6', borderRadius: 8, padding: 3 }}>
+                                                                {ADMIN_PATCHABLE_STATUSES.map(status => {
+                                                                    const active = selected.status === status;
+                                                                    const st = statusBadgeStyle(status);
+                                                                    return (
+                                                                        <button
+                                                                            key={status}
+                                                                            type="button"
+                                                                            disabled={inviteActionPending}
+                                                                            onClick={() => { void setAdminStatus(selected.id, status); }}
+                                                                            style={{
+                                                                                flex: 1,
+                                                                                display: 'flex',
+                                                                                alignItems: 'center',
+                                                                                justifyContent: 'center',
+                                                                                gap: 4,
+                                                                                padding: '6px 4px',
+                                                                                borderRadius: 6,
+                                                                                fontSize: 11,
+                                                                                fontWeight: active ? 600 : 500,
+                                                                                border: 'none',
+                                                                                cursor: active ? 'default' : 'pointer',
+                                                                                background: active ? '#fff' : 'transparent',
+                                                                                color: active ? st.color : '#9CA3AF',
+                                                                                boxShadow: active ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
+                                                                            }}
+                                                                        >
+                                                                            {st.label}
+                                                                        </button>
+                                                                    );
+                                                                })}
+                                                            </div>
+                                                        </div>
+                                                    )}
+                                                </>
                                             );
                                         })()}
-                                        <button
-                                            type="button"
-                                            style={selected.status === 'active' ? staffDetailActionBtnDanger : staffDetailActionBtn}
-                                            onClick={() => { toggleStatus(selected.id); setSelected(prev => prev ? { ...prev, status: prev.status === 'active' ? 'disabled' : 'active' } : null); }}
-                                        >
-                                            <span className="material-icons-round" style={{ fontSize: 15 }}>{selected.status === 'active' ? 'block' : 'check_circle'}</span>
-                                            {selected.status === 'active' ? 'Disable account' : 'Enable account'}
-                                        </button>
                                         <button
                                             type="button"
                                             style={staffDetailActionBtnDanger}

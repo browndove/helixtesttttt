@@ -14,6 +14,10 @@ export type PresenceOnlineUser = {
     job_title?: string;
     online_on?: string[];
     online?: boolean;
+    last_seen?: string;
+    last_seen_at?: string;
+    last_activity_at?: string;
+    last_login_at?: string;
 };
 
 function isRecordOnline(rec: Record<string, unknown>): boolean {
@@ -141,7 +145,6 @@ export async function fetchFacilityPresenceOnline(): Promise<{
         for (const item of presenceListFromPayload(json)) {
             if (!item || typeof item !== 'object') continue;
             const rec = item as Record<string, unknown>;
-            if (!isRecordOnline(rec)) continue;
 
             const dk = presenceDedupeKey(rec);
             if (dk) {
@@ -149,6 +152,7 @@ export async function fetchFacilityPresenceOnline(): Promise<{
                 seen.add(dk);
             }
 
+            const online = isRecordOnline(rec);
             merged.push({
                 user_id: String(rec.user_id || rec.id || rec.staff_id || dk || ''),
                 first_name: String(rec.first_name || '').trim() || undefined,
@@ -156,7 +160,11 @@ export async function fetchFacilityPresenceOnline(): Promise<{
                 username: String(rec.username || '').trim() || undefined,
                 job_title: String(rec.job_title || '').trim() || undefined,
                 online_on: Array.isArray(rec.online_on) ? rec.online_on.map(String) : undefined,
-                online: true,
+                online,
+                last_seen: String(rec.last_seen || '').trim() || undefined,
+                last_seen_at: String(rec.last_seen_at || '').trim() || undefined,
+                last_activity_at: String(rec.last_activity_at || '').trim() || undefined,
+                last_login_at: String(rec.last_login_at || rec.last_login || '').trim() || undefined,
             });
         }
 
