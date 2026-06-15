@@ -11,7 +11,7 @@ import { MacVibrancyToast, MacVibrancyToastPortal } from '@/components/MacVibran
 import { BulkImportErrorsSheet } from '@/components/BulkImportErrorsSheet';
 import { readCachedJson, writeCachedJson } from '@/lib/getJsonCache';
 import { useFacilityPresence } from '@/lib/useFacilityPresence';
-import { looksLikeEmployeeId, pickEmployeeIdFromRecord } from '@/lib/presence-store';
+import { formatLastSeenAgo, looksLikeEmployeeId, pickEmployeeIdFromRecord, staffLastSeenMs } from '@/lib/presence-store';
 import { API_ENDPOINTS } from '@/lib/config';
 import {
     extractStaffIdFromBulkCreated,
@@ -61,6 +61,8 @@ type StaffMember = {
     employee_id: string;
     /** Login username — used for presence matching, not shown as employee ID. */
     username?: string;
+    /** Presence last seen from staff list API (`last_seen` field only). */
+    last_seen?: string;
     patient_access: boolean;
     role: 'staff' | 'admin';
     phone?: string;
@@ -426,6 +428,7 @@ function parseStaffList(raw: unknown): StaffMember[] {
                 access: String(r.system_role || r.access || 'Staff'),
                 employee_id: pickEmployeeIdFromRecord(r),
                 username: String(r.username || '').trim() || undefined,
+                last_seen: String(r.last_seen ?? '').trim() || undefined,
                 patient_access: Boolean(r.patient_access ?? r.can_access_patients ?? false),
                 role: String(r.system_role || r.role || 'staff').toLowerCase().includes('admin') ? 'admin' as const : 'staff' as const,
                 phone: pickStaffPhone(r),
@@ -1092,7 +1095,7 @@ export default function StaffDirectoryManagement() {
     const [deptIdToName, setDeptIdToName] = useState<Map<string, string>>(() => new Map());
     const fileInputRef = useRef<HTMLInputElement | null>(null);
     const toastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-    const { onlineIdSet } = useFacilityPresence({ enabled: activeTab === 'directory' });
+    const { onlineIdSet, lastSeenByKey } = useFacilityPresence({ enabled: activeTab === 'directory' });
 
     const dismissToast = useCallback(() => {
         if (toastTimeoutRef.current) {
@@ -2540,7 +2543,7 @@ export default function StaffDirectoryManagement() {
                                             <th style={{ ...staffHeadCell, minWidth: 160, whiteSpace: 'nowrap', cursor: 'pointer', background: '#fafbfc', borderBottom: '1px solid var(--border-default)' }} onClick={() => toggleSort('dept')}>Department {sortKey === 'dept' && (sortDir === 'asc' ? '↑' : '↓')}</th>
                                             <th style={{ ...staffHeadCell, minWidth: 140, whiteSpace: 'nowrap', background: '#fafbfc', borderBottom: '1px solid var(--border-default)' }}>Patient Access</th>
                                             <th style={{ ...staffHeadCell, minWidth: 88, whiteSpace: 'nowrap', cursor: 'pointer', background: '#fafbfc', borderBottom: '1px solid var(--border-default)' }} onClick={() => toggleSort('status')}>Status {sortKey === 'status' && (sortDir === 'asc' ? '↑' : '↓')}</th>
-                                            <th style={{ ...staffHeadCell, minWidth: 76, whiteSpace: 'nowrap', background: '#fafbfc', borderBottom: '1px solid var(--border-default)' }}>Online</th>
+                                            <th style={{ ...staffHeadCell, minWidth: 88, whiteSpace: 'nowrap', background: '#fafbfc', borderBottom: '1px solid var(--border-default)' }}>Last seen</th>
                                             <th style={{ ...staffHeadCell, width: 72, minWidth: 72, background: '#fafbfc', borderBottom: '1px solid var(--border-default)' }} />
                                         </tr>
                                     </thead>
@@ -2578,6 +2581,7 @@ export default function StaffDirectoryManagement() {
                                             const isSelected = selected?.id === s.id;
                                             const rowBg = isSelected ? '#edf1f7' : '#ffffff';
                                             const online = isStaffOnline(s, onlineIdSet);
+                                            const lastSeenLabel = formatLastSeenAgo(staffLastSeenMs(s, lastSeenByKey));
                                             return (
                                                 <tr
                                                     key={s.id}
@@ -2682,39 +2686,16 @@ export default function StaffDirectoryManagement() {
                                                         <span className="badge" style={{ background: st.bg, color: st.color }}>{st.label}</span>
                                                     </td>
                                                     <td style={{ ...staffBodyCell, minWidth: 76, background: rowBg, borderBottom: '1px solid var(--border-subtle)' }}>
-                                                        {online ? (
-                                                            <span
-                                                                style={{
-                                                                    display: 'inline-flex',
-                                                                    alignItems: 'center',
-                                                                    gap: 5,
-                                                                    fontSize: 11,
-                                                                    fontWeight: 600,
-                                                                    color: '#166534',
-                                                                }}
-                                                                title="Signed in now"
-                                                            >
-                                                                <span
-                                                                    style={{
-                                                                        width: 8,
-                                                                        height: 8,
-                                                                        borderRadius: '50%',
-                                                                        background: '#22c55e',
-                                                                        boxShadow: '0 0 0 2px rgba(34, 197, 94, 0.2)',
-                                                                        flexShrink: 0,
-                                                                    }}
-                                                                    aria-hidden
-                                                                />
-                                                                Online
-                                                            </span>
-                                                        ) : (
-                                                            <span
-                                                                style={{ fontSize: 11, fontWeight: 500, color: 'var(--text-muted)' }}
-                                                                title="Not signed in"
-                                                            >
-                                                                Offline
-                                                            </span>
-                                                        )}
+                                                        <span
+                                                            style={{
+                                                                fontSize: 11,
+                                                                fontWeight: online ? 600 : 500,
+                                                                color: online ? '#166534' : 'var(--text-muted)',
+                                                            }}
+                                                            title={lastSeenLabel === 'Never' ? 'No last_seen on file' : `Last seen ${lastSeenLabel}`}
+                                                        >
+                                                            {lastSeenLabel}
+                                                        </span>
                                                     </td>
                                                     <td style={{ ...staffBodyCell, width: 72, minWidth: 72, textAlign: 'center', background: rowBg, borderBottom: '1px solid var(--border-subtle)' }}>
                                                         <div style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>

@@ -4,7 +4,12 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { API_ENDPOINTS } from '@/lib/config';
 import { isClientInternalSupportMode, resolveClientFacilityId } from '@/lib/facility-client';
 import { fetchFacilityPresenceOnline } from '@/lib/presence-online';
-import { applyPresenceUserToggle, onlineSetFromPresenceSnapshot } from '@/lib/presence-store';
+import {
+    applyPresenceUserToggle,
+    applyPresenceUserToggleToLastSeen,
+    lastSeenIndexFromPresencePayload,
+    onlineSetFromPresenceSnapshot,
+} from '@/lib/presence-store';
 
 const RECONNECT_MS = 5_000;
 
@@ -16,6 +21,7 @@ type WsEnvelope = {
 function handlePresenceWebSocketMessage(
     msg: WsEnvelope,
     setOnlineIdSet: React.Dispatch<React.SetStateAction<Set<string>>>,
+    setLastSeenByKey: React.Dispatch<React.SetStateAction<Map<string, number>>>,
 ): void {
     const type = String(msg.type || '').trim();
     const data = msg.data;
@@ -23,11 +29,13 @@ function handlePresenceWebSocketMessage(
     switch (type) {
         case 'presence_online_users':
             setOnlineIdSet(onlineSetFromPresenceSnapshot(data));
+            setLastSeenByKey(lastSeenIndexFromPresencePayload(data));
             return;
         case 'presence':
             if (data && typeof data === 'object' && !Array.isArray(data)) {
                 const rec = data as Record<string, unknown>;
                 setOnlineIdSet(prev => applyPresenceUserToggle(prev, rec));
+                setLastSeenByKey(prev => applyPresenceUserToggleToLastSeen(prev, rec));
             }
             return;
         default:
@@ -42,6 +50,7 @@ function handlePresenceWebSocketMessage(
 export function useFacilityPresence(options?: { enabled?: boolean }) {
     const enabled = options?.enabled !== false;
     const [onlineIdSet, setOnlineIdSet] = useState<Set<string>>(() => new Set());
+    const [lastSeenByKey, setLastSeenByKey] = useState<Map<string, number>>(() => new Map());
     const [wsConnected, setWsConnected] = useState(false);
     const wsRef = useRef<WebSocket | null>(null);
     const reconnectRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -75,7 +84,9 @@ export function useFacilityPresence(options?: { enabled?: boolean }) {
 
             const rest = await fetchFacilityPresenceOnline();
             if (!cancelledRef.current && rest.ok) {
-                setOnlineIdSet(onlineSetFromPresenceSnapshot({ users: rest.items }));
+                const snapshot = { users: rest.items };
+                setOnlineIdSet(onlineSetFromPresenceSnapshot(snapshot));
+                setLastSeenByKey(lastSeenIndexFromPresencePayload(snapshot));
             }
 
             try {
@@ -112,7 +123,7 @@ export function useFacilityPresence(options?: { enabled?: boolean }) {
                 ws.onmessage = (ev) => {
                     try {
                         const parsed = JSON.parse(String(ev.data)) as WsEnvelope;
-                        handlePresenceWebSocketMessage(parsed, setOnlineIdSet);
+                        handlePresenceWebSocketMessage(parsed, setOnlineIdSet, setLastSeenByKey);
                     } catch {
                         /* ignore malformed frames */
                     }
@@ -144,5 +155,5 @@ export function useFacilityPresence(options?: { enabled?: boolean }) {
         };
     }, [enabled, clearReconnect]);
 
-    return { onlineIdSet, wsConnected };
+    return { onlineIdSet, lastSeenByKey, wsConnected };
 }
