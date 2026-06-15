@@ -11,7 +11,7 @@ import { MacVibrancyToast, MacVibrancyToastPortal } from '@/components/MacVibran
 import { BulkImportErrorsSheet } from '@/components/BulkImportErrorsSheet';
 import { readCachedJson, writeCachedJson } from '@/lib/getJsonCache';
 import { useFacilityPresence } from '@/lib/useFacilityPresence';
-import { formatLastSeenAgo, lastSeenIndexFromStaffMembers, looksLikeEmployeeId, pickEmployeeIdFromRecord, pickLastActivityFromRecord, staffLastSeenMs } from '@/lib/presence-store';
+import { looksLikeEmployeeId, pickEmployeeIdFromRecord } from '@/lib/presence-store';
 import { API_ENDPOINTS } from '@/lib/config';
 import {
     extractStaffIdFromBulkCreated,
@@ -61,8 +61,6 @@ type StaffMember = {
     employee_id: string;
     /** Login username — used for presence matching, not shown as employee ID. */
     username?: string;
-    /** Best-effort last activity from staff list API. */
-    last_activity_at?: string;
     patient_access: boolean;
     role: 'staff' | 'admin';
     phone?: string;
@@ -428,7 +426,6 @@ function parseStaffList(raw: unknown): StaffMember[] {
                 access: String(r.system_role || r.access || 'Staff'),
                 employee_id: pickEmployeeIdFromRecord(r),
                 username: String(r.username || '').trim() || undefined,
-                last_activity_at: pickLastActivityFromRecord(r) || undefined,
                 patient_access: Boolean(r.patient_access ?? r.can_access_patients ?? false),
                 role: String(r.system_role || r.role || 'staff').toLowerCase().includes('admin') ? 'admin' as const : 'staff' as const,
                 phone: pickStaffPhone(r),
@@ -1095,7 +1092,7 @@ export default function StaffDirectoryManagement() {
     const [deptIdToName, setDeptIdToName] = useState<Map<string, string>>(() => new Map());
     const fileInputRef = useRef<HTMLInputElement | null>(null);
     const toastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-    const { onlineIdSet, lastSeenByKey } = useFacilityPresence({ enabled: activeTab === 'directory' });
+    const { onlineIdSet } = useFacilityPresence({ enabled: activeTab === 'directory' });
 
     const dismissToast = useCallback(() => {
         if (toastTimeoutRef.current) {
@@ -1624,15 +1621,6 @@ export default function StaffDirectoryManagement() {
         () => filtered.filter(s => isStaffOnline(s, onlineIdSet)).length,
         [filtered, onlineIdSet]
     );
-
-    const mergedLastSeenByKey = useMemo(() => {
-        const map = new Map(lastSeenByKey);
-        for (const [k, v] of lastSeenIndexFromStaffMembers(staff)) {
-            const prev = map.get(k);
-            if (prev === undefined || v > prev) map.set(k, v);
-        }
-        return map;
-    }, [staff, lastSeenByKey]);
 
     const invitableSelectedIds = useMemo(() => {
         const ids: string[] = [];
@@ -2590,7 +2578,6 @@ export default function StaffDirectoryManagement() {
                                             const isSelected = selected?.id === s.id;
                                             const rowBg = isSelected ? '#edf1f7' : '#ffffff';
                                             const online = isStaffOnline(s, onlineIdSet);
-                                            const lastSeenLabel = formatLastSeenAgo(staffLastSeenMs(s, mergedLastSeenByKey));
                                             return (
                                                 <tr
                                                     key={s.id}
@@ -2722,10 +2709,10 @@ export default function StaffDirectoryManagement() {
                                                             </span>
                                                         ) : (
                                                             <span
-                                                                style={{ fontSize: 11, color: 'var(--text-muted)' }}
-                                                                title={lastSeenLabel === 'Never' ? 'No recorded activity' : `Last seen ${lastSeenLabel}`}
+                                                                style={{ fontSize: 11, fontWeight: 500, color: 'var(--text-muted)' }}
+                                                                title="Not signed in"
                                                             >
-                                                                {lastSeenLabel}
+                                                                Offline
                                                             </span>
                                                         )}
                                                     </td>
