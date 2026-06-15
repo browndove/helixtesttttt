@@ -1094,18 +1094,34 @@ export default function StaffDirectoryManagement() {
     const [departmentOptions, setDepartmentOptions] = useState<string[]>([]);
     const [deptIdToName, setDeptIdToName] = useState<Map<string, string>>(() => new Map());
     const fileInputRef = useRef<HTMLInputElement | null>(null);
+    const toastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const { onlineIdSet, lastSeenByKey } = useFacilityPresence({ enabled: activeTab === 'directory' });
 
     const dismissToast = useCallback(() => {
+        if (toastTimeoutRef.current) {
+            clearTimeout(toastTimeoutRef.current);
+            toastTimeoutRef.current = null;
+        }
         setToast(null);
     }, []);
 
     const showToast = useCallback(
         (message: string, variant: StaffToastVariant = 'info', opaque = false, details?: string[], wide = false) => {
+            if (toastTimeoutRef.current) {
+                clearTimeout(toastTimeoutRef.current);
+            }
             setToast({ message, variant, opaque, details, wide: wide || Boolean(details?.length) });
+            toastTimeoutRef.current = setTimeout(() => {
+                toastTimeoutRef.current = null;
+                setToast(null);
+            }, 4000);
         },
         [],
     );
+
+    useEffect(() => () => {
+        if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
+    }, []);
 
     const dismissBulkErrors = useCallback(() => {
         setBulkResultErrors([]);
