@@ -658,7 +658,7 @@ function isDoctorFromHighestQualification(raw: string): boolean {
 const statusColors: Record<string, { color: string; bg: string; label: string }> = {
     invited: { color: 'var(--info)', bg: 'var(--info-bg)', label: 'Invited' },
     expired: { color: 'var(--warning)', bg: 'var(--warning-bg)', label: 'Expired' },
-    revoked: { color: 'var(--text-muted)', bg: '#f3f4f6', label: 'Revoked' },
+    revoked: { color: '#e11d48', bg: '#fff1f2', label: 'Revoked' },
     registered: { color: '#7c3aed', bg: '#f5f3ff', label: 'Registered' },
     active: { color: 'var(--success)', bg: 'var(--success-bg)', label: 'Active' },
     suspended: { color: '#b45309', bg: '#fffbeb', label: 'Suspended' },
@@ -731,7 +731,7 @@ function statusAllowsReinvite(status: string): boolean {
 }
 
 function statusAllowsRevoke(status: string): boolean {
-    return ['invited', 'expired'].includes(String(status || '').trim().toLowerCase());
+    return String(status || '').trim().toLowerCase() === 'invited';
 }
 
 function canReinviteStaff(s: StaffMember, flags?: InviteRowFlags): boolean {
@@ -746,7 +746,7 @@ function canRevokeStaffInvite(s: StaffMember, flags?: InviteRowFlags): boolean {
 
 function canPushStaffInvite(s: StaffMember, flags?: InviteRowFlags): boolean {
     if (flags?.can_push !== undefined) return flags.can_push;
-    return statusAllowsReinvite(s.status);
+    return String(s.status || '').trim().toLowerCase() === 'invited';
 }
 
 function inviteEmailTooltip(s: StaffMember): string {
@@ -756,7 +756,7 @@ function inviteEmailTooltip(s: StaffMember): string {
     if (st === 'registered') return 'Already registered — invite not needed';
     if (st === 'suspended') return 'Account suspended';
     if (st === 'disabled') return 'Account disabled';
-    if (st === 'expired') return 'Send invite email (expired)';
+    if (st === 'expired') return 'Resend invite email (expired)';
     if (st === 'revoked') return 'Send invite email (revoked)';
     if (st === 'invited') return 'Resend invite email';
     return 'Send invite email';
@@ -3118,7 +3118,9 @@ export default function StaffDirectoryManagement() {
                                                             ? 'Account already activated'
                                                             : !inviteEnabled
                                                                 ? 'No email on file'
-                                                                : 'Send invite email'
+                                                                : String(selected.status || '').trim().toLowerCase() === 'expired'
+                                                                    ? 'Resend invite email (expired)'
+                                                                    : 'Send invite email'
                                                     }
                                                     onClick={() => { void handleSendInviteEmails([selected.id]); }}
                                                     style={{
@@ -3147,6 +3149,8 @@ export default function StaffDirectoryManagement() {
                                                         ? 'Sending invite…'
                                                         : String(selected.status || '').trim().toLowerCase() === 'active'
                                                             ? 'Invite not needed'
+                                                            : String(selected.status || '').trim().toLowerCase() === 'expired'
+                                                                ? 'Resend invite'
                                                             : 'Send invite email'}
                                                 </button>
                                             );
@@ -3308,12 +3312,16 @@ export default function StaffDirectoryManagement() {
                                     <div style={{ display: 'flex', flexDirection: 'column', gap: 6, flexShrink: 0 }}>
                                         {(() => {
                                             const flags = inviteFlagsByStaffId.get(selected.id);
+                                            const selectedStatus = String(selected.status || '').trim().toLowerCase();
                                             const showInviteActions = isInviteLifecycleStatus(selected.status);
                                             const reinviteEnabled = showInviteActions && canReinviteStaff(selected, flags);
                                             const revokeEnabled = showInviteActions && canRevokeStaffInvite(selected, flags);
+                                            const showMutedRevoke = showInviteActions && selectedStatus === 'expired';
                                             const pushEnabled = showInviteActions && canPushStaffInvite(selected, flags);
                                             const hasEmail = Boolean((selected.email || '').trim());
                                             const passwordResetEnabled = STAFF_PASSWORD_RESET_ENABLED && hasEmail;
+                                            const canDisableAccount = selectedStatus !== 'disabled';
+                                            const showStandaloneDisable = canDisableAccount && !isAdminPatchableStatus(selected.status);
                                             return (
                                                 <>
                                                     {reinviteEnabled && (
@@ -3324,18 +3332,7 @@ export default function StaffDirectoryManagement() {
                                                             onClick={() => { void runInviteAction('reinvite', [selected.id]); }}
                                                         >
                                                             <span className="material-icons-round" style={{ fontSize: 15 }}>mail</span>
-                                                            {inviteActionPending ? 'Sending…' : 'Reinvite'}
-                                                        </button>
-                                                    )}
-                                                    {revokeEnabled && (
-                                                        <button
-                                                            type="button"
-                                                            style={staffDetailActionBtnDanger}
-                                                            disabled={inviteActionPending}
-                                                            onClick={() => { void runInviteAction('revoke', [selected.id]); }}
-                                                        >
-                                                            <span className="material-icons-round" style={{ fontSize: 15 }}>block</span>
-                                                            {inviteActionPending ? 'Working…' : 'Revoke invite'}
+                                                            {inviteActionPending ? 'Sending…' : selectedStatus === 'expired' ? 'Resend invite' : 'Reinvite'}
                                                         </button>
                                                     )}
                                                     {pushEnabled && (
@@ -3355,8 +3352,10 @@ export default function StaffDirectoryManagement() {
                                                             ...staffDetailActionBtn,
                                                             opacity: passwordResetEnabled ? 1 : 0.42,
                                                             cursor: passwordResetEnabled ? 'pointer' : 'not-allowed',
-                                                            color: passwordResetEnabled ? undefined : 'var(--text-disabled)',
-                                                            borderColor: passwordResetEnabled ? undefined : 'var(--border-subtle)',
+                                                            color: passwordResetEnabled ? '#111827' : 'var(--text-disabled)',
+                                                            border: '1px solid #E5E7EB',
+                                                            outline: 'none',
+                                                            boxShadow: 'none',
                                                         }}
                                                         disabled={!passwordResetEnabled}
                                                         title={
@@ -3408,25 +3407,56 @@ export default function StaffDirectoryManagement() {
                                                             </div>
                                                         </div>
                                                     )}
+                                                    {(revokeEnabled || showMutedRevoke) && (
+                                                        <button
+                                                            type="button"
+                                                            style={{
+                                                                ...staffDetailActionBtnDanger,
+                                                                opacity: revokeEnabled ? 1 : 0.42,
+                                                                cursor: revokeEnabled ? 'pointer' : 'not-allowed',
+                                                                color: revokeEnabled ? '#DC2626' : 'var(--text-disabled)',
+                                                                border: revokeEnabled ? '1px solid #FECACA' : '1px solid var(--border-subtle)',
+                                                                background: revokeEnabled ? '#FEF2F2' : '#F9FAFB',
+                                                            }}
+                                                            disabled={!revokeEnabled || inviteActionPending}
+                                                            title={revokeEnabled ? 'Cancel the pending invite' : 'Invite already expired — use Resend invite instead'}
+                                                            onClick={() => { if (revokeEnabled) void runInviteAction('revoke', [selected.id]); }}
+                                                        >
+                                                            <span className="material-icons-round" style={{ fontSize: 15 }}>block</span>
+                                                            {inviteActionPending ? 'Working…' : 'Revoke invite'}
+                                                        </button>
+                                                    )}
+                                                    {showStandaloneDisable && (
+                                                        <button
+                                                            type="button"
+                                                            style={staffDetailActionBtnDanger}
+                                                            disabled={inviteActionPending}
+                                                            title="Disable this account — blocks sign-in and registration"
+                                                            onClick={() => { void setAdminStatus(selected.id, 'disabled'); }}
+                                                        >
+                                                            <span className="material-icons-round" style={{ fontSize: 15 }}>person_off</span>
+                                                            Disable account
+                                                        </button>
+                                                    )}
+                                                    <button
+                                                        type="button"
+                                                        style={staffDetailActionBtnDanger}
+                                                        onClick={() => requestRemoteWipe(selected)}
+                                                    >
+                                                        <span className="material-icons-round" style={{ fontSize: 15 }}>phonelink_erase</span>
+                                                        Remote wipe devices
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        style={staffDetailActionBtnDanger}
+                                                        onClick={() => { requestRemove(selected.id); }}
+                                                    >
+                                                        <span className="material-icons-round" style={{ fontSize: 15 }}>delete</span>
+                                                        Remove staff
+                                                    </button>
                                                 </>
                                             );
                                         })()}
-                                        <button
-                                            type="button"
-                                            style={staffDetailActionBtnDanger}
-                                            onClick={() => requestRemoteWipe(selected)}
-                                        >
-                                            <span className="material-icons-round" style={{ fontSize: 15 }}>phonelink_erase</span>
-                                            Remote wipe devices
-                                        </button>
-                                        <button
-                                            type="button"
-                                            style={staffDetailActionBtn}
-                                            onClick={() => { requestRemove(selected.id); }}
-                                        >
-                                            <span className="material-icons-round" style={{ fontSize: 15 }}>delete</span>
-                                            Remove staff
-                                        </button>
                                     </div>
                                 </div>
                                 )}
