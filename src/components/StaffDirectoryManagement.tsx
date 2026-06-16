@@ -408,7 +408,7 @@ function parseStaffList(raw: unknown): StaffMember[] {
                 || ''
             ).trim();
             const statusRaw = String(r.status || r.account_status || 'active').toLowerCase().trim();
-            const VALID_STATUSES = ['invited', 'expired', 'revoked', 'registered', 'active', 'suspended', 'disabled'];
+            const VALID_STATUSES = ['not_invited', 'invited', 'expired', 'revoked', 'registered', 'active', 'suspended', 'disabled'];
             const normalizedStatus = statusRaw === 'inactive' ? 'invited'
                 : VALID_STATUSES.includes(statusRaw) ? statusRaw
                 : 'active';
@@ -656,6 +656,7 @@ function isDoctorFromHighestQualification(raw: string): boolean {
 }
 
 const statusColors: Record<string, { color: string; bg: string; label: string }> = {
+    not_invited: { color: '#64748b', bg: '#f1f5f9', label: 'Not invited' },
     invited: { color: 'var(--info)', bg: 'var(--info-bg)', label: 'Invited' },
     expired: { color: 'var(--warning)', bg: 'var(--warning-bg)', label: 'Expired' },
     revoked: { color: '#e11d48', bg: '#fff1f2', label: 'Revoked' },
@@ -665,9 +666,10 @@ const statusColors: Record<string, { color: string; bg: string; label: string }>
     disabled: { color: 'var(--critical)', bg: 'var(--critical-bg)', label: 'Disabled' },
 };
 
-const LIFECYCLE_STATUSES = ['invited', 'expired', 'revoked', 'registered'] as const;
+const LIFECYCLE_STATUSES = ['not_invited', 'invited', 'expired', 'revoked', 'registered'] as const;
 const ADMIN_PATCHABLE_STATUSES = ['active', 'suspended', 'disabled'] as const;
-const STATUS_FILTER_KEYS = ['all', ...LIFECYCLE_STATUSES, ...ADMIN_PATCHABLE_STATUSES] as const;
+const STATUS_FILTER_ADMIN_KEYS = ['active', 'disabled'] as const;
+const STATUS_FILTER_KEYS = ['all', ...LIFECYCLE_STATUSES, ...STATUS_FILTER_ADMIN_KEYS] as const;
 
 type InviteRowFlags = { can_reinvite?: boolean; can_revoke?: boolean; can_push?: boolean };
 type InviteSummaryCounts = Partial<Record<(typeof STATUS_FILTER_KEYS)[number], number>>;
@@ -727,7 +729,7 @@ function parseInviteFlagsByStaffId(raw: unknown): Map<string, InviteRowFlags> {
 }
 
 function statusAllowsReinvite(status: string): boolean {
-    return ['invited', 'expired', 'revoked'].includes(String(status || '').trim().toLowerCase());
+    return ['not_invited', 'invited', 'expired', 'revoked'].includes(String(status || '').trim().toLowerCase());
 }
 
 function statusAllowsRevoke(status: string): boolean {
@@ -756,6 +758,7 @@ function inviteEmailTooltip(s: StaffMember): string {
     if (st === 'registered') return 'Already registered — invite not needed';
     if (st === 'suspended') return 'Account suspended';
     if (st === 'disabled') return 'Account disabled';
+    if (st === 'not_invited') return 'Send invite email';
     if (st === 'expired') return 'Resend invite email (expired)';
     if (st === 'revoked') return 'Send invite email (revoked)';
     if (st === 'invited') return 'Resend invite email';
@@ -3316,7 +3319,7 @@ export default function StaffDirectoryManagement() {
                                                             onClick={() => { void runInviteAction('reinvite', [selected.id]); }}
                                                         >
                                                             <span className="material-icons-round" style={{ fontSize: 15 }}>mail</span>
-                                                            {inviteActionPending ? 'Sending…' : selectedStatus === 'expired' ? 'Resend invite' : 'Reinvite'}
+                                                            {inviteActionPending ? 'Sending…' : selectedStatus === 'not_invited' ? 'Send invite' : selectedStatus === 'expired' ? 'Resend invite' : 'Reinvite'}
                                                         </button>
                                                     )}
                                                     {pushEnabled && (
