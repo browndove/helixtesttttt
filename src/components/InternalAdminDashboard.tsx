@@ -5,8 +5,11 @@ import { useRouter } from 'next/navigation';
 import { API_ENDPOINTS } from '@/lib/config';
 import { primeClientFacilityId } from '@/lib/facility-client';
 import { MacVibrancyToast, MacVibrancyToastPortal } from '@/components/MacVibrancyToast';
+import './internal-admin-dashboard.css';
 
 type FacilityRow = { id: string; name: string; code: string };
+
+const FACILITY_PAGE_SIZE = 15;
 
 function parseFacilities(raw: unknown): FacilityRow[] {
     const list = Array.isArray(raw) ? raw : [];
@@ -61,8 +64,7 @@ export default function InternalAdminDashboard() {
     const router = useRouter();
     const [facilities, setFacilities] = useState<FacilityRow[]>([]);
     const [search, setSearch] = useState('');
-    const [reason, setReason] = useState('');
-    const [ticketId, setTicketId] = useState('');
+    const [page, setPage] = useState(1);
     const [loading, setLoading] = useState(true);
     const [switchingId, setSwitchingId] = useState<string | null>(null);
     const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
@@ -105,6 +107,21 @@ export default function InternalAdminDashboard() {
         );
     }, [facilities, search]);
 
+    const totalPages = Math.max(1, Math.ceil(filtered.length / FACILITY_PAGE_SIZE));
+
+    const paginated = useMemo(() => {
+        const start = (page - 1) * FACILITY_PAGE_SIZE;
+        return filtered.slice(start, start + FACILITY_PAGE_SIZE);
+    }, [filtered, page]);
+
+    useEffect(() => {
+        setPage(1);
+    }, [search]);
+
+    useEffect(() => {
+        setPage((p) => Math.min(p, totalPages));
+    }, [totalPages]);
+
     const enterFacility = async (facility: FacilityRow) => {
         setSwitchingId(facility.id);
         try {
@@ -114,8 +131,6 @@ export default function InternalAdminDashboard() {
                 credentials: 'include',
                 body: JSON.stringify({
                     facility_id: facility.id,
-                    reason: reason.trim() || undefined,
-                    ticket_id: ticketId.trim() || undefined,
                 }),
             });
             const data = await res.json().catch(() => ({} as Record<string, unknown>));
@@ -210,6 +225,14 @@ export default function InternalAdminDashboard() {
             setCreating(false);
         }
     };
+
+    const adminLinks = [
+        { label: 'Test Admin', href: 'https://admintest.helixhealth.app/login' },
+        { label: 'Production Admin', href: 'https://admin.helixhealth.app/login' },
+        { label: 'Test Analytics', href: 'https://analyticstest.helixhealth.app' },
+        { label: 'Production Analytics', href: 'https://analytics.helixhealth.app' },
+        { label: 'Onboarding Admin', href: 'https://helixhealth.app/admin/index.html' },
+    ];
 
     return (
         <>
@@ -368,72 +391,135 @@ export default function InternalAdminDashboard() {
                 </div>
             )}
 
-            <div className="app-main">
-                <main style={{ flex: 1, overflow: 'auto', padding: '24px 28px', background: 'var(--bg-900)' }}>
-                    <div className="card" style={{ marginBottom: 14 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-                            <div>
-                                <h2 style={{ fontSize: 20, fontWeight: 700 }}>Internal Admin Dashboard</h2>
-                                <p style={{ marginTop: 4, color: 'var(--text-muted)', fontSize: 12.5 }}>
-                                    Select a facility to enter support mode and view the tenant app context.
-                                </p>
-                            </div>
-                            <div style={{ display: 'flex', gap: 8 }}>
-                                <button type="button" className="btn btn-primary btn-sm" onClick={openCreateModal}>
-                                    <span className="material-icons-round" style={{ fontSize: 16 }}>add</span>
-                                    Add Facility
-                                </button>
-                                <button type="button" className="btn btn-secondary btn-sm" onClick={logoutInternal}>
-                                    Exit internal session
-                                </button>
-                            </div>
+            <div className="internal-dash">
+                <header className="internal-dash__header">
+                    <div className="internal-dash__header-inner">
+                        <div>
+                            <h1 className="internal-dash__title">Internal Admin Dashboard</h1>
+                            <p className="internal-dash__subtitle">
+                                Select a facility to enter support mode and view the tenant app context.
+                            </p>
+                        </div>
+                        <div className="internal-dash__actions">
+                            <button type="button" className="internal-dash__btn internal-dash__btn--outline" onClick={logoutInternal}>
+                                Exit internal session
+                            </button>
+                            <button type="button" className="internal-dash__btn internal-dash__btn--primary" onClick={openCreateModal}>
+                                <span className="material-icons-round" style={{ fontSize: 16 }}>add</span>
+                                Add Facility
+                            </button>
                         </div>
                     </div>
+                </header>
 
-                    <div className="card" style={{ marginBottom: 14 }}>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 220px 220px', gap: 10 }}>
-                            <input className="input" placeholder="Search facility by name or code..." value={search} onChange={(e) => setSearch(e.target.value)} />
-                            <input className="input" placeholder="Ticket ID (optional)" value={ticketId} onChange={(e) => setTicketId(e.target.value)} />
-                            <input className="input" placeholder="Reason (optional)" value={reason} onChange={(e) => setReason(e.target.value)} />
+                <div className="internal-dash__filters">
+                    <div className="internal-dash__filters-inner">
+                        <div className="internal-dash__search-wrap">
+                            <span className="material-icons-round internal-dash__search-icon" aria-hidden>search</span>
+                            <input
+                                className="internal-dash__input"
+                                placeholder="Search facility by name or code..."
+                                value={search}
+                                onChange={(e) => setSearch(e.target.value)}
+                            />
                         </div>
                     </div>
+                </div>
 
-                    <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-                        <div className="table-wrapper">
-                            <table>
-                                <thead>
-                                    <tr>
-                                        <th>Facility</th>
-                                        <th>Code</th>
-                                        <th style={{ width: 160, textAlign: 'right' }}>Action</th>
+                <main className="internal-dash__main">
+                    <div className="internal-dash__table-wrap">
+                        <table className="internal-dash__table">
+                            <thead>
+                                <tr>
+                                    <th>Facility</th>
+                                    <th>Code</th>
+                                    <th>Action</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {!loading && paginated.map((facility) => (
+                                    <tr key={facility.id}>
+                                        <td className="internal-dash__facility-name">{facility.name}</td>
+                                        <td>
+                                            <span className="internal-dash__code-badge">{facility.code || '—'}</span>
+                                        </td>
+                                        <td>
+                                            <button
+                                                type="button"
+                                                className="internal-dash__btn internal-dash__btn--access"
+                                                disabled={switchingId === facility.id}
+                                                onClick={() => { void enterFacility(facility); }}
+                                            >
+                                                {switchingId === facility.id ? 'Entering…' : 'Access facility'}
+                                                <span className="material-icons-round" style={{ fontSize: 16 }}>arrow_forward</span>
+                                            </button>
+                                        </td>
                                     </tr>
-                                </thead>
-                                <tbody>
-                                    {loading ? (
-                                        <tr><td colSpan={3} style={{ padding: 28, textAlign: 'center', color: 'var(--text-muted)' }}>Loading facilities…</td></tr>
-                                    ) : filtered.length === 0 ? (
-                                        <tr><td colSpan={3} style={{ padding: 28, textAlign: 'center', color: 'var(--text-muted)' }}>No facilities found.</td></tr>
-                                    ) : filtered.map((facility) => (
-                                        <tr key={facility.id}>
-                                            <td style={{ fontWeight: 600 }}>{facility.name}</td>
-                                            <td><span className="badge badge-neutral">{facility.code || '—'}</span></td>
-                                            <td style={{ textAlign: 'right' }}>
-                                                <button
-                                                    type="button"
-                                                    className="btn btn-primary btn-sm"
-                                                    disabled={switchingId === facility.id}
-                                                    onClick={() => { void enterFacility(facility); }}
-                                                >
-                                                    {switchingId === facility.id ? 'Entering…' : 'Access facility'}
-                                                </button>
-                                            </td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
-                        </div>
+                                ))}
+                            </tbody>
+                        </table>
                     </div>
+
+                    {!loading && filtered.length > 0 && (
+                        <div className="internal-dash__pagination">
+                            <p className="internal-dash__pagination-meta">
+                                Showing {(page - 1) * FACILITY_PAGE_SIZE + 1}–{Math.min(page * FACILITY_PAGE_SIZE, filtered.length)} of {filtered.length}
+                            </p>
+                            <div className="internal-dash__pagination-actions">
+                                <button
+                                    type="button"
+                                    className="internal-dash__btn internal-dash__btn--outline internal-dash__btn--sm"
+                                    onClick={() => setPage((p) => Math.max(1, p - 1))}
+                                    disabled={page <= 1}
+                                >
+                                    Previous
+                                </button>
+                                <span className="internal-dash__pagination-page">
+                                    Page {page} of {totalPages}
+                                </span>
+                                <button
+                                    type="button"
+                                    className="internal-dash__btn internal-dash__btn--outline internal-dash__btn--sm"
+                                    onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                                    disabled={page >= totalPages}
+                                >
+                                    Next
+                                </button>
+                            </div>
+                        </div>
+                    )}
+
+                    {loading && (
+                        <div className="internal-dash__empty">Loading facilities…</div>
+                    )}
+                    {!loading && filtered.length === 0 && (
+                        <div className="internal-dash__empty">
+                            {search.trim() ? 'No facilities found matching your search.' : 'No facilities found.'}
+                        </div>
+                    )}
                 </main>
+
+                <footer className="internal-dash__footer">
+                    <div className="internal-dash__footer-inner">
+                        <div className="internal-dash__footer-links">
+                            {adminLinks.map((link) => (
+                                <a
+                                    key={link.label}
+                                    href={link.href}
+                                    className="internal-dash__footer-link"
+                                    target={link.href.startsWith('http') ? '_blank' : undefined}
+                                    rel={link.href.startsWith('http') ? 'noopener noreferrer' : undefined}
+                                >
+                                    <span className="internal-dash__footer-link-title">{link.label}</span>
+                                    <span className="internal-dash__footer-link-sub">View details</span>
+                                </a>
+                            ))}
+                        </div>
+                        <p className="internal-dash__footer-note">
+                            Internal Admin Dashboard · All access is logged and monitored
+                        </p>
+                    </div>
+                </footer>
             </div>
         </>
     );
