@@ -13,32 +13,66 @@ type RoleMetric = {
     avg_sign_out_minutes_since_midnight_utc?: number;
 };
 
-function toHours(minutes?: number): number {
-    if (!minutes || minutes <= 0) return 0;
+function toChartHours(minutes?: number): number | null {
+    if (typeof minutes !== "number" || minutes <= 0) return null;
     return Number((minutes / 60).toFixed(2));
 }
 
-function formatClock(minutes?: number): string {
+function formatClock(minutes?: number, withUtc = false): string {
     if (!minutes || minutes <= 0) return "—";
     const h = Math.floor(minutes / 60);
     const m = Math.floor(minutes % 60);
     const ampm = h >= 12 ? "PM" : "AM";
     const hour12 = h % 12 || 12;
-    return `${hour12}:${m.toString().padStart(2, "0")} ${ampm}`;
+    const time = `${hour12}:${m.toString().padStart(2, "0")} ${ampm}`;
+    return withUtc ? `${time} UTC` : time;
+}
+
+function hoursToMinutes(hours: number): number {
+    return Math.round(hours * 60);
+}
+
+function hasRoleSignTimes(role: RoleMetric): boolean {
+    const signIn = role.avg_sign_in_minutes_since_midnight_utc;
+    const signOut = role.avg_sign_out_minutes_since_midnight_utc;
+    return (typeof signIn === "number" && signIn > 0) || (typeof signOut === "number" && signOut > 0);
+}
+
+function truncateLabel(label: string, max = 16): string {
+    const trimmed = label.trim();
+    if (trimmed.length <= max) return trimmed;
+    return `${trimmed.slice(0, max - 1)}…`;
 }
 
 export default function ImagingRadiology({ data }: { data?: any }) {
     const globalSignIn = data?.avg_sign_in_minutes_since_midnight_utc ?? 0;
     const globalSignOut = data?.avg_sign_out_minutes_since_midnight_utc ?? 0;
     const roleMetrics: RoleMetric[] = Array.isArray(data?.role_metrics) ? data.role_metrics : [];
-    const selectedRoles = roleMetrics.slice(0, 4);
-    const categories = selectedRoles.map((r, idx) => r.role_name || `Role ${idx + 1}`);
-    const signInHours = selectedRoles.map((r) => toHours(r.avg_sign_in_minutes_since_midnight_utc ?? globalSignIn));
-    const signOutHours = selectedRoles.map((r) => toHours(r.avg_sign_out_minutes_since_midnight_utc ?? globalSignOut));
-    const allValues = [...signInHours, ...signOutHours].filter((v) => Number.isFinite(v));
-    const maxValue = allValues.length ? Math.max(...allValues) : 0;
-    const yAxisMax = maxValue > 0 ? Number((maxValue * 1.15).toFixed(2)) : 1;
-    const roleCount = categories.length || 4;
+
+    const rolesWithData = roleMetrics.filter(hasRoleSignTimes).slice(0, 4);
+    const useFacilityAverage = rolesWithData.length === 0 && (globalSignIn > 0 || globalSignOut > 0);
+
+    const chartRoles: RoleMetric[] = useFacilityAverage
+        ? [{
+            role_name: "Facility average",
+            avg_sign_in_minutes_since_midnight_utc: globalSignIn,
+            avg_sign_out_minutes_since_midnight_utc: globalSignOut,
+        }]
+        : rolesWithData;
+
+    const fullCategories = chartRoles.map((r, idx) => r.role_name?.trim() || `Role ${idx + 1}`);
+    const displayCategories = fullCategories.map((name) => truncateLabel(name));
+    const signInHours = chartRoles.map((r) => toChartHours(r.avg_sign_in_minutes_since_midnight_utc));
+    const signOutHours = chartRoles.map((r) => toChartHours(r.avg_sign_out_minutes_since_midnight_utc));
+
+    const numericValues = [...signInHours, ...signOutHours].filter(
+        (v): v is number => typeof v === "number" && Number.isFinite(v),
+    );
+    const minValue = numericValues.length ? Math.min(...numericValues) : 0;
+    const maxValue = numericValues.length ? Math.max(...numericValues) : 0;
+    const yAxisMin = minValue > 0 ? Math.max(0, Number((minValue - 0.5).toFixed(2))) : 0;
+    const yAxisMax = maxValue > 0 ? Number((maxValue + 0.5).toFixed(2)) : 1;
+    const hasChartData = chartRoles.length > 0 && numericValues.length > 0;
 
     const options: ApexCharts.ApexOptions = {
         chart: {
@@ -49,25 +83,30 @@ export default function ImagingRadiology({ data }: { data?: any }) {
         plotOptions: {
             bar: {
                 horizontal: false,
-                columnWidth: "48%",
+                columnWidth: chartRoles.length === 1 ? "28%" : "48%",
                 borderRadius: 4,
             },
         },
         dataLabels: { enabled: false },
         stroke: { show: false },
         xaxis: {
-            categories: categories.length ? categories : ["Role 1", "Role 2", "Role 3", "Role 4"],
-            labels: { style: { colors: "var(--text-secondary)", fontSize: "10px", fontFamily: "Montserrat" } },
+            categories: displayCategories,
+            labels: {
+                style: { colors: "var(--text-secondary)", fontSize: "10px", fontFamily: "Montserrat" },
+                rotate: -30,
+                rotateAlways: chartRoles.length > 2,
+                hideOverlappingLabels: false,
+            },
             axisBorder: { show: false },
             axisTicks: { show: false },
         },
         yaxis: {
-            min: 0,
+            min: yAxisMin,
             max: yAxisMax,
-            tickAmount: 6,
+            tickAmount: 5,
             labels: {
                 style: { colors: "var(--text-secondary)", fontSize: "10px", fontFamily: "Montserrat" },
-                formatter: (v) => `${Math.round(v)}h`,
+                formatter: (v) => formatClock(hoursToMinutes(v)),
             },
         },
         grid: {
@@ -85,15 +124,20 @@ export default function ImagingRadiology({ data }: { data?: any }) {
             labels: { colors: "var(--text-secondary)" },
         },
         tooltip: {
+            shared: true,
+            intersect: false,
+            x: {
+                formatter: (_val, opts) => fullCategories[opts.dataPointIndex] ?? "",
+            },
             y: {
-                formatter: (v) => `${v.toFixed(2)}h`,
+                formatter: (v) => formatClock(hoursToMinutes(v), true),
             },
         },
     };
 
     const series = [
-        { name: "Avg Sign-In", data: signInHours.length ? signInHours : [0, 0, 0, 0] },
-        { name: "Avg Sign-Out", data: signOutHours.length ? signOutHours : [0, 0, 0, 0] },
+        { name: "Avg Sign-In", data: signInHours },
+        { name: "Avg Sign-Out", data: signOutHours },
     ];
 
     return (
@@ -109,27 +153,43 @@ export default function ImagingRadiology({ data }: { data?: any }) {
                 <div className="rounded-[8px] bg-secondary" style={{ padding: "8px 12px" }}>
                     <Text variant="body-sm" color="text-secondary">Average Sign-In</Text>
                     <div className="flex items-center gap-2">
-                        <Text variant="body-md-semibold" color="text-primary">{formatClock(globalSignIn)}</Text>
+                        <Text variant="body-md-semibold" color="text-primary">{formatClock(globalSignIn, true)}</Text>
                         <IoCheckmarkCircle className="text-accent-green" />
                     </div>
                 </div>
                 <div className="rounded-[8px] bg-secondary" style={{ padding: "8px 12px" }}>
                     <Text variant="body-sm" color="text-secondary">Average Sign-Out</Text>
                     <div className="flex items-center gap-2">
-                        <Text variant="body-md-semibold" color="text-primary">{formatClock(globalSignOut)}</Text>
+                        <Text variant="body-md-semibold" color="text-primary">{formatClock(globalSignOut, true)}</Text>
                         <IoTrailSign className="text-text-secondary" />
                     </div>
                 </div>
                 <div className="rounded-[8px] bg-secondary" style={{ padding: "8px 12px" }}>
-                    <Text variant="body-sm" color="text-secondary">Roles Displayed</Text>
+                    <Text variant="body-sm" color="text-secondary">Roles with data</Text>
                     <div className="flex items-center gap-2">
-                        <Text variant="body-md-semibold" color="text-primary">{roleCount}</Text>
+                        <Text variant="body-md-semibold" color="text-primary">
+                            {rolesWithData.length > 0 ? rolesWithData.length : "—"}
+                        </Text>
                     </div>
                 </div>
             </div>
 
+            {useFacilityAverage && (
+                <Text variant="body-sm" color="text-secondary">
+                    Per-role sign-in times are not available yet. Chart shows the facility-wide average.
+                </Text>
+            )}
+
             <div className="min-h-0 flex-1">
-                <Chart options={options} series={series} type="bar" height="100%" width="100%" />
+                {hasChartData ? (
+                    <Chart options={options} series={series} type="bar" height="100%" width="100%" />
+                ) : (
+                    <div className="flex h-full items-center justify-center rounded-[8px] bg-secondary px-4 text-center">
+                        <Text variant="body-sm" color="text-secondary">
+                            No sign-in or sign-out averages available for this period.
+                        </Text>
+                    </div>
+                )}
             </div>
         </DashboardCard>
     );
