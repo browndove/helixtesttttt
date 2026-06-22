@@ -3,36 +3,52 @@ import { API_BASE_URL } from '@/lib/config';
 
 const INTERNAL_SESSION_COOKIE = 'helix-internal-session';
 
-function isInternalRole(payload: unknown): boolean {
-    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return false;
-    const rec = payload as Record<string, unknown>;
+function roleCandidatesFromRecord(rec: Record<string, unknown>): string[] {
     const user = rec.user && typeof rec.user === 'object' && !Array.isArray(rec.user)
         ? rec.user as Record<string, unknown>
         : undefined;
-    const candidates = [
+    return [
         rec.role,
         rec.user_role,
         rec.system_role,
         user?.role,
         user?.user_role,
         user?.system_role,
-    ];
-    const normalized = candidates
+    ]
         .map((v) => String(v || '').trim().toLowerCase())
         .filter(Boolean);
-    return normalized.some((r) => r.includes('internal') || r.includes('superadmin') || r.includes('super_admin'));
+}
+
+function isInternalRole(payload: unknown): boolean {
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return false;
+    return roleCandidatesFromRecord(payload as Record<string, unknown>)
+        .some((r) => r.includes('internal') || r.includes('superadmin') || r.includes('super_admin'));
+}
+
+function isInternalRoleFromToken(token: string): boolean {
+    try {
+        const parts = token.split('.');
+        if (parts.length !== 3) return false;
+        const payload = JSON.parse(atob(parts[1]!)) as Record<string, unknown>;
+        return isInternalRole(payload);
+    } catch {
+        return false;
+    }
 }
 
 function extractAccessToken(payload: unknown): string {
     if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return '';
     const rec = payload as Record<string, unknown>;
-    const direct = String(rec.access_token || rec.token || '').trim();
+    const direct = String(rec.access_token || rec.accessToken || rec.token || '').trim();
     if (direct) return direct;
 
-    const nested = rec.data && typeof rec.data === 'object' && !Array.isArray(rec.data)
-        ? rec.data as Record<string, unknown>
-        : null;
-    return String(nested?.access_token || nested?.token || '').trim();
+    for (const nest of [rec.data, rec.result, rec.payload]) {
+        if (!nest || typeof nest !== 'object' || Array.isArray(nest)) continue;
+        const nested = nest as Record<string, unknown>;
+        const t = String(nested.access_token || nested.accessToken || nested.token || '').trim();
+        if (t) return t;
+    }
+    return '';
 }
 
 export async function POST(req: NextRequest) {
@@ -68,7 +84,7 @@ export async function POST(req: NextRequest) {
         if (!token) {
             return NextResponse.json({ error: 'OTP verification succeeded without access token' }, { status: 502 });
         }
-        if (!isInternalRole(data)) {
+        if (!isInternalRole(data) && !isInternalRoleFromToken(token)) {
             return NextResponse.json({ error: 'Account is not authorized for internal admin access' }, { status: 403 });
         }
 

@@ -73,6 +73,10 @@ type StaffMember = {
     is_doctor?: boolean;
     /** When the backend sends the Helix / clinical role this user is currently signed into. */
     signed_in_role_name?: string;
+    /** YYYY-MM-DD — date when staff access expires (optional, omit for indefinite). */
+    account_expires_on?: string;
+    /** ISO timestamp — when the account was actually expired by the system. */
+    account_expired_at?: string;
 };
 
 type SortKey = 'first_name' | 'last_name' | 'employee_id' | 'dept' | 'job_title' | 'status' | 'response_order';
@@ -483,6 +487,8 @@ function parseStaffList(raw: unknown): StaffMember[] {
                     const s = String(v || '').trim();
                     return s || undefined;
                 })(),
+                account_expires_on: String(r.account_expires_on || '').trim() || undefined,
+                account_expired_at: String(r.account_expired_at || '').trim() || undefined,
             };
         })
         .filter((s): s is StaffMember => Boolean(s));
@@ -1046,6 +1052,7 @@ export default function StaffDirectoryManagement() {
     const [editJobTitle, setEditJobTitle] = useState('');
     const [editHighestQualification, setEditHighestQualification] = useState('');
     const [editDept, setEditDept] = useState('');
+    const [editAccountExpiresOn, setEditAccountExpiresOn] = useState('');
     const [savingEdit, setSavingEdit] = useState(false);
     const [activeTab, setActiveTab] = useState<'directory' | 'import'>('directory');
     const [showAddForm, setShowAddForm] = useState(false);
@@ -1060,6 +1067,7 @@ export default function StaffDirectoryManagement() {
     const [newRole, setNewRole] = useState('');
     const [newHighestQualification, setNewHighestQualification] = useState('');
     const [newDept, setNewDept] = useState('');
+    const [newAccountExpiresOn, setNewAccountExpiresOn] = useState('');
     const [newPatientAccess, setNewPatientAccess] = useState(true);
     const [sortKey, setSortKey] = useState<SortKey>('response_order');
     const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
@@ -1142,6 +1150,7 @@ export default function StaffDirectoryManagement() {
         setEditJobTitle(selected.title || selected.job_title || '');
         setEditHighestQualification(selected.highest_qualification || '');
         setEditDept(selected.dept || '');
+        setEditAccountExpiresOn(selected.account_expires_on || '');
     }, [selected]);
 
     const dismissInviteSendErrors = useCallback(() => {
@@ -1443,6 +1452,7 @@ export default function StaffDirectoryManagement() {
         setEditJobTitle(selected.title || selected.job_title || '');
         setEditHighestQualification(selected.highest_qualification || '');
         setEditDept(selected.dept || '');
+        setEditAccountExpiresOn(selected.account_expires_on || '');
     }, [selected, editingContactEmail]);
 
     const toggleSort = (key: ColumnSortKey) => {
@@ -1685,6 +1695,7 @@ export default function StaffDirectoryManagement() {
                     patient_access: newPatientAccess,
                     role: 'staff',
                     department: newDept,
+                    account_expires_on: newAccountExpiresOn.trim() || undefined,
                 }),
             });
 
@@ -1742,6 +1753,7 @@ export default function StaffDirectoryManagement() {
             setNewCreationTitle('');
             setNewRole('');
             setNewHighestQualification('');
+            setNewAccountExpiresOn('');
             setNewPatientAccess(true);
             const displayName = `${newFirstName} ${newLastName}`.trim() || 'Staff member';
             showToast(`${displayName} added to staff`, 'success');
@@ -2116,6 +2128,11 @@ export default function StaffDirectoryManagement() {
                 highest_qualification: trimmedHq || undefined,
                 department_id: resolvedDeptId || undefined,
                 patient_access: selected.patient_access,
+                ...(editAccountExpiresOn.trim()
+                    ? { account_expires_on: editAccountExpiresOn.trim() }
+                    : selected.account_expires_on
+                        ? { clear_account_expires_on: true }
+                        : {}),
             };
             if (selected.employee_id && !isUuidLike(selected.employee_id)) {
                 payload.employee_id = selected.employee_id;
@@ -2151,6 +2168,7 @@ export default function StaffDirectoryManagement() {
                 is_doctor: Boolean(payload.is_doctor ?? selected.is_doctor),
                 dept: trimmedEditDept || selected.dept,
                 department_id: resolvedDeptId,
+                account_expires_on: editAccountExpiresOn.trim() || undefined,
             };
             let mergedLocal: StaffMember = fromApi
                 ? mergeStaffPutResponse(selected, {
@@ -2320,6 +2338,13 @@ export default function StaffDirectoryManagement() {
                                     />
                                 </div>
                                 <div><label className="label">Patient Access</label><CustomSelect value={newPatientAccess ? 'yes' : 'no'} onChange={v => setNewPatientAccess(v === 'yes')} options={[{ label: 'Yes', value: 'yes' }, { label: 'No', value: 'no' }]} placeholder="-- Select --" /></div>
+                                <div>
+                                    <label className="label">Account Expiry Date</label>
+                                    <DatePicker value={newAccountExpiresOn} onChange={setNewAccountExpiresOn} placeholder="No expiry" minDate={new Date().toISOString().slice(0, 10)} />
+                                    <div style={{ marginTop: 4, fontSize: 10.5, color: 'var(--text-muted)' }}>
+                                        Optional. Staff access is revoked on this date.
+                                    </div>
+                                </div>
                             </div>
                             <button className="btn btn-primary btn-sm" onClick={handleAdd} disabled={adding}>
                                 <span className="material-icons-round" style={{ fontSize: 14 }}>{adding ? 'hourglass_empty' : 'person_add'}</span>{adding ? 'Adding...' : 'Add Staff'}
@@ -2933,6 +2958,19 @@ export default function StaffDirectoryManagement() {
                                         ) : (
                                             <span style={{ fontSize: 11, fontWeight: 600, padding: '4px 10px', borderRadius: 999, background: '#F8FAFC', color: '#64748B', border: '1px solid #E2E8F0' }}>Not signed in</span>
                                         )}
+                                        {(() => {
+                                            const expiryStr = selected.account_expires_on || '';
+                                            if (!expiryStr) return null;
+                                            const daysUntilExpiry = Math.ceil((new Date(expiryStr).getTime() - Date.now()) / 86400000);
+                                            const isExpiringSoon = daysUntilExpiry <= 30 && daysUntilExpiry > 0;
+                                            const isExpired = daysUntilExpiry <= 0;
+                                            if (!isExpired && !isExpiringSoon) return null;
+                                            return (
+                                                <span style={{ fontSize: 11, fontWeight: 600, padding: '4px 10px', borderRadius: 999, background: '#FEE2E2', color: '#DC2626', border: '1px solid #FECACA' }}>
+                                                    {isExpired ? 'Expired' : `${daysUntilExpiry}d left`}
+                                                </span>
+                                            );
+                                        })()}
                                     </div>
 
                                 </div>
@@ -3165,6 +3203,42 @@ export default function StaffDirectoryManagement() {
                                                     value={row.value}
                                                 />
                                             ))}
+                                            {/* Account Expiry — inline editable */}
+                                            <div className="staff-detail-field-row" style={{ alignItems: 'center' }}>
+                                                <span className="material-icons-round staff-detail-field-icon" aria-hidden>event_busy</span>
+                                                <span className="staff-detail-field-label">Expiry</span>
+                                                <span className="staff-detail-field-value">
+                                                    <DatePicker
+                                                        value={editAccountExpiresOn}
+                                                        onChange={(val) => {
+                                                            setEditAccountExpiresOn(val);
+                                                            void (async () => {
+                                                                try {
+                                                                    const res = await fetch(staffUrl(`/api/proxy/staff/${selected.id}`), {
+                                                                        method: 'PUT',
+                                                                        headers: { 'Content-Type': 'application/json' },
+                                                                        body: JSON.stringify(val
+                                                                            ? { account_expires_on: val }
+                                                                            : { clear_account_expires_on: true }
+                                                                        ),
+                                                                    });
+                                                                    if (res.ok) {
+                                                                        const updated = { ...selected, account_expires_on: val || undefined };
+                                                                        setSelected(updated);
+                                                                        setStaff(prev => prev.map(s => s.id === selected.id ? updated : s));
+                                                                        showToast(val ? `Expiry: ${new Date(val).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}` : 'Expiry removed', 'success');
+                                                                    } else {
+                                                                        showToast('Failed to update expiry', 'error');
+                                                                    }
+                                                                } catch { showToast('Failed to update expiry', 'error'); }
+                                                            })();
+                                                        }}
+                                                        placeholder="No expiry"
+                                                        minDate={new Date().toISOString().slice(0, 10)}
+                                                        flat
+                                                    />
+                                                </span>
+                                            </div>
                                         </div>
                                     ) : (
                                         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -3179,6 +3253,11 @@ export default function StaffDirectoryManagement() {
                                             <div style={{ minWidth: 0 }}>
                                                 <label style={{ display: 'block', fontSize: 11, fontWeight: 500, color: '#9CA3AF', marginBottom: 4 }}>Highest qualification</label>
                                                 <CustomSelect value={editHighestQualification} onChange={setEditHighestQualification} options={QUALIFICATION_OPTIONS.map(q => ({ label: q, value: q }))} placeholder="Choose qualification" allowCustom customEntryTitle="Custom qualification" customEntryHint="Not listed below? Type here, then Enter." customPlaceholder="e.g. MBChB — Enter" />
+                                            </div>
+                                            <div style={{ minWidth: 0 }}>
+                                                <label style={{ display: 'block', fontSize: 11, fontWeight: 500, color: '#9CA3AF', marginBottom: 4 }}>Account Expiry Date</label>
+                                                <DatePicker value={editAccountExpiresOn} onChange={setEditAccountExpiresOn} placeholder="No expiry" minDate={new Date().toISOString().slice(0, 10)} />
+                                                <div style={{ marginTop: 4, fontSize: 10, color: '#9CA3AF' }}>Leave empty for indefinite access.</div>
                                             </div>
                                         </div>
                                     )}

@@ -98,6 +98,12 @@ export async function PUT(
         if (body.is_doctor !== undefined) {
             forward.is_doctor = Boolean(body.is_doctor);
         }
+        if (body.account_expires_on) {
+            forward.account_expires_on = String(body.account_expires_on).trim();
+        }
+        if (body.clear_account_expires_on) {
+            forward.clear_account_expires_on = true;
+        }
 
         const upstream = await buildTenantUpstreamUrl(req, API_BASE_URL, `/api/v1/staff/${id}`);
 

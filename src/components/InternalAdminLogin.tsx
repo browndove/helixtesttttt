@@ -101,10 +101,11 @@ export default function InternalAdminLogin() {
                 showToast(msg, 'error');
                 return;
             }
+            const successMsg = String(data.message || 'Verification code sent to your email.');
             setStep('otp');
             setOtpDigits(['', '', '', '', '', '']);
             setResendTimer(60);
-            showToast('Verification code sent to your email.', 'success');
+            showToast(successMsg, 'success');
             setTimeout(() => otpRefs.current[0]?.focus(), 80);
         } catch (err) {
             const msg = err instanceof Error ? err.message : 'Network error';

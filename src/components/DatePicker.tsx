@@ -9,6 +9,10 @@ type DatePickerProps = {
     placeholder?: string;
     disabled?: boolean;
     style?: React.CSSProperties;
+    /** ISO date string (YYYY-MM-DD). Dates before this are disabled. */
+    minDate?: string;
+    /** Render as flat text without border/background — just the value and a small icon. */
+    flat?: boolean;
 };
 
 function toDateInputValue(date: Date): string {
@@ -37,6 +41,8 @@ export default function DatePicker({
     placeholder = 'Select date',
     disabled = false,
     style,
+    minDate,
+    flat = false,
 }: DatePickerProps) {
     const selectedDate = useMemo(() => parseIsoDate(value), [value]);
     const [open, setOpen] = useState(false);
@@ -118,7 +124,18 @@ export default function DatePicker({
                 type="button"
                 onClick={() => { if (!disabled) setOpen(v => !v); }}
                 disabled={disabled}
-                style={{
+                style={flat ? {
+                    padding: 0,
+                    border: 'none',
+                    background: 'transparent',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 4,
+                    cursor: disabled ? 'not-allowed' : 'pointer',
+                    color: value ? 'var(--text-primary)' : 'var(--text-muted)',
+                    fontSize: 13,
+                    fontWeight: value ? 600 : 400,
+                } : {
                     width: '100%',
                     height: 36,
                     padding: '0 10px',
@@ -134,7 +151,8 @@ export default function DatePicker({
                 }}
             >
                 <span>{formatDisplayDate(value) || placeholder}</span>
-                <span className="material-icons-round" style={{ fontSize: 16, color: 'var(--text-muted)' }}>calendar_month</span>
+                {!flat && <span className="material-icons-round" style={{ fontSize: 16, color: 'var(--text-muted)' }}>calendar_month</span>}
+                {flat && <span className="material-icons-round" style={{ fontSize: 14, color: 'var(--text-muted)', opacity: 0.6 }}>edit_calendar</span>}
             </button>
 
             {open && typeof document !== 'undefined' && createPortal(
@@ -258,20 +276,23 @@ export default function DatePicker({
                             const key = toDateInputValue(date);
                             const isSelected = key === selectedKey;
                             const isToday = key === todayKey;
+                            const isBeforeMin = minDate ? key < minDate : false;
                             return (
                                 <button
                                     key={key}
                                     type="button"
-                                    onClick={() => { onChange(key); setOpen(false); }}
+                                    disabled={isBeforeMin}
+                                    onClick={() => { if (!isBeforeMin) { onChange(key); setOpen(false); } }}
                                     style={{
                                         height: 30,
                                         borderRadius: 7,
                                         border: isSelected ? '1px solid var(--helix-primary)' : '1px solid transparent',
                                         background: isSelected ? 'rgba(99,102,241,0.12)' : 'transparent',
-                                        color: !inMonth ? 'var(--text-disabled)' : isSelected ? 'var(--helix-primary)' : 'var(--text-primary)',
+                                        color: isBeforeMin ? 'var(--text-disabled)' : !inMonth ? 'var(--text-disabled)' : isSelected ? 'var(--helix-primary)' : 'var(--text-primary)',
                                         fontSize: 12,
                                         fontWeight: isSelected ? 700 : isToday ? 600 : 500,
-                                        cursor: 'pointer',
+                                        cursor: isBeforeMin ? 'not-allowed' : 'pointer',
+                                        opacity: isBeforeMin ? 0.4 : 1,
                                     }}
                                 >
                                     {date.getDate()}

@@ -51,9 +51,9 @@ type FacilityForm = typeof EMPTY_FACILITY_FORM;
 
 function Field({ label, required, children }: { label: string; required?: boolean; children: React.ReactNode }) {
     return (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            <label className="label" style={{ marginBottom: 0 }}>
-                {label}{required && <span style={{ color: 'var(--error)', marginLeft: 2 }}>*</span>}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <label style={{ fontSize: 13, fontWeight: 500, color: '#333', margin: 0 }}>
+                {label}{required && <span style={{ color: '#e00', marginLeft: 2 }}>*</span>}
             </label>
             {children}
         </div>
@@ -226,12 +226,13 @@ export default function InternalAdminDashboard() {
         }
     };
 
-    const adminLinks = [
-        { label: 'Test Admin', href: 'https://admintest.helixhealth.app/login' },
-        { label: 'Production Admin', href: 'https://admin.helixhealth.app/login' },
-        { label: 'Test Analytics', href: 'https://analyticstest.helixhealth.app' },
-        { label: 'Production Analytics', href: 'https://analytics.helixhealth.app' },
-        { label: 'Onboarding Admin', href: 'https://helixhealth.app/admin/index.html' },
+    const navLinks = [
+        { label: 'Facilities', href: '#', active: true },
+        { label: 'Test Admin', href: 'https://admintest.helixhealth.app/login', icon: 'open_in_new' },
+        { label: 'Prod Admin', href: 'https://admin.helixhealth.app/login', icon: 'open_in_new' },
+        { label: 'Test Analytics', href: 'https://analyticstest.helixhealth.app', icon: 'open_in_new' },
+        { label: 'Prod Analytics', href: 'https://analytics.helixhealth.app', icon: 'open_in_new' },
+        { label: 'Onboarding', href: 'https://helixhealth.app/admin/index.html', icon: 'open_in_new' },
     ];
 
     return (
@@ -248,106 +249,108 @@ export default function InternalAdminDashboard() {
                     className="modal-overlay"
                     style={{
                         position: 'fixed', inset: 0, zIndex: 9000,
-                        background: 'rgba(0,0,0,0.35)',
+                        background: 'rgba(0,0,0,0.4)',
                         display: 'flex', alignItems: 'center', justifyContent: 'center',
                         padding: 24,
                     }}
                     onClick={(e) => { if (e.target === e.currentTarget) closeCreateModal(); }}
                 >
                     <div
-                        className="modal-content card"
                         style={{
-                            width: '100%', maxWidth: 680,
+                            width: '100%', maxWidth: 640,
                             maxHeight: 'calc(100vh - 48px)',
                             display: 'flex', flexDirection: 'column',
-                            overflow: 'hidden', padding: 0,
+                            overflow: 'hidden',
+                            borderRadius: 12,
+                            background: '#fff',
+                            border: '1px solid #eaeaea',
+                            boxShadow: '0 16px 70px rgba(0,0,0,0.15)',
                         }}
                     >
                         {/* Header */}
                         <div style={{
                             padding: '20px 24px 16px',
-                            borderBottom: '1px solid var(--border-subtle)',
+                            borderBottom: '1px solid #eaeaea',
                             display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                         }}>
                             <div>
-                                <h2 style={{ fontSize: 17, fontWeight: 700 }}>Create New Facility</h2>
-                                <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
+                                <h2 style={{ fontSize: 16, fontWeight: 600, margin: 0, color: '#171717' }}>Create New Facility</h2>
+                                <p style={{ fontSize: 13, color: '#666', marginTop: 4 }}>
                                     Provision a new tenant on the platform.
                                 </p>
                             </div>
                             <button
                                 type="button"
-                                className="btn btn-ghost btn-sm"
+                                className="internal-dash__btn internal-dash__btn--ghost"
                                 onClick={closeCreateModal}
-                                style={{ fontSize: 18, padding: '4px 8px', lineHeight: 1 }}
                             >
-                                <span className="material-icons-round" style={{ fontSize: 20 }}>close</span>
+                                <span className="material-icons-round" style={{ fontSize: 18 }}>close</span>
                             </button>
                         </div>
 
                         {/* Body */}
                         <div style={{ flex: 1, overflow: 'auto', padding: '20px 24px 24px' }}>
                             {/* Facility Info */}
-                            <p style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-muted)', marginBottom: 12 }}>
+                            <p style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: '#999', marginBottom: 12 }}>
                                 Facility Information
                             </p>
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px 16px' }}>
                                 <Field label="Facility Name" required>
-                                    <input className="input" placeholder="e.g. Cape Coast Teaching Hospital" value={form.name} onChange={(e) => setField('name', e.target.value)} />
+                                    <input className="internal-dash__input" placeholder="e.g. Cape Coast Teaching Hospital" value={form.name} onChange={(e) => setField('name', e.target.value)} />
                                 </Field>
                                 <Field label="Code" required>
-                                    <input className="input" placeholder="e.g. CCTH" value={form.code} onChange={(e) => setField('code', e.target.value.toUpperCase())} style={{ textTransform: 'uppercase' }} />
+                                    <input className="internal-dash__input" placeholder="e.g. CCTH" value={form.code} onChange={(e) => setField('code', e.target.value.toUpperCase())} style={{ textTransform: 'uppercase' }} />
                                 </Field>
                                 <Field label="Address">
-                                    <input className="input" placeholder="Street address" value={form.address} onChange={(e) => setField('address', e.target.value)} />
+                                    <input className="internal-dash__input" placeholder="Street address" value={form.address} onChange={(e) => setField('address', e.target.value)} />
                                 </Field>
                                 <Field label="City">
-                                    <input className="input" placeholder="City" value={form.city} onChange={(e) => setField('city', e.target.value)} />
+                                    <input className="internal-dash__input" placeholder="City" value={form.city} onChange={(e) => setField('city', e.target.value)} />
                                 </Field>
                                 <Field label="Region">
-                                    <input className="input" placeholder="Region" value={form.region} onChange={(e) => setField('region', e.target.value)} />
+                                    <input className="internal-dash__input" placeholder="Region" value={form.region} onChange={(e) => setField('region', e.target.value)} />
                                 </Field>
                                 <Field label="Facility Email">
-                                    <input className="input" type="email" placeholder="info@hospital.org" value={form.email} onChange={(e) => setField('email', e.target.value)} />
+                                    <input className="internal-dash__input" type="email" placeholder="info@hospital.org" value={form.email} onChange={(e) => setField('email', e.target.value)} />
                                 </Field>
                                 <Field label="Contact Phone">
-                                    <input className="input" type="tel" placeholder="+233301234567" value={form.contact_phone} onChange={(e) => setField('contact_phone', e.target.value)} onBlur={() => { const v = toE164(form.contact_phone); if (v) setField('contact_phone', v); }} />
+                                    <input className="internal-dash__input" type="tel" placeholder="+233301234567" value={form.contact_phone} onChange={(e) => setField('contact_phone', e.target.value)} onBlur={() => { const v = toE164(form.contact_phone); if (v) setField('contact_phone', v); }} />
                                 </Field>
                                 <Field label="Admin Email">
-                                    <input className="input" type="email" placeholder="admin@hospital.org" value={form.admin_email} onChange={(e) => setField('admin_email', e.target.value)} />
+                                    <input className="internal-dash__input" type="email" placeholder="admin@hospital.org" value={form.admin_email} onChange={(e) => setField('admin_email', e.target.value)} />
                                 </Field>
                             </div>
 
-                            <hr className="divider" style={{ margin: '20px 0' }} />
+                            <div style={{ height: 1, background: '#eaeaea', margin: '20px 0' }} />
 
                             {/* Primary Contact */}
-                            <p style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-muted)', marginBottom: 12 }}>
+                            <p style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: '#999', marginBottom: 12 }}>
                                 Primary Contact
                             </p>
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px 16px' }}>
                                 <Field label="First Name">
-                                    <input className="input" placeholder="First name" value={form.primary_contact_first_name} onChange={(e) => setField('primary_contact_first_name', e.target.value)} />
+                                    <input className="internal-dash__input" placeholder="First name" value={form.primary_contact_first_name} onChange={(e) => setField('primary_contact_first_name', e.target.value)} />
                                 </Field>
                                 <Field label="Last Name">
-                                    <input className="input" placeholder="Last name" value={form.primary_contact_last_name} onChange={(e) => setField('primary_contact_last_name', e.target.value)} />
+                                    <input className="internal-dash__input" placeholder="Last name" value={form.primary_contact_last_name} onChange={(e) => setField('primary_contact_last_name', e.target.value)} />
                                 </Field>
                                 <Field label="Email">
-                                    <input className="input" type="email" placeholder="contact@hospital.org" value={form.primary_contact_email} onChange={(e) => setField('primary_contact_email', e.target.value)} />
+                                    <input className="internal-dash__input" type="email" placeholder="contact@hospital.org" value={form.primary_contact_email} onChange={(e) => setField('primary_contact_email', e.target.value)} />
                                 </Field>
                                 <Field label="Phone">
-                                    <input className="input" type="tel" placeholder="+233201234567" value={form.primary_contact_phone} onChange={(e) => setField('primary_contact_phone', e.target.value)} onBlur={() => { const v = toE164(form.primary_contact_phone); if (v) setField('primary_contact_phone', v); }} />
+                                    <input className="internal-dash__input" type="tel" placeholder="+233201234567" value={form.primary_contact_phone} onChange={(e) => setField('primary_contact_phone', e.target.value)} onBlur={() => { const v = toE164(form.primary_contact_phone); if (v) setField('primary_contact_phone', v); }} />
                                 </Field>
                             </div>
 
-                            <hr className="divider" style={{ margin: '20px 0' }} />
+                            <div style={{ height: 1, background: '#eaeaea', margin: '20px 0' }} />
 
                             {/* Settings */}
-                            <p style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-muted)', marginBottom: 12 }}>
+                            <p style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: '#999', marginBottom: 12 }}>
                                 Settings
                             </p>
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px 16px' }}>
                                 <Field label="Subscription">
-                                    <select className="input" value={form.subscription_type} onChange={(e) => setField('subscription_type', e.target.value)}>
+                                    <select className="internal-dash__input" value={form.subscription_type} onChange={(e) => setField('subscription_type', e.target.value)}>
                                         <option value="1yr">1 Year</option>
                                         <option value="2yr">2 Years</option>
                                         <option value="3yr">3 Years</option>
@@ -355,18 +358,12 @@ export default function InternalAdminDashboard() {
                                     </select>
                                 </Field>
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: 12, justifyContent: 'center' }}>
-                                    <label style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 13, cursor: 'pointer' }}>
-                                        <span className="toggle">
-                                            <input type="checkbox" checked={form.external_messaging_enabled} onChange={(e) => setField('external_messaging_enabled', e.target.checked)} />
-                                            <span className="toggle-slider" />
-                                        </span>
+                                    <label style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 13, cursor: 'pointer', color: '#333' }}>
+                                        <input type="checkbox" checked={form.external_messaging_enabled} onChange={(e) => setField('external_messaging_enabled', e.target.checked)} style={{ accentColor: '#171717' }} />
                                         External Messaging
                                     </label>
-                                    <label style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 13, cursor: 'pointer' }}>
-                                        <span className="toggle">
-                                            <input type="checkbox" checked={form.screenshots_allowed} onChange={(e) => setField('screenshots_allowed', e.target.checked)} />
-                                            <span className="toggle-slider" />
-                                        </span>
+                                    <label style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 13, cursor: 'pointer', color: '#333' }}>
+                                        <input type="checkbox" checked={form.screenshots_allowed} onChange={(e) => setField('screenshots_allowed', e.target.checked)} style={{ accentColor: '#171717' }} />
                                         Screenshots Allowed
                                     </label>
                                 </div>
@@ -376,14 +373,14 @@ export default function InternalAdminDashboard() {
                         {/* Footer */}
                         <div style={{
                             padding: '14px 24px',
-                            borderTop: '1px solid var(--border-subtle)',
+                            borderTop: '1px solid #eaeaea',
                             display: 'flex', justifyContent: 'flex-end', gap: 10,
-                            background: 'var(--surface-2)',
+                            background: '#fafafa',
                         }}>
-                            <button type="button" className="btn btn-secondary btn-sm" onClick={closeCreateModal} disabled={creating}>
+                            <button type="button" className="internal-dash__btn internal-dash__btn--outline" onClick={closeCreateModal} disabled={creating}>
                                 Cancel
                             </button>
-                            <button type="button" className="btn btn-primary btn-sm" onClick={() => { void handleCreate(); }} disabled={creating}>
+                            <button type="button" className="internal-dash__btn internal-dash__btn--primary" onClick={() => { void handleCreate(); }} disabled={creating}>
                                 {creating ? 'Creating…' : 'Create Facility'}
                             </button>
                         </div>
@@ -392,78 +389,107 @@ export default function InternalAdminDashboard() {
             )}
 
             <div className="internal-dash">
-                <header className="internal-dash__header">
-                    <div className="internal-dash__header-inner">
-                        <div>
-                            <h1 className="internal-dash__title">Internal Admin Dashboard</h1>
-                            <p className="internal-dash__subtitle">
-                                Select a facility to enter support mode and view the tenant app context.
-                            </p>
+                {/* ── Navbar ──────────────────────────────────── */}
+                <nav className="internal-dash__navbar">
+                    <div className="internal-dash__navbar-inner">
+                        <div className="internal-dash__brand">
+                            <div className="internal-dash__brand-icon">
+                                <img src="/brand-logo.svg" alt="Helix" width={20} height={17} />
+                            </div>
+                            <span className="internal-dash__brand-name">Helix Internal</span>
                         </div>
-                        <div className="internal-dash__actions">
-                            <button type="button" className="internal-dash__btn internal-dash__btn--outline" onClick={logoutInternal}>
-                                Exit internal session
-                            </button>
-                            <button type="button" className="internal-dash__btn internal-dash__btn--primary" onClick={openCreateModal}>
-                                <span className="material-icons-round" style={{ fontSize: 16 }}>add</span>
-                                Add Facility
+
+                        <div className="internal-dash__nav-links">
+                            {navLinks.map((link) => (
+                                <a
+                                    key={link.label}
+                                    href={link.href}
+                                    className={`internal-dash__nav-link${link.active ? ' internal-dash__nav-link--active' : ''}`}
+                                    target={link.href.startsWith('http') ? '_blank' : undefined}
+                                    rel={link.href.startsWith('http') ? 'noopener noreferrer' : undefined}
+                                >
+                                    {link.label}
+                                    {link.icon && <span className="material-icons-round">{link.icon}</span>}
+                                </a>
+                            ))}
+                        </div>
+
+                        <div className="internal-dash__nav-right">
+                            <button type="button" className="internal-dash__btn internal-dash__btn--ghost" onClick={logoutInternal}>
+                                <span className="material-icons-round" style={{ fontSize: 16 }}>logout</span>
+                                Sign out
                             </button>
                         </div>
                     </div>
-                </header>
+                </nav>
 
-                <div className="internal-dash__filters">
-                    <div className="internal-dash__filters-inner">
-                        <div className="internal-dash__search-wrap">
-                            <span className="material-icons-round internal-dash__search-icon" aria-hidden>search</span>
-                            <input
-                                className="internal-dash__input"
-                                placeholder="Search facility by name or code..."
-                                value={search}
-                                onChange={(e) => setSearch(e.target.value)}
-                            />
+                {/* ── Page Header ────────────────────────────── */}
+                <div className="internal-dash__page-header">
+                    <div className="internal-dash__page-header-row">
+                        <div>
+                            <h1 className="internal-dash__title">Facilities</h1>
+                            <p className="internal-dash__subtitle">
+                                Select a facility to enter support mode. {facilities.length > 0 && <span>{facilities.length} total</span>}
+                            </p>
                         </div>
+                        <button type="button" className="internal-dash__btn internal-dash__btn--primary" onClick={openCreateModal}>
+                            <span className="material-icons-round" style={{ fontSize: 16 }}>add</span>
+                            Add Facility
+                        </button>
                     </div>
                 </div>
 
-                <main className="internal-dash__main">
-                    <div className="internal-dash__table-wrap">
-                        <table className="internal-dash__table">
-                            <thead>
-                                <tr>
-                                    <th>Facility</th>
-                                    <th>Code</th>
-                                    <th>Action</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {!loading && paginated.map((facility) => (
-                                    <tr key={facility.id}>
-                                        <td className="internal-dash__facility-name">{facility.name}</td>
-                                        <td>
-                                            <span className="internal-dash__code-badge">{facility.code || '—'}</span>
-                                        </td>
-                                        <td>
-                                            <button
-                                                type="button"
-                                                className="internal-dash__btn internal-dash__btn--access"
-                                                disabled={switchingId === facility.id}
-                                                onClick={() => { void enterFacility(facility); }}
-                                            >
-                                                {switchingId === facility.id ? 'Entering…' : 'Access facility'}
-                                                <span className="material-icons-round" style={{ fontSize: 16 }}>arrow_forward</span>
-                                            </button>
-                                        </td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
+                {/* ── Search ─────────────────────────────────── */}
+                <div className="internal-dash__toolbar">
+                    <div className="internal-dash__search-wrap">
+                        <span className="material-icons-round internal-dash__search-icon" aria-hidden>search</span>
+                        <input
+                            className="internal-dash__input"
+                            placeholder="Search facilities..."
+                            value={search}
+                            onChange={(e) => setSearch(e.target.value)}
+                        />
                     </div>
+                </div>
 
-                    {!loading && filtered.length > 0 && (
+                {/* ── Facility Cards ──────────────────────────── */}
+                <main className="internal-dash__main">
+                    {!loading && paginated.length > 0 && (
+                        <div className="internal-dash__grid">
+                            {paginated.map((facility) => (
+                                <div
+                                    key={facility.id}
+                                    className="internal-dash__card"
+                                    onClick={() => { if (switchingId !== facility.id) void enterFacility(facility); }}
+                                    role="button"
+                                    tabIndex={0}
+                                    onKeyDown={(e) => { if (e.key === 'Enter') void enterFacility(facility); }}
+                                >
+                                    <div className="internal-dash__card-top">
+                                        <div className="internal-dash__card-avatar">
+                                            {(facility.name[0] || 'F').toUpperCase()}
+                                        </div>
+                                        <div className="internal-dash__card-info">
+                                            <span className="internal-dash__card-name">{facility.name}</span>
+                                            <span className="internal-dash__card-code">{facility.code || '—'}</span>
+                                        </div>
+                                    </div>
+                                    <div className="internal-dash__card-bottom">
+                                        <span className="internal-dash__card-id">{facility.id.slice(0, 8)}</span>
+                                        <span className="internal-dash__card-action">
+                                            {switchingId === facility.id ? 'Entering…' : 'Access'}
+                                            <span className="material-icons-round" style={{ fontSize: 14 }}>arrow_forward</span>
+                                        </span>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+
+                    {!loading && filtered.length > FACILITY_PAGE_SIZE && (
                         <div className="internal-dash__pagination">
                             <p className="internal-dash__pagination-meta">
-                                Showing {(page - 1) * FACILITY_PAGE_SIZE + 1}–{Math.min(page * FACILITY_PAGE_SIZE, filtered.length)} of {filtered.length}
+                                {(page - 1) * FACILITY_PAGE_SIZE + 1}–{Math.min(page * FACILITY_PAGE_SIZE, filtered.length)} of {filtered.length}
                             </p>
                             <div className="internal-dash__pagination-actions">
                                 <button
@@ -475,7 +501,7 @@ export default function InternalAdminDashboard() {
                                     Previous
                                 </button>
                                 <span className="internal-dash__pagination-page">
-                                    Page {page} of {totalPages}
+                                    {page} / {totalPages}
                                 </span>
                                 <button
                                     type="button"
@@ -490,33 +516,23 @@ export default function InternalAdminDashboard() {
                     )}
 
                     {loading && (
-                        <div className="internal-dash__empty">Loading facilities…</div>
+                        <div className="internal-dash__empty">
+                            <span className="material-icons-round" style={{ fontSize: 24, color: '#ccc', marginBottom: 8 }}>hourglass_empty</span>
+                            Loading facilities…
+                        </div>
                     )}
                     {!loading && filtered.length === 0 && (
                         <div className="internal-dash__empty">
-                            {search.trim() ? 'No facilities found matching your search.' : 'No facilities found.'}
+                            <span className="material-icons-round" style={{ fontSize: 24, color: '#ccc', marginBottom: 8 }}>search_off</span>
+                            {search.trim() ? 'No facilities match your search.' : 'No facilities found.'}
                         </div>
                     )}
                 </main>
 
                 <footer className="internal-dash__footer">
                     <div className="internal-dash__footer-inner">
-                        <div className="internal-dash__footer-links">
-                            {adminLinks.map((link) => (
-                                <a
-                                    key={link.label}
-                                    href={link.href}
-                                    className="internal-dash__footer-link"
-                                    target={link.href.startsWith('http') ? '_blank' : undefined}
-                                    rel={link.href.startsWith('http') ? 'noopener noreferrer' : undefined}
-                                >
-                                    <span className="internal-dash__footer-link-title">{link.label}</span>
-                                    <span className="internal-dash__footer-link-sub">View details</span>
-                                </a>
-                            ))}
-                        </div>
                         <p className="internal-dash__footer-note">
-                            Internal Admin Dashboard · All access is logged and monitored
+                            Helix Internal · All access is logged and monitored
                         </p>
                     </div>
                 </footer>
