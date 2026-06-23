@@ -2967,7 +2967,7 @@ export default function StaffDirectoryManagement() {
                                             if (!isExpired && !isExpiringSoon) return null;
                                             return (
                                                 <span style={{ fontSize: 11, fontWeight: 600, padding: '4px 10px', borderRadius: 999, background: '#FEE2E2', color: '#DC2626', border: '1px solid #FECACA' }}>
-                                                    {isExpired ? 'Expired' : `${daysUntilExpiry}d left`}
+                                                    {isExpired ? 'Expired' : `${daysUntilExpiry} ${daysUntilExpiry === 1 ? 'day' : 'days'} left`}
                                                 </span>
                                             );
                                         })()}
