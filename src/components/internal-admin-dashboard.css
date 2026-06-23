@@ -312,6 +312,47 @@
   color: #0A4676;
 }
 
+.internal-dash__card-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.internal-dash__card-mini-btn {
+  border: 1px solid #e5e7eb;
+  background: #fff;
+  color: #4b5563;
+  border-radius: 999px;
+  padding: 0.2rem 0.55rem;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  line-height: 1.2;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.internal-dash__card-mini-btn:hover:not(:disabled) {
+  border-color: #cbd5e1;
+  color: #0A4676;
+}
+
+.internal-dash__card-mini-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.internal-dash__card-mini-btn--danger {
+  border-color: #fecaca;
+  color: #b91c1c;
+  background: #fff5f5;
+}
+
+.internal-dash__card-mini-btn--danger:hover:not(:disabled) {
+  border-color: #fca5a5;
+  background: #fee2e2;
+  color: #991b1b;
+}
+
 .internal-dash__empty {
   display: flex;
   flex-direction: column;
@@ -368,6 +409,17 @@
 .internal-dash__btn--primary:hover:not(:disabled) {
   background: #083a63;
   border-color: #083a63;
+}
+
+.internal-dash__btn--danger {
+  background: #b91c1c;
+  border-color: #b91c1c;
+  color: #fff;
+}
+
+.internal-dash__btn--danger:hover:not(:disabled) {
+  background: #991b1b;
+  border-color: #991b1b;
 }
 
 .internal-dash__btn--access {
@@ -472,5 +524,73 @@
   .internal-dash__page-header-row {
     flex-direction: column;
     align-items: flex-start;
+  }
+}
+
+/* ── iOS-style edit modal ───────────────────────── */
+.internal-edit-modal__section-title {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #8e8e93;
+  margin: 0 0 12px 0;
+}
+
+.internal-edit-modal__grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px 16px;
+}
+
+.internal-edit-modal__field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.internal-edit-modal__field label {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #8e8e93;
+}
+
+.internal-edit-modal__input {
+  width: 100%;
+  border: none;
+  border-bottom: 1px solid #c7c7cc;
+  background: transparent;
+  border-radius: 0;
+  padding: 6px 0;
+  min-height: 30px;
+  font-size: 13px;
+  color: #1d1d1f;
+  font-family: inherit;
+  box-sizing: border-box;
+  transition: border-color 0.15s;
+}
+
+.internal-edit-modal__input:focus {
+  outline: none;
+  border-bottom-color: #0a84ff;
+}
+
+.internal-edit-modal__save-btn {
+  border-radius: 999px;
+  padding: 0.45rem 1rem;
+  background: #0a84ff;
+  border-color: #0a84ff;
+}
+
+.internal-edit-modal__save-btn:hover:not(:disabled) {
+  background: #0077ed;
+  border-color: #0077ed;
+}
+
+@media (max-width: 680px) {
+  .internal-edit-modal__grid {
+    grid-template-columns: 1fr;
   }
 }

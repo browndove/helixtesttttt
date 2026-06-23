@@ -47,6 +47,28 @@ const EMPTY_FACILITY_FORM = {
 
 type FacilityForm = typeof EMPTY_FACILITY_FORM;
 
+function parseFacilityForm(raw: unknown, fallback?: FacilityRow | null): FacilityForm {
+    const rec = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
+    const source = (rec.data && typeof rec.data === 'object' ? rec.data : rec) as Record<string, unknown>;
+    return {
+        name: String(source.name || source.facility_name || fallback?.name || '').trim(),
+        code: String(source.code || source.facility_code || fallback?.code || '').trim(),
+        address: String(source.address || '').trim(),
+        city: String(source.city || '').trim(),
+        region: String(source.region || '').trim(),
+        email: String(source.email || '').trim(),
+        contact_phone: String(source.contact_phone || '').trim(),
+        admin_email: String(source.admin_email || '').trim(),
+        primary_contact_first_name: String(source.primary_contact_first_name || '').trim(),
+        primary_contact_last_name: String(source.primary_contact_last_name || '').trim(),
+        primary_contact_email: String(source.primary_contact_email || '').trim(),
+        primary_contact_phone: String(source.primary_contact_phone || '').trim(),
+        subscription_type: String(source.subscription_type || '1yr').trim() || '1yr',
+        external_messaging_enabled: Boolean(source.external_messaging_enabled),
+        screenshots_allowed: source.screenshots_allowed === undefined ? true : Boolean(source.screenshots_allowed),
+    };
+}
+
 /* ── Shared field row ─────────────────────────────────────── */
 
 function Field({ label, required, children }: { label: string; required?: boolean; children: React.ReactNode }) {
@@ -73,6 +95,12 @@ export default function InternalAdminDashboard() {
     const [showCreate, setShowCreate] = useState(false);
     const [creating, setCreating] = useState(false);
     const [form, setForm] = useState<FacilityForm>({ ...EMPTY_FACILITY_FORM });
+    const [editingFacility, setEditingFacility] = useState<FacilityRow | null>(null);
+    const [editForm, setEditForm] = useState<FacilityForm>({ ...EMPTY_FACILITY_FORM });
+    const [savingEdit, setSavingEdit] = useState(false);
+    const [loadingEdit, setLoadingEdit] = useState(false);
+    const [deletingId, setDeletingId] = useState<string | null>(null);
+    const [pendingDelete, setPendingDelete] = useState<FacilityRow | null>(null);
 
     const showToast = (message: string, type: 'success' | 'error' = 'success') => {
         setToast({ message, type });
@@ -181,6 +209,35 @@ export default function InternalAdminDashboard() {
         setShowCreate(false);
     };
 
+    const setEditField = <K extends keyof FacilityForm>(key: K, value: FacilityForm[K]) =>
+        setEditForm((prev) => ({ ...prev, [key]: value }));
+
+    const openEditModal = async (facility: FacilityRow) => {
+        setEditingFacility(facility);
+        setEditForm(parseFacilityForm(facility, facility));
+        setLoadingEdit(true);
+        try {
+            const res = await fetch(API_ENDPOINTS.INTERNAL_FACILITY(facility.id), {
+                method: 'GET',
+                credentials: 'include',
+            });
+            if (!res.ok) return;
+            const data = await res.json().catch(() => null);
+            if (data) setEditForm(parseFacilityForm(data, facility));
+        } catch {
+            // Keep minimal fields if detail fetch fails.
+        } finally {
+            setLoadingEdit(false);
+        }
+    };
+
+    const closeEditModal = () => {
+        if (savingEdit) return;
+        setEditingFacility(null);
+        setEditForm({ ...EMPTY_FACILITY_FORM });
+        setLoadingEdit(false);
+    };
+
     const handleCreate = async () => {
         if (!form.name.trim() || !form.code.trim()) {
             showToast('Facility name and code are required.', 'error');
@@ -226,13 +283,92 @@ export default function InternalAdminDashboard() {
         }
     };
 
+    const handleEdit = async () => {
+        if (!editingFacility) return;
+        const nextName = editForm.name.trim();
+        const nextCode = editForm.code.trim().toUpperCase();
+        if (!nextName || !nextCode) {
+            showToast('Facility name and code are required.', 'error');
+            return;
+        }
+
+        setSavingEdit(true);
+        try {
+            const payload: Record<string, unknown> = {};
+            for (const [k, v] of Object.entries(editForm)) {
+                if (typeof v === 'string' && !v.trim()) continue;
+                if (PHONE_KEYS.includes(k as keyof FacilityForm) && typeof v === 'string') {
+                    const cleaned = toE164(v);
+                    if (cleaned && (cleaned.length < 9 || cleaned.length > 16)) {
+                        showToast(`Phone number "${v}" must be 8–15 digits in E.164 format (e.g. +233301234567).`, 'error');
+                        setSavingEdit(false);
+                        return;
+                    }
+                    if (cleaned) payload[k] = cleaned;
+                    continue;
+                }
+                payload[k] = v;
+            }
+            payload.name = nextName;
+            payload.code = nextCode;
+
+            const res = await fetch(API_ENDPOINTS.INTERNAL_FACILITY(editingFacility.id), {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify(payload),
+            });
+            const data = await res.json().catch(() => ({} as Record<string, unknown>));
+            if (!res.ok) {
+                showToast(String(data.error || data.message || 'Failed to update facility.'), 'error');
+                return;
+            }
+            showToast('Facility updated successfully.', 'success');
+            closeEditModal();
+            setLoading(true);
+            void loadFacilities();
+        } catch {
+            showToast('Failed to update facility.', 'error');
+        } finally {
+            setSavingEdit(false);
+        }
+    };
+
+    const requestDelete = (facility: FacilityRow) => {
+        setPendingDelete(facility);
+    };
+
+    const handleDelete = async () => {
+        if (!pendingDelete) return;
+        const facility = pendingDelete;
+        setDeletingId(facility.id);
+        try {
+            const res = await fetch(API_ENDPOINTS.INTERNAL_FACILITY(facility.id), {
+                method: 'DELETE',
+                credentials: 'include',
+            });
+            const data = await res.json().catch(() => ({} as Record<string, unknown>));
+            if (!res.ok) {
+                showToast(String(data.error || data.message || 'Failed to delete facility.'), 'error');
+                return;
+            }
+            showToast('Facility deleted successfully.', 'success');
+            setFacilities((prev) => prev.filter((f) => f.id !== facility.id));
+            setPendingDelete(null);
+        } catch {
+            showToast('Failed to delete facility.', 'error');
+        } finally {
+            setDeletingId(null);
+        }
+    };
+
     const navLinks = [
         { label: 'Facilities', href: '#', active: true },
         { label: 'Test Admin', href: 'https://admintest.helixhealth.app/login', icon: 'open_in_new' },
         { label: 'Prod Admin', href: 'https://admin.helixhealth.app/login', icon: 'open_in_new' },
         { label: 'Test Analytics', href: 'https://analyticstest.helixhealth.app', icon: 'open_in_new' },
         { label: 'Prod Analytics', href: 'https://analytics.helixhealth.app', icon: 'open_in_new' },
-        { label: 'Onboarding', href: 'https://helixhealth.app/admin/index.html', icon: 'open_in_new' },
+        { label: 'Onboarding admin', href: 'https://www.helixhealth.app/admin/index.html', icon: 'open_in_new' },
     ];
 
     return (
@@ -388,6 +524,176 @@ export default function InternalAdminDashboard() {
                 </div>
             )}
 
+            {/* ── Edit Facility Modal ───────────────────────── */}
+            {editingFacility && (
+                <div
+                    className="modal-overlay"
+                    style={{
+                        position: 'fixed', inset: 0, zIndex: 9000,
+                        background: 'rgba(15, 23, 42, 0.34)',
+                        backdropFilter: 'blur(6px)',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        padding: 24,
+                    }}
+                    onClick={(e) => { if (e.target === e.currentTarget) closeEditModal(); }}
+                >
+                    <div
+                        className="internal-edit-modal"
+                        style={{
+                            width: '100%', maxWidth: 700,
+                            borderRadius: 20,
+                            background: '#f5f5f7',
+                            border: '1px solid #d2d2d7',
+                            boxShadow: '0 24px 80px rgba(0,0,0,0.28)',
+                            overflow: 'hidden',
+                        }}
+                    >
+                        <div className="internal-edit-modal__header" style={{ padding: '22px 26px 16px', borderBottom: '1px solid #d2d2d7', background: '#f5f5f7' }}>
+                            <h2 style={{ fontSize: 31, lineHeight: 1.1, letterSpacing: '-0.02em', fontWeight: 700, margin: 0, color: '#1d1d1f' }}>Edit Facility</h2>
+                            <p style={{ fontSize: 15, color: '#6e6e73', marginTop: 8 }}>
+                                Update facility details for {editingFacility.name}.
+                            </p>
+                        </div>
+                        <div className="internal-edit-modal__body" style={{ maxHeight: 'calc(100vh - 240px)', overflow: 'auto', padding: '20px 26px 26px' }}>
+                            {loadingEdit ? (
+                                <div style={{ color: '#666', fontSize: 13, padding: '8px 0' }}>Loading facility details…</div>
+                            ) : (
+                                <>
+                                    <p className="internal-edit-modal__section-title">Facility Information</p>
+                                    <div className="internal-edit-modal__grid">
+                                        <div className="internal-edit-modal__field"><label>Facility Name *</label><input className="internal-edit-modal__input" value={editForm.name} onChange={(e) => setEditField('name', e.target.value)} /></div>
+                                        <div className="internal-edit-modal__field"><label>Code *</label><input className="internal-edit-modal__input" value={editForm.code} onChange={(e) => setEditField('code', e.target.value.toUpperCase())} style={{ textTransform: 'uppercase' }} /></div>
+                                        <div className="internal-edit-modal__field"><label>Address</label><input className="internal-edit-modal__input" value={editForm.address} onChange={(e) => setEditField('address', e.target.value)} /></div>
+                                        <div className="internal-edit-modal__field"><label>City</label><input className="internal-edit-modal__input" value={editForm.city} onChange={(e) => setEditField('city', e.target.value)} /></div>
+                                        <div className="internal-edit-modal__field"><label>Region</label><input className="internal-edit-modal__input" value={editForm.region} onChange={(e) => setEditField('region', e.target.value)} /></div>
+                                        <div className="internal-edit-modal__field"><label>Facility Email</label><input className="internal-edit-modal__input" type="email" value={editForm.email} onChange={(e) => setEditField('email', e.target.value)} /></div>
+                                        <div className="internal-edit-modal__field"><label>Contact Phone</label><input className="internal-edit-modal__input" type="tel" value={editForm.contact_phone} onChange={(e) => setEditField('contact_phone', e.target.value)} onBlur={() => { const v = toE164(editForm.contact_phone); if (v) setEditField('contact_phone', v); }} /></div>
+                                        <div className="internal-edit-modal__field"><label>Admin Email</label><input className="internal-edit-modal__input" type="email" value={editForm.admin_email} onChange={(e) => setEditField('admin_email', e.target.value)} /></div>
+                                    </div>
+
+                                    <div style={{ height: 1, background: '#eaeaea', margin: '20px 0' }} />
+                                    <p className="internal-edit-modal__section-title">Primary Contact</p>
+                                    <div className="internal-edit-modal__grid">
+                                        <div className="internal-edit-modal__field"><label>First Name</label><input className="internal-edit-modal__input" value={editForm.primary_contact_first_name} onChange={(e) => setEditField('primary_contact_first_name', e.target.value)} /></div>
+                                        <div className="internal-edit-modal__field"><label>Last Name</label><input className="internal-edit-modal__input" value={editForm.primary_contact_last_name} onChange={(e) => setEditField('primary_contact_last_name', e.target.value)} /></div>
+                                        <div className="internal-edit-modal__field"><label>Email</label><input className="internal-edit-modal__input" type="email" value={editForm.primary_contact_email} onChange={(e) => setEditField('primary_contact_email', e.target.value)} /></div>
+                                        <div className="internal-edit-modal__field"><label>Phone</label><input className="internal-edit-modal__input" type="tel" value={editForm.primary_contact_phone} onChange={(e) => setEditField('primary_contact_phone', e.target.value)} onBlur={() => { const v = toE164(editForm.primary_contact_phone); if (v) setEditField('primary_contact_phone', v); }} /></div>
+                                    </div>
+
+                                    <div style={{ height: 1, background: '#eaeaea', margin: '20px 0' }} />
+                                    <p className="internal-edit-modal__section-title">Settings</p>
+                                    <div className="internal-edit-modal__grid">
+                                        <div className="internal-edit-modal__field">
+                                            <label>Subscription</label>
+                                            <select className="internal-edit-modal__input" value={editForm.subscription_type} onChange={(e) => setEditField('subscription_type', e.target.value)}>
+                                                <option value="1yr">1 Year</option>
+                                                <option value="2yr">2 Years</option>
+                                                <option value="3yr">3 Years</option>
+                                                <option value="trial">Trial</option>
+                                            </select>
+                                        </div>
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: 12, justifyContent: 'center' }}>
+                                            <label style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 13, cursor: 'pointer', color: '#3a3a3c' }}>
+                                                <input type="checkbox" checked={editForm.external_messaging_enabled} onChange={(e) => setEditField('external_messaging_enabled', e.target.checked)} style={{ accentColor: '#171717' }} />
+                                                External Messaging
+                                            </label>
+                                            <label style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 13, cursor: 'pointer', color: '#3a3a3c' }}>
+                                                <input type="checkbox" checked={editForm.screenshots_allowed} onChange={(e) => setEditField('screenshots_allowed', e.target.checked)} style={{ accentColor: '#171717' }} />
+                                                Screenshots Allowed
+                                            </label>
+                                        </div>
+                                    </div>
+                                </>
+                            )}
+                        </div>
+                        <div style={{ padding: '14px 26px 16px', borderTop: '1px solid #d2d2d7', display: 'flex', justifyContent: 'flex-end', gap: 10, background: '#f5f5f7' }}>
+                            <button type="button" className="internal-dash__btn internal-dash__btn--outline" onClick={closeEditModal} disabled={savingEdit}>
+                                Cancel
+                            </button>
+                            <button type="button" className="internal-dash__btn internal-dash__btn--primary internal-edit-modal__save-btn" onClick={() => { void handleEdit(); }} disabled={savingEdit || loadingEdit}>
+                                {savingEdit ? 'Saving…' : 'Save changes'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {pendingDelete && (
+                <div
+                    role="dialog"
+                    aria-modal="true"
+                    onClick={() => { if (!deletingId) setPendingDelete(null); }}
+                    style={{
+                        position: 'fixed',
+                        inset: 0,
+                        background: 'rgba(8, 12, 20, 0.45)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        zIndex: 9100,
+                        padding: 16,
+                    }}
+                >
+                    <div
+                        onClick={(e) => e.stopPropagation()}
+                        style={{
+                            width: '100%',
+                            maxWidth: 440,
+                            background: '#fff',
+                            border: '1px solid #e5e7eb',
+                            borderRadius: 12,
+                            boxShadow: '0 24px 64px rgba(0,0,0,0.25)',
+                            padding: '18px 18px 14px',
+                        }}
+                    >
+                        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+                            <div
+                                style={{
+                                    width: 32,
+                                    height: 32,
+                                    borderRadius: 10,
+                                    background: 'rgba(198, 40, 40, 0.12)',
+                                    color: '#c62828',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    flexShrink: 0,
+                                }}
+                            >
+                                <span className="material-icons-round" style={{ fontSize: 18 }}>warning</span>
+                            </div>
+                            <div style={{ minWidth: 0 }}>
+                                <div style={{ fontSize: 15, fontWeight: 700, color: '#171717' }}>
+                                    Confirm delete action
+                                </div>
+                                <div style={{ marginTop: 6, fontSize: 12.5, color: '#4b5563', lineHeight: 1.5 }}>
+                                    Are you sure you want to delete <strong>{pendingDelete.name}</strong>?
+                                    This action cannot be undone.
+                                </div>
+                            </div>
+                        </div>
+                        <div style={{ marginTop: 14, display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+                            <button
+                                type="button"
+                                className="internal-dash__btn internal-dash__btn--outline internal-dash__btn--sm"
+                                onClick={() => setPendingDelete(null)}
+                                disabled={Boolean(deletingId)}
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                type="button"
+                                className="internal-dash__btn internal-dash__btn--danger internal-dash__btn--sm"
+                                onClick={() => { void handleDelete(); }}
+                                disabled={Boolean(deletingId)}
+                            >
+                                {deletingId ? 'Deleting…' : 'Confirm Delete'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             <div className="internal-dash">
                 {/* ── Navbar ──────────────────────────────────── */}
                 <nav className="internal-dash__navbar">
@@ -476,10 +782,33 @@ export default function InternalAdminDashboard() {
                                     </div>
                                     <div className="internal-dash__card-bottom">
                                         <span className="internal-dash__card-id">{facility.id.slice(0, 8)}</span>
-                                        <span className="internal-dash__card-action">
-                                            {switchingId === facility.id ? 'Entering…' : 'Access'}
-                                            <span className="material-icons-round" style={{ fontSize: 14 }}>arrow_forward</span>
-                                        </span>
+                                        <div className="internal-dash__card-actions">
+                                            <button
+                                                type="button"
+                                                className="internal-dash__card-mini-btn"
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    void openEditModal(facility);
+                                                }}
+                                            >
+                                                Edit
+                                            </button>
+                                            <button
+                                                type="button"
+                                                className="internal-dash__card-mini-btn internal-dash__card-mini-btn--danger"
+                                                disabled={deletingId === facility.id}
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    requestDelete(facility);
+                                                }}
+                                            >
+                                                {deletingId === facility.id ? 'Deleting…' : 'Delete'}
+                                            </button>
+                                            <span className="internal-dash__card-action">
+                                                {switchingId === facility.id ? 'Entering…' : 'Access'}
+                                                <span className="material-icons-round" style={{ fontSize: 14 }}>arrow_forward</span>
+                                            </span>
+                                        </div>
                                     </div>
                                 </div>
                             ))}

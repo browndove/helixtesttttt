@@ -36,6 +36,7 @@ export const API_ENDPOINTS = {
   AUTH_SESSIONS: `/api/proxy/auth/sessions`,
   AUTH_SESSION: (sessionId: string) => `/api/proxy/auth/sessions/${sessionId}`,
   INTERNAL_FACILITIES: `/api/proxy/internal/facilities`,
+  INTERNAL_FACILITY: (id: string) => `/api/proxy/internal/facilities/${id}`,
   INTERNAL_ACT_AS: `/api/proxy/internal/act-as`,
   INTERNAL_EXIT_ACT_AS: `/api/proxy/internal/exit-act-as`,
   INTERNAL_AUDIT: `/api/proxy/internal/audit`,

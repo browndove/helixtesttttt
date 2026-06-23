@@ -127,7 +127,10 @@ export default function ImagingRadiology({ data }: { data?: any }) {
             shared: true,
             intersect: false,
             x: {
-                formatter: (_val, opts) => fullCategories[opts.dataPointIndex] ?? "",
+                formatter: (_val, opts) => {
+                    const index = opts?.dataPointIndex ?? -1;
+                    return index >= 0 ? (fullCategories[index] ?? "") : "";
+                },
             },
             y: {
                 formatter: (v) => formatClock(hoursToMinutes(v), true),
