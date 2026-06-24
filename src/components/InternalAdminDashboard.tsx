@@ -368,6 +368,7 @@ export default function InternalAdminDashboard() {
         { label: 'Prod Admin', href: 'https://admin.helixhealth.app/login', icon: 'open_in_new' },
         { label: 'Test Analytics', href: 'https://analyticstest.helixhealth.app', icon: 'open_in_new' },
         { label: 'Prod Analytics', href: 'https://analytics.helixhealth.app', icon: 'open_in_new' },
+        { label: 'Field Implementation', href: 'https://field.helixhealth.app/login', icon: 'open_in_new' },
         { label: 'Onboarding admin', href: 'https://www.helixhealth.app/admin/index.html', icon: 'open_in_new' },
     ];
 
