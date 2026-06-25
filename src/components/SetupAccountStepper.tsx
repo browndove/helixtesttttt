@@ -39,6 +39,61 @@ function buildStepHref(step: SetupStep, token: string): string {
     return qs ? `/setup-account?${qs}` : '/setup-account';
 }
 
+function decodeJwtPayload(jwt: string): Record<string, unknown> | null {
+    if (!jwt || typeof jwt !== 'string') return null;
+    try {
+        const parts = jwt.split('.');
+        if (parts.length < 2) return null;
+        let b64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+        const pad = b64.length % 4;
+        if (pad) b64 += '='.repeat(4 - pad);
+        return JSON.parse(atob(b64)) as Record<string, unknown>;
+    } catch {
+        return null;
+    }
+}
+
+function truthyFlag(value: unknown): boolean {
+    if (value === true || value === 1 || value === '1') return true;
+    if (typeof value === 'string' && value.trim()) return true;
+    return false;
+}
+
+function normalizeSetupKind(value: unknown): string {
+    return String(value || '').trim().toLowerCase();
+}
+
+function inferRemoteWipeRecovery(data: Record<string, unknown>, token: string): boolean {
+    if (truthyFlag(data.wipe_pending) || truthyFlag(data.remote_wipe_pending)) return true;
+    if (truthyFlag(data.remote_wipe_requested_at)) return true;
+
+    const kind = normalizeSetupKind(data.setup_kind ?? data.invite_kind ?? data.setup_type);
+    if (kind === 'remote_wipe' || kind === 'wipe') return true;
+
+    const claims = decodeJwtPayload(token);
+    if (!claims) return false;
+    if (truthyFlag(claims.wipe_pending) || truthyFlag(claims.remote_wipe_pending)) return true;
+    if (truthyFlag(claims.remote_wipe_requested_at)) return true;
+    const claimKind = normalizeSetupKind(claims.setup_kind ?? claims.invite_kind ?? claims.purpose);
+    return claimKind === 'remote_wipe' || claimKind === 'wipe';
+}
+
+function inferAdminPasswordReset(data: Record<string, unknown>, token: string): boolean {
+    if (inferRemoteWipeRecovery(data, token)) return true;
+    if (truthyFlag(data.is_password_reset) || truthyFlag(data.is_admin_reset) || truthyFlag(data.password_reset)) {
+        return true;
+    }
+
+    const kind = normalizeSetupKind(data.setup_kind ?? data.invite_kind ?? data.setup_type);
+    if (kind === 'password_reset' || kind === 'admin_reset') return true;
+
+    const claims = decodeJwtPayload(token);
+    if (!claims) return false;
+    if (truthyFlag(claims.is_password_reset) || truthyFlag(claims.is_admin_reset)) return true;
+    const claimKind = normalizeSetupKind(claims.setup_kind ?? claims.invite_kind ?? claims.purpose);
+    return claimKind === 'password_reset' || claimKind === 'admin_reset';
+}
+
 export default function SetupAccountStepper({ token, step }: { token: string; step: SetupStep }) {
     const router = useRouter();
     const [firstName, setFirstName] = useState('');
@@ -56,6 +111,7 @@ export default function SetupAccountStepper({ token, step }: { token: string; st
     const [completed, setCompleted] = useState(false);
     const [facilityCode, setFacilityCode] = useState('');
     const [isAdminPasswordReset, setIsAdminPasswordReset] = useState(false);
+    const [isRemoteWipeRecovery, setIsRemoteWipeRecovery] = useState(false);
 
     const identityReady = useMemo(
         () => Boolean(firstName.trim()) && Boolean(lastName.trim()),
@@ -80,14 +136,13 @@ export default function SetupAccountStepper({ token, step }: { token: string; st
                 const res = await fetch(`${API_ENDPOINTS.SETUP_PREFILL}?token=${encodeURIComponent(token)}`);
                 const data = await res.json().catch(() => ({}));
                 if (!res.ok || canceled) return;
+                const rec = data as Record<string, unknown>;
                 if (typeof data.first_name === 'string') setFirstName(data.first_name);
                 if (typeof data.last_name === 'string') setLastName(data.last_name);
                 if (typeof data.middle_name === 'string') setMiddleName(data.middle_name);
                 if (typeof data.email === 'string') setEmail(data.email.trim());
-                const hasExistingProfile =
-                    typeof data.first_name === 'string' && data.first_name.trim()
-                    && typeof data.last_name === 'string' && data.last_name.trim();
-                if (hasExistingProfile) setIsAdminPasswordReset(true);
+                setIsRemoteWipeRecovery(inferRemoteWipeRecovery(rec, token));
+                setIsAdminPasswordReset(inferAdminPasswordReset(rec, token));
                 const codeFromApi = extractFacilityCode(data);
                 if (codeFromApi) setFacilityCode(prev => prev || codeFromApi);
             } finally {
@@ -422,9 +477,14 @@ export default function SetupAccountStepper({ token, step }: { token: string; st
                                 )}
 
                 {prefillLoading && <p style={{ fontSize: 11, color: 'var(--text-muted)', margin: '0 0 8px' }}>Loading invitation details…</p>}
-                {isAdminPasswordReset && !prefillLoading && (
+                {isRemoteWipeRecovery && !prefillLoading && (
                     <div style={{ ...alertBox, background: 'rgba(37, 99, 235, 0.08)', border: '1px solid rgba(37, 99, 235, 0.22)', color: '#1e3a8a', marginBottom: 10 }}>
                         Your organization remotely wiped your devices for security. Set a new password below, then sign in to the Helix app with this password.
+                    </div>
+                )}
+                {isAdminPasswordReset && !isRemoteWipeRecovery && !prefillLoading && (
+                    <div style={{ ...alertBox, background: 'rgba(37, 99, 235, 0.08)', border: '1px solid rgba(37, 99, 235, 0.22)', color: '#1e3a8a', marginBottom: 10 }}>
+                        Your administrator sent a secure link so you can set a new password and sign in again.
                     </div>
                 )}
                 {!token && (

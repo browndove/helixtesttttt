@@ -20,13 +20,15 @@
 }
 
 .internal-dash__navbar-inner {
-  max-width: 1200px;
-  margin: 0 auto;
+  width: 100%;
+  max-width: none;
+  margin: 0;
   padding: 0 1.5rem;
   height: 64px;
   display: flex;
   align-items: center;
   gap: 2rem;
+  box-sizing: border-box;
 }
 
 .internal-dash__brand {
@@ -99,6 +101,51 @@
   gap: 0.5rem;
   margin-left: auto;
   flex-shrink: 0;
+}
+
+/* ── Downloads analytics UGMC sidebar ───────────── */
+
+.internal-dash--sidebar-layout .internal-dash__navbar {
+  width: 100%;
+}
+
+.internal-dash--sidebar-layout .internal-dash__navbar-inner {
+  padding-left: 1.25rem;
+  padding-right: 1.5rem;
+}
+
+.internal-downloads-layout {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  align-items: stretch;
+}
+
+.internal-downloads-sidebar {
+  position: sticky;
+  top: 64px;
+  align-self: flex-start;
+  height: calc(100vh - 64px);
+  z-index: 40;
+}
+
+.internal-downloads-shell {
+  flex: 1;
+  min-width: 0;
+  margin-left: 0 !important;
+  width: auto !important;
+  max-width: none !important;
+}
+
+@media (max-width: 1023px) {
+  .internal-downloads-layout {
+    flex-direction: column;
+  }
+
+  .internal-downloads-sidebar {
+    display: none;
+  }
 }
 
 /* ── Page header ────────────────────────────────── */
