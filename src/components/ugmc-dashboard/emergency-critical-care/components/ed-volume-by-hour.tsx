@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { useState, useRef, useEffect } from "react";
+import { useState } from "react";
 import Text from "@/components/text";
 import DashboardCard from "@/components/ugmc-dashboard/shared/dashboard-card";
 import dynamic from "next/dynamic";
@@ -18,23 +18,8 @@ const EDVolumeByHour: React.FC = () => {
     const { resolvedTheme } = useTheme();
     const [isFullscreen, setIsFullscreen] = useState(false);
     const [isHovered, setIsHovered] = useState(false);
-    const chartContainerRef = useRef<HTMLDivElement>(null);
-    const [chartHeight, setChartHeight] = useState(200);
+    const chartHeight = isFullscreen ? 450 : 220;
 
-    useEffect(() => {
-        const container = chartContainerRef.current;
-        if (!container) return;
-
-        const updateHeight = () => {
-            const nextHeight = Math.max(200, Math.floor(container.getBoundingClientRect().height));
-            setChartHeight((prev) => (prev === nextHeight ? prev : nextHeight));
-        };
-
-        updateHeight();
-        const observer = new ResizeObserver(updateHeight);
-        observer.observe(container);
-        return () => observer.disconnect();
-    }, [isFullscreen]);
     const chartOptions: ApexCharts.ApexOptions = {
         chart: {
             type: "bar",
@@ -111,7 +96,7 @@ const EDVolumeByHour: React.FC = () => {
 
     return (
         <DashboardCard
-            className={`flex h-full min-h-0 flex-col gap-2 transition-all duration-300 ${isFullscreen ? "fixed inset-0 z-50 m-4 h-[calc(100vh-2rem)] w-[calc(100vw-2rem)]" : ""
+            className={`flex flex-col gap-2 transition-all duration-300 ${isFullscreen ? "fixed inset-0 z-50 m-4 h-[calc(100vh-2rem)] w-[calc(100vw-2rem)]" : ""
                 }`}
             onMouseEnter={() => setIsHovered(true)}
             onMouseLeave={() => setIsHovered(false)}
@@ -148,7 +133,7 @@ const EDVolumeByHour: React.FC = () => {
                 </div>
             </div>
 
-            <div ref={chartContainerRef} className="min-h-[200px] flex-1" style={{ minHeight: 0 }}>
+            <div className="w-full">
                 <Chart
                     options={chartOptions}
                     series={chartSeries}

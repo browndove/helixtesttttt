@@ -57,14 +57,14 @@ export default function EmergencyCriticalCarePage() {
                 ))}
             </div>
 
-            <div className="grid grid-cols-1 gap-4 xl:grid-cols-3 xl:items-stretch">
+            <div className="grid grid-cols-1 gap-4 xl:grid-cols-3 xl:items-start">
                 <div
-                    className="animate-slide-in-up xl:col-span-2 h-full min-h-0"
+                    className="animate-slide-in-up xl:col-span-2"
                     style={{ animationDelay: '200ms', opacity: 0, animationFillMode: 'forwards' }}
                 >
                     <EDVolumeByHour />
                 </div>
-                <div className="flex h-full flex-col gap-4">
+                <div className="flex flex-col gap-4">
                     <div className="animate-slide-in-up" style={{ animationDelay: '300ms', opacity: 0, animationFillMode: 'forwards' }}>
                         <NurseStaffingFillRate />
                     </div>
