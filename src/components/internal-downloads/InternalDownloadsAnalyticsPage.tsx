@@ -30,7 +30,7 @@ const DownloadsAudiencePage = lazy(() => import('@/components/internal-downloads
 const TABS: { id: DownloadsDashboardTab; label: string }[] = [
     { id: 'overview', label: 'Overview' },
     { id: 'acquisition', label: 'Acquisition & Stability' },
-    { id: 'audience', label: 'Audience & Feedback' },
+    { id: 'audience', label: 'Emergency & Critical Care' },
 ];
 
 function fmt(n: number): string {
@@ -66,12 +66,7 @@ function InternalDownloadsAnalyticsContent() {
                             </div>
                         }>
                             {activeTab === 'acquisition' && <DownloadsAcquisitionPage data={downloadData} />}
-                            {activeTab === 'audience' && (
-                                <DownloadsAudiencePage
-                                    data={downloadData}
-                                    onViewMoreRoles={() => setRoleMetricsModalOpen(true)}
-                                />
-                            )}
+                            {activeTab === 'audience' && <DownloadsAudiencePage />}
                         </Suspense>
                     )}
 

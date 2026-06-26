@@ -16,6 +16,7 @@ const IN_APP_LINKS: NavLink[] = [
 ];
 
 export const EXTERNAL_LINKS: NavLink[] = [
+    { label: 'Documentation', href: 'https://documentation.helixhealth.app/', icon: 'open_in_new' },
     { label: 'Test Admin', href: 'https://admintest.helixhealth.app/login', icon: 'open_in_new' },
     { label: 'Prod Admin', href: 'https://admin.helixhealth.app/login', icon: 'open_in_new' },
     { label: 'Test Analytics', href: 'https://analyticstest.helixhealth.app', icon: 'open_in_new' },

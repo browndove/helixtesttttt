@@ -140,12 +140,14 @@
   --shadow-input: 0px 0.5px 1.9px 0px rgba(0, 0, 0, 0.4);
 }
 
-*,
-*::before,
-*::after {
-  box-sizing: border-box;
-  margin: 0;
-  padding: 0;
+@layer base {
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+  }
 }
 
 html,

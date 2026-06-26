@@ -1,0 +1,10 @@
+export { default as DashboardCard } from "@/components/ugmc-dashboard/shared/dashboard-card";
+export { default as PageHeader } from "./page-header";
+export { default as KPICard } from "./kpi-card";
+export { default as AverageWaitTime } from "./average-wait-time";
+export { default as AverageBoardingTime } from "./average-boarding-time";
+export { default as NurseStaffingFillRate } from "./nurse-staffing-fill-rate";
+export { default as EDVolumeByHour } from "./ed-volume-by-hour";
+export { default as EDCrowding } from "./ed-crowding";
+export { default as CurrentEDPatients } from "./current-ed-patients";
+export { default as StaffOnDuty } from "./staff-on-duty";

@@ -4,7 +4,8 @@ import Text from '@/components/text';
 import clsx from 'clsx';
 import { createContext, useContext, useState } from 'react';
 import { MdSpaceDashboard } from 'react-icons/md';
-import { FaDownload, FaStar } from 'react-icons/fa6';
+import { FaDownload } from 'react-icons/fa6';
+import { TiWarning } from 'react-icons/ti';
 
 export type DownloadsDashboardTab = 'overview' | 'acquisition' | 'audience';
 
@@ -46,38 +47,41 @@ type MenuItem = {
 const menuItems: MenuItem[] = [
     { id: 'overview', name: 'Overview', icon: MdSpaceDashboard, iconSize: 15 },
     { id: 'acquisition', name: 'Acquisition & Stability', icon: FaDownload, iconSize: 15 },
-    { id: 'audience', name: 'Audience & Feedback', icon: FaStar, iconSize: 15 },
+    { id: 'audience', name: 'Emergency & Critical Care', icon: TiWarning, iconSize: 17 },
 ];
 
-const LogoSection = ({ isDocked, onDockToggle }: { isDocked: boolean; onDockToggle: () => void }) => (
-    <div className={clsx(
-        'flex flex-col w-full bg-primary-light border-b border-secondary shrink-0',
-        isDocked ? 'gap-[15px] px-[10px] py-[20px]' : 'gap-[15px] px-[15px] py-[20px]',
-    )}>
-        {!isDocked ? (
-            <div className="flex items-center justify-end gap-[10px] px-[2px]">
+const SidebarHeader = ({ isDocked, onDockToggle }: { isDocked: boolean; onDockToggle: () => void }) => {
+    if (isDocked) {
+        return (
+            <div className="flex items-center justify-center px-[10px] shrink-0">
                 <button
                     type="button"
                     onClick={onDockToggle}
-                    className="flex shrink-0 items-center justify-end cursor-pointer hover:opacity-70 transition-opacity"
-                    title="Collapse sidebar"
+                    className="flex items-center justify-center cursor-pointer hover:opacity-70 transition-opacity"
+                    title="Expand sidebar"
                 >
-                    <SidebarIcon className="text-[#A3B2BE]" />
+                    <SidebarIcon className="text-[#A3B2BE] w-[24px] h-[23px]" />
                 </button>
             </div>
-        ) : (
+        );
+    }
+
+    return (
+        <div className="flex items-center gap-2 shrink-0" style={{ paddingLeft: 22, paddingRight: 15 }}>
+            <Text variant="body-sm" color="text-tertiary" className="font-medium text-[12px] tracking-wide">
+                DOWNLOADS ANALYTICS
+            </Text>
             <button
                 type="button"
                 onClick={onDockToggle}
-                className="flex items-center justify-center cursor-pointer hover:opacity-70 transition-opacity px-[2px]"
-                title="Expand sidebar"
+                className="flex shrink-0 items-center justify-center cursor-pointer hover:opacity-70 transition-opacity"
+                title="Collapse sidebar"
             >
-                <SidebarIcon className="text-[#A3B2BE] w-[24px] h-[23px]" />
+                <SidebarIcon className="text-[#A3B2BE]" />
             </button>
-        )}
-
-    </div>
-);
+        </div>
+    );
+};
 
 const MenuItems = ({
     isDocked,
@@ -88,15 +92,7 @@ const MenuItems = ({
     activeTab: DownloadsDashboardTab;
     onTabChange: (tab: DownloadsDashboardTab) => void;
 }) => (
-    <div className="flex flex-col gap-[10px] w-full">
-        {!isDocked && (
-            <div className="flex items-center pr-[7px]" style={{ paddingLeft: 22 }}>
-                <Text variant="body-sm" color="text-tertiary" className="font-medium text-[12px]">
-                    DOWNLOADS ANALYTICS
-                </Text>
-            </div>
-        )}
-
+    <div className="flex flex-col gap-[5px] w-full">
         <div className="flex flex-col gap-[5px]">
             {menuItems.map((item) => {
                 const isActive = activeTab === item.id;
@@ -167,8 +163,8 @@ export default function InternalDownloadsSidebar({
             )}
             aria-label="Downloads analytics sections"
         >
-            <div className="flex flex-col gap-[20px] w-full flex-1 min-h-0 overflow-y-auto">
-                <LogoSection isDocked={isDocked} onDockToggle={() => setIsDocked(!isDocked)} />
+            <div className="flex flex-col gap-[10px] w-full flex-1 min-h-0 overflow-y-auto pt-[15px] pb-[15px]">
+                <SidebarHeader isDocked={isDocked} onDockToggle={() => setIsDocked(!isDocked)} />
                 <MenuItems isDocked={isDocked} activeTab={activeTab} onTabChange={onTabChange} />
             </div>
         </aside>
