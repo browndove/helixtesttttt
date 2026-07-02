@@ -26,7 +26,17 @@ function num(v: unknown): number {
     return Number.isFinite(n) ? n : 0;
 }
 
-const TopVendors: React.FC<{ data?: Record<string, unknown> }> = ({ data }) => {
+const TopVendors: React.FC<{
+    data?: Record<string, unknown>;
+    title?: string;
+    subtitle?: string;
+    totalLabel?: string;
+}> = ({
+    data,
+    title = "Top Escalated Roles",
+    subtitle = "By escalation count · current window",
+    totalLabel = "Total escalations (facility)",
+}) => {
     const root = unwrapAnalyticsPayload(data);
 
     const roleDeptById = React.useMemo(() => {
@@ -98,12 +108,12 @@ const TopVendors: React.FC<{ data?: Record<string, unknown> }> = ({ data }) => {
         <DashboardCard className="flex flex-col flex-1" padding="none" style={{ padding: 20, gap: 10, height: 680 }}>
             <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-                    <Text variant="body-md-semibold" color="text-primary" className="font-bold">Top Escalated Roles</Text>
-                    <Text variant="body-sm" color="text-secondary">By escalation count · current window</Text>
+                    <Text variant="body-md-semibold" color="text-primary" className="font-bold">{title}</Text>
+                    <Text variant="body-sm" color="text-secondary">{subtitle}</Text>
                 </div>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-                <Text variant="body-sm" color="text-secondary">Total escalations (facility)</Text>
+                <Text variant="body-sm" color="text-secondary">{totalLabel}</Text>
                 <span className="text-[32px] font-bold tabular-nums" style={{ color: "#0EAF9F" }}>{totalEscalations.toLocaleString()}</span>
             </div>
             <div className="flex-1" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>

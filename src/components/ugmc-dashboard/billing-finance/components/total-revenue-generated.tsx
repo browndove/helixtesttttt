@@ -12,7 +12,19 @@ import FullscreenOverlay from "@/components/fullscreen-overlay";
 
 const Chart = dynamic(() => import("react-apexcharts"), { ssr: false });
 
-const TotalRevenueGenerated: React.FC<{ data?: any }> = ({ data }) => {
+const TotalRevenueGenerated: React.FC<{
+    data?: any;
+    title?: string;
+    subtitle?: string;
+    infoText?: string;
+    seriesName?: string;
+}> = ({
+    data,
+    title = "Escalation Risk by Role",
+    subtitle,
+    infoText = "Escalation rate per role (escalations divided by role message volume).",
+    seriesName = "Escalation Rate",
+}) => {
     const { resolvedTheme } = useTheme();
     const [isMaximized, setIsMaximized] = React.useState(false);
     const [isHovered, setIsHovered] = React.useState(false);
@@ -86,15 +98,17 @@ const TotalRevenueGenerated: React.FC<{ data?: any }> = ({ data }) => {
         },
     };
 
-    const chartSeries = [{ name: "Escalation Rate", data: escalationRateData }];
+    const chartSeries = [{ name: seriesName, data: escalationRateData }];
+
+    const resolvedSubtitle = subtitle ?? `Top non-responder roles · Last ${data?.window_days ?? 30} days`;
 
     const chartContent = (isModal: boolean = false) => (
         <>
             <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                    <Text variant={isModal ? "body-lg-semibold" : "body-md-semibold"} color="text-primary" className="font-bold">Escalation Risk by Role</Text>
+                    <Text variant={isModal ? "body-lg-semibold" : "body-md-semibold"} color="text-primary" className="font-bold">{title}</Text>
                     <Text variant="body-sm" color="text-secondary">
-                        Top non-responder roles · Last {data?.window_days ?? 30} days
+                        {resolvedSubtitle}
                     </Text>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
@@ -108,7 +122,7 @@ const TotalRevenueGenerated: React.FC<{ data?: any }> = ({ data }) => {
                             <GrContract className="size-4 text-text-primary" />
                         </button>
                     )}
-                    <InfoTooltip text="Escalation rate per role (escalations divided by role message volume)." show={isHovered} />
+                    <InfoTooltip text={infoText} show={isHovered} />
                 </div>
             </div>
             <div className={`revenue-chart w-full ${isModal ? "h-[500px]" : "h-[280px]"}`}>

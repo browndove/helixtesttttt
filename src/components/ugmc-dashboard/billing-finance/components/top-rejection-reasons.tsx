@@ -12,7 +12,17 @@ type RoleCategory = {
     textColor: string;
 };
 
-const MessagesByRoleBreakdown: React.FC<{ data?: any }> = ({ data }) => {
+const MessagesByRoleBreakdown: React.FC<{
+    data?: any;
+    title?: string;
+    subtitle?: string;
+    totalLabel?: string;
+}> = ({
+    data,
+    title = "Messages by Role Breakdown",
+    subtitle = "Top 3 Standard & 2 Critical · Current Window",
+    totalLabel = "Total",
+}) => {
     // Top 5 colors to use for the stacked bar
     const colorPalette = [
         { color: "var(--accent-red)", bgColor: "rgba(248, 81, 73, 0.1)", textColor: "var(--accent-red)" },
@@ -89,11 +99,11 @@ const MessagesByRoleBreakdown: React.FC<{ data?: any }> = ({ data }) => {
         <DashboardCard className="flex flex-col flex-1" padding="none" style={{ padding: 16, gap: 15 }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                    <Text variant="body-md-semibold" color="text-primary" className="font-bold">Messages by Role Breakdown</Text>
-                    <Text variant="body-sm" color="text-secondary">Top 3 Standard & 2 Critical · Current Window</Text>
+                    <Text variant="body-md-semibold" color="text-primary" className="font-bold">{title}</Text>
+                    <Text variant="body-sm" color="text-secondary">{subtitle}</Text>
                 </div>
                 <div className="bg-accent-primary/10 rounded-[5px] whitespace-nowrap" style={{ padding: '4px 7px' }}>
-                    <Text variant="body-sm-semibold" color="accent-primary"><span className="tabular-nums">{animatedTotal > 1000 ? (animatedTotal / 1000).toFixed(1) + 'k' : animatedTotal}</span> Total</Text>
+                    <Text variant="body-sm-semibold" color="accent-primary"><span className="tabular-nums">{animatedTotal > 1000 ? (animatedTotal / 1000).toFixed(1) + 'k' : animatedTotal}</span> {totalLabel}</Text>
                 </div>
             </div>
             <div className="flex h-[35px] rounded-[10px] overflow-hidden">

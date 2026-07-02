@@ -49,9 +49,11 @@ const COLORS: { color: string; bgColor: string; textColor: keyof typeof tailwind
 
 interface RoleCriticalTrafficProps {
     roles?: RoleMetricTrafficItem[];
+    title?: string;
+    showDetails?: boolean;
 }
 
-const RoleCriticalTraffic = ({ roles = [] }: RoleCriticalTrafficProps) => {
+const RoleCriticalTraffic = ({ roles = [], title = 'Role critical traffic', showDetails = true }: RoleCriticalTrafficProps) => {
     const [isHovered, setIsHovered] = useState(false);
     const [animatedPercentages, setAnimatedPercentages] = useState<number[]>([]);
     const [isVisible, setIsVisible] = useState(false);
@@ -116,7 +118,7 @@ const RoleCriticalTraffic = ({ roles = [] }: RoleCriticalTrafficProps) => {
         >
             <div className="flex items-center justify-between gap-2">
                 <Text variant="body-md-semibold" color="text-primary" className="min-w-0 truncate">
-                    Role critical traffic
+                    {title}
                 </Text>
                 <InfoTooltip text={infoText} show={isHovered} />
             </div>
@@ -170,7 +172,7 @@ const RoleCriticalTraffic = ({ roles = [] }: RoleCriticalTrafficProps) => {
                                     </Text>
                                 </div>
                             </div>
-                            {detailParts.length > 0 && (
+                            {showDetails && detailParts.length > 0 && (
                                 <Text variant="body-xs" color="text-secondary" className="leading-relaxed line-clamp-2">
                                     {detailParts.join(' · ')}
                                 </Text>

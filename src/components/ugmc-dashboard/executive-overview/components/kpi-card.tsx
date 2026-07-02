@@ -17,6 +17,7 @@ interface KpiCardProps {
         trend: 'up' | 'down';
     };
     infoText?: string;
+    footer?: React.ReactNode;
     animationDelay?: number;
 }
 
@@ -42,7 +43,7 @@ const formatNumber = (num: number, decimals: number): string => {
     return Math.round(num).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 };
 
-const KpiCard = ({ icon, iconBgColor, label, value, change, infoText, animationDelay = 0 }: KpiCardProps) => {
+const KpiCard = ({ icon, iconBgColor, label, value, change, footer, infoText, animationDelay = 0 }: KpiCardProps) => {
     const [isHovered, setIsHovered] = useState(false);
     const [isVisible, setIsVisible] = useState(false);
     const [animatedNumber, setAnimatedNumber] = useState(0);
@@ -165,6 +166,12 @@ const KpiCard = ({ icon, iconBgColor, label, value, change, infoText, animationD
                     >
                         {parsedValue.prefix}{formatNumber(animatedNumber, parsedValue.decimals)}{parsedValue.suffix}
                     </Text>
+                    {footer ? (
+                        <>
+                            <div className="mt-4 w-full border-t-2 border-dashed border-tertiary" />
+                            <div className="mt-3 w-full">{footer}</div>
+                        </>
+                    ) : null}
                 </div>
             </div>
 

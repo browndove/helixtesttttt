@@ -17,7 +17,19 @@ type Category = {
     textColor: string;
 };
 
-const MessageVolumeBreakdown: React.FC<{ data?: any }> = ({ data }) => {
+const MessageVolumeBreakdown: React.FC<{
+    data?: any;
+    title?: string;
+    subtitle?: string;
+    totalLabel?: string;
+    categoryLabels?: [string, string, string];
+}> = ({
+    data,
+    title = "Message Volume Breakdown",
+    subtitle = "By priority level",
+    totalLabel = "Total Messages",
+    categoryLabels = ["Standard Messages", "Critical Messages", "Escalated Messages"],
+}) => {
     const { resolvedTheme } = useTheme();
     const [animatedTotal, setAnimatedTotal] = React.useState(0);
     const [isVisible, setIsVisible] = React.useState(false);
@@ -31,9 +43,9 @@ const MessageVolumeBreakdown: React.FC<{ data?: any }> = ({ data }) => {
     const getPercent = (val: number) => totalAmount > 0 ? Math.round((val / totalAmount) * 100) + "%" : "0%";
 
     const categories: Category[] = [
-        { name: "Standard Messages", amount: standard.toLocaleString(), percentage: getPercent(standard), color: "#00C8B3", bgColor: "#00C8B31A", textColor: "#089A8A" },
-        { name: "Critical Messages", amount: criticalNonEscalated.toLocaleString(), percentage: getPercent(criticalNonEscalated), color: "#FFCA57", bgColor: "#FFCA5733", textColor: "#C68904" },
-        { name: "Escalated Messages", amount: escalated.toLocaleString(), percentage: getPercent(escalated), color: "#FF5F57", bgColor: "#FF5F571A", textColor: "#FF5F57" },
+        { name: categoryLabels[0], amount: standard.toLocaleString(), percentage: getPercent(standard), color: "#00C8B3", bgColor: "#00C8B31A", textColor: "#089A8A" },
+        { name: categoryLabels[1], amount: criticalNonEscalated.toLocaleString(), percentage: getPercent(criticalNonEscalated), color: "#FFCA57", bgColor: "#FFCA5733", textColor: "#C68904" },
+        { name: categoryLabels[2], amount: escalated.toLocaleString(), percentage: getPercent(escalated), color: "#FF5F57", bgColor: "#FF5F571A", textColor: "#FF5F57" },
     ];
 
     React.useEffect(() => { setIsVisible(true); }, []);
@@ -96,13 +108,13 @@ const MessageVolumeBreakdown: React.FC<{ data?: any }> = ({ data }) => {
         <DashboardCard className="flex flex-col flex-1" padding="none" style={{ padding: 16, gap: 15, height: 680 }}>
             <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                    <Text variant="body-md-semibold" color="text-primary" className="font-bold">Message Volume Breakdown</Text>
-                    <Text variant="body-sm" color="text-secondary">By priority level</Text>
+                    <Text variant="body-md-semibold" color="text-primary" className="font-bold">{title}</Text>
+                    <Text variant="body-sm" color="text-secondary">{subtitle}</Text>
                 </div>
                 <button className="text-[12px] font-semibold text-[#2980D3] rounded-[6px] bg-[#2980D31A] hover:bg-[#2980D326] transition-colors" style={{ padding: '6px 12px' }}>View All</button>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                <Text variant="body-sm" color="text-secondary">Total Messages</Text>
+                <Text variant="body-sm" color="text-secondary">{totalLabel}</Text>
                 <span className="text-[32px] font-bold text-[#2980D3] tabular-nums">{animatedTotal.toLocaleString()}</span>
             </div>
             <div className="relative w-full h-[400px] bg-tertiary rounded-[10px]" style={{ padding: 24 }}>

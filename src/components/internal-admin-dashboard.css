@@ -95,6 +95,90 @@
   opacity: 0.6;
 }
 
+.internal-dash__nav-dropdown {
+  position: relative;
+}
+
+.internal-dash__nav-dropdown-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.125rem;
+  padding: 0.375rem 0.625rem;
+  border: none;
+  border-radius: 0.375rem;
+  background: transparent;
+  font-size: 0.8125rem;
+  font-weight: 400;
+  color: #666;
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s;
+  white-space: nowrap;
+}
+
+.internal-dash__nav-dropdown-trigger:hover,
+.internal-dash__nav-dropdown-trigger--open {
+  color: #0A4676;
+  background: #f0f5fa;
+}
+
+.internal-dash__nav-dropdown-trigger--active {
+  color: #0A4676;
+  font-weight: 500;
+}
+
+.internal-dash__nav-dropdown-chevron {
+  font-size: 16px !important;
+  opacity: 0.7;
+  transition: transform 0.15s;
+}
+
+.internal-dash__nav-dropdown-trigger--open .internal-dash__nav-dropdown-chevron {
+  transform: rotate(180deg);
+}
+
+.internal-dash__nav-dropdown-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 200;
+  min-width: 220px;
+  padding: 0.25rem;
+  border: 1px solid #eaeaea;
+  border-radius: 0.5rem;
+  background: #fff;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
+}
+
+.internal-dash__nav-dropdown-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.5rem 0.625rem;
+  border-radius: 0.375rem;
+  font-size: 0.8125rem;
+  color: #444;
+  text-decoration: none;
+  transition: color 0.15s, background 0.15s;
+}
+
+.internal-dash__nav-dropdown-item:hover {
+  color: #0A4676;
+  background: #f0f5fa;
+}
+
+.internal-dash__nav-dropdown-item--active {
+  color: #0A4676;
+  font-weight: 500;
+  background: #f0f5fa;
+}
+
+.internal-dash__nav-dropdown-item .material-icons-round {
+  font-size: 14px;
+  opacity: 0.55;
+  flex-shrink: 0;
+}
+
 .internal-dash__nav-right {
   display: flex;
   align-items: center;
@@ -136,6 +220,22 @@
   margin-left: 0 !important;
   width: auto !important;
   max-width: none !important;
+}
+
+/* Downloads overview: compact sidebar, natural height */
+.internal-downloads-overview-grid {
+  align-items: start;
+}
+
+.internal-downloads-overview-grid .usage-main-grid__sidebar {
+  position: static;
+  top: auto;
+}
+
+.internal-downloads-insights-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
 }
 
 @media (max-width: 1023px) {

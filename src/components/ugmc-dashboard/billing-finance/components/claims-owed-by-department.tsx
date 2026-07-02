@@ -14,7 +14,25 @@ type RoleAssignment = {
     filled: boolean;
 };
 
-const ClaimsOwedByDepartment: React.FC<{ data?: any; onEditRole?: (role: any) => void }> = ({ data, onEditRole }) => {
+const ClaimsOwedByDepartment: React.FC<{
+    data?: any;
+    onEditRole?: (role: any) => void;
+    title?: string;
+    subtitle?: string;
+    departmentColumnLabel?: string;
+    roleColumnLabel?: string;
+    priorityColumnLabel?: string;
+    statusColumnLabel?: string;
+}> = ({
+    data,
+    onEditRole,
+    title = "Role Assignment Status",
+    subtitle = "Across all departments",
+    departmentColumnLabel = "Department",
+    roleColumnLabel = "Role Name",
+    priorityColumnLabel = "Priority",
+    statusColumnLabel = "Status",
+}) => {
     // Convert role_metrics to display format
     const roleAssignments: RoleAssignment[] = React.useMemo(() => {
         if (!data?.role_metrics || data.role_metrics.length === 0) {
@@ -48,8 +66,8 @@ const ClaimsOwedByDepartment: React.FC<{ data?: any; onEditRole?: (role: any) =>
     return (
         <DashboardCard className="flex flex-col flex-1 h-full" padding="none" style={{ padding: 20, gap: 15 }}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                <Text variant="body-md-semibold" color="text-primary" className="font-bold">Role Assignment Status</Text>
-                <Text variant="body-sm" color="text-secondary">Across all departments</Text>
+                <Text variant="body-md-semibold" color="text-primary" className="font-bold">{title}</Text>
+                <Text variant="body-sm" color="text-secondary">{subtitle}</Text>
             </div>
             <div className="flex-1 overflow-x-auto flex flex-col">
                 <div className="flex-1 border border-tertiary rounded-[10px] overflow-hidden">
@@ -62,10 +80,10 @@ const ClaimsOwedByDepartment: React.FC<{ data?: any; onEditRole?: (role: any) =>
                         </colgroup>
                         <thead>
                             <tr className="bg-secondary border-b border-tertiary">
-                                <th className="text-left" style={{ padding: '16px 12px' }}><Text variant="body-md-semibold" color="text-primary" className="font-bold">Department</Text></th>
-                                <th className="text-left" style={{ padding: '16px 12px' }}><Text variant="body-md-semibold" color="text-primary" className="font-bold">Role Name</Text></th>
-                                <th className="text-left" style={{ padding: '16px 12px' }}><Text variant="body-md-semibold" color="text-primary" className="font-bold">Priority</Text></th>
-                                <th className="text-left" style={{ padding: '16px 12px' }}><Text variant="body-md-semibold" color="text-primary" className="font-bold">Status</Text></th>
+                                <th className="text-left" style={{ padding: '16px 12px' }}><Text variant="body-md-semibold" color="text-primary" className="font-bold">{departmentColumnLabel}</Text></th>
+                                <th className="text-left" style={{ padding: '16px 12px' }}><Text variant="body-md-semibold" color="text-primary" className="font-bold">{roleColumnLabel}</Text></th>
+                                <th className="text-left" style={{ padding: '16px 12px' }}><Text variant="body-md-semibold" color="text-primary" className="font-bold">{priorityColumnLabel}</Text></th>
+                                <th className="text-left" style={{ padding: '16px 12px' }}><Text variant="body-md-semibold" color="text-primary" className="font-bold">{statusColumnLabel}</Text></th>
                             </tr>
                         </thead>
                         <tbody>

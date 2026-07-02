@@ -12,7 +12,7 @@ import FullscreenOverlay from "@/components/fullscreen-overlay";
 
 const Chart = dynamic(() => import("react-apexcharts"), { ssr: false });
 
-const infoText = "Weekly trend of critical vs standard message volumes showing communication patterns over the last 7 days.";
+const defaultInfoText = "Weekly trend of critical vs standard message volumes showing communication patterns over the last 7 days.";
 
 export interface DailyVolumeItem {
     day: string;
@@ -25,9 +25,25 @@ interface DailyPatientFlowProps {
     isFullscreen?: boolean;
     onToggleFullscreen?: () => void;
     dailyVolume?: DailyVolumeItem[];
+    title?: string;
+    subtitle?: string;
+    infoText?: string;
+    primarySeriesLabel?: string;
+    secondarySeriesLabel?: string;
+    tooltipUnitLabel?: string;
 }
 
-const DailyPatientFlow = ({ isFullscreen = false, onToggleFullscreen, dailyVolume = [] }: DailyPatientFlowProps) => {
+const DailyPatientFlow = ({
+    isFullscreen = false,
+    onToggleFullscreen,
+    dailyVolume = [],
+    title = "Message Trends",
+    subtitle = "Critical vs standard messages — last 7 days",
+    infoText = defaultInfoText,
+    primarySeriesLabel = "Standard",
+    secondarySeriesLabel = "Critical",
+    tooltipUnitLabel = "messages",
+}: DailyPatientFlowProps) => {
     const [isHovered, setIsHovered] = useState(false);
     const { resolvedTheme } = useTheme();
     // Take last 7 days
@@ -120,18 +136,18 @@ const DailyPatientFlow = ({ isFullscreen = false, onToggleFullscreen, dailyVolum
                 fontFamily: "Montserrat",
             },
             y: {
-                formatter: (val) => `${val} messages`,
+                formatter: (val) => `${val} ${tooltipUnitLabel}`,
             },
         },
     };
 
     const chartSeries = [
         {
-            name: "Standard",
+            name: primarySeriesLabel,
             data: last7.map(d => d.standard_messages),
         },
         {
-            name: "Critical",
+            name: secondarySeriesLabel,
             data: last7.map(d => d.critical_messages),
         },
     ];
@@ -157,10 +173,10 @@ const DailyPatientFlow = ({ isFullscreen = false, onToggleFullscreen, dailyVolum
                 <div className="flex justify-between" style={{ padding: '24px 24px 0 24px' }}>
                     <div className="flex flex-col gap-1">
                         <Text variant="body-md-semibold" color="text-primary">
-                            Message Trends
+                            {title}
                         </Text>
                         <Text variant="body-sm" color="text-secondary">
-                            Critical vs standard messages — last 7 days
+                            {subtitle}
                         </Text>
                     </div>
                     <div className="flex items-center gap-2.5">
@@ -215,7 +231,7 @@ const DailyPatientFlow = ({ isFullscreen = false, onToggleFullscreen, dailyVolum
                             "transition-transform duration-300",
                             isHovered && "scale-125"
                         )} />
-                        <Text variant="body-sm" color="text-primary">Standard</Text>
+                        <Text variant="body-sm" color="text-primary">{primarySeriesLabel}</Text>
                     </div>
                     <div className={clsx(
                         "flex items-center gap-1.5 px-2 py-1 rounded-md",
@@ -227,7 +243,7 @@ const DailyPatientFlow = ({ isFullscreen = false, onToggleFullscreen, dailyVolum
                             "transition-transform duration-300",
                             isHovered && "scale-125"
                         )} />
-                        <Text variant="body-sm" color="text-primary">Critical</Text>
+                        <Text variant="body-sm" color="text-primary">{secondarySeriesLabel}</Text>
                     </div>
                 </div>
             </div>

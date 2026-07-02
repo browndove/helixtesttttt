@@ -44,7 +44,25 @@ function truncateLabel(label: string, max = 16): string {
     return `${trimmed.slice(0, max - 1)}…`;
 }
 
-export default function ImagingRadiology({ data }: { data?: any }) {
+type ImagingRadiologyProps = {
+    data?: any;
+    title?: string;
+    badgeLabel?: string;
+    signInLabel?: string;
+    signOutLabel?: string;
+    rolesLabel?: string;
+    emptyNote?: string;
+};
+
+export default function ImagingRadiology({
+    data,
+    title = "Role Sign-In / Sign-Out Averages",
+    badgeLabel = "Live",
+    signInLabel = "Average Sign-In",
+    signOutLabel = "Average Sign-Out",
+    rolesLabel = "Roles with data",
+    emptyNote = "Per-role sign-in times are not available yet. Chart shows the facility-wide average.",
+}: ImagingRadiologyProps) {
     const globalSignIn = data?.avg_sign_in_minutes_since_midnight_utc ?? 0;
     const globalSignOut = data?.avg_sign_out_minutes_since_midnight_utc ?? 0;
     const roleMetrics: RoleMetric[] = Array.isArray(data?.role_metrics) ? data.role_metrics : [];
@@ -146,29 +164,29 @@ export default function ImagingRadiology({ data }: { data?: any }) {
     return (
         <DashboardCard padding="none" className="flex flex-col gap-3" style={{ height: 360, padding: 18 }}>
             <div className="flex items-center justify-between">
-                <Text variant="body-md-semibold" color="text-primary">Role Sign-In / Sign-Out Averages</Text>
+                <Text variant="body-md-semibold" color="text-primary">{title}</Text>
                 <div className="rounded-full bg-accent-primary/10 px-2 py-0.5">
-                    <Text variant="body-sm" color="accent-primary">Live</Text>
+                    <Text variant="body-sm" color="accent-primary">{badgeLabel}</Text>
                 </div>
             </div>
 
             <div className="flex items-center gap-3">
                 <div className="rounded-[8px] bg-secondary" style={{ padding: "8px 12px" }}>
-                    <Text variant="body-sm" color="text-secondary">Average Sign-In</Text>
+                    <Text variant="body-sm" color="text-secondary">{signInLabel}</Text>
                     <div className="flex items-center gap-2">
                         <Text variant="body-md-semibold" color="text-primary">{formatClock(globalSignIn, true)}</Text>
                         <IoCheckmarkCircle className="text-accent-green" />
                     </div>
                 </div>
                 <div className="rounded-[8px] bg-secondary" style={{ padding: "8px 12px" }}>
-                    <Text variant="body-sm" color="text-secondary">Average Sign-Out</Text>
+                    <Text variant="body-sm" color="text-secondary">{signOutLabel}</Text>
                     <div className="flex items-center gap-2">
                         <Text variant="body-md-semibold" color="text-primary">{formatClock(globalSignOut, true)}</Text>
                         <IoTrailSign className="text-text-secondary" />
                     </div>
                 </div>
                 <div className="rounded-[8px] bg-secondary" style={{ padding: "8px 12px" }}>
-                    <Text variant="body-sm" color="text-secondary">Roles with data</Text>
+                    <Text variant="body-sm" color="text-secondary">{rolesLabel}</Text>
                     <div className="flex items-center gap-2">
                         <Text variant="body-md-semibold" color="text-primary">
                             {rolesWithData.length > 0 ? rolesWithData.length : "—"}
@@ -179,7 +197,7 @@ export default function ImagingRadiology({ data }: { data?: any }) {
 
             {useFacilityAverage && (
                 <Text variant="body-sm" color="text-secondary">
-                    Per-role sign-in times are not available yet. Chart shows the facility-wide average.
+                    {emptyNote}
                 </Text>
             )}
 

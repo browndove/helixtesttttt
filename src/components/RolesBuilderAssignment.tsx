@@ -79,6 +79,29 @@ function extractPolicies(raw: unknown): Policy[] {
     return Array.isArray(list) ? (list as Policy[]) : [];
 }
 
+/** List policies often omit steps; fetch by-role so ladder levels survive reload. */
+async function hydrateEscalationPolicySteps(policies: Policy[]): Promise<Policy[]> {
+    if (policies.length === 0) return policies;
+    return Promise.all(policies.map(async (policy) => {
+        if (Array.isArray(policy.steps) && policy.steps.length > 0) return policy;
+        const roleId = String(policy.role_id || '').trim();
+        if (!roleId) return policy;
+        try {
+            const res = await fetch(`/api/proxy/escalation-policies/by-role/${roleId}`);
+            if (!res.ok) return policy;
+            const detail = await res.json();
+            const steps = Array.isArray(detail?.steps) ? detail.steps as Policy['steps'] : policy.steps;
+            return {
+                ...policy,
+                steps,
+                initial_timeout_seconds: detail?.initial_timeout_seconds ?? policy.initial_timeout_seconds,
+            };
+        } catch {
+            return policy;
+        }
+    }));
+}
+
 type RoutingRule = {
     id: string;
     label: string;
@@ -815,6 +838,12 @@ export default function RolesBuilderAssignment() {
                 } catch { /* best effort */ }
             }
 
+            let policiesForIngest: unknown = policiesJson;
+            if (policiesRes.ok && policiesJson != null) {
+                const hydratedPolicies = await hydrateEscalationPolicySteps(extractPolicies(policiesJson));
+                policiesForIngest = hydratedPolicies;
+            }
+
             ingestRolesPagePayloads(
                 {
                     roles: rolesRes.ok,
@@ -825,7 +854,7 @@ export default function RolesBuilderAssignment() {
                 {
                     roles: rolesJson,
                     departments: deptsJson,
-                    policies: policiesJson,
+                    policies: policiesForIngest,
                     staff: staffJson,
                     facility: facilityJson,
                 },
@@ -833,7 +862,7 @@ export default function RolesBuilderAssignment() {
 
             if (rolesRes.ok && rolesJson != null) writeCachedJson(ROLES_CACHE_ROLES, rolesJson);
             if (deptsRes.ok && deptsJson != null) writeCachedJson(ROLES_CACHE_DEPTS, deptsJson);
-            if (policiesRes.ok && policiesJson != null) writeCachedJson(ROLES_CACHE_POLICIES, policiesJson);
+            if (policiesRes.ok && policiesForIngest != null) writeCachedJson(ROLES_CACHE_POLICIES, policiesForIngest);
             if (staffFetch.ok && staffJson != null) writeCachedJson(ROLES_CACHE_STAFF, staffJson);
             if (hospitalRes.ok && hospitalJson != null) writeCachedJson(ROLES_CACHE_HOSPITAL, hospitalJson);
             if (facilityJson != null && hospitalJson && typeof hospitalJson === 'object') {
@@ -1630,7 +1659,9 @@ export default function RolesBuilderAssignment() {
                         });
                         if (existingPolicy.steps) {
                             for (const step of existingPolicy.steps) {
-                                await fetch(`/api/proxy/escalation-policies/${policyId}/steps/${step.id}`, { method: 'DELETE' });
+                                if (step.id) {
+                                    await fetch(`/api/proxy/escalation-policies/${policyId}/steps/${step.id}`, { method: 'DELETE' });
+                                }
                             }
                         }
                     }

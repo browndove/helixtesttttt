@@ -23,6 +23,9 @@ export interface DepartmentMetricItem {
 
 interface ServiceDistributionProps {
     departments?: DepartmentMetricItem[];
+    title?: string;
+    subtitle?: string;
+    infoText?: string;
 }
 
 const STYLES: { color: string; bgColor: string; bubbleBg: string; textColor: keyof typeof tailwindTextColors; hexColor: string }[] = [
@@ -31,7 +34,12 @@ const STYLES: { color: string; bgColor: string; bubbleBg: string; textColor: key
     { color: "bg-accent-primary", bgColor: "bg-[rgba(41,128,211,0.1)]", bubbleBg: "bg-[rgba(36,132,199,0.2)]", textColor: "accent-primary", hexColor: "#2484c7" },
 ];
 
-const ServiceDistribution = ({ departments = [] }: ServiceDistributionProps) => {
+const ServiceDistribution = ({
+    departments = [],
+    title = 'Role Coverage',
+    subtitle = 'Critical & standard role fill rates',
+    infoText: infoTextProp = infoText,
+}: ServiceDistributionProps) => {
     const [isHovered, setIsHovered] = useState(false);
     const [bubblesVisible, setBubblesVisible] = useState(false);
     const [legendVisible, setLegendVisible] = useState<number[]>([]);
@@ -61,7 +69,7 @@ const ServiceDistribution = ({ departments = [] }: ServiceDistributionProps) => 
     return (
         <div
             className={clsx(
-                "bg-primary rounded-[15px] flex flex-col items-between h-fit w-full gap-4 shadow-soft",
+                "bg-primary rounded-[15px] flex flex-col items-between h-full min-h-[250px] w-full gap-4 shadow-soft",
                 "transition-all duration-500",
                 isHovered && "shadow-[0_8px_30px_rgba(0,0,0,0.1)]"
             )}
@@ -72,14 +80,14 @@ const ServiceDistribution = ({ departments = [] }: ServiceDistributionProps) => 
             <div className="flex justify-between">
                 <div className="flex flex-col gap-1">
                     <Text variant="body-md-semibold" color="text-primary">
-                        Role Coverage
+                        {title}
                     </Text>
                     <Text variant="body-sm" color="text-secondary">
-                        Critical & standard role fill rates
+                        {subtitle}
                     </Text>
                 </div>
                 <div className="flex items-center gap-2">
-                    <InfoTooltip text={infoText} show={isHovered} />
+                    <InfoTooltip text={infoTextProp} show={isHovered} />
                     <button
                         onClick={() => setModalOpen(true)}
                         className={clsx(
@@ -96,7 +104,7 @@ const ServiceDistribution = ({ departments = [] }: ServiceDistributionProps) => 
 
             <div className="flex min-w-0 w-full flex-1 flex-col items-stretch gap-8 min-[900px]:flex-row min-[900px]:items-center min-[900px]:justify-between min-[900px]:gap-6">
                 {/* Left side - Chart visualization */}
-                <div className="mx-auto flex h-[180px] w-full max-w-[220px] shrink-0 flex-col gap-2.5 overflow-x-auto min-[900px]:mx-0">
+                <div className="mx-auto flex h-[180px] w-full max-w-[220px] shrink-0 flex-col gap-2.5 overflow-hidden min-[900px]:mx-0">
                     {/* Bubble chart visualization */}
                     <div className="relative flex-1">
                         {/* Large bubble */}

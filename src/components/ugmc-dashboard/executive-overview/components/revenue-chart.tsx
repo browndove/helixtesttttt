@@ -13,7 +13,7 @@ import FullscreenOverlay from "@/components/fullscreen-overlay";
 
 const Chart = dynamic(() => import("react-apexcharts"), { ssr: false });
 
-const infoText = "Daily message volume breakdown showing total, critical, and standard messages over the selected time period.";
+const defaultInfoText = "Daily message volume breakdown showing total, critical, and standard messages over the selected time period.";
 
 export interface DailyMessageVolumeItem {
     day: string;
@@ -33,9 +33,26 @@ interface RevenueChartProps {
     onToggleFullscreen?: () => void;
     isHovered?: boolean;
     dailyVolume?: DailyMessageVolumeItem[];
+    title?: string;
+    infoText?: string;
+    seriesName?: string;
+    valueKey?: "total_messages" | "critical_messages" | "standard_messages";
+    fixedPeriod?: "7d" | "14d" | "30d";
+    hidePeriodSelector?: boolean;
 }
 
-const RevenueChart = ({ isFullscreen = false, onToggleFullscreen, isHovered = false, dailyVolume = [] }: RevenueChartProps) => {
+const RevenueChart = ({
+    isFullscreen = false,
+    onToggleFullscreen,
+    isHovered = false,
+    dailyVolume = [],
+    title = "Daily Message Volume",
+    infoText = defaultInfoText,
+    seriesName = "Total Messages",
+    valueKey = "total_messages",
+    fixedPeriod,
+    hidePeriodSelector = false,
+}: RevenueChartProps) => {
     const { resolvedTheme } = useTheme();
     const [period, setPeriod] = useState("7d");
 
@@ -52,7 +69,8 @@ const RevenueChart = ({ isFullscreen = false, onToggleFullscreen, isHovered = fa
     }, [isFullscreen]);
 
     // Slice daily volume based on selected period
-    const periodDays = period === "30d" ? 30 : period === "14d" ? 14 : 7;
+    const selectedPeriod = fixedPeriod || period;
+    const periodDays = selectedPeriod === "30d" ? 30 : selectedPeriod === "14d" ? 14 : 7;
     const volKey = JSON.stringify(dailyVolume);
     const sliced = useMemo(() => dailyVolume.slice(-periodDays),
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -65,7 +83,7 @@ const RevenueChart = ({ isFullscreen = false, onToggleFullscreen, isHovered = fa
 
     // Limit visible x-axis labels
     const tickAmount = periodDays <= 7 ? undefined : periodDays <= 14 ? 7 : 6;
-    const totalData = sliced.map(d => d.total_messages);
+    const totalData = sliced.map(d => d[valueKey]);
 
     const chartOptions: ApexCharts.ApexOptions = {
         chart: {
@@ -151,14 +169,14 @@ const RevenueChart = ({ isFullscreen = false, onToggleFullscreen, isHovered = fa
                 fontFamily: "Montserrat",
             },
             y: {
-                formatter: (val) => `${val.toLocaleString()} messages`,
+                formatter: (val) => `${val.toLocaleString()}`,
             },
         },
     };
 
     const chartSeries = [
         {
-            name: "Total Messages",
+            name: seriesName,
             data: totalData,
         },
     ];
@@ -181,16 +199,18 @@ const RevenueChart = ({ isFullscreen = false, onToggleFullscreen, isHovered = fa
                 {/* Header */}
                 <div className="flex justify-between" style={{ padding: '24px 24px 0 24px' }}>
                     <Text variant="body-md-semibold" color="text-primary">
-                        Daily Message Volume
+                        {title}
                     </Text>
                     <div className="flex items-center gap-2.5">
                         {/* Period Dropdown */}
-                        <Dropdown
-                            options={periodOptions}
-                            value={period}
-                            onChange={setPeriod}
-                            triggerClassName="!h-[33px] !px-2.5 !rounded-[10px] border border-tertiary !shadow-input"
-                        />
+                        {!hidePeriodSelector && !fixedPeriod && (
+                            <Dropdown
+                                options={periodOptions}
+                                value={period}
+                                onChange={setPeriod}
+                                triggerClassName="!h-[33px] !px-2.5 !rounded-[10px] border border-tertiary !shadow-input"
+                            />
+                        )}
                         {/* Expand/Contract button */}
                         {onToggleFullscreen && (
                             <div

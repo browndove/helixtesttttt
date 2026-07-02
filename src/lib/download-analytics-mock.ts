@@ -6,15 +6,24 @@ export interface DownloadAnalyticsData {
     total_installs: number;
     active_devices: number;
     avg_rating: number;
+    rating_count: number;
     review_count: number;
     crash_free_rate_percent: number;
     install_conversion_percent: number;
-    daily_downloads: { day: string; downloads: number; installs: number; updates: number }[];
+    total_play_installs: number;
+    daily_downloads: { day: string; downloads: number; installs: number; updates: number; play_installs?: number }[];
     version_breakdown: { version: string; installs: number; share_percent: number }[];
     crash_reports: { type: string; count: number }[];
     diagnostics: { issue: string; count: number }[];
     reviews: { author: string; rating: number; comment: string; date: string }[];
-    regions: { region: string; downloads: number; installs: number; share_percent: number }[];
+    regions: {
+        region: string;
+        downloads: number;
+        installs: number;
+        share_percent: number;
+        ios_installs?: number;
+        android_installs?: number;
+    }[];
     devices: { model: string; os: string; count: number; share_percent: number }[];
     os_split: { os: string; count: number; share_percent: number }[];
 }
@@ -31,15 +40,17 @@ export const MOCK_DOWNLOAD_ANALYTICS: DownloadAnalyticsData = {
     total_installs: 9320,
     active_devices: 6840,
     avg_rating: 4.6,
+    rating_count: 218,
     review_count: 218,
     crash_free_rate_percent: 99.2,
     install_conversion_percent: 74.7,
+    total_play_installs: 0,
     daily_downloads: Array.from({ length: 30 }, (_, i) => {
         const day = daysAgo(29 - i);
         const downloads = 320 + Math.round(Math.sin(i / 3) * 80) + (i % 7 === 0 ? 120 : 0);
         const installs = Math.round(downloads * (0.68 + (i % 5) * 0.02));
         const updates = Math.round(installs * 0.12);
-        return { day, downloads, installs, updates };
+        return { day, downloads, installs, updates, play_installs: 0 };
     }),
     version_breakdown: [
         { version: '2.4.1', installs: 4120, share_percent: 44.2 },

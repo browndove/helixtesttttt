@@ -5,9 +5,8 @@ import clsx from 'clsx';
 import { createContext, useContext, useState } from 'react';
 import { MdSpaceDashboard } from 'react-icons/md';
 import { FaDownload } from 'react-icons/fa6';
-import { TiWarning } from 'react-icons/ti';
 
-export type DownloadsDashboardTab = 'overview' | 'acquisition' | 'audience';
+export type DownloadsDashboardTab = 'overview' | 'acquisition';
 
 export const SIDEBAR_EXPANDED_WIDTH = 243;
 export const SIDEBAR_DOCKED_WIDTH = 58;
@@ -47,7 +46,6 @@ type MenuItem = {
 const menuItems: MenuItem[] = [
     { id: 'overview', name: 'Overview', icon: MdSpaceDashboard, iconSize: 15 },
     { id: 'acquisition', name: 'Acquisition & Stability', icon: FaDownload, iconSize: 15 },
-    { id: 'audience', name: 'Emergency & Critical Care', icon: TiWarning, iconSize: 17 },
 ];
 
 const SidebarHeader = ({ isDocked, onDockToggle }: { isDocked: boolean; onDockToggle: () => void }) => {

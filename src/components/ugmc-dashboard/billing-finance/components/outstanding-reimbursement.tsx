@@ -5,21 +5,36 @@ import Text from "@/components/text";
 import DashboardCard from "@/components/ugmc-dashboard/shared/dashboard-card";
 import FullscreenOverlay from "@/components/fullscreen-overlay";
 
-type DeptCoverageData = {
+export type RegionalCoverageItem = {
     name: string;
-    outstanding: number;
-    paid: number;
-    total: number;
+    gap: number;
+    installs: number;
+    downloads: number;
 };
 
-const deptCoverageData: DeptCoverageData[] = [
-    { name: "Emergency", outstanding: 3, paid: 12, total: 15 },
-    { name: "Surgery", outstanding: 2, paid: 16, total: 18 },
-    { name: "Diagnostics", outstanding: 4, paid: 10, total: 14 },
-    { name: "Outpatient", outstanding: 1, paid: 9, total: 10 },
-    { name: "Medicine", outstanding: 3, paid: 8, total: 11 },
-    { name: "Pharmacy", outstanding: 1, paid: 7, total: 8 },
+export type RegionalPlatformItem = {
+    name: string;
+    ios: number;
+    android: number;
+};
+
+const defaultCoverageData: RegionalCoverageItem[] = [
+    { name: "Emergency", gap: 3, installs: 12, downloads: 15 },
+    { name: "Surgery", gap: 2, installs: 16, downloads: 18 },
+    { name: "Diagnostics", gap: 4, installs: 10, downloads: 14 },
+    { name: "Outpatient", gap: 1, installs: 9, downloads: 10 },
+    { name: "Medicine", gap: 3, installs: 8, downloads: 11 },
+    { name: "Pharmacy", gap: 1, installs: 7, downloads: 8 },
 ];
+
+function axisTicks(maxValue: number): number[] {
+    if (maxValue <= 0) return [0];
+    const step = maxValue <= 20 ? 4 : Math.ceil(maxValue / 5 / 10) * 10;
+    const ticks: number[] = [0];
+    for (let v = step; v < maxValue; v += step) ticks.push(v);
+    ticks.push(Math.ceil(maxValue));
+    return ticks;
+}
 
 const MaximizeIcon = () => (
     <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16" fill="none">
@@ -34,87 +49,172 @@ const CloseIcon = () => (
     </svg>
 );
 
-const OutstandingReimbursement: React.FC = () => {
+const OutstandingReimbursement: React.FC<{
+    title?: string;
+    subtitle?: string;
+    badgeLabel?: string;
+    items?: RegionalCoverageItem[];
+    platformItems?: RegionalPlatformItem[];
+    gapLegendLabel?: string;
+    installsLegendLabel?: string;
+}> = ({
+    title = "Dept. Coverage & Escalations",
+    subtitle = "Filled vs Unfilled Roles by Department",
+    badgeLabel = "Unfilled",
+    items,
+    platformItems,
+    gapLegendLabel = "Unfilled",
+    installsLegendLabel = "Filled",
+}) => {
+    const isPlatformMode = platformItems !== undefined;
+
+    const coverageData = React.useMemo(
+        () => (items && items.length > 0 ? items : defaultCoverageData),
+        [items],
+    );
+
+    const platformData = React.useMemo(
+        () => (platformItems ?? []).filter((item) => item.ios > 0 || item.android > 0).slice(0, 6),
+        [platformItems],
+    );
+
     const [isMaximized, setIsMaximized] = React.useState(false);
-    const [animatedBars, setAnimatedBars] = React.useState(deptCoverageData.map(() => ({ outstanding: 0, paid: 0 })));
+    const [animatedBars, setAnimatedBars] = React.useState<{ primary: number; secondary: number }[]>([]);
     const [animatedTotal, setAnimatedTotal] = React.useState(0);
     const [isVisible, setIsVisible] = React.useState(false);
 
-    const maxValue = Math.max(...deptCoverageData.map(i => i.total));
-    const totalUnfilled = deptCoverageData.reduce((sum, i) => sum + i.outstanding, 0);
+    const chartRows = isPlatformMode ? platformData : coverageData;
+    const maxValue = isPlatformMode
+        ? Math.max(...platformData.map((item) => item.ios + item.android), 1)
+        : Math.max(...coverageData.map((i) => Math.max(i.downloads, i.gap + i.installs)), 1);
+    const totalBadge = isPlatformMode
+        ? platformData.reduce((sum, item) => sum + item.android, 0)
+        : coverageData.reduce((sum, i) => sum + i.gap, 0);
+    const scaleTicks = React.useMemo(() => axisTicks(maxValue), [maxValue]);
 
     React.useEffect(() => { setIsVisible(true); }, []);
 
     React.useEffect(() => {
-        if (!isVisible) return;
+        setAnimatedBars(chartRows.map(() => ({ primary: 0, secondary: 0 })));
+        setAnimatedTotal(0);
+    }, [chartRows]);
+
+    React.useEffect(() => {
+        if (!isVisible || chartRows.length === 0) return;
         const duration = 2500;
         const startTime = Date.now();
         const animate = () => {
             const elapsed = Date.now() - startTime;
             const progress = Math.min(elapsed / duration, 1);
             const eased = 1 - Math.pow(1 - progress, 3);
-            setAnimatedBars(deptCoverageData.map(item => ({ outstanding: (item.outstanding / maxValue) * 100 * eased, paid: (item.paid / maxValue) * 100 * eased })));
-            setAnimatedTotal(Math.round(totalUnfilled * eased));
-            if (progress < 1) requestAnimationFrame(animate);
-            else { setAnimatedBars(deptCoverageData.map(item => ({ outstanding: (item.outstanding / maxValue) * 100, paid: (item.paid / maxValue) * 100 }))); setAnimatedTotal(totalUnfilled); }
+            setAnimatedBars(chartRows.map((item) => {
+                if (isPlatformMode) {
+                    const row = item as RegionalPlatformItem;
+                    return {
+                        primary: (row.ios / maxValue) * 100 * eased,
+                        secondary: (row.android / maxValue) * 100 * eased,
+                    };
+                }
+                const row = item as RegionalCoverageItem;
+                return {
+                    primary: (row.gap / maxValue) * 100 * eased,
+                    secondary: (row.installs / maxValue) * 100 * eased,
+                };
+            }));
+            setAnimatedTotal(Math.round(totalBadge * eased));
+            if (progress < 1) {
+                requestAnimationFrame(animate);
+            } else {
+                setAnimatedBars(chartRows.map((item) => {
+                    if (isPlatformMode) {
+                        const row = item as RegionalPlatformItem;
+                        return {
+                            primary: (row.ios / maxValue) * 100,
+                            secondary: (row.android / maxValue) * 100,
+                        };
+                    }
+                    const row = item as RegionalCoverageItem;
+                    return {
+                        primary: (row.gap / maxValue) * 100,
+                        secondary: (row.installs / maxValue) * 100,
+                    };
+                }));
+                setAnimatedTotal(totalBadge);
+            }
         };
         requestAnimationFrame(animate);
-    }, [isVisible, maxValue, totalUnfilled]);
+    }, [isVisible, maxValue, totalBadge, chartRows, isPlatformMode]);
+
+    const primaryLegend = isPlatformMode ? "iOS" : gapLegendLabel;
+    const secondaryLegend = isPlatformMode ? "Android" : installsLegendLabel;
+    const primaryColor = isPlatformMode ? "bg-accent-primary" : "bg-accent-red";
+    const secondaryColor = isPlatformMode ? "bg-accent-green" : "bg-accent-green";
 
     const chartContent = (isModal: boolean = false) => (
         <>
-            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                    <Text variant={isModal ? "body-lg-semibold" : "body-md-semibold"} color="text-primary" className="font-bold">Dept. Coverage & Escalations</Text>
-                    <Text variant="body-sm" color="text-secondary">Filled vs Unfilled Roles by Department</Text>
+            <div className="flex items-start justify-between gap-3">
+                <div className="flex min-w-0 flex-col gap-1">
+                    <Text variant={isModal ? "body-lg-semibold" : "body-md-semibold"} color="text-primary" className="font-bold">{title}</Text>
+                    <Text variant="body-sm" color="text-secondary">{subtitle}</Text>
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                    <div className="bg-accent-primary/10 rounded-[5px] whitespace-nowrap" style={{ padding: '4px 7px' }}>
-                        <Text variant="body-md-semibold" color="accent-primary"><span className="tabular-nums">{animatedTotal}</span> Unfilled</Text>
+                <div className="flex shrink-0 items-center gap-2">
+                    <div className="rounded-[5px] bg-accent-primary/10 whitespace-nowrap px-[7px] py-1">
+                        <Text variant="body-md-semibold" color="accent-primary">
+                            <span className="tabular-nums">{animatedTotal}</span> {badgeLabel}
+                        </Text>
                     </div>
                     {!isModal && (
-                        <button onClick={() => setIsMaximized(true)} className="flex items-center justify-center size-[30px] bg-secondary rounded-[10px] cursor-pointer hover:bg-tertiary transition-colors" title="Maximize"><MaximizeIcon /></button>
+                        <button onClick={() => setIsMaximized(true)} className="flex size-[30px] cursor-pointer items-center justify-center rounded-[10px] bg-secondary transition-colors hover:bg-tertiary" title="Maximize"><MaximizeIcon /></button>
                     )}
                     {isModal && (
-                        <button onClick={() => setIsMaximized(false)} className="flex items-center justify-center size-[30px] bg-secondary rounded-[10px] cursor-pointer hover:bg-tertiary transition-colors" title="Close"><CloseIcon /></button>
+                        <button onClick={() => setIsMaximized(false)} className="flex size-[30px] cursor-pointer items-center justify-center rounded-[10px] bg-secondary transition-colors hover:bg-tertiary" title="Close"><CloseIcon /></button>
                     )}
                 </div>
             </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 15 }}>
-                {deptCoverageData.map((dept, index) => (
-                    <div key={dept.name} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                        <Text variant="body-sm" color="text-secondary" className="w-[120px] shrink-0">{dept.name}</Text>
-                        <div className="flex-1 h-[30px] rounded-[5px] overflow-hidden flex">
-                            <div className="h-full bg-accent-red shrink-0 rounded-l-[5px] transition-all duration-100" style={{ width: `${animatedBars[index]?.outstanding || 0}%` }} />
-                            <div className="h-full bg-accent-green shrink-0 rounded-r-[5px] transition-all duration-100" style={{ width: `${animatedBars[index]?.paid || 0}%` }} />
+
+            {chartRows.length === 0 ? (
+                <div className="flex min-h-[120px] items-center justify-center rounded-[10px] bg-secondary/40 px-4 py-6 text-center">
+                    <Text variant="body-sm" color="text-secondary">No regional data available.</Text>
+                </div>
+            ) : (
+                <>
+                    <div className="flex flex-col gap-[15px]">
+                        {chartRows.map((row, index) => (
+                            <div key={row.name} className="flex items-center gap-[10px]">
+                                <Text variant="body-sm" color="text-secondary" className="w-[120px] shrink-0 truncate" title={row.name}>{row.name}</Text>
+                                <div className="flex h-[30px] flex-1 overflow-hidden rounded-[5px] bg-secondary/40">
+                                    <div className={`h-full shrink-0 rounded-l-[5px] transition-all duration-100 ${primaryColor}`} style={{ width: `${animatedBars[index]?.primary || 0}%` }} />
+                                    <div className={`h-full shrink-0 rounded-r-[5px] transition-all duration-100 ${secondaryColor}`} style={{ width: `${animatedBars[index]?.secondary || 0}%` }} />
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                    <div className="ml-[130px] flex justify-between">
+                        {scaleTicks.map((val) => (
+                            <Text key={val} variant="body-xs" color="text-tertiary">{val >= 1000 ? `${(val / 1000).toFixed(1)}K` : val}</Text>
+                        ))}
+                    </div>
+                    <div className="flex items-center justify-center gap-5 pt-2">
+                        <div className="flex items-center gap-[5px]">
+                            <div className={`h-[10px] w-[10px] rounded-[2px] ${primaryColor}`} />
+                            <Text variant="body-sm" color="text-primary">{primaryLegend}</Text>
+                        </div>
+                        <div className="flex items-center gap-[5px]">
+                            <div className={`h-[10px] w-[10px] rounded-[2px] ${secondaryColor}`} />
+                            <Text variant="body-sm" color="text-primary">{secondaryLegend}</Text>
                         </div>
                     </div>
-                ))}
-            </div>
-            <div className="flex justify-between ml-[130px]">
-                {[0, 4, 8, 12, 16, 20].map((val) => (
-                    <Text key={val} variant="body-xs" color="text-tertiary">{val}</Text>
-                ))}
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 20, paddingTop: 8 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                    <div className="w-[10px] h-[10px] rounded-[2px] bg-accent-red" />
-                    <Text variant="body-sm" color="text-primary">Unfilled</Text>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                    <div className="w-[10px] h-[10px] rounded-[2px] bg-accent-green" />
-                    <Text variant="body-sm" color="text-primary">Filled</Text>
-                </div>
-            </div>
+                </>
+            )}
         </>
     );
 
     return (
         <>
-            <DashboardCard className="flex flex-col flex-1" padding="none" style={{ padding: 20, gap: 15 }}>{chartContent(false)}</DashboardCard>
+            <DashboardCard className="flex flex-1 flex-col" padding="none" style={{ padding: 20, gap: 15 }}>{chartContent(false)}</DashboardCard>
             {isMaximized && (
                 <FullscreenOverlay onClose={() => setIsMaximized(false)}>
-                    <div className="bg-primary rounded-[20px] w-full max-w-5xl max-h-[90vh] overflow-auto flex flex-col shadow-2xl" style={{ padding: 24, gap: 15 }}>
+                    <div className="flex max-h-[90vh] w-full max-w-5xl flex-col overflow-auto rounded-[20px] bg-primary shadow-2xl" style={{ padding: 24, gap: 15 }}>
                         {chartContent(true)}
                     </div>
                 </FullscreenOverlay>

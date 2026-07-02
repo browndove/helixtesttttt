@@ -22,7 +22,10 @@
 
 # misc
 .DS_Store
-*.pem
+# credentials (do not commit)
+AuthKey_*.p8
+eastern-entity-*.json
+play-reports/
 
 # debug
 npm-debug.log*

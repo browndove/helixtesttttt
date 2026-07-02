@@ -36,7 +36,25 @@ function fmtMin(minutes: number | undefined | null): string {
 
 type ResponseMetric = { name: string; description: string; value: string };
 
-const SubscriptionSpend: React.FC<{ data?: Record<string, unknown> }> = ({ data }) => {
+const SubscriptionSpend: React.FC<{
+    data?: Record<string, unknown>;
+    title?: string;
+    subtitle?: string;
+    highlightLabel?: string;
+    highlightValue?: string;
+    metrics?: ResponseMetric[];
+    insightText?: string;
+    metricVariant?: 'time' | 'count';
+}> = ({
+    data,
+    title = "Response Time by Priority",
+    subtitle = "Facility averages · current window",
+    highlightLabel = "Average Critical Acknowledgment",
+    highlightValue,
+    metrics: metricsOverride,
+    insightText,
+    metricVariant = 'time',
+}) => {
     const root = (data?.data && typeof data.data === "object" && !Array.isArray(data.data)
         ? (data.data as Record<string, unknown>)
         : data) as Record<string, unknown> | undefined;
@@ -52,7 +70,7 @@ const SubscriptionSpend: React.FC<{ data?: Record<string, unknown> }> = ({ data 
     const calls = pickNum(root, "total_calls_made");
 
     const responseMetrics: ResponseMetric[] = React.useMemo(
-        () => [
+        () => metricsOverride ?? [
             {
                 name: "Average Critical Acknowledgment Time",
                 description: "Time to acknowledge critical messages",
@@ -79,10 +97,12 @@ const SubscriptionSpend: React.FC<{ data?: Record<string, unknown> }> = ({ data 
                 value: calls !== undefined ? String(Math.round(calls)) : "—",
             },
         ],
-        [ack, replyAll, replyCritical, replyStandard, calls]
+        [metricsOverride, ack, replyAll, replyCritical, replyStandard, calls],
     );
 
-    const insight = React.useMemo(() => {
+    const highlightDisplay = highlightValue ?? (metricVariant === 'count' ? '—' : fmtMin(ack));
+
+    const defaultInsight = React.useMemo(() => {
         const a = ack ?? NaN;
         const s = replyStandard ?? NaN;
         const all = replyAll ?? NaN;
@@ -95,26 +115,28 @@ const SubscriptionSpend: React.FC<{ data?: Record<string, unknown> }> = ({ data 
         return "Response times reflect messaging activity in the selected date range.";
     }, [ack, replyStandard, replyAll]);
 
+    const insight = insightText ?? defaultInsight;
+
     return (
         <DashboardCard className="flex flex-col flex-1" padding="none" style={{ padding: 20, gap: 12, height: 680 }}>
             <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                    <Text variant="body-md-semibold" color="text-primary" className="font-bold">Response Time by Priority</Text>
-                    <Text variant="body-sm" color="text-secondary">Facility averages · current window</Text>
+                    <Text variant="body-md-semibold" color="text-primary" className="font-bold">{title}</Text>
+                    <Text variant="body-sm" color="text-secondary">{subtitle}</Text>
                 </div>
             </div>
             <div className="bg-secondary rounded-[10px] flex flex-col items-center" style={{ padding: 12, gap: 8 }}>
-                <Text variant="body-md-semibold" color="text-secondary">Average Critical Acknowledgment</Text>
-                <span className="text-[32px] font-bold text-[#2980D3] tabular-nums">{fmtMin(ack)}</span>
+                <Text variant="body-md-semibold" color="text-secondary">{highlightLabel}</Text>
+                <span className="text-[32px] font-bold text-[#2980D3] tabular-nums">{highlightDisplay}</span>
             </div>
             <div className="flex-1" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                 {responseMetrics.map((metric, index) => (
-                    <React.Fragment key={metric.name}>
+                    <React.Fragment key={`${metric.name}-${index}`}>
                         <div className="flex items-start justify-between gap-3">
                             <div className="flex-1 min-w-0" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                                 <Text variant="body-md-semibold" color="text-primary">{metric.name}</Text>
                                 <div className="bg-tertiary border border-tertiary rounded-[4px] w-fit text-[#587081]" style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 8px' }}>
-                                    <ClockIcon />
+                                    {metricVariant === 'time' ? <ClockIcon /> : null}
                                     <Text variant="body-sm" color="text-secondary" className="font-medium whitespace-nowrap">{metric.description}</Text>
                                 </div>
                             </div>
@@ -126,11 +148,13 @@ const SubscriptionSpend: React.FC<{ data?: Record<string, unknown> }> = ({ data 
                     </React.Fragment>
                 ))}
             </div>
-            <div className="bg-[#2980D31A] border border-[#2980D333] rounded-[10px]" style={{ padding: 10 }}>
-                <Text variant="body-md" color="none" style={{ color: "#2980D3" }} className="font-medium">
-                    {insight}
-                </Text>
-            </div>
+            {insight ? (
+                <div className="bg-[#2980D31A] border border-[#2980D333] rounded-[10px]" style={{ padding: 10 }}>
+                    <Text variant="body-md" color="none" style={{ color: "#2980D3" }} className="font-medium">
+                        {insight}
+                    </Text>
+                </div>
+            ) : null}
         </DashboardCard>
     );
 };

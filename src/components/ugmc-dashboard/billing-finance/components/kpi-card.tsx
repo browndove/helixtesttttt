@@ -11,7 +11,7 @@ type TrendType = "up" | "down" | "neutral";
 type KPICardProps = {
     title: string;
     value: string;
-    subtitle: string;
+    subtitle?: React.ReactNode;
     trend?: {
         type: TrendType;
         value: string;
@@ -112,10 +112,16 @@ const KPICard: React.FC<KPICardProps> = ({ title, value, subtitle, trend, indica
                     )}
                 </div>
             </div>
-            <div className="border-t-2 border-dashed border-tertiary w-full flex-shrink-0" style={{ marginTop: 28 }} />
-            <Text variant="body-md" color="text-secondary" className="break-words overflow-wrap-anywhere leading-tight flex-shrink" style={{ marginTop: 12 }}>
-                {subtitle}
-            </Text>
+            <div className="w-full flex-shrink-0 border-t-2 border-dashed border-tertiary" style={{ marginTop: 28 }} />
+            {subtitle ? (
+                <div className="w-full flex-shrink leading-tight" style={{ marginTop: 12 }}>
+                    {typeof subtitle === 'string' ? (
+                        <Text variant="body-md" color="text-secondary" className="break-words overflow-wrap-anywhere">
+                            {subtitle}
+                        </Text>
+                    ) : subtitle}
+                </div>
+            ) : null}
         </DashboardCard>
     );
 };

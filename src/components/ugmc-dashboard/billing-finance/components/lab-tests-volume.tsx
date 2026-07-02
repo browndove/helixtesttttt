@@ -34,7 +34,27 @@ function dateKey(date: Date): string {
     return `${y}-${m}-${d}`;
 }
 
-export default function LabTestsVolume({ data }: { data?: any }) {
+type LabTestsVolumeProps = {
+    data?: any;
+    title?: string;
+    weeklyTitle?: string;
+    seriesName?: string;
+    primaryStatLabel?: string;
+    secondaryStatLabel?: string;
+    primaryStatValue?: string;
+    secondaryStatValue?: string;
+};
+
+export default function LabTestsVolume({
+    data,
+    title = "Standard Messages by Day",
+    weeklyTitle = "Standard Messages by Week",
+    seriesName,
+    primaryStatLabel = "Average Response Time",
+    secondaryStatLabel = "Latest Day Standard Messages",
+    primaryStatValue,
+    secondaryStatValue,
+}: LabTestsVolumeProps) {
     const dailyVolume = Array.isArray(data?.daily_message_volume) ? data.daily_message_volume : [];
     const parsedDaily = dailyVolume
         .map((d: any) => ({
@@ -150,26 +170,27 @@ export default function LabTestsVolume({ data }: { data?: any }) {
         legend: { show: false },
     };
 
-    const series = [{ name: useWeekly ? "Weekly Standard Messages" : "Daily Standard Messages", data: standardSeries }];
+    const defaultSeriesName = useWeekly ? "Weekly Standard Messages" : "Daily Standard Messages";
+    const series = [{ name: seriesName || defaultSeriesName, data: standardSeries }];
 
     return (
         <DashboardCard padding="none" className="flex flex-col gap-3" style={{ height: 360, padding: 18 }}>
             <Text variant="body-md-semibold" color="text-primary">
-                {useWeekly ? "Standard Messages by Week" : "Standard Messages by Day"}
+                {useWeekly ? weeklyTitle : title}
             </Text>
 
             <div className="flex items-center gap-3">
                 <div className="rounded-[8px] bg-secondary px-3 py-2">
-                    <Text variant="body-sm" color="text-secondary">Average Response Time</Text>
+                    <Text variant="body-sm" color="text-secondary">{primaryStatLabel}</Text>
                     <div className="flex items-center gap-2">
-                        <Text variant="body-md-semibold" color="text-primary">{fmtMin(data?.avg_reply_response_minutes_all)}</Text>
+                        <Text variant="body-md-semibold" color="text-primary">{primaryStatValue ?? fmtMin(data?.avg_reply_response_minutes_all)}</Text>
                         <IoTime className="text-text-secondary" />
                     </div>
                 </div>
                 <div className="rounded-[8px] bg-secondary px-3 py-2">
-                    <Text variant="body-sm" color="text-secondary">Latest Day Standard Messages</Text>
+                    <Text variant="body-sm" color="text-secondary">{secondaryStatLabel}</Text>
                     <div className="flex items-center gap-2">
-                        <Text variant="body-md-semibold" color="text-primary">{pendingStandard}</Text>
+                        <Text variant="body-md-semibold" color="text-primary">{secondaryStatValue ?? String(pendingStandard)}</Text>
                         <IoCheckmarkCircle className="text-accent-primary" />
                     </div>
                 </div>
