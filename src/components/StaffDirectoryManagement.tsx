@@ -2463,7 +2463,8 @@ export default function StaffDirectoryManagement() {
                                     { label: 'First Name Z-A', value: 'first_name-desc' },
                                     { label: 'Department A-Z', value: 'dept-asc' },
                                     { label: 'Department Z-A', value: 'dept-desc' },
-                                    { label: 'Job Title A-Z', value: 'job_title-asc' },
+                                    { label: 'Rank A-Z', value: 'job_title-asc' },
+                                    { label: 'Rank Z-A', value: 'job_title-desc' },
                                     { label: 'Employee ID A-Z', value: 'employee_id-asc' },
                                     { label: 'Status A-Z', value: 'status-asc' },
                                 ]}
@@ -2567,7 +2568,7 @@ export default function StaffDirectoryManagement() {
                                                 Last Name {sortKey === 'last_name' && (sortDir === 'asc' ? '↑' : '↓')}
                                             </th>
                                             <th style={{ ...staffHeadCell, minWidth: 220, whiteSpace: 'nowrap', background: '#fafbfc', borderBottom: '1px solid var(--border-default)' }}>Email</th>
-                                            <th style={{ ...staffHeadCell, minWidth: 130, whiteSpace: 'nowrap', cursor: 'pointer', background: '#fafbfc', borderBottom: '1px solid var(--border-default)' }} onClick={() => toggleSort('job_title')}>Job Title {sortKey === 'job_title' && (sortDir === 'asc' ? '↑' : '↓')}</th>
+                                            <th style={{ ...staffHeadCell, minWidth: 130, whiteSpace: 'nowrap', cursor: 'pointer', background: '#fafbfc', borderBottom: '1px solid var(--border-default)' }} onClick={() => toggleSort('job_title')}>Rank {sortKey === 'job_title' && (sortDir === 'asc' ? '↑' : '↓')}</th>
                                             <th style={{ ...staffHeadCell, minWidth: 160, whiteSpace: 'nowrap', cursor: 'pointer', background: '#fafbfc', borderBottom: '1px solid var(--border-default)' }} onClick={() => toggleSort('dept')}>Department {sortKey === 'dept' && (sortDir === 'asc' ? '↑' : '↓')}</th>
                                             <th style={{ ...staffHeadCell, minWidth: 140, whiteSpace: 'nowrap', background: '#fafbfc', borderBottom: '1px solid var(--border-default)' }}>Patient Access</th>
                                             <th style={{ ...staffHeadCell, minWidth: 88, whiteSpace: 'nowrap', cursor: 'pointer', background: '#fafbfc', borderBottom: '1px solid var(--border-default)' }} onClick={() => toggleSort('status')}>Status {sortKey === 'status' && (sortDir === 'asc' ? '↑' : '↓')}</th>
