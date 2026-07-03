@@ -1690,6 +1690,7 @@ export default function StaffDirectoryManagement() {
                     gender: newGender.trim() || undefined,
                     title: newRole.trim() || undefined,
                     job_title: newRole.trim() || undefined,
+                    additional_title: newCreationTitle.trim() || undefined,
                     highest_qualification: newHighestQualification.trim() || undefined,
                     is_doctor: derivedIsDoctor,
                     patient_access: newPatientAccess,
