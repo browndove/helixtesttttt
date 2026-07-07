@@ -179,6 +179,12 @@ function isUuidLike(value: string): boolean {
     return DEPT_ID_STRING_RE.test(value.trim());
 }
 
+function displayableEmployeeId(employeeId: string): string {
+    const v = (employeeId || '').trim();
+    if (!v || isUuidLike(v)) return '';
+    return v;
+}
+
 /** parseStaffList uses row `id` when employee_id is omitted — treat that as "missing". */
 function pickEmployeeId(prev: StaffMember, fromApi: StaffMember): string {
     const from = (fromApi.employee_id || '').trim();
@@ -1052,6 +1058,7 @@ export default function StaffDirectoryManagement() {
     const [editJobTitle, setEditJobTitle] = useState('');
     const [editHighestQualification, setEditHighestQualification] = useState('');
     const [editDept, setEditDept] = useState('');
+    const [editEmployeeId, setEditEmployeeId] = useState('');
     const [editAccountExpiresOn, setEditAccountExpiresOn] = useState('');
     const [savingEdit, setSavingEdit] = useState(false);
     const [activeTab, setActiveTab] = useState<'directory' | 'import'>('directory');
@@ -1150,6 +1157,7 @@ export default function StaffDirectoryManagement() {
         setEditJobTitle(selected.title || selected.job_title || '');
         setEditHighestQualification(selected.highest_qualification || '');
         setEditDept(selected.dept || '');
+        setEditEmployeeId(displayableEmployeeId(selected.employee_id));
         setEditAccountExpiresOn(selected.account_expires_on || '');
     }, [selected]);
 
@@ -1452,6 +1460,7 @@ export default function StaffDirectoryManagement() {
         setEditJobTitle(selected.title || selected.job_title || '');
         setEditHighestQualification(selected.highest_qualification || '');
         setEditDept(selected.dept || '');
+        setEditEmployeeId(displayableEmployeeId(selected.employee_id));
         setEditAccountExpiresOn(selected.account_expires_on || '');
     }, [selected, editingContactEmail]);
 
@@ -2135,8 +2144,9 @@ export default function StaffDirectoryManagement() {
                         ? { clear_account_expires_on: true }
                         : {}),
             };
-            if (selected.employee_id && !isUuidLike(selected.employee_id)) {
-                payload.employee_id = selected.employee_id;
+            const trimmedEmployeeId = editEmployeeId.trim();
+            if (trimmedEmployeeId && !isUuidLike(trimmedEmployeeId)) {
+                payload.employee_id = trimmedEmployeeId;
             }
             if (trimmedHq) payload.is_doctor = editDerivedIsDoctor;
             const res = await fetch(staffUrl(`/api/proxy/staff/${selected.id}`), {
@@ -2169,6 +2179,7 @@ export default function StaffDirectoryManagement() {
                 is_doctor: Boolean(payload.is_doctor ?? selected.is_doctor),
                 dept: trimmedEditDept || selected.dept,
                 department_id: resolvedDeptId,
+                employee_id: trimmedEmployeeId && !isUuidLike(trimmedEmployeeId) ? trimmedEmployeeId : '',
                 account_expires_on: editAccountExpiresOn.trim() || undefined,
             };
             let mergedLocal: StaffMember = fromApi
@@ -2183,6 +2194,9 @@ export default function StaffDirectoryManagement() {
             const apiReturnedDepartmentId = Boolean(fromApi?.department_id?.trim());
             if (fromApi && trimmedEditDept && !apiReturnedDepartmentId) {
                 mergedLocal = { ...mergedLocal, dept: trimmedEditDept, department_id: resolvedDeptId };
+            }
+            if (trimmedEmployeeId && !isUuidLike(trimmedEmployeeId)) {
+                mergedLocal = { ...mergedLocal, employee_id: trimmedEmployeeId };
             }
             setStaff(prev => prev.map(s => (s.id === selected.id ? mergeStaffPutResponse(s, mergedLocal) : s)));
             setSelected(mergedLocal);
@@ -2911,7 +2925,7 @@ export default function StaffDirectoryManagement() {
                                                 {selected.first_name} {selected.last_name}
                                             </h3>
                                             <div style={{ fontSize: 12, color: '#6B7280', marginTop: 2 }}>
-                                                {selected.dept || 'Department'}{selected.employee_id ? ` · ${selected.employee_id}` : ''}
+                                                {selected.dept || 'Department'}{(editingSelected ? editEmployeeId : selected.employee_id) ? ` · ${editingSelected ? editEmployeeId : selected.employee_id}` : ''}
                                             </div>
                                         </div>
                                         <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
@@ -3194,6 +3208,7 @@ export default function StaffDirectoryManagement() {
                                     {!editingSelected ? (
                                         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                                             {[
+                                                { icon: 'badge', label: 'Employee ID', value: selected.employee_id },
                                                 { icon: 'apartment', label: 'Department', value: selected.dept },
                                                 { icon: 'military_tech', label: 'Rank', value: selected.job_title },
                                                 { icon: 'school', label: 'Qualification', value: selected.highest_qualification },
@@ -3244,6 +3259,17 @@ export default function StaffDirectoryManagement() {
                                         </div>
                                     ) : (
                                         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                                            <div style={{ minWidth: 0 }}>
+                                                <label style={{ display: 'block', fontSize: 11, fontWeight: 500, color: '#9CA3AF', marginBottom: 4 }}>Employee ID</label>
+                                                <input
+                                                    className="input"
+                                                    value={editEmployeeId}
+                                                    onChange={e => setEditEmployeeId(e.target.value)}
+                                                    disabled={savingEdit}
+                                                    placeholder="e.g. HH-0206"
+                                                    style={{ fontSize: 13, width: '100%', boxSizing: 'border-box', background: '#F5F6F8', border: '1px solid #E8EBF0', borderRadius: 8, padding: '7px 10px' }}
+                                                />
+                                            </div>
                                             <div style={{ minWidth: 0 }}>
                                                 <label style={{ display: 'block', fontSize: 11, fontWeight: 500, color: '#9CA3AF', marginBottom: 4 }}>Department</label>
                                                 <CustomSelect value={editDept} onChange={setEditDept} options={departmentOptions.map(d => ({ label: d, value: d }))} placeholder="Choose department" />
