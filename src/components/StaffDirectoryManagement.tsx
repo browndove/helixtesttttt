@@ -69,6 +69,8 @@ type StaffMember = {
     dob?: string;
     gender?: string;
     title?: string;
+    /** Honorific / prefix title (e.g. Dr, Prof) — stored as additional_title in the API. */
+    additional_title?: string;
     highest_qualification?: string;
     is_doctor?: boolean;
     /** When the backend sends the Helix / clinical role this user is currently signed into. */
@@ -232,6 +234,7 @@ function mergeStaffListRowIntoDetail(prev: StaffMember, fromList: StaffMember): 
         phone: phone || undefined,
         signed_in_role_name: signed,
         employee_id: pickEmployeeId(prev, fromList),
+        additional_title: (fromList.additional_title || '').trim() || prev.additional_title,
         dept,
         department_id: (fromList.department_id || '').trim() || prev.department_id,
     };
@@ -445,6 +448,7 @@ function parseStaffList(raw: unknown): StaffMember[] {
                 dob: String(r.dob || '').trim(),
                 gender: String(r.gender || '').trim().toLowerCase(),
                 title: String(r.title || r.job_title || '').trim(),
+                additional_title: String(r.additional_title || '').trim() || undefined,
                 highest_qualification: String(r.highest_qualifications || r.highest_qualification || r.qualification || '').trim(),
                 is_doctor: Boolean(r.is_doctor ?? String(r.title_prefix || '').toLowerCase() === 'dr'),
                 signed_in_role_name: (() => {
@@ -1056,6 +1060,7 @@ export default function StaffDirectoryManagement() {
     const [editDob, setEditDob] = useState('');
     const [editGender, setEditGender] = useState('');
     const [editJobTitle, setEditJobTitle] = useState('');
+    const [editAdditionalTitle, setEditAdditionalTitle] = useState('');
     const [editHighestQualification, setEditHighestQualification] = useState('');
     const [editDept, setEditDept] = useState('');
     const [editEmployeeId, setEditEmployeeId] = useState('');
@@ -1069,7 +1074,7 @@ export default function StaffDirectoryManagement() {
     const [newEmail, setNewEmail] = useState('');
     const [newDob, setNewDob] = useState('');
     const [newGender, setNewGender] = useState('');
-    /** Display-only on create form; not persisted to the backend. */
+    /** Maps to API `additional_title` (e.g. Dr, Prof). */
     const [newCreationTitle, setNewCreationTitle] = useState('');
     const [newRole, setNewRole] = useState('');
     const [newHighestQualification, setNewHighestQualification] = useState('');
@@ -1155,6 +1160,7 @@ export default function StaffDirectoryManagement() {
         setEditDob(selected.dob || '');
         setEditGender(selected.gender || '');
         setEditJobTitle(selected.title || selected.job_title || '');
+        setEditAdditionalTitle(selected.additional_title || '');
         setEditHighestQualification(selected.highest_qualification || '');
         setEditDept(selected.dept || '');
         setEditEmployeeId(displayableEmployeeId(selected.employee_id));
@@ -1458,6 +1464,7 @@ export default function StaffDirectoryManagement() {
         setEditDob(selected.dob || '');
         setEditGender(selected.gender || '');
         setEditJobTitle(selected.title || selected.job_title || '');
+        setEditAdditionalTitle(selected.additional_title || '');
         setEditHighestQualification(selected.highest_qualification || '');
         setEditDept(selected.dept || '');
         setEditEmployeeId(displayableEmployeeId(selected.employee_id));
@@ -1725,6 +1732,7 @@ export default function StaffDirectoryManagement() {
                 email: newEmail.trim(),
                 job_title: newRole.trim(),
                 title: newRole.trim(),
+                additional_title: newCreationTitle.trim() || undefined,
                 highest_qualification: newHighestQualification.trim(),
                 is_doctor: derivedIsDoctor,
                 dept: newDept,
@@ -1745,6 +1753,7 @@ export default function StaffDirectoryManagement() {
                     middle_name: created.middle_name || newMiddleName.trim(),
                     dept: (!created.dept || created.dept === 'Unassigned') ? newDept : created.dept,
                     highest_qualification: created.highest_qualification || newHighestQualification.trim(),
+                    additional_title: created.additional_title || newCreationTitle.trim() || undefined,
                     dob: created.dob || newDob.trim(),
                     gender: created.gender || newGender.trim(),
                     is_doctor: created.is_doctor ?? derivedIsDoctor,
@@ -2127,6 +2136,7 @@ export default function StaffDirectoryManagement() {
             const resolvedDeptId =
                 deptNameToId.get(editDept.trim().toLowerCase()) || selected.department_id;
             const trimmedHq = editHighestQualification.trim();
+            const trimmedAdditionalTitle = editAdditionalTitle.trim().slice(0, STAFF_CREATE_TITLE_MAX_LEN);
             const payload: Record<string, unknown> = {
                 first_name: editFirstName.trim(),
                 middle_name: editMiddleName.trim() || undefined,
@@ -2135,6 +2145,7 @@ export default function StaffDirectoryManagement() {
                 dob: editDob.trim() || undefined,
                 gender: editGender.trim() || undefined,
                 job_title: editJobTitle.trim(),
+                additional_title: trimmedAdditionalTitle || undefined,
                 highest_qualification: trimmedHq || undefined,
                 department_id: resolvedDeptId || undefined,
                 patient_access: selected.patient_access,
@@ -2175,6 +2186,7 @@ export default function StaffDirectoryManagement() {
                 gender: String(payload.gender || '').trim(),
                 title: String(payload.job_title || '').trim() || selected.title || '',
                 job_title: String(payload.job_title || '').trim() || selected.job_title,
+                additional_title: trimmedAdditionalTitle || undefined,
                 highest_qualification: String(payload.highest_qualification || '').trim() || selected.highest_qualification || '',
                 is_doctor: Boolean(payload.is_doctor ?? selected.is_doctor),
                 dept: trimmedEditDept || selected.dept,
@@ -2197,6 +2209,9 @@ export default function StaffDirectoryManagement() {
             }
             if (trimmedEmployeeId && !isUuidLike(trimmedEmployeeId)) {
                 mergedLocal = { ...mergedLocal, employee_id: trimmedEmployeeId };
+            }
+            if (trimmedAdditionalTitle) {
+                mergedLocal = { ...mergedLocal, additional_title: trimmedAdditionalTitle };
             }
             setStaff(prev => prev.map(s => (s.id === selected.id ? mergeStaffPutResponse(s, mergedLocal) : s)));
             setSelected(mergedLocal);
@@ -3210,6 +3225,7 @@ export default function StaffDirectoryManagement() {
                                             {[
                                                 { icon: 'badge', label: 'Employee ID', value: selected.employee_id },
                                                 { icon: 'apartment', label: 'Department', value: selected.dept },
+                                                { icon: 'workspace_premium', label: 'Title', value: selected.additional_title },
                                                 { icon: 'military_tech', label: 'Rank', value: selected.job_title },
                                                 { icon: 'school', label: 'Qualification', value: selected.highest_qualification },
                                             ].map(row => (
@@ -3273,6 +3289,21 @@ export default function StaffDirectoryManagement() {
                                             <div style={{ minWidth: 0 }}>
                                                 <label style={{ display: 'block', fontSize: 11, fontWeight: 500, color: '#9CA3AF', marginBottom: 4 }}>Department</label>
                                                 <CustomSelect value={editDept} onChange={setEditDept} options={departmentOptions.map(d => ({ label: d, value: d }))} placeholder="Choose department" />
+                                            </div>
+                                            <div style={{ minWidth: 0 }}>
+                                                <label style={{ display: 'block', fontSize: 11, fontWeight: 500, color: '#9CA3AF', marginBottom: 4 }}>Title</label>
+                                                <input
+                                                    className="input"
+                                                    value={editAdditionalTitle}
+                                                    onChange={e => setEditAdditionalTitle(e.target.value.slice(0, STAFF_CREATE_TITLE_MAX_LEN))}
+                                                    disabled={savingEdit}
+                                                    maxLength={STAFF_CREATE_TITLE_MAX_LEN}
+                                                    placeholder="e.g. Dr, Prof"
+                                                    style={{ fontSize: 13, width: '100%', boxSizing: 'border-box', background: '#F5F6F8', border: '1px solid #E8EBF0', borderRadius: 8, padding: '7px 10px' }}
+                                                />
+                                                <div style={{ marginTop: 4, fontSize: 10, color: '#9CA3AF' }}>
+                                                    {editAdditionalTitle.length}/{STAFF_CREATE_TITLE_MAX_LEN}
+                                                </div>
                                             </div>
                                             <div style={{ minWidth: 0 }}>
                                                 <label style={{ display: 'block', fontSize: 11, fontWeight: 500, color: '#9CA3AF', marginBottom: 4 }}>Rank</label>

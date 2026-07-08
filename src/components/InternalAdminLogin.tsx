@@ -19,6 +19,7 @@ export default function InternalAdminLogin() {
     const router = useRouter();
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
+    const [showPassword, setShowPassword] = useState(false);
     const [step, setStep] = useState<'credentials' | 'otp'>('credentials');
     const [otpDigits, setOtpDigits] = useState<string[]>(['', '', '', '', '', '']);
     const [resendTimer, setResendTimer] = useState(0);
@@ -233,14 +234,39 @@ export default function InternalAdminLogin() {
                                 </div>
                                 <div style={{ marginBottom: 10 }}>
                                     <label style={{ display: 'block', fontSize: 10, color: '#7a859a', letterSpacing: '0.12em', marginBottom: 4 }}>PASSWORD</label>
-                                    <input
-                                        className="input"
-                                        type="password"
-                                        value={password}
-                                        onChange={(e) => setPassword(e.target.value)}
-                                        placeholder="Enter password"
-                                        style={{ fontSize: 13 }}
-                                    />
+                                    <div style={{ position: 'relative' }}>
+                                        <input
+                                            className="input"
+                                            type={showPassword ? 'text' : 'password'}
+                                            value={password}
+                                            onChange={(e) => setPassword(e.target.value)}
+                                            placeholder="Enter password"
+                                            autoComplete="current-password"
+                                            style={{ fontSize: 13, width: '100%', boxSizing: 'border-box', paddingRight: 40 }}
+                                        />
+                                        <button
+                                            type="button"
+                                            aria-label={showPassword ? 'Hide password' : 'Show password'}
+                                            onClick={() => setShowPassword(prev => !prev)}
+                                            style={{
+                                                position: 'absolute',
+                                                right: 10,
+                                                top: '50%',
+                                                transform: 'translateY(-50%)',
+                                                border: 'none',
+                                                background: 'transparent',
+                                                color: '#7a859a',
+                                                cursor: 'pointer',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                padding: 0,
+                                            }}
+                                        >
+                                            <span className="material-icons-round" style={{ fontSize: 18 }}>
+                                                {showPassword ? 'visibility_off' : 'visibility'}
+                                            </span>
+                                        </button>
+                                    </div>
                                 </div>
                             </>
                         ) : (
