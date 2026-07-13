@@ -12,6 +12,10 @@ type RoleAssignment = {
     priority: string;
     priorityColor: string;
     filled: boolean;
+    /** When set, the priority column renders this raw text in a neutral badge instead of the Standard/Critical badge. */
+    priorityText?: string;
+    /** When set, the status column renders this raw text in a neutral badge instead of the Filled/Unfilled badge. */
+    statusText?: string;
 };
 
 const ClaimsOwedByDepartment: React.FC<{
@@ -44,8 +48,15 @@ const ClaimsOwedByDepartment: React.FC<{
             roleName: role.role_name,
             priority: role.priority === "critical" ? "Critical" : "Standard",
             priorityColor: role.priority === "critical" ? "var(--accent-red)" : "var(--accent-green)",
-            filled: role.filled
+            filled: role.filled,
+            priorityText: typeof role.priorityText === "string" ? role.priorityText : undefined,
+            statusText: typeof role.statusText === "string" ? role.statusText : undefined,
         }));
+
+        // When rows carry raw numeric text (e.g. version share/installs), keep their given order.
+        if (mapped.some((r) => r.priorityText !== undefined || r.statusText !== undefined)) {
+            return mapped.slice(0, 5);
+        }
 
         // Show at most 5 rows, preferring a 3 Standard + 2 Critical mix.
         const standard = mapped.filter((r) => r.priority === "Standard");
@@ -103,10 +114,18 @@ const ClaimsOwedByDepartment: React.FC<{
                                         <td style={{ padding: '16px 12px' }}><Text variant="body-sm" color="text-primary">{role.department}</Text></td>
                                         <td style={{ padding: '16px 12px' }}><Text variant="body-sm" color="accent-primary">{role.roleName}</Text></td>
                                         <td style={{ padding: '16px 12px' }}>
-                                            <span className="text-[14px] font-semibold rounded-[4px]" style={{ color: role.priorityColor, backgroundColor: priorityBgColor, padding: '4px 8px' }}>{role.priority}</span>
+                                            {role.priorityText !== undefined ? (
+                                                <span className="text-[14px] font-semibold rounded-[4px] text-text-primary bg-tertiary" style={{ padding: '4px 8px' }}>{role.priorityText}</span>
+                                            ) : (
+                                                <span className="text-[14px] font-semibold rounded-[4px]" style={{ color: role.priorityColor, backgroundColor: priorityBgColor, padding: '4px 8px' }}>{role.priority}</span>
+                                            )}
                                         </td>
                                         <td style={{ padding: '16px 12px' }}>
-                                            <span className="text-[14px] font-semibold rounded-[4px]" style={{ color: statusColor, backgroundColor: statusBgColor, padding: '4px 8px' }}>{role.filled ? 'Filled' : 'Unfilled'}</span>
+                                            {role.statusText !== undefined ? (
+                                                <span className="text-[14px] font-semibold rounded-[4px] text-text-primary bg-tertiary tabular-nums" style={{ padding: '4px 8px' }}>{role.statusText}</span>
+                                            ) : (
+                                                <span className="text-[14px] font-semibold rounded-[4px]" style={{ color: statusColor, backgroundColor: statusBgColor, padding: '4px 8px' }}>{role.filled ? 'Filled' : 'Unfilled'}</span>
+                                            )}
                                         </td>
                                     </tr>
                                 );

@@ -88,7 +88,12 @@ const OutstandingReimbursement: React.FC<{
         ? Math.max(...platformData.map((item) => item.ios + item.android), 1)
         : Math.max(...coverageData.map((i) => Math.max(i.downloads, i.gap + i.installs)), 1);
     const totalBadge = isPlatformMode
-        ? platformData.reduce((sum, item) => sum + item.android, 0)
+        ? platformData.reduce((sum, item) => {
+            const label = badgeLabel.toLowerCase();
+            if (label.includes('ios')) return sum + item.ios;
+            if (label.includes('total') || label.includes('install')) return sum + item.ios + item.android;
+            return sum + item.android;
+        }, 0)
         : coverageData.reduce((sum, i) => sum + i.gap, 0);
     const scaleTicks = React.useMemo(() => axisTicks(maxValue), [maxValue]);
 

@@ -4,8 +4,10 @@ import { importPKCS8, SignJWT } from 'jose';
 import type { DownloadAnalyticsData } from '@/lib/download-analytics-mock';
 
 const GCS_SCOPE = 'https://www.googleapis.com/auth/devstorage.read_only';
+const ANDROID_PUBLISHER_SCOPE = 'https://www.googleapis.com/auth/androidpublisher';
 const TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const GCS_API = 'https://storage.googleapis.com/storage/v1';
+const ANDROID_PUBLISHER_API = 'https://androidpublisher.googleapis.com/androidpublisher/v3';
 
 type GoogleServiceAccount = {
     client_email: string;
@@ -19,7 +21,7 @@ type GooglePlayConfig = {
     installsPrefix: string;
 };
 
-let cachedGoogleToken: { token: string; expiresAt: number } | null = null;
+const cachedGoogleTokens = new Map<string, { token: string; expiresAt: number }>();
 
 function localInstallCsvPaths(): string[] {
     const paths = new Set<string>();
@@ -114,14 +116,18 @@ export function getGooglePlayConfigErrors(): string[] {
     return errors;
 }
 
-async function createGoogleAccessToken(credentials: GoogleServiceAccount): Promise<string> {
+async function createGoogleAccessToken(
+    credentials: GoogleServiceAccount,
+    scope: string = GCS_SCOPE,
+): Promise<string> {
     const now = Math.floor(Date.now() / 1000);
-    if (cachedGoogleToken && cachedGoogleToken.expiresAt - 120 > now) {
-        return cachedGoogleToken.token;
+    const cached = cachedGoogleTokens.get(scope);
+    if (cached && cached.expiresAt - 120 > now) {
+        return cached.token;
     }
 
     const privateKey = await importPKCS8(credentials.private_key, 'RS256');
-    const assertion = await new SignJWT({ scope: GCS_SCOPE })
+    const assertion = await new SignJWT({ scope })
         .setProtectedHeader({ alg: 'RS256', typ: 'JWT' })
         .setIssuer(credentials.client_email)
         .setSubject(credentials.client_email)
@@ -150,10 +156,10 @@ async function createGoogleAccessToken(credentials: GoogleServiceAccount): Promi
         throw new Error('Google OAuth token response missing access_token');
     }
 
-    cachedGoogleToken = {
+    cachedGoogleTokens.set(scope, {
         token: payload.access_token,
         expiresAt: now + (payload.expires_in ?? 3600),
-    };
+    });
     return payload.access_token;
 }
 
@@ -219,6 +225,63 @@ function parseInstallReportCsv(text: string): Map<string, number> {
     }
 
     return byDay;
+}
+
+/**
+ * Google Play overview install reports include an "Active Device Installs" column
+ * (the current installed base as of each date). Unlike daily installs this is a
+ * point-in-time cumulative value, so callers should take the most recent day.
+ */
+function parseActiveDeviceInstalls(text: string): Map<string, number> {
+    const lines = text.split(/\r?\n/).filter((line) => line.trim().length > 0);
+    if (lines.length < 2) return new Map();
+
+    const headers = parseCsvLine(lines[0]).map((h) => h.toLowerCase());
+    const dateIdx = headers.findIndex((h) => h === 'date');
+    const activeIdx = headers.findIndex((h) => h.includes('active device installs'));
+
+    if (dateIdx < 0 || activeIdx < 0) return new Map();
+
+    const byDay = new Map<string, number>();
+    for (const line of lines.slice(1)) {
+        const cols = parseCsvLine(line);
+        const day = cols[dateIdx]?.trim();
+        const active = Number.parseInt(cols[activeIdx]?.replace(/,/g, '') || '0', 10);
+        if (!day || !Number.isFinite(active) || active < 0) continue;
+        byDay.set(day, active);
+    }
+
+    return byDay;
+}
+
+/**
+ * Google Play "app_version" install report: installs grouped by App Version Code.
+ * Android reports expose the integer version code (not the semantic name), so we
+ * label rows as build numbers.
+ */
+function parseVersionInstallReportCsv(text: string): Array<{ version: string; day: string; installs: number }> {
+    const lines = text.split(/\r?\n/).filter((line) => line.trim().length > 0);
+    if (lines.length < 2) return [];
+
+    const headers = parseCsvLine(lines[0]).map((h) => h.toLowerCase());
+    const dateIdx = headers.findIndex((h) => h === 'date');
+    const versionIdx = headers.findIndex((h) => h.includes('app version'));
+    const installsIdx = headers.findIndex((h) => h.includes('daily device installs'));
+
+    if (dateIdx < 0 || versionIdx < 0 || installsIdx < 0) return [];
+
+    const rows: Array<{ version: string; day: string; installs: number }> = [];
+    for (const line of lines.slice(1)) {
+        const cols = parseCsvLine(line);
+        const day = cols[dateIdx]?.trim();
+        const rawVersion = cols[versionIdx]?.trim();
+        const installs = Number.parseInt(cols[installsIdx]?.replace(/,/g, '') || '0', 10);
+        if (!day || !rawVersion || !Number.isFinite(installs) || installs <= 0) continue;
+        const version = /^\d+$/.test(rawVersion) ? `Build ${rawVersion}` : rawVersion;
+        rows.push({ version, day, installs });
+    }
+
+    return rows;
 }
 
 const PLAY_COUNTRY_TO_CODE: Record<string, string> = {
@@ -436,6 +499,169 @@ async function fetchPlayDailyInstalls(windowDays: number): Promise<Map<string, n
     return byDay;
 }
 
+/** Most recent "Active Device Installs" value (current Android install base) within the window. */
+async function fetchPlayActiveDevices(windowDays: number): Promise<number> {
+    const config = getGooglePlayConfig();
+    if (!config) return 0;
+
+    const token = await createGoogleAccessToken(config.credentials);
+    const cutoff = daysAgoIso(windowDays);
+    const byDay = new Map<string, number>();
+    const months = monthsForWindow(windowDays);
+
+    for (const month of months) {
+        const objectName = `${config.installsPrefix}/installs_${config.packageName}_${month}_overview.csv`;
+        let buffer: ArrayBuffer | null = null;
+        try {
+            buffer = await downloadGcsObject(token, config.bucket, objectName);
+        } catch {
+            continue;
+        }
+        if (!buffer) continue;
+
+        const parsed = parseActiveDeviceInstalls(decodePlayReportText(buffer));
+        for (const [day, active] of parsed.entries()) {
+            byDay.set(day, active);
+        }
+    }
+
+    const days = [...byDay.keys()].filter((day) => day >= cutoff).sort();
+    const latest = days.at(-1);
+    return latest ? (byDay.get(latest) ?? 0) : 0;
+}
+
+/** Android installs grouped by app version code within the window. */
+async function fetchPlayVersionInstalls(windowDays: number): Promise<Map<string, number>> {
+    const config = getGooglePlayConfig();
+    if (!config) return new Map();
+
+    const token = await createGoogleAccessToken(config.credentials);
+    const cutoff = daysAgoIso(windowDays);
+    const byVersion = new Map<string, number>();
+    const months = monthsForWindow(windowDays);
+
+    for (const month of months) {
+        const objectName = `${config.installsPrefix}/installs_${config.packageName}_${month}_app_version.csv`;
+        let buffer: ArrayBuffer | null = null;
+        try {
+            buffer = await downloadGcsObject(token, config.bucket, objectName);
+        } catch {
+            continue;
+        }
+        if (!buffer) continue;
+
+        const rows = parseVersionInstallReportCsv(decodePlayReportText(buffer));
+        for (const row of rows) {
+            if (row.day < cutoff) continue;
+            byVersion.set(row.version, (byVersion.get(row.version) || 0) + row.installs);
+        }
+    }
+
+    return byVersion;
+}
+
+/** Recent Google Play reviews via the Play Developer API (reviews with written comments, last ~7 days). */
+async function fetchPlayReviews(): Promise<DownloadAnalyticsData['reviews']> {
+    const config = getGooglePlayConfig();
+    if (!config) return [];
+
+    let token: string;
+    try {
+        token = await createGoogleAccessToken(config.credentials, ANDROID_PUBLISHER_SCOPE);
+    } catch {
+        return [];
+    }
+
+    const res = await fetch(
+        `${ANDROID_PUBLISHER_API}/applications/${config.packageName}/reviews?maxResults=10`,
+        { headers: { Authorization: `Bearer ${token}` }, cache: 'no-store' },
+    );
+    if (!res.ok) return [];
+
+    const json = await res.json() as {
+        reviews?: Array<{
+            authorName?: string;
+            comments?: Array<{
+                userComment?: { text?: string; starRating?: number; lastModified?: { seconds?: string | number } };
+            }>;
+        }>;
+    };
+
+    const reviews: DownloadAnalyticsData['reviews'] = [];
+    for (const review of json.reviews ?? []) {
+        const userComment = review.comments?.find((c) => c.userComment)?.userComment;
+        if (!userComment) continue;
+        const text = (userComment.text || '').trim();
+        const rating = Number(userComment.starRating || 0);
+        if (!text || rating <= 0) continue;
+        const seconds = Number(userComment.lastModified?.seconds || 0);
+        const date = seconds > 0 ? new Date(seconds * 1000).toISOString().slice(0, 10) : '';
+        reviews.push({
+            author: (review.authorName || '').trim() || 'Google Play user',
+            rating,
+            comment: text,
+            date,
+            source: 'android',
+        });
+    }
+
+    return reviews;
+}
+
+function parseRatingsReportCsv(text: string): Map<string, number> {
+    const lines = text.split(/\r?\n/).filter((line) => line.trim().length > 0);
+    if (lines.length < 2) return new Map();
+
+    const headers = parseCsvLine(lines[0]).map((h) => h.toLowerCase());
+    const dateIdx = headers.findIndex((h) => h === 'date');
+    const totalIdx = headers.findIndex((h) => h.includes('total average rating'));
+    const dailyIdx = headers.findIndex((h) => h.includes('daily average rating'));
+    const ratingIdx = totalIdx >= 0 ? totalIdx : dailyIdx;
+
+    if (dateIdx < 0 || ratingIdx < 0) return new Map();
+
+    const byDay = new Map<string, number>();
+    for (const line of lines.slice(1)) {
+        const cols = parseCsvLine(line);
+        const day = cols[dateIdx]?.trim();
+        const rating = Number.parseFloat(cols[ratingIdx]?.replace(/,/g, '') || '');
+        if (!day || !Number.isFinite(rating) || rating <= 0) continue;
+        byDay.set(day, rating);
+    }
+
+    return byDay;
+}
+
+/** Most recent Google Play cumulative average rating within the window. */
+async function fetchPlayAverageRating(windowDays: number): Promise<number> {
+    const config = getGooglePlayConfig();
+    if (!config) return 0;
+
+    const ratingsPrefix = config.installsPrefix.replace(/installs(\/)?$/i, 'ratings$1') || 'stats/ratings';
+    const token = await createGoogleAccessToken(config.credentials);
+    const byDay = new Map<string, number>();
+    const months = monthsForWindow(windowDays);
+
+    for (const month of months) {
+        const objectName = `${ratingsPrefix}/ratings_${config.packageName}_${month}_overview.csv`;
+        let buffer: ArrayBuffer | null = null;
+        try {
+            buffer = await downloadGcsObject(token, config.bucket, objectName);
+        } catch {
+            continue;
+        }
+        if (!buffer) continue;
+
+        const parsed = parseRatingsReportCsv(decodePlayReportText(buffer));
+        for (const [day, rating] of parsed.entries()) {
+            byDay.set(day, rating);
+        }
+    }
+
+    const latest = [...byDay.keys()].sort().at(-1);
+    return latest ? (byDay.get(latest) ?? 0) : 0;
+}
+
 export async function verifyGooglePlayAuth(): Promise<{ ok: true } | { ok: false; error: string }> {
     const config = getGooglePlayConfig();
     if (!config) {
@@ -467,14 +693,57 @@ export async function mergeGooglePlayInstalls(
     }
 
     try {
-        const [playByDay, androidByRegion] = await Promise.all([
+        const [playByDay, androidByRegion, androidActive, androidByVersion, androidReviews, androidRating] = await Promise.all([
             fetchPlayDailyInstalls(windowDays),
             fetchPlayRegionalInstalls(windowDays),
+            fetchPlayActiveDevices(windowDays).catch(() => 0),
+            fetchPlayVersionInstalls(windowDays).catch(() => new Map<string, number>()),
+            fetchPlayReviews().catch(() => [] as DownloadAnalyticsData['reviews']),
+            fetchPlayAverageRating(windowDays).catch(() => 0),
         ]);
 
         let merged = analytics;
-        if (playByDay.size === 0 && androidByRegion.size === 0) {
+        if (
+            playByDay.size === 0 && androidByRegion.size === 0 && androidActive === 0 &&
+            androidByVersion.size === 0 && androidReviews.length === 0 && androidRating === 0
+        ) {
             return analytics;
+        }
+
+        if (androidReviews.length > 0 || androidRating > 0) {
+            const iosReviews = (merged.reviews ?? []).map((r) => ({
+                ...r,
+                source: r.source ?? ('ios' as const),
+            }));
+            const combined = [...iosReviews, ...androidReviews].sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+            merged = {
+                ...merged,
+                reviews: combined,
+                android_avg_rating: androidRating > 0 ? Math.round(androidRating * 10) / 10 : merged.android_avg_rating,
+                android_rating_count: androidReviews.length > 0 ? androidReviews.length : merged.android_rating_count,
+            };
+        }
+
+        if (androidByVersion.size > 0) {
+            const versionTotal = [...androidByVersion.values()].reduce((sum, n) => sum + n, 0);
+            const android_version_breakdown = [...androidByVersion.entries()]
+                .sort((a, b) => b[1] - a[1])
+                .slice(0, 8)
+                .map(([version, installs]) => ({
+                    version,
+                    installs,
+                    share_percent: versionTotal > 0 ? Math.round((installs / versionTotal) * 1000) / 10 : 0,
+                }));
+            merged = { ...merged, android_version_breakdown };
+        }
+
+        if (androidActive > 0) {
+            const iosActive = analytics.ios_active_devices ?? analytics.active_devices ?? 0;
+            merged = {
+                ...merged,
+                android_active_devices: androidActive,
+                active_devices: iosActive + androidActive,
+            };
         }
 
         if (playByDay.size > 0) {

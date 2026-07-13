@@ -18,16 +18,23 @@ const TotalRevenueGenerated: React.FC<{
     subtitle?: string;
     infoText?: string;
     seriesName?: string;
+    /** `rate` plots share %; `count` plots raw escalation_count values. */
+    valueMode?: "rate" | "count";
+    valueUnitLabel?: string;
 }> = ({
     data,
     title = "Escalation Risk by Role",
     subtitle,
     infoText = "Escalation rate per role (escalations divided by role message volume).",
     seriesName = "Escalation Rate",
+    valueMode = "rate",
+    valueUnitLabel,
 }) => {
     const { resolvedTheme } = useTheme();
     const [isMaximized, setIsMaximized] = React.useState(false);
     const [isHovered, setIsHovered] = React.useState(false);
+    const isCountMode = valueMode === "count";
+    const unitLabel = valueUnitLabel ?? (isCountMode ? "installs" : "escalated");
     const roles = React.useMemo(() => {
         const list = Array.isArray(data?.top_escalated_roles) ? [...data.top_escalated_roles] : [];
         return list
@@ -44,15 +51,18 @@ const TotalRevenueGenerated: React.FC<{
     const escalatedCounts = roles.length
         ? roles.map((r: any) => Number(r?.escalation_count || 0))
         : [0];
-    const escalationRateData = roles.length
+    const chartValues = roles.length
         ? roles.map((r: any) => {
-              const total = Number(r?.total_messages_for_role || 0);
               const esc = Number(r?.escalation_count || 0);
+              if (isCountMode) return esc;
+              const total = Number(r?.total_messages_for_role || 0);
               return total > 0 ? Number(((esc / total) * 100).toFixed(2)) : 0;
           })
         : [0];
-    const maxRate = escalationRateData.length ? Math.max(...escalationRateData) : 0;
-    const yAxisMax = maxRate > 0 ? Number((maxRate * 1.15).toFixed(2)) : 10;
+    const maxValue = chartValues.length ? Math.max(...chartValues) : 0;
+    const yAxisMax = maxValue > 0
+        ? (isCountMode ? Math.ceil(maxValue * 1.15) : Number((maxValue * 1.15).toFixed(2)))
+        : (isCountMode ? 10 : 10);
 
     const chartOptions: ApexCharts.ApexOptions = {
         chart: { type: "bar", toolbar: { show: false }, zoom: { enabled: false }, animations: { enabled: true, speed: 800 } },
@@ -72,7 +82,7 @@ const TotalRevenueGenerated: React.FC<{
             tickAmount: 4,
             labels: {
                 style: { colors: "var(--text-secondary)", fontSize: "10px", fontWeight: 500, fontFamily: "Montserrat" },
-                formatter: (val) => `${val.toFixed(0)}%`,
+                formatter: (val) => (isCountMode ? `${Math.round(val)}` : `${val.toFixed(0)}%`),
             },
         },
         grid: { show: true, borderColor: "var(--bg-tertiary)", strokeDashArray: 0, xaxis: { lines: { show: false } }, yaxis: { lines: { show: true } } },
@@ -89,8 +99,9 @@ const TotalRevenueGenerated: React.FC<{
             y: {
                 formatter: (val, opts?: any) => {
                     const idx = opts?.dataPointIndex ?? 0;
-                    const escalated = escalatedCounts[idx] ?? 0;
-                    return `${val.toFixed(2)}% escalation rate · ${escalated} escalated`;
+                    const count = escalatedCounts[idx] ?? 0;
+                    if (isCountMode) return `${count.toLocaleString()} ${unitLabel}`;
+                    return `${val.toFixed(2)}% share · ${count.toLocaleString()} ${unitLabel}`;
                 },
             },
             fixed: { enabled: false },
@@ -98,12 +109,12 @@ const TotalRevenueGenerated: React.FC<{
         },
     };
 
-    const chartSeries = [{ name: seriesName, data: escalationRateData }];
+    const chartSeries = [{ name: seriesName, data: chartValues }];
 
     const resolvedSubtitle = subtitle ?? `Top non-responder roles · Last ${data?.window_days ?? 30} days`;
 
     const chartContent = (isModal: boolean = false) => (
-        <>
+        <div className={isModal ? undefined : "flex h-full min-h-0 flex-col gap-[15px]"}>
             <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                     <Text variant={isModal ? "body-lg-semibold" : "body-md-semibold"} color="text-primary" className="font-bold">{title}</Text>
@@ -125,15 +136,21 @@ const TotalRevenueGenerated: React.FC<{
                     <InfoTooltip text={infoText} show={isHovered} />
                 </div>
             </div>
-            <div className={`revenue-chart w-full ${isModal ? "h-[500px]" : "h-[280px]"}`}>
+            <div className={`revenue-chart w-full ${isModal ? "h-[500px]" : "min-h-[280px] flex-1"}`}>
                 <Chart options={chartOptions} series={chartSeries} type="bar" width="100%" height="100%" />
             </div>
-        </>
+        </div>
     );
 
     return (
         <>
-            <DashboardCard className="flex flex-col flex-1" padding="none" style={{ padding: 20, gap: 15 }} onMouseEnter={() => setIsHovered(true)} onMouseLeave={() => setIsHovered(false)}>
+            <DashboardCard
+                className="flex h-full min-h-0 flex-col flex-1"
+                padding="none"
+                style={{ padding: 20, gap: 15, height: "100%" }}
+                onMouseEnter={() => setIsHovered(true)}
+                onMouseLeave={() => setIsHovered(false)}
+            >
                 {chartContent(false)}
             </DashboardCard>
             {isMaximized && (

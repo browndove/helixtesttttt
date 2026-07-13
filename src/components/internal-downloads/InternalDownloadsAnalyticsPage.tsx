@@ -20,6 +20,14 @@ import {
     type DownloadAnalyticsData,
 } from '@/lib/download-analytics-mock';
 import { PlatformBreakdown } from '@/components/internal-downloads/PlatformBreakdown';
+import {
+    PlatformFilter,
+    dailyInstallRows,
+    platformFilterLabel,
+    platformInstallTotals,
+    regionalPlatformRows,
+    type PlatformFilterValue,
+} from '@/components/internal-downloads/PlatformFilter';
 
 const DownloadsAcquisitionPage = lazy(() => import('@/components/internal-downloads/DownloadsAcquisitionPage'));
 
@@ -87,18 +95,27 @@ function OverviewSkeleton() {
     );
 }
 
-function RealInsightsSidebar({ data }: { data: DownloadAnalyticsData }) {
-    const topRegions = [...data.regions]
-        .sort((a, b) => {
-            const aTotal = (a.ios_installs ?? a.installs) + (a.android_installs ?? 0);
-            const bTotal = (b.ios_installs ?? b.installs) + (b.android_installs ?? 0);
-            return bTotal - aTotal;
-        })
-        .slice(0, 5);
-    const reviews = [...data.reviews];
+function RealInsightsSidebar({
+    data,
+    platform,
+}: {
+    data: DownloadAnalyticsData;
+    platform: PlatformFilterValue;
+}) {
+    const topRegions = regionalPlatformRows(data, platform).slice(0, 5);
+    const reviews = [...data.reviews].filter((r) => {
+        if (platform === 'ios') return r.source !== 'android';
+        if (platform === 'android') return r.source === 'android';
+        return true;
+    });
     const hasReviewSnippets = reviews.length > 0;
+    const iosCount = reviews.filter((r) => r.source !== 'android').length;
+    const androidCount = reviews.filter((r) => r.source === 'android').length;
     const reviewSummaryLabel = hasReviewSnippets
-        ? `${reviews.length} App Store review${reviews.length === 1 ? '' : 's'}`
+        ? [
+            iosCount > 0 ? `${iosCount} App Store` : null,
+            androidCount > 0 ? `${androidCount} Play Store` : null,
+        ].filter(Boolean).join(' · ') + ` review${reviews.length === 1 ? '' : 's'}`
         : data.rating_count > 0
             ? `${data.rating_count.toLocaleString()} rating${data.rating_count === 1 ? '' : 's'}`
             : 'No reviews';
@@ -108,28 +125,24 @@ function RealInsightsSidebar({ data }: { data: DownloadAnalyticsData }) {
             <div className="bg-primary rounded-[15px] shadow-soft p-6">
                 <div className="flex items-center justify-between mb-4">
                     <h3 className="text-sm font-semibold text-text-primary">Devices by Region</h3>
-                    <span className="text-xs text-text-muted">iOS vs Android</span>
+                    <span className="text-xs text-text-muted">{platformFilterLabel(platform)}</span>
                 </div>
                 {topRegions.length === 0 ? (
                     <div className="text-sm text-text-muted">No regional data available.</div>
                 ) : (
                     <div className="space-y-3">
-                        {topRegions.map((region) => {
-                            const iosInstalls = region.ios_installs ?? region.installs;
-                            const androidInstalls = region.android_installs ?? 0;
-                            return (
-                            <div key={region.region} className="rounded-lg border border-border-subtle bg-secondary p-3">
+                        {topRegions.map((region) => (
+                            <div key={region.name} className="rounded-lg border border-border-subtle bg-secondary p-3">
                                 <div className="flex items-center justify-between">
-                                    <span className="text-sm font-medium text-text-primary">{region.region}</span>
-                                    <span className="text-xs text-text-muted">{region.share_percent.toFixed(1)}%</span>
+                                    <span className="text-sm font-medium text-text-primary">{region.name}</span>
+                                    <span className="text-xs text-text-muted">{fmt(region.total)}</span>
                                 </div>
                                 <div className="mt-1 flex items-center justify-between text-xs text-text-muted">
-                                    <span>Android: {fmt(androidInstalls)}</span>
-                                    <span>iOS: {fmt(iosInstalls)}</span>
+                                    {platform !== 'ios' && <span>Android: {fmt(region.android)}</span>}
+                                    {platform !== 'android' && <span>iOS: {fmt(region.ios)}</span>}
                                 </div>
                             </div>
-                            );
-                        })}
+                        ))}
                     </div>
                 )}
             </div>
@@ -143,19 +156,29 @@ function RealInsightsSidebar({ data }: { data: DownloadAnalyticsData }) {
                     <div className="text-sm text-text-muted">
                         {data.rating_count > 0
                             ? `Found ${data.rating_count.toLocaleString()} App Store rating${data.rating_count === 1 ? '' : 's'}, but no written review text is available yet.`
-                            : 'No App Store reviews available yet.'}
+                            : 'No reviews available yet.'}
                     </div>
                 ) : (
                     <div className="space-y-3">
-                        {reviews.map((review, idx) => (
-                            <div key={`${review.author}-${review.date}-${idx}`} className="rounded-lg border border-border-subtle bg-secondary p-3">
-                                <div className="flex items-center justify-between">
-                                    <span className="text-sm font-medium text-text-primary truncate pr-2">{review.author}</span>
-                                    <span className="text-xs text-text-muted">{review.rating.toFixed(1)}★</span>
+                        {reviews.map((review, idx) => {
+                            const isAndroid = review.source === 'android';
+                            return (
+                                <div key={`${review.author}-${review.date}-${idx}`} className="rounded-lg border border-border-subtle bg-secondary p-3">
+                                    <div className="flex items-center justify-between gap-2">
+                                        <div className="flex items-center gap-2 min-w-0">
+                                            <span className="text-sm font-medium text-text-primary truncate">{review.author}</span>
+                                            <span
+                                                className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold ${isAndroid ? 'bg-[rgba(0,200,179,0.12)] text-[#089A8A]' : 'bg-[rgba(41,128,211,0.12)] text-[#2980D3]'}`}
+                                            >
+                                                {isAndroid ? 'Play Store' : 'App Store'}
+                                            </span>
+                                        </div>
+                                        <span className="text-xs text-text-muted shrink-0">{review.rating.toFixed(1)}★</span>
+                                    </div>
+                                    <div className="mt-1 text-xs text-text-muted line-clamp-2">{review.comment}</div>
                                 </div>
-                                <div className="mt-1 text-xs text-text-muted line-clamp-2">{review.comment}</div>
-                            </div>
-                        ))}
+                            );
+                        })}
                     </div>
                 )}
             </div>
@@ -165,6 +188,7 @@ function RealInsightsSidebar({ data }: { data: DownloadAnalyticsData }) {
 
 function InternalDownloadsAnalyticsContent() {
     const [activeTab, setActiveTab] = useState<DownloadsDashboardTab>('overview');
+    const [platform, setPlatform] = useState<PlatformFilterValue>('all');
     const [revenueFullscreen, setRevenueFullscreen] = useState(false);
     const [flowFullscreen, setFlowFullscreen] = useState(false);
     const [roleMetricsModalOpen, setRoleMetricsModalOpen] = useState(false);
@@ -202,26 +226,34 @@ function InternalDownloadsAnalyticsContent() {
         () => (downloadData ? mapDownloadAnalyticsToUgmc(downloadData) : null),
         [downloadData],
     );
-    const dailyInstallSeries = useMemo(() => {
-        if (!downloadData) return [];
-        return downloadData.daily_downloads.map((row) => ({
+    const installTotals = useMemo(
+        () => (downloadData ? platformInstallTotals(downloadData, platform) : { ios: 0, android: 0, total: 0 }),
+        [downloadData, platform],
+    );
+    const filteredDaily = useMemo(
+        () => (downloadData ? dailyInstallRows(downloadData, platform) : []),
+        [downloadData, platform],
+    );
+    const dailyInstallSeries = useMemo(
+        () => filteredDaily.map((row) => ({
             day: row.day,
-            total_messages: row.installs,
-            critical_messages: row.installs,
-            standard_messages: row.updates,
-        }));
-    }, [downloadData]);
-    const dailyStoreInstallSeries = useMemo(() => {
-        if (!downloadData) return [];
-        return downloadData.daily_downloads.map((row) => ({
+            total_messages: row.total,
+            critical_messages: row.ios,
+            standard_messages: row.android,
+        })),
+        [filteredDaily],
+    );
+    const dailyStoreInstallSeries = useMemo(
+        () => filteredDaily.map((row) => ({
             day: row.day,
-            total_messages: row.installs,
-            critical_messages: row.installs, // App Store installs
-            standard_messages: row.play_installs ?? 0, // Play Store installs
-        }));
-    }, [downloadData]);
+            total_messages: row.total,
+            critical_messages: row.ios,
+            standard_messages: row.android,
+        })),
+        [filteredDaily],
+    );
     const versionInstallRoles = useMemo(() => {
-        if (!downloadData) return [];
+        if (!downloadData || platform === 'android') return [];
         return downloadData.version_breakdown.map((version, idx) => ({
             role_id: `version-${idx}`,
             role_name: version.version,
@@ -233,17 +265,51 @@ function InternalDownloadsAnalyticsContent() {
             escalated_critical_messages: 0,
             avg_reply_response_minutes_critical: undefined,
         }));
-    }, [downloadData]);
-    const regionalPlatform = useMemo(() => {
-        if (!downloadData) return [];
-        return downloadData.regions
-            .slice(0, 6)
-            .map((region) => ({
-                name: region.region,
-                ios: region.ios_installs ?? region.installs,
-                android: region.android_installs ?? 0,
-            }));
-    }, [downloadData]);
+    }, [downloadData, platform]);
+    const regionalPlatform = useMemo(
+        () => (downloadData ? regionalPlatformRows(downloadData, platform) : []),
+        [downloadData, platform],
+    );
+    const ratingKpi = useMemo(() => {
+        const ios = downloadData?.avg_rating ?? 0;
+        const android = downloadData?.android_avg_rating ?? 0;
+        const iosReviewCount = downloadData?.reviews.filter((r) => r.source !== 'android').length ?? 0;
+        const androidReviewCount = downloadData?.android_rating_count
+            ?? (downloadData?.reviews.filter((r) => r.source === 'android').length ?? 0);
+        if (platform === 'android') {
+            return {
+                value: android > 0 ? android.toFixed(1) : 'N/A',
+                changeValue: String(androidReviewCount),
+                changeLabel: 'Play reviews',
+                infoText: 'Average from the Google Play ratings report.',
+            };
+        }
+        if (platform === 'ios') {
+            return {
+                value: ios > 0 ? ios.toFixed(1) : 'N/A',
+                changeValue: String(iosReviewCount),
+                changeLabel: 'App Store reviews',
+                infoText: `Average from ${(downloadData?.rating_count ?? 0).toLocaleString()} App Store ratings.`,
+            };
+        }
+        return {
+            value: ios > 0 ? ios.toFixed(1) : android > 0 ? android.toFixed(1) : 'N/A',
+            changeValue: android > 0 ? `★ ${android.toFixed(1)}` : '—',
+            changeLabel: 'Play Store',
+            infoText: `App Store ${ios > 0 ? ios.toFixed(1) : 'N/A'} · Play Store ${android > 0 ? android.toFixed(1) : 'N/A'}.`,
+        };
+    }, [downloadData, platform]);
+    const installChartTitle = platform === 'all'
+        ? 'Installs Over Past 7 Days'
+        : `${platformFilterLabel(platform)} Installs Over Past 7 Days`;
+    const storeChartTitle = platform === 'all'
+        ? 'App Store installs vs Play Store installs'
+        : `${platformFilterLabel(platform)} installs`;
+    const storeChartSubtitle = platform === 'all' ? 'Last 7 days · iOS + Android' : 'Last 7 days';
+    const regionSubtitle = platform === 'all'
+        ? 'iOS vs Android by country'
+        : `${platformFilterLabel(platform)} installs by country`;
+    const regionBadgeLabel = platform === 'ios' ? 'iOS' : platform === 'android' ? 'Android' : 'Android';
 
     if (loading) {
         return (
@@ -289,43 +355,82 @@ function InternalDownloadsAnalyticsContent() {
                                 <div className="h-8 w-8 animate-spin rounded-full border-2 border-accent-primary border-t-transparent" />
                             </div>
                         }>
-                            {activeTab === 'acquisition' && <DownloadsAcquisitionPage data={downloadData} />}
+                            {activeTab === 'acquisition' && (
+                                <DownloadsAcquisitionPage
+                                    data={downloadData}
+                                    platform={platform}
+                                    onPlatformChange={setPlatform}
+                                />
+                            )}
                         </Suspense>
                     )}
 
                     {activeTab === 'overview' && (
                         <>
+                            <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                                <div>
+                                    <h1 className="text-lg font-semibold text-text-primary">Downloads Overview</h1>
+                                    <p className="mt-1 text-sm text-text-muted">
+                                        {platformFilterLabel(platform)} installs over the last {windowDays} days.
+                                    </p>
+                                </div>
+                                <PlatformFilter value={platform} onChange={setPlatform} />
+                            </div>
+
                             <div className="usage-kpi-grid">
                                 <KpiCard
                                     icon={<FaDownload className="h-5 w-5 text-accent-primary" />}
                                     iconBgColor="bg-[rgba(36,132,199,0.1)]"
-                                    label="Total Downloads"
-                                    value={fmt(downloadData.total_downloads)}
+                                    label="Total Installs"
+                                    value={fmt(installTotals.total)}
                                     footer={
-                                        <PlatformBreakdown
-                                            ios={downloadData.total_installs}
-                                            android={downloadData.total_play_installs ?? 0}
-                                        />
+                                        platform === 'all' ? (
+                                            <PlatformBreakdown
+                                                ios={installTotals.ios}
+                                                android={installTotals.android}
+                                            />
+                                        ) : undefined
                                     }
-                                    infoText="Total app downloads across all channels in the selected period."
+                                    change={platform !== 'all' ? {
+                                        value: platform === 'ios' ? 'App Store' : 'Play Store',
+                                        label: platformFilterLabel(platform),
+                                        trend: 'up',
+                                    } : undefined}
+                                    infoText={
+                                        platform === 'all'
+                                            ? 'Combined App Store and Play Store installs in the selected period.'
+                                            : `${platformFilterLabel(platform)} installs in the selected period.`
+                                    }
                                     animationDelay={0}
                                 />
                                 <KpiCard
                                     icon={<FaMobileScreen className="h-5 w-5 text-accent-green" />}
                                     iconBgColor="bg-[rgba(0,200,179,0.1)]"
-                                    label="Installed Units"
-                                    value={fmt(downloadData.total_installs)}
-                                    change={{ value: fmt(downloadData.total_downloads), label: 'Downloads', trend: 'up' }}
-                                    infoText="Install units from Apple Sales Reports."
+                                    label={platform === 'android' ? 'Play Store Installs' : 'App Store Installs'}
+                                    value={fmt(platform === 'android' ? installTotals.android : installTotals.ios)}
+                                    change={{
+                                        value: platform === 'all'
+                                            ? fmt(installTotals.android)
+                                            : fmt(installTotals.total),
+                                        label: platform === 'all' ? 'Android' : 'Selected',
+                                        trend: 'up',
+                                    }}
+                                    infoText={
+                                        platform === 'android'
+                                            ? 'Install units from Google Play Console reports.'
+                                            : platform === 'ios'
+                                                ? 'Install units from Apple Sales Reports.'
+                                                : 'App Store installs; Android shown in the change label.'
+                                    }
                                     animationDelay={1}
                                 />
                                 <KpiCard
                                     icon={<FaStar className="h-5 w-5 text-accent-orange" />}
                                     iconBgColor="bg-[rgba(232,155,0,0.1)]"
                                     label="Avg Rating"
-                                    value={downloadData.avg_rating.toFixed(1)}
-                                    change={{ value: String(downloadData.reviews.length), label: 'Reviews', trend: 'up' }}
-                                    infoText={`Average from ${downloadData.rating_count.toLocaleString()} App Store ratings.`}
+                                    value={ratingKpi.value}
+                                    change={{ value: ratingKpi.changeValue, label: ratingKpi.changeLabel, trend: 'up' }}
+                                    infoText={ratingKpi.infoText}
                                     animationDelay={2}
                                 />
                                 <KpiCard
@@ -352,8 +457,8 @@ function InternalDownloadsAnalyticsContent() {
                                             isFullscreen={revenueFullscreen}
                                             onToggleFullscreen={() => setRevenueFullscreen(!revenueFullscreen)}
                                             dailyVolume={dailyInstallSeries}
-                                            title="Installs Over Past 7 Days"
-                                            infoText="Install units over the last seven days."
+                                            title={installChartTitle}
+                                            infoText={`${platformFilterLabel(platform)} install units over the last seven days.`}
                                             seriesName="Installs"
                                             valueKey="total_messages"
                                             fixedPeriod="7d"
@@ -362,13 +467,22 @@ function InternalDownloadsAnalyticsContent() {
                                     </div>
                                     <div className="dashboard-two-col">
                                         <div className="animate-slide-in-up stagger-3 min-h-[340px] h-full">
-                                            <RoleCriticalTraffic roles={versionInstallRoles} title="Version Installs" showDetails={false} />
+                                            {platform === 'android' ? (
+                                                <div className="bg-primary rounded-[15px] shadow-soft p-6 h-full flex flex-col justify-center">
+                                                    <h3 className="text-sm font-semibold text-text-primary mb-2">Version Installs</h3>
+                                                    <p className="text-sm text-text-muted">
+                                                        Per-version install breakdown is available for App Store (iOS) only. Switch the filter to iOS or All to view versions.
+                                                    </p>
+                                                </div>
+                                            ) : (
+                                                <RoleCriticalTraffic roles={versionInstallRoles} title="Version Installs" showDetails={false} />
+                                            )}
                                         </div>
                                         <div className="animate-slide-in-up stagger-4 min-h-[340px] h-full">
                                             <OutstandingReimbursement
                                                 title="Installs by Region"
-                                                subtitle="iOS vs Android by country"
-                                                badgeLabel="Android"
+                                                subtitle={regionSubtitle}
+                                                badgeLabel={regionBadgeLabel}
                                                 platformItems={regionalPlatform}
                                             />
                                         </div>
@@ -378,18 +492,22 @@ function InternalDownloadsAnalyticsContent() {
                                             isFullscreen={flowFullscreen}
                                             onToggleFullscreen={() => setFlowFullscreen(!flowFullscreen)}
                                             dailyVolume={dailyStoreInstallSeries}
-                                            title="App Store installs vs Play Store installs"
-                                            subtitle="Last 7 days"
-                                            infoText="App Store install units versus Play Store installs over the last seven days."
-                                            primarySeriesLabel="Play Store"
-                                            secondarySeriesLabel="App Store"
+                                            title={storeChartTitle}
+                                            subtitle={storeChartSubtitle}
+                                            infoText={
+                                                platform === 'all'
+                                                    ? 'App Store install units versus Play Store installs over the last seven days.'
+                                                    : `${platformFilterLabel(platform)} installs over the last seven days.`
+                                            }
+                                            primarySeriesLabel="Android"
+                                            secondarySeriesLabel="iOS"
                                             tooltipUnitLabel="installs"
                                         />
                                     </div>
                                 </div>
                                 <div className="usage-main-grid__sidebar">
                                     <div className="animate-slide-in-right stagger-3">
-                                        <RealInsightsSidebar data={downloadData} />
+                                        <RealInsightsSidebar data={downloadData} platform={platform} />
                                     </div>
                                 </div>
                             </div>

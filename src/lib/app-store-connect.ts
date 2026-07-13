@@ -423,6 +423,89 @@ async function fetchCrashMetricsFromAnalyticsReports(
     return { crashReports: [] };
 }
 
+/**
+ * Best-effort real iOS active-devices count from App Store Connect Analytics reports.
+ * Apple only exposes this when an analytics report request has been provisioned and a
+ * report with an "active devices" metric exists; otherwise we return undefined and the
+ * caller falls back to install counts.
+ */
+async function fetchActiveDevicesFromAnalyticsReports(
+    token: string,
+    appAppleId: string,
+): Promise<number | undefined> {
+    const reqRes = await fetch(`${APP_STORE_CONNECT_API}/apps/${appAppleId}/analyticsReportRequests`, {
+        headers: { Authorization: `Bearer ${token}` },
+        cache: 'no-store',
+    });
+    if (!reqRes.ok) return undefined;
+    const reqJson = await reqRes.json() as { data?: Array<{ id: string }> };
+    const requests = Array.isArray(reqJson.data) ? reqJson.data : [];
+    if (requests.length === 0) return undefined;
+
+    for (const request of requests) {
+        const reportsRes = await fetch(`${APP_STORE_CONNECT_API}/analyticsReportRequests/${request.id}/reports?limit=200`, {
+            headers: { Authorization: `Bearer ${token}` },
+            cache: 'no-store',
+        });
+        if (!reportsRes.ok) continue;
+        const reportsJson = await reportsRes.json() as {
+            data?: Array<{ id: string; attributes?: { name?: string } }>;
+        };
+        const reports = (reportsJson.data || []).filter((r) => {
+            const name = String(r.attributes?.name || '').toUpperCase();
+            return name.includes('INSTALL') || name.includes('SESSION') || name.includes('ACTIVE');
+        });
+
+        for (const report of reports) {
+            const instRes = await fetch(`${APP_STORE_CONNECT_API}/analyticsReports/${report.id}/instances?limit=50`, {
+                headers: { Authorization: `Bearer ${token}` },
+                cache: 'no-store',
+            });
+            if (!instRes.ok) continue;
+            const instJson = await instRes.json() as { data?: Array<{ id: string }> };
+            const instance = Array.isArray(instJson.data) ? instJson.data[0] : undefined;
+            if (!instance?.id) continue;
+
+            const segRes = await fetch(`${APP_STORE_CONNECT_API}/analyticsReportInstances/${instance.id}/segments?limit=10`, {
+                headers: { Authorization: `Bearer ${token}` },
+                cache: 'no-store',
+            });
+            if (!segRes.ok) continue;
+            const segJson = await segRes.json() as { data?: Array<{ attributes?: { url?: string } }> };
+            const segmentUrl = segJson.data?.[0]?.attributes?.url;
+            if (!segmentUrl) continue;
+
+            const rawRes = await fetch(segmentUrl, { cache: 'no-store' });
+            if (!rawRes.ok) continue;
+            const compressed = Buffer.from(await rawRes.arrayBuffer());
+            const csvText = gunzipSync(compressed).toString('utf8');
+            const csvRows = parseCsv(csvText);
+            if (csvRows.length === 0) continue;
+
+            const headers = Object.keys(csvRows[0]);
+            const activeHeader = firstHeaderMatch(headers, [/active.*devices?/, /devices?.*active/]);
+            const dateHeader = firstHeaderMatch(headers, [/^date$/, /day/]);
+            if (!activeHeader) continue;
+
+            // Active devices is a point-in-time value: take the most recent date's total.
+            if (dateHeader) {
+                const byDay = new Map<string, number>();
+                for (const row of csvRows) {
+                    const day = String(row[dateHeader] || '').trim();
+                    if (!day) continue;
+                    byDay.set(day, (byDay.get(day) || 0) + parseMetricNumber(row[activeHeader]));
+                }
+                const latest = [...byDay.keys()].sort().at(-1);
+                if (latest) return Math.round(byDay.get(latest) ?? 0);
+            }
+            const total = csvRows.reduce((sum, row) => sum + parseMetricNumber(row[activeHeader]), 0);
+            if (total > 0) return Math.round(total);
+        }
+    }
+
+    return undefined;
+}
+
 function aggregateSalesRows(rows: SalesRow[]): DownloadAnalyticsData {
     const dailyMap = new Map<string, { downloads: number; installs: number; updates: number }>();
     const versionMap = new Map<string, number>();
@@ -488,6 +571,8 @@ function aggregateSalesRows(rows: SalesRow[]): DownloadAnalyticsData {
         window_days: daily_downloads.length,
         total_downloads,
         total_installs,
+        // Baseline fallback; overridden with a real active-devices figure when the
+        // App Store Connect Analytics report exposes one (see fetchAppleDownloadAnalytics).
         active_devices: total_installs,
         avg_rating: 0,
         rating_count: 0,
@@ -564,10 +649,11 @@ export async function fetchAppleDownloadAnalytics(windowDays = 30): Promise<Down
     }
     if (appAppleId) {
         try {
-            const [meta, reviews, crashMetrics] = await Promise.all([
+            const [meta, reviews, crashMetrics, iosActiveDevices] = await Promise.all([
                 fetchPublicStoreMeta(appAppleId),
                 fetchPublicRecentReviews(appAppleId),
                 fetchCrashMetricsFromAnalyticsReports(token, appAppleId),
+                fetchActiveDevicesFromAnalyticsReports(token, appAppleId).catch(() => undefined),
             ]);
             analytics.avg_rating = meta.avgRating;
             analytics.rating_count = meta.reviewCount;
@@ -577,9 +663,17 @@ export async function fetchAppleDownloadAnalytics(windowDays = 30): Promise<Down
                 analytics.crash_free_rate_percent = Math.round(crashMetrics.crashFreeRatePercent * 10) / 10;
             }
             analytics.crash_reports = crashMetrics.crashReports;
+            if (typeof iosActiveDevices === 'number' && Number.isFinite(iosActiveDevices) && iosActiveDevices > 0) {
+                analytics.ios_active_devices = iosActiveDevices;
+                analytics.active_devices = iosActiveDevices;
+            }
         } catch {
             // Keep sales analytics even when metadata/reviews are unavailable.
         }
+    }
+    // Ensure a per-platform iOS figure exists for the dashboard even without an analytics report.
+    if (typeof analytics.ios_active_devices !== 'number') {
+        analytics.ios_active_devices = analytics.total_installs;
     }
     analytics.window_days = windowDays;
     return mergeGooglePlayInstalls(analytics, windowDays);

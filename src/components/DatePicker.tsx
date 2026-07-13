@@ -66,9 +66,26 @@ export default function DatePicker({
             if (!rect) return;
             const viewportPad = 8;
             const left = Math.max(viewportPad, Math.min(rect.left, window.innerWidth - POP_W - viewportPad));
-            setPos({ top: rect.bottom + 4, left });
+            const popH = popRef.current?.offsetHeight ?? 320;
+            const gap = 4;
+            const spaceBelow = window.innerHeight - rect.bottom - viewportPad;
+            const spaceAbove = rect.top - viewportPad;
+            let top: number;
+            if (popH + gap <= spaceBelow) {
+                // Enough room below: open downward (default).
+                top = rect.bottom + gap;
+            } else if (popH + gap <= spaceAbove) {
+                // Not enough below but room above: flip upward.
+                top = rect.top - popH - gap;
+            } else {
+                // Constrained both ways: pin within the viewport so it never clips.
+                top = Math.max(viewportPad, window.innerHeight - popH - viewportPad);
+            }
+            setPos({ top, left });
         };
         updatePos();
+        // Re-measure after paint so height (which changes with the year picker) is accurate.
+        const raf = requestAnimationFrame(updatePos);
         const onDocClick = (e: MouseEvent) => {
             if (wrapRef.current?.contains(e.target as Node)) return;
             if (popRef.current?.contains(e.target as Node)) return;
@@ -78,21 +95,25 @@ export default function DatePicker({
         window.addEventListener('resize', updatePos);
         window.addEventListener('scroll', updatePos, true);
         return () => {
+            cancelAnimationFrame(raf);
             document.removeEventListener('mousedown', onDocClick);
             window.removeEventListener('resize', updatePos);
             window.removeEventListener('scroll', updatePos, true);
         };
-    }, [open]);
+    }, [open, yearPickerOpen]);
 
     const year = viewDate.getFullYear();
     const month = viewDate.getMonth();
+    const minDateObj = useMemo(() => (minDate ? parseIsoDate(minDate) : null), [minDate]);
     const yearRange = useMemo(() => {
         const currentYear = new Date().getFullYear();
-        const startYear = 1950;
+        // Respect minDate so forward-looking fields (e.g. expiry) only offer valid years.
+        const startYear = minDateObj ? minDateObj.getFullYear() : 1950;
+        const endYear = Math.max(currentYear + 30, startYear);
         const years: number[] = [];
-        for (let y = currentYear; y >= startYear; y -= 1) years.push(y);
+        for (let y = endYear; y >= startYear; y -= 1) years.push(y);
         return years;
-    }, []);
+    }, [minDateObj]);
     const filteredYears = useMemo(() => {
         const q = yearQuery.trim();
         if (!q) return yearRange;
@@ -117,6 +138,8 @@ export default function DatePicker({
 
     const selectedKey = selectedDate ? toDateInputValue(selectedDate) : '';
     const todayKey = toDateInputValue(new Date());
+    // Disable navigating to a month whose last day is already before minDate.
+    const canGoPrev = !minDate || toDateInputValue(new Date(year, month, 0)) >= minDate;
 
     return (
         <div ref={wrapRef} style={{ position: 'relative', ...style }}>
@@ -164,6 +187,8 @@ export default function DatePicker({
                         left: pos.left,
                         zIndex: 1200,
                         width: POP_W,
+                        maxHeight: 'calc(100vh - 16px)',
+                        overflowY: 'auto',
                         background: 'var(--surface-card)',
                         border: '1px solid var(--border-default)',
                         borderRadius: 'var(--radius-lg)',
@@ -172,7 +197,13 @@ export default function DatePicker({
                     }}
                 >
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-                        <button type="button" className="btn btn-ghost btn-xs" onClick={() => setViewDate(new Date(year, month - 1, 1))}>
+                        <button
+                            type="button"
+                            className="btn btn-ghost btn-xs"
+                            disabled={!canGoPrev}
+                            onClick={() => { if (canGoPrev) setViewDate(new Date(year, month - 1, 1)); }}
+                            style={{ opacity: canGoPrev ? 1 : 0.35, cursor: canGoPrev ? 'pointer' : 'not-allowed' }}
+                        >
                             <span className="material-icons-round" style={{ fontSize: 15 }}>chevron_left</span>
                         </button>
                         <button

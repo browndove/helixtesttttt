@@ -31,11 +31,15 @@ const TopVendors: React.FC<{
     title?: string;
     subtitle?: string;
     totalLabel?: string;
+    insightText?: string;
+    fillHeight?: boolean;
 }> = ({
     data,
     title = "Top Escalated Roles",
     subtitle = "By escalation count · current window",
     totalLabel = "Total escalations (facility)",
+    insightText,
+    fillHeight = false,
 }) => {
     const root = unwrapAnalyticsPayload(data);
 
@@ -105,7 +109,11 @@ const TopVendors: React.FC<{
     const topName = rows[0]?.name;
 
     return (
-        <DashboardCard className="flex flex-col flex-1" padding="none" style={{ padding: 20, gap: 10, height: 680 }}>
+        <DashboardCard
+            className="flex h-full min-h-0 flex-col flex-1"
+            padding="none"
+            style={{ padding: 20, gap: 10, ...(fillHeight ? { height: "100%", minHeight: "100%" } : { height: 680 }) }}
+        >
             <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
                     <Text variant="body-md-semibold" color="text-primary" className="font-bold">{title}</Text>
@@ -134,7 +142,7 @@ const TopVendors: React.FC<{
                                 <div className="rounded-[4px] bg-quaternary" style={{ padding: '0 8px' }}>
                                     <Text variant="body-md-semibold" color="text-primary" className="tabular-nums">{role.escalations}</Text>
                                 </div>
-                                {role.messages > 0 && (
+                                {role.messages > 0 && role.messages !== role.escalations && (
                                     <Text variant="body-xs" color="text-tertiary" className="tabular-nums">{role.messages} msgs</Text>
                                 )}
                             </div>
@@ -145,7 +153,8 @@ const TopVendors: React.FC<{
             {topName && rows.length > 0 && (
                 <div className="bg-[#0EAF9F1A] border border-[#0EAF9F33] rounded-[10px]" style={{ padding: 12 }}>
                     <Text variant="body-md" color="none" style={{ color: "#0EAF9F" }} className="font-medium break-words overflow-wrap-anywhere">
-                        {topName} has the highest escalation count in this window. Review coverage and response protocols if needed.
+                        {insightText
+                            || `${topName} has the highest escalation count in this window. Review coverage and response protocols if needed.`}
                     </Text>
                 </div>
             )}

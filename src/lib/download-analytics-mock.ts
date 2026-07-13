@@ -5,17 +5,22 @@ export interface DownloadAnalyticsData {
     total_downloads: number;
     total_installs: number;
     active_devices: number;
+    ios_active_devices?: number;
+    android_active_devices?: number;
     avg_rating: number;
     rating_count: number;
     review_count: number;
     crash_free_rate_percent: number;
     install_conversion_percent: number;
+    android_avg_rating?: number;
+    android_rating_count?: number;
     total_play_installs: number;
     daily_downloads: { day: string; downloads: number; installs: number; updates: number; play_installs?: number }[];
     version_breakdown: { version: string; installs: number; share_percent: number }[];
+    android_version_breakdown?: { version: string; installs: number; share_percent: number }[];
     crash_reports: { type: string; count: number }[];
     diagnostics: { issue: string; count: number }[];
-    reviews: { author: string; rating: number; comment: string; date: string }[];
+    reviews: { author: string; rating: number; comment: string; date: string; source?: 'ios' | 'android' }[];
     regions: {
         region: string;
         downloads: number;
