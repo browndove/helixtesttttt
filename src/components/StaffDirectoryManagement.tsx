@@ -3646,7 +3646,7 @@ export default function StaffDirectoryManagement() {
                                 {
                                     icon: 'badge',
                                     label: 'latest_bulk_upload.csv',
-                                    desc: 'email, first_name, last_name, job_title, middle_name, phone, dob, gender, department_id, patient_access, employee_id, highest_qualifications, is_doctor',
+                                    desc: 'email, first_name, last_name, job_title, middle_name, phone, dob, gender, department, patient_access, employee_id, highest_qualification, is_doctor',
                                     color: '#4a6fa5',
                                     href: '/templates/latest_bulk_upload.csv',
                                     downloadName: 'latest_bulk_upload.csv',

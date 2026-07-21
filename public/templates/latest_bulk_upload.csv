@@ -1,3 +1,3 @@
-email,first_name,last_name,job_title,middle_name,phone,dob,gender,department_id,patient_access,employee_id,highest_qualifications,is_doctor
-dr.kwame.mensah@hospital.com,Kwame,Mensah,Physician,,+233201234567,1985-03-12,male,,true,EMP-1001,MD,true
-nurse.abena.osei@hospital.com,Abena,Osei,Registered Nurse,Ama,+233209876543,1992-07-22,female,,true,EMP-1002,RN,false
+email,first_name,last_name,job_title,middle_name,phone,dob,gender,department,patient_access,employee_id,highest_qualification,is_doctor
+dr.kwame.mensah@hospital.com,Kwame,Mensah,Physician,,233201234567,1985-03-12,male,,true,EMP-1001,MD,true
+nurse.abena.osei@hospital.com,Abena,Osei,Registered Nurse,Ama,233209876543,1992-07-22,female,,true,EMP-1002,RN,false
