@@ -9,6 +9,7 @@ import { fetchAllStaffPayload } from '@/lib/fetch-all-staff';
 import { countCriticalRolesWithoutEscalation } from '@/lib/role-escalation-ladder';
 import { useTeamPresenceRoster } from '@/lib/useTeamPresenceRoster';
 import { generateDashboardPdf, type DashboardReportData } from '@/lib/generate-dashboard-report';
+import AskAiPanel, { AskAiButton } from '@/components/AskAiPanel';
 
 type SimpleItem = Record<string, unknown>;
 type ActivityItem = { id: string; title: string; detail: string; time: string; tone?: 'default' | 'critical' | 'info' };
@@ -217,6 +218,7 @@ export default function HomePage() {
     const [analyticsWindowDays, setAnalyticsWindowDays] = useState(30);
     const [criticalRolesWithoutEscalation, setCriticalRolesWithoutEscalation] = useState(0);
     const [criticalRolesTotal, setCriticalRolesTotal] = useState(0);
+    const [askAiOpen, setAskAiOpen] = useState(false);
     const [staffAccountMetric, setStaffAccountMetric] = useState<{ active: number; total: number; percent: number }>({
         active: 0,
         total: 0,
@@ -518,8 +520,10 @@ export default function HomePage() {
                         <span className="material-icons-round btn-sync-icon">sync</span>
                         Refresh
                     </button>
+                    <AskAiButton onClick={() => setAskAiOpen(true)} />
                 </div>
             </div>
+            <AskAiPanel open={askAiOpen} onClose={() => setAskAiOpen(false)} />
 
             <main className="page">
                 <div className="dash">
