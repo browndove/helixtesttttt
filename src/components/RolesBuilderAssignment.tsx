@@ -1219,7 +1219,7 @@ export default function RolesBuilderAssignment() {
                 mandatory: newRoleMandatory,
                 enabled: true,
                 sign_in_allowed_user_ids: newRestricted ? newAllowedUserIds : undefined,
-                external_messaging: newRoleExternalMessaging,
+                external_messaging: Boolean(newRoleExternalMessaging || newRoleIsTransferRole),
                 is_transfer_role: newRoleIsTransferRole,
             },
         };
@@ -1551,6 +1551,8 @@ export default function RolesBuilderAssignment() {
                 mandatory: editMandatory,
                 sign_in_allowed_user_ids: editRestricted ? editAllowedUserIds : [],
                 is_transfer_role: editIsTransferRole,
+                // Transfer roles must be external contacts so they appear in Explore.
+                ...(editIsTransferRole ? { external_messaging: true } : {}),
             };
             if (nameChanged) roleUpdatePayload.name = nextName;
             if (deptChanged) {
@@ -1721,6 +1723,11 @@ export default function RolesBuilderAssignment() {
                     is_transfer_role: typeof (updated as Role).is_transfer_role === 'boolean'
                         ? (updated as Role).is_transfer_role
                         : editIsTransferRole,
+                    ...(editIsTransferRole
+                        ? { external_messaging: true }
+                        : typeof (updated as Role).external_messaging === 'boolean'
+                            ? { external_messaging: (updated as Role).external_messaging }
+                            : {}),
                 };
             }));
             showToast(`"${editName}" updated`);
@@ -2155,7 +2162,7 @@ export default function RolesBuilderAssignment() {
                                             <div style={{ minWidth: 0 }}>
                                                 <div style={{ fontSize: 13, fontWeight: 600 }}>Transfer role</div>
                                                 <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 1 }}>
-                                                    Marks this role for patient transfer workflows.
+                                                    Marks this role for patient transfer workflows and enables it as an external contact.
                                                 </div>
                                             </div>
                                         </div>
@@ -2423,25 +2430,50 @@ export default function RolesBuilderAssignment() {
 
                                     {renderSignInRestriction(newRestricted, setNewRestricted, newAllowedUserIds, setNewAllowedUserIds)}
 
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderRadius: 'var(--radius-md)', background: newRoleExternalMessaging ? 'rgba(14,165,233,0.06)' : 'var(--surface-2)', border: `1px solid ${newRoleExternalMessaging ? 'rgba(14,165,233,0.22)' : 'var(--border-subtle)'}`, marginBottom: 14, transition: 'all 0.2s' }}>
-                                        <input type="checkbox" className="checkbox" checked={newRoleExternalMessaging} onChange={() => setNewRoleExternalMessaging(!newRoleExternalMessaging)} />
-                                        <span className="material-icons-round" style={{ fontSize: 18, color: newRoleExternalMessaging ? '#0ea5e9' : 'var(--text-muted)', flexShrink: 0 }}>forum</span>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderRadius: 'var(--radius-md)', background: newRoleExternalMessaging || newRoleIsTransferRole ? 'rgba(14,165,233,0.06)' : 'var(--surface-2)', border: `1px solid ${newRoleExternalMessaging || newRoleIsTransferRole ? 'rgba(14,165,233,0.22)' : 'var(--border-subtle)'}`, marginBottom: 14, transition: 'all 0.2s' }}>
+                                        <input
+                                            type="checkbox"
+                                            className="checkbox"
+                                            checked={newRoleExternalMessaging || newRoleIsTransferRole}
+                                            disabled={newRoleIsTransferRole}
+                                            onChange={() => {
+                                                if (newRoleIsTransferRole) {
+                                                    showToast('Transfer roles stay external contacts. Turn off Transfer role to disable external communication.', 'info');
+                                                    return;
+                                                }
+                                                setNewRoleExternalMessaging(!newRoleExternalMessaging);
+                                            }}
+                                        />
+                                        <span className="material-icons-round" style={{ fontSize: 18, color: newRoleExternalMessaging || newRoleIsTransferRole ? '#0ea5e9' : 'var(--text-muted)', flexShrink: 0 }}>forum</span>
                                         <div style={{ flex: 1 }}>
                                             <div style={{ fontSize: 13, fontWeight: 600 }}>External communication</div>
-                                            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 1 }}>Allow cross-facility messaging for this role when your facility has external communication enabled.</div>
+                                            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 1 }}>
+                                                {newRoleIsTransferRole
+                                                    ? 'Required for transfer roles so the contact appears in Explore.'
+                                                    : 'Allow cross-facility messaging for this role when your facility has external communication enabled.'}
+                                            </div>
                                         </div>
-                                        <span className={`badge ${newRoleExternalMessaging ? 'badge-info' : 'badge-neutral'}`} style={{ fontSize: 10, flexShrink: 0 }}>
-                                            {newRoleExternalMessaging ? 'On' : 'Off'}
+                                        <span className={`badge ${newRoleExternalMessaging || newRoleIsTransferRole ? 'badge-info' : 'badge-neutral'}`} style={{ fontSize: 10, flexShrink: 0 }}>
+                                            {newRoleExternalMessaging || newRoleIsTransferRole ? 'On' : 'Off'}
                                         </span>
                                     </div>
 
                                     <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderRadius: 'var(--radius-md)', background: newRoleIsTransferRole ? 'rgba(124,58,237,0.06)' : 'var(--surface-2)', border: `1px solid ${newRoleIsTransferRole ? 'rgba(124,58,237,0.22)' : 'var(--border-subtle)'}`, marginBottom: 14, transition: 'all 0.2s' }}>
-                                        <input type="checkbox" className="checkbox" checked={newRoleIsTransferRole} onChange={() => setNewRoleIsTransferRole(!newRoleIsTransferRole)} />
+                                        <input
+                                            type="checkbox"
+                                            className="checkbox"
+                                            checked={newRoleIsTransferRole}
+                                            onChange={() => {
+                                                const next = !newRoleIsTransferRole;
+                                                setNewRoleIsTransferRole(next);
+                                                if (next) setNewRoleExternalMessaging(true);
+                                            }}
+                                        />
                                         <span className="material-icons-round" style={{ fontSize: 18, color: newRoleIsTransferRole ? '#7c3aed' : 'var(--text-muted)', flexShrink: 0 }}>swap_horiz</span>
                                         <div style={{ flex: 1 }}>
                                             <div style={{ fontSize: 13, fontWeight: 600 }}>Transfer role</div>
                                             <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 1 }}>
-                                                Marks this role for patient transfer workflows.
+                                                Marks this role for patient transfer workflows and enables it as an external contact.
                                             </div>
                                         </div>
                                         <span className={`badge ${newRoleIsTransferRole ? 'badge-info' : 'badge-neutral'}`} style={{ fontSize: 10, flexShrink: 0 }}>

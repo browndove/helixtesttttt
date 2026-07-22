@@ -147,7 +147,10 @@ export default function ExternalCommunicationManagement() {
                 const list = parseRolesPayload(data);
                 setRoles(list);
                 const map: Record<string, boolean> = {};
-                for (const r of list) map[r.id] = r.external_messaging;
+                for (const r of list) {
+                    // Transfer roles must remain external contacts (Explore + transfer workflows).
+                    map[r.id] = Boolean(r.external_messaging || r.is_transfer_role);
+                }
                 setRoleExternal(map);
             } else {
                 setRoles([]);
@@ -207,7 +210,7 @@ export default function ExternalCommunicationManagement() {
 
             for (const r of roles) {
                 const was = r.external_messaging;
-                const now = Boolean(roleExternal[r.id]);
+                const now = Boolean(roleExternal[r.id] || r.is_transfer_role);
                 if (was === now) continue;
                 const putRes = await fetch(`/api/proxy/roles/${r.id}`, {
                     method: 'PUT',
@@ -224,7 +227,7 @@ export default function ExternalCommunicationManagement() {
 
             setRoles(prev => prev.map(r => ({
                 ...r,
-                external_messaging: Boolean(roleExternal[r.id]),
+                external_messaging: Boolean(roleExternal[r.id] || r.is_transfer_role),
             })));
             showToast('External communication settings saved');
         } catch {
@@ -235,7 +238,7 @@ export default function ExternalCommunicationManagement() {
 
     const dirty =
         draftFacilityEnabled !== facilityEnabled
-        || roles.some(r => Boolean(roleExternal[r.id]) !== r.external_messaging);
+        || roles.some(r => Boolean(roleExternal[r.id] || r.is_transfer_role) !== r.external_messaging);
 
     if (loading) {
         return (
