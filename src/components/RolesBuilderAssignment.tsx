@@ -632,7 +632,6 @@ export default function RolesBuilderAssignment() {
     const [editMandatory, setEditMandatory] = useState(false);
     const [editRestricted, setEditRestricted] = useState(false);
     const [editAllowedUserIds, setEditAllowedUserIds] = useState<string[]>([]);
-    const [editEnabled, setEditEnabled] = useState(true);
     const [editIsTransferRole, setEditIsTransferRole] = useState(false);
     const [editRouting, setEditRouting] = useState<RoutingRule[]>([]);
     const [editEscLevels, setEditEscLevels] = useState<EscalationLevel[]>([]);
@@ -1488,7 +1487,6 @@ export default function RolesBuilderAssignment() {
         const baseAllowed = Array.isArray(role.sign_in_allowed_user_ids) ? role.sign_in_allowed_user_ids : [];
         setEditRestricted(Boolean(role.sign_in_restricted) || baseAllowed.length > 0);
         setEditAllowedUserIds(baseAllowed);
-        setEditEnabled(role.enabled ?? true);
         const roleRec = role as unknown as Record<string, unknown>;
         setEditIsTransferRole(readIsTransferRoleFromRaw(roleRec) ?? Boolean(role.is_transfer_role));
         setEditRouting((role.escalation_routing || []).map(r => ({ ...r })));
@@ -1552,7 +1550,6 @@ export default function RolesBuilderAssignment() {
                 priority: editMandatory ? 'critical' : 'standard',
                 mandatory: editMandatory,
                 sign_in_allowed_user_ids: editRestricted ? editAllowedUserIds : [],
-                enabled: editEnabled,
                 is_transfer_role: editIsTransferRole,
             };
             if (nameChanged) roleUpdatePayload.name = nextName;
@@ -1724,7 +1721,6 @@ export default function RolesBuilderAssignment() {
                     is_transfer_role: typeof (updated as Role).is_transfer_role === 'boolean'
                         ? (updated as Role).is_transfer_role
                         : editIsTransferRole,
-                    enabled: typeof (updated as Role).enabled === 'boolean' ? (updated as Role).enabled : editEnabled,
                 };
             }));
             showToast(`"${editName}" updated`);
@@ -2152,16 +2148,6 @@ export default function RolesBuilderAssignment() {
                                         <span className={`badge ${editMandatory ? 'badge-critical' : 'badge-neutral'}`} style={{ fontSize: 10, flexShrink: 0 }}>
                                             {editMandatory ? 'Critical' : 'Standard'}
                                         </span>
-                                    </div>
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', borderRadius: 'var(--radius-md)', background: 'var(--surface-2)', border: '1px solid var(--border-subtle)' }}>
-                                        <div>
-                                            <div style={{ fontSize: 13, fontWeight: 600 }}>Enabled</div>
-                                            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 1 }}>Role is active and can be assigned to staff.</div>
-                                        </div>
-                                        <label className="toggle">
-                                            <input type="checkbox" checked={editEnabled} onChange={() => setEditEnabled(!editEnabled)} />
-                                            <span className="toggle-slider" />
-                                        </label>
                                     </div>
                                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', borderRadius: 'var(--radius-md)', background: 'var(--surface-2)', border: '1px solid var(--border-subtle)' }}>
                                         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1, minWidth: 0 }}>
