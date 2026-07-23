@@ -194,6 +194,29 @@ function readScreenshotsAllowed(raw: unknown): boolean {
     return false;
 }
 
+type RetentionMonths = 1 | 3 | 6 | null;
+
+const RETENTION_OPTIONS: Array<{ value: RetentionMonths; label: string }> = [
+    { value: null, label: 'Off' },
+    { value: 1, label: '1 month' },
+    { value: 3, label: '3 months' },
+    { value: 6, label: '6 months' },
+];
+
+function readConversationRetentionMonths(raw: unknown): RetentionMonths {
+    if (raw == null || typeof raw !== 'object') return null;
+    const v = (raw as Record<string, unknown>).conversation_retention_months;
+    if (v === null || v === undefined || v === '') return null;
+    const n = typeof v === 'number' ? v : Number(v);
+    if (n === 1 || n === 3 || n === 6) return n;
+    return null;
+}
+
+function retentionLabel(months: RetentionMonths): string {
+    if (months === null) return 'Off';
+    return months === 1 ? '1 month' : `${months} months`;
+}
+
 function tryFacilityIdOnRecord(o: Record<string, unknown> | null | undefined): string {
     if (!o) return '';
     const id = [
@@ -261,6 +284,8 @@ export default function SettingsPage() {
     const [sessions, setSessions] = useState<SessionEntry[]>(initialSnapshot?.sessions ?? []);
 
     // Admins
+    const [revokingAll, setRevokingAll] = useState(false);
+
     const [admins, setAdmins] = useState<Admin[]>(initialSnapshot?.admins ?? []);
     const [showInvite, setShowInvite] = useState(false);
     const [inviteFirstName, setInviteFirstName] = useState('');
@@ -273,6 +298,11 @@ export default function SettingsPage() {
     const [facilityId, setFacilityId] = useState(initialSnapshot?.facilityId ?? '');
     const [screenshotsAllowed, setScreenshotsAllowed] = useState(initialSnapshot?.screenshotsAllowed ?? false);
     const [savingScreenshots, setSavingScreenshots] = useState(false);
+    const [retentionMonths, setRetentionMonths] = useState<RetentionMonths>(
+        initialSnapshot?.conversationRetentionMonths ?? null,
+    );
+    const [savingRetention, setSavingRetention] = useState(false);
+    const [pendingRetention, setPendingRetention] = useState<RetentionMonths | undefined>(undefined);
 
     const showToast = (message: string, variant: 'success' | 'error' | 'info' = 'success') => {
         setToast({ message, variant });
@@ -361,6 +391,59 @@ export default function SettingsPage() {
         } finally {
             setSavingScreenshots(false);
         }
+    };
+
+    const applyConversationRetention = async (next: RetentionMonths) => {
+        if (!facilityId.trim()) {
+            showToast('Could not find facility. Try signing in again.', 'error');
+            return;
+        }
+        const prev = retentionMonths;
+        setRetentionMonths(next);
+        setSavingRetention(true);
+        setPendingRetention(undefined);
+        try {
+            const res = await fetch(API_ENDPOINTS.FACILITY_CONVERSATION_RETENTION(facilityId), {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify({ conversation_retention_months: next }),
+            });
+            const data = await res.json().catch(() => ({} as Record<string, unknown>));
+            if (!res.ok) {
+                setRetentionMonths(prev);
+                showToast(
+                    String(data?.message || data?.detail || data?.error || 'Failed to update conversation retention'),
+                    'error',
+                );
+                return;
+            }
+            const applied = readConversationRetentionMonths(data);
+            setRetentionMonths(applied);
+            if (applied === null) {
+                showToast('Conversation retention turned off');
+            } else if (prev !== null && applied < prev) {
+                showToast(`Retention set to ${retentionLabel(applied)}. Older chats begin deleting in about 7 days.`);
+            } else {
+                showToast(`Conversation retention set to ${retentionLabel(applied)}`);
+            }
+        } catch {
+            setRetentionMonths(prev);
+            showToast('Failed to update conversation retention', 'error');
+        } finally {
+            setSavingRetention(false);
+        }
+    };
+
+    const requestConversationRetentionChange = (next: RetentionMonths) => {
+        if (next === retentionMonths || savingRetention) return;
+        const isShorten = next !== null && retentionMonths !== null && next < retentionMonths;
+        const isTurnOff = next === null && retentionMonths !== null;
+        if (isShorten || isTurnOff) {
+            setPendingRetention(next);
+            return;
+        }
+        void applyConversationRetention(next);
     };
 
     const loadSecurityData = useCallback(async (opts?: { background?: boolean }) => {
@@ -484,10 +567,16 @@ export default function SettingsPage() {
 
             const screenshotsForSnapshot
                 = resolvedFacilityId && facJson && typeof facJson === 'object' ? readScreenshotsAllowed(facJson) : false;
+            const retentionForSnapshot
+                = resolvedFacilityId && facJson && typeof facJson === 'object'
+                    ? readConversationRetentionMonths(facJson)
+                    : null;
             if (resolvedFacilityId && facJson && typeof facJson === 'object') {
                 setScreenshotsAllowed(screenshotsForSnapshot);
+                setRetentionMonths(retentionForSnapshot);
             } else {
                 setScreenshotsAllowed(false);
+                setRetentionMonths(null);
             }
 
             let finalSessions: SessionEntry[] = [];
@@ -544,6 +633,7 @@ export default function SettingsPage() {
                     sessions: finalSessions,
                     facilityId: resolvedFacilityId,
                     screenshotsAllowed: screenshotsForSnapshot,
+                    conversationRetentionMonths: retentionForSnapshot,
                     admins: finalAdmins,
                 };
                 writeSettingsPageSnapshot(shot);
@@ -605,6 +695,32 @@ export default function SettingsPage() {
             showToast('Session revoked');
         } catch {
             showToast('Failed to revoke session', 'error');
+        }
+    };
+
+    const revokeAllOtherSessions = async () => {
+        const targets = sessions.filter(s => !s.current);
+        if (targets.length === 0 || revokingAll) return;
+        setRevokingAll(true);
+        try {
+            const results = await Promise.allSettled(
+                targets.map(s => fetch(API_ENDPOINTS.AUTH_SESSION(s.id), { method: 'DELETE' })),
+            );
+            const revokedIds = new Set(
+                targets.filter((_, i) => results[i].status === 'fulfilled' && (results[i] as PromiseFulfilledResult<Response>).value.ok).map(s => s.id),
+            );
+            setSessions(prev => prev.filter(s => s.current || !revokedIds.has(s.id)));
+            if (revokedIds.size === targets.length) {
+                showToast('Signed out of all other sessions');
+            } else if (revokedIds.size > 0) {
+                showToast(`Revoked ${revokedIds.size} of ${targets.length} sessions`, 'info');
+            } else {
+                showToast('Failed to revoke sessions', 'error');
+            }
+        } catch {
+            showToast('Failed to revoke sessions', 'error');
+        } finally {
+            setRevokingAll(false);
         }
     };
 
@@ -742,7 +858,11 @@ export default function SettingsPage() {
 
     const displayName = fullName.trim() || 'User';
     const initials = displayName.split(' ').filter(Boolean).map(w => w[0]).slice(0, 2).join('').toUpperCase();
-    const visibleSessions = useMemo(() => sessions, [sessions]);
+    const visibleSessions = useMemo(
+        () => [...sessions].sort((a, b) => Number(b.current) - Number(a.current)),
+        [sessions],
+    );
+    const otherSessionsCount = useMemo(() => sessions.filter(s => !s.current).length, [sessions]);
 
     return (
         <>
@@ -755,274 +875,350 @@ export default function SettingsPage() {
             <div className="app-main">
                 <TopBar title="Settings" subtitle="User & System Preferences" />
 
-                <main style={{ flex: 1, overflow: 'auto', padding: '24px 28px', background: 'var(--bg-900)' }}>
-                    <div className="fade-in" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, width: '100%' }}>
-                            {/* Profile Header */}
-                            <div className="card" style={{ gridColumn: '1 / -1' }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+                <main style={{ flex: 1, overflow: 'auto', padding: '28px 28px 56px', background: 'var(--bg-900)' }}>
+                    <div className="fade-in" style={{ maxWidth: 880, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 20 }}>
+
+                        {/* Profile */}
+                        <div className="settings-section">
+                            <div className="settings-section__header">
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
                                     <div style={{
-                                        width: 64, height: 64, borderRadius: '50%',
+                                        width: 52, height: 52, borderRadius: '50%',
                                         background: 'var(--helix-primary)', color: '#fff',
                                         display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                        fontSize: 22, fontWeight: 700, letterSpacing: '0.02em', flexShrink: 0,
+                                        fontSize: 18, fontWeight: 700, letterSpacing: '0.02em', flexShrink: 0,
                                     }}>
                                         {initials}
                                     </div>
-                                    <div style={{ flex: 1 }}>
-                                        <h3 style={{ fontSize: 18, fontWeight: 700, marginBottom: 2 }}>{displayName}</h3>
-                                        <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>{jobTitle || 'No title'} · {userRole}</p>
+                                    <div>
+                                        <h3 className="settings-section__title" style={{ fontSize: 15 }}>{displayName}</h3>
+                                        <p className="settings-section__desc">{email || 'No email on file'}</p>
                                     </div>
                                 </div>
+                                <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                                    <span className="badge badge-info" style={{ fontSize: 10 }}>{userRole}</span>
+                                    {jobTitle && (
+                                        <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 6 }}>{jobTitle}</div>
+                                    )}
+                                </div>
                             </div>
+                        </div>
 
-                            {/* Facility: screenshots (GET/PUT /facilities/{id} screenshots_allowed) */}
-                            <div className="card" style={{ gridColumn: '1 / -1' }}>
-                                <h3 style={{ marginBottom: 8 }}>Facility</h3>
-                                <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 16, lineHeight: 1.5 }}>
-                                    Control whether staff can capture screenshots in apps that respect this facility setting.
-                                </p>
-                                {loadingSecurity ? (
-                                    <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Loading facility…</div>
-                                ) : !facilityId ? (
-                                    <div style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.55 }}>
+                        {/* Facility */}
+                        <div className="settings-section">
+                            <div className="settings-section__header">
+                                <div>
+                                    <h3 className="settings-section__title">Facility</h3>
+                                    <p className="settings-section__desc">Preferences that apply to every staff member at this facility.</p>
+                                </div>
+                            </div>
+                            {loadingSecurity ? (
+                                <div className="settings-row">
+                                    <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Loading facility…</span>
+                                </div>
+                            ) : !facilityId ? (
+                                <div className="settings-row">
+                                    <span style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.55 }}>
                                         Couldn&apos;t resolve your facility from your session. Use the facility switcher if your organization has one, or sign in again. If this persists, contact support.
-                                    </div>
-                                ) : (
-                                    <div style={{
-                                        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                                        padding: '12px 14px', borderRadius: 'var(--radius-md)',
-                                        background: screenshotsAllowed ? 'var(--success-bg)' : 'var(--surface-2)',
-                                        border: `1px solid ${screenshotsAllowed ? '#d5e8dd' : 'var(--border-default)'}`,
-                                        transition: 'all 0.2s',
-                                    }}>
+                                    </span>
+                                </div>
+                            ) : (
+                                <>
+                                    {/* screenshots (GET/PUT /facilities/{id} screenshots_allowed) */}
+                                    <div className="settings-row">
                                         <div>
-                                            <div style={{ fontWeight: 600, fontSize: 13, color: screenshotsAllowed ? 'var(--success)' : 'var(--text-primary)' }}>
-                                                {screenshotsAllowed ? 'Screenshots allowed' : 'Screenshots not allowed'}
-                                            </div>
-                                            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
+                                            <div className="settings-row__label">Screenshot capture</div>
+                                            <div className="settings-row__desc">
                                                 {savingScreenshots
                                                     ? 'Saving…'
                                                     : screenshotsAllowed
-                                                        ? 'Screenshot capture is permitted for this facility when supported by the Admin.'
-                                                        : 'Screenshot capture is blocked for this facility when not supported by the Admin.'}
+                                                        ? 'Staff can capture screenshots in apps that respect this setting.'
+                                                        : 'Screenshot capture is blocked in apps that respect this setting.'}
                                             </div>
                                         </div>
-                                        <label className="toggle">
-                                            <input
-                                                type="checkbox"
-                                                checked={screenshotsAllowed}
-                                                disabled={savingScreenshots}
-                                                onChange={toggleScreenshotsAllowed}
-                                            />
-                                            <span className="toggle-slider" />
-                                        </label>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                                            <span className={`badge ${screenshotsAllowed ? 'badge-success' : 'badge-neutral'}`} style={{ fontSize: 10 }}>
+                                                {screenshotsAllowed ? 'Allowed' : 'Blocked'}
+                                            </span>
+                                            <label className="toggle">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={screenshotsAllowed}
+                                                    disabled={savingScreenshots}
+                                                    onChange={toggleScreenshotsAllowed}
+                                                />
+                                                <span className="toggle-slider" />
+                                            </label>
+                                        </div>
                                     </div>
-                                )}
-                            </div>
 
-                            {/* Password */}
-                            <div className="card" style={{ gridColumn: '1 / -1' }}>
-                                <h3 style={{ marginBottom: 16 }}>Change Password</h3>
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                                    <div>
-                                        <label className="label">Current Password</label>
-                                        <input className="input" type="password" placeholder="Enter current password" style={{ fontSize: 13 }} />
+                                    {/* conversation retention */}
+                                    <div className="settings-row settings-row--wrap">
+                                        <div style={{ marginBottom: 12 }}>
+                                            <div className="settings-row__label">Conversation retention</div>
+                                            <div className="settings-row__desc">
+                                                Choose how long inactive conversations are kept before Helix removes them from everyone’s inbox.
+                                                Activity means messaging — the clock resets when someone sends a message.
+                                            </div>
+                                        </div>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
+                                            <div className="settings-pill-group" role="radiogroup" aria-label="Conversation retention period">
+                                                {RETENTION_OPTIONS.map((opt) => {
+                                                    const selected = retentionMonths === opt.value;
+                                                    return (
+                                                        <button
+                                                            key={String(opt.value)}
+                                                            type="button"
+                                                            role="radio"
+                                                            aria-checked={selected}
+                                                            disabled={savingRetention}
+                                                            onClick={() => requestConversationRetentionChange(opt.value)}
+                                                            className={`settings-pill${selected ? ' active' : ''}`}
+                                                        >
+                                                            {opt.label}
+                                                        </button>
+                                                    );
+                                                })}
+                                            </div>
+                                            <span style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>
+                                                {savingRetention
+                                                    ? 'Saving…'
+                                                    : retentionMonths === null
+                                                        ? 'Retention is off — inactive conversations are kept indefinitely.'
+                                                        : `Removed from inbox after ${retentionLabel(retentionMonths)} of inactivity.`}
+                                            </span>
+                                        </div>
                                     </div>
-                                    <div>
-                                        <label className="label">New Password</label>
-                                        <input className="input" type="password" placeholder="Enter new password" style={{ fontSize: 13 }} />
-                                    </div>
-                                    <div>
-                                        <label className="label">Confirm New Password</label>
-                                        <input className="input" type="password" placeholder="Confirm new password" style={{ fontSize: 13 }} />
-                                    </div>
+                                </>
+                            )}
+                        </div>
+
+                        {/* Security */}
+                        <div className="settings-section">
+                            <div className="settings-section__header">
+                                <div>
+                                    <h3 className="settings-section__title">Security</h3>
+                                    <p className="settings-section__desc">Protect your account and control how long sessions stay active.</p>
                                 </div>
-                                <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 10, lineHeight: 1.5 }}>
-                                    Password must be at least 8 characters with one uppercase, one number, and one special character.
-                                </div>
-                                <button className="btn btn-secondary btn-sm" style={{ marginTop: 12, width: '100%', justifyContent: 'center' }} onClick={() => showToast('Password updated')}>
-                                    <span className="material-icons-round" style={{ fontSize: 14 }}>lock_reset</span>
-                                    Update Password
+                                <button className="btn btn-secondary btn-sm" onClick={handleLogout}>
+                                    <span className="material-icons-round" style={{ fontSize: 13 }}>logout</span>
+                                    Log out
                                 </button>
                             </div>
-
-                            {/* Security section */}
-                            <div className="card" style={{ gridColumn: '1 / -1' }}>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-                                    <h3>Two-Factor Authentication</h3>
-                                    <button className="btn btn-danger btn-xs" onClick={handleLogout}>
-                                        <span className="material-icons-round" style={{ fontSize: 12 }}>logout</span>
-                                        Logout
-                                    </button>
-                                </div>
-                                <div style={{
-                                    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                                    padding: '12px 14px', borderRadius: 'var(--radius-md)',
-                                    background: twoFactor ? 'var(--success-bg)' : 'var(--surface-2)',
-                                    border: `1px solid ${twoFactor ? '#d5e8dd' : 'var(--border-default)'}`,
-                                    transition: 'all 0.2s',
-                                }}>
-                                    <div>
-                                        <div style={{ fontWeight: 600, fontSize: 13, color: twoFactor ? 'var(--success)' : 'var(--text-primary)' }}>
-                                            {twoFactor ? '2FA is Enabled' : '2FA is Disabled'}
-                                        </div>
-                                        <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
-                                            {twoFactor ? 'Your account is protected with two-factor authentication.' : 'Enable 2FA for extra security on your account.'}
-                                        </div>
+                            <div className="settings-row">
+                                <div>
+                                    <div className="settings-row__label">Two-factor authentication</div>
+                                    <div className="settings-row__desc">
+                                        {twoFactor ? 'Your account is protected with an extra verification step.' : 'Add an extra verification step when signing in.'}
                                     </div>
+                                </div>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                                    <span className={`badge ${twoFactor ? 'badge-success' : 'badge-neutral'}`} style={{ fontSize: 10 }}>
+                                        {twoFactor ? 'Enabled' : 'Disabled'}
+                                    </span>
                                     <label className="toggle">
                                         <input type="checkbox" checked={twoFactor} onChange={toggleTwoFactor} />
                                         <span className="toggle-slider" />
                                     </label>
                                 </div>
                             </div>
-
-                            <div className="card">
-                                <h3 style={{ marginBottom: 16 }}>Session Settings</h3>
+                            <div className="settings-row">
                                 <div>
-                                    <label className="label">Auto-logout after inactivity</label>
-                                    <CustomSelect
-                                        value={sessionTimeout}
-                                        onChange={v => setSessionTimeout(v)}
-                                        options={[
-                                            { label: '15 minutes', value: '15' },
-                                            { label: '30 minutes', value: '30' },
-                                            { label: '1 hour', value: '60' },
-                                            { label: '2 hours', value: '120' },
-                                            { label: 'Never', value: 'never' },
-                                        ]}
-                                    />
+                                    <div className="settings-row__label">Auto sign-out</div>
+                                    <div className="settings-row__desc">Sign out automatically after a period of inactivity.</div>
                                 </div>
-                                <button className="btn btn-primary btn-sm" style={{ marginTop: 16, width: '100%', justifyContent: 'center' }} onClick={saveSessionSettings} disabled={savingSecurity}>
-                                    <span className="material-icons-round" style={{ fontSize: 14 }}>save</span>
-                                    {savingSecurity ? 'Saving...' : 'Save Security Settings'}
-                                </button>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                    <div style={{ width: 150 }}>
+                                        <CustomSelect
+                                            value={sessionTimeout}
+                                            onChange={v => setSessionTimeout(v)}
+                                            options={[
+                                                { label: '15 minutes', value: '15' },
+                                                { label: '30 minutes', value: '30' },
+                                                { label: '1 hour', value: '60' },
+                                                { label: '2 hours', value: '120' },
+                                                { label: 'Never', value: 'never' },
+                                            ]}
+                                        />
+                                    </div>
+                                    <button className="btn btn-primary btn-sm" onClick={saveSessionSettings} disabled={savingSecurity}>
+                                        {savingSecurity ? 'Saving…' : 'Save'}
+                                    </button>
+                                </div>
                             </div>
+                        </div>
 
-                            <div className="card">
-                                <h3 style={{ marginBottom: 16 }}>Active Sessions</h3>
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                                    {loadingSecurity ? (
-                                        <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Loading sessions...</div>
-                                    ) : visibleSessions.length === 0 ? (
-                                        <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>No active sessions found</div>
-                                    ) : visibleSessions.map((s) => (
-                                        <div key={s.id} style={{
-                                            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                                            padding: '10px 12px', borderRadius: 'var(--radius-md)',
-                                            background: s.current ? 'rgba(59,130,246,0.06)' : 'var(--surface-2)',
-                                            border: `1px solid ${s.current ? 'rgba(59,130,246,0.2)' : 'var(--border-subtle)'}`,
-                                        }}>
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                                                <span className="material-icons-round" style={{ fontSize: 18, color: s.current ? 'var(--helix-primary)' : 'var(--text-muted)' }}>
+                        {/* Active sessions */}
+                        <div className="settings-section">
+                            <div className="settings-section__header">
+                                <div>
+                                    <h3 className="settings-section__title">Active sessions</h3>
+                                    <p className="settings-section__desc">
+                                        Devices currently signed in to your account.
+                                        {!loadingSecurity && visibleSessions.length > 0 && ` ${visibleSessions.length} total.`}
+                                    </p>
+                                </div>
+                                {otherSessionsCount > 1 && (
+                                    <button className="btn btn-danger btn-sm" onClick={revokeAllOtherSessions} disabled={revokingAll}>
+                                        <span className="material-icons-round" style={{ fontSize: 13 }}>logout</span>
+                                        {revokingAll ? 'Revoking…' : `Revoke ${otherSessionsCount} others`}
+                                    </button>
+                                )}
+                            </div>
+                            {loadingSecurity ? (
+                                <div className="settings-row">
+                                    <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Loading sessions…</span>
+                                </div>
+                            ) : visibleSessions.length === 0 ? (
+                                <div className="settings-row">
+                                    <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>No active sessions found</span>
+                                </div>
+                            ) : (
+                                <div style={visibleSessions.length > 6 ? { maxHeight: 360, overflowY: 'auto' } : undefined}>
+                                    {visibleSessions.map((s) => (
+                                        <div className="settings-row" key={s.id}>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
+                                                <span className="material-icons-round" style={{ fontSize: 18, color: s.current ? 'var(--helix-primary)' : 'var(--text-muted)', flexShrink: 0 }}>
                                                     {s.device.includes('iPhone') ? 'phone_iphone' : 'laptop'}
                                                 </span>
-                                                <div>
-                                                    <div style={{ fontSize: 12, fontWeight: 600 }}>
+                                                <div style={{ minWidth: 0 }}>
+                                                    <div className="settings-row__label" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                                                         {s.device}
-                                                        {s.current && <span className="badge badge-info" style={{ fontSize: 9, marginLeft: 6 }}>Current</span>}
+                                                        {s.current && <span className="badge badge-info" style={{ fontSize: 9 }}>Current</span>}
                                                     </div>
-                                                    <div style={{ fontSize: 10.5, color: 'var(--text-muted)' }}>{s.location} · {s.time}</div>
+                                                    <div className="settings-row__desc">{s.location} · {s.time}</div>
                                                 </div>
                                             </div>
                                             {!s.current && (
-                                                <button className="btn btn-danger btn-xs" onClick={() => revokeSession(s.id)}>Revoke</button>
+                                                <button className="btn btn-danger btn-xs" onClick={() => revokeSession(s.id)} style={{ flexShrink: 0 }}>Revoke</button>
                                             )}
                                         </div>
                                     ))}
                                 </div>
+                            )}
+                        </div>
+
+                        {/* Password */}
+                        <div className="settings-section">
+                            <div className="settings-section__header">
+                                <div>
+                                    <h3 className="settings-section__title">Password</h3>
+                                    <p className="settings-section__desc">Choose a strong, unique password to keep your account secure.</p>
+                                </div>
+                            </div>
+                            <div style={{ padding: 22, display: 'flex', flexDirection: 'column', gap: 12 }}>
+                                <div>
+                                    <label className="label">Current Password</label>
+                                    <input className="input" type="password" placeholder="Enter current password" style={{ fontSize: 13 }} />
+                                </div>
+                                <div>
+                                    <label className="label">New Password</label>
+                                    <input className="input" type="password" placeholder="Enter new password" style={{ fontSize: 13 }} />
+                                </div>
+                                <div>
+                                    <label className="label">Confirm New Password</label>
+                                    <input className="input" type="password" placeholder="Confirm new password" style={{ fontSize: 13 }} />
+                                </div>
+                                <div style={{ fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.5 }}>
+                                    Password must be at least 8 characters with one uppercase, one number, and one special character.
+                                </div>
+                                <button className="btn btn-secondary btn-sm" style={{ alignSelf: 'flex-start' }} onClick={() => showToast('Password updated')}>
+                                    <span className="material-icons-round" style={{ fontSize: 14 }}>lock_reset</span>
+                                    Update Password
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* Team */}
+                        <div className="settings-section">
+                            <div className="settings-section__header">
+                                <div>
+                                    <h3 className="settings-section__title">Team members</h3>
+                                    <p className="settings-section__desc">{admins.length} admin {admins.length === 1 ? 'user' : 'users'} with access to this facility.</p>
+                                </div>
+                                <button className="btn btn-primary btn-sm" onClick={() => setShowInvite(!showInvite)}>
+                                    <span className="material-icons-round" style={{ fontSize: 14 }}>{showInvite ? 'close' : 'person_add'}</span>
+                                    {showInvite ? 'Cancel' : 'Invite Admin'}
+                                </button>
                             </div>
 
-                            {/* Admins section */}
-                            <div className="card" style={{ gridColumn: '1 / -1' }}>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-                                    <div>
-                                        <h3 style={{ marginBottom: 2 }}>Hospital Administrators</h3>
-                                        <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>{admins.length} admin users</p>
+                            {showInvite && (
+                                <div style={{
+                                    display: 'flex', flexDirection: 'column', gap: 10, padding: 18,
+                                    background: 'var(--surface-2)', borderBottom: '1px solid var(--border-subtle)',
+                                }}>
+                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                                        <input
+                                            className="input"
+                                            placeholder="First name"
+                                            value={inviteFirstName}
+                                            onChange={e => setInviteFirstName(e.target.value)}
+                                            style={{ fontSize: 12 }}
+                                        />
+                                        <input
+                                            className="input"
+                                            placeholder="Last name"
+                                            value={inviteLastName}
+                                            onChange={e => setInviteLastName(e.target.value)}
+                                            style={{ fontSize: 12 }}
+                                        />
                                     </div>
-                                    <button className="btn btn-primary btn-sm" onClick={() => setShowInvite(!showInvite)}>
-                                        <span className="material-icons-round" style={{ fontSize: 14 }}>{showInvite ? 'close' : 'person_add'}</span>
-                                        {showInvite ? 'Cancel' : 'Invite Admin'}
-                                    </button>
+                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                                        <input
+                                            className="input"
+                                            placeholder="Email address"
+                                            value={inviteEmail}
+                                            onChange={e => setInviteEmail(e.target.value)}
+                                            style={{ fontSize: 12 }}
+                                        />
+                                        <input
+                                            className="input"
+                                            placeholder="+233201234567"
+                                            value={invitePhone}
+                                            onChange={e => setInvitePhone(formatGhanaPhoneInput(e.target.value))}
+                                            style={{ fontSize: 12 }}
+                                        />
+                                    </div>
+                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 8 }}>
+                                        <input
+                                            className="input"
+                                            placeholder="Job title (e.g., Hospital Administrator)"
+                                            value={inviteJobTitle}
+                                            onChange={e => setInviteJobTitle(e.target.value)}
+                                            style={{ fontSize: 12 }}
+                                        />
+                                        <button
+                                            className="btn btn-primary btn-sm"
+                                            onClick={handleInviteAdmin}
+                                            disabled={invitingAdmin || !inviteFirstName.trim() || !inviteLastName.trim() || !inviteEmail.trim() || !invitePhone.trim()}
+                                        >
+                                            <span className="material-icons-round" style={{ fontSize: 14 }}>send</span>
+                                            {invitingAdmin ? 'Sending...' : 'Send Invite'}
+                                        </button>
+                                    </div>
                                 </div>
+                            )}
 
-                                {showInvite && (
-                                    <div style={{
-                                        display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 16, padding: 14,
-                                        background: 'var(--surface-2)', borderRadius: 'var(--radius-md)',
-                                        border: '1px solid var(--border-default)',
-                                    }}>
-                                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                                            <input
-                                                className="input"
-                                                placeholder="First name"
-                                                value={inviteFirstName}
-                                                onChange={e => setInviteFirstName(e.target.value)}
-                                                style={{ fontSize: 12 }}
-                                            />
-                                            <input
-                                                className="input"
-                                                placeholder="Last name"
-                                                value={inviteLastName}
-                                                onChange={e => setInviteLastName(e.target.value)}
-                                                style={{ fontSize: 12 }}
-                                            />
-                                        </div>
-                                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                                            <input
-                                                className="input"
-                                                placeholder="Email address"
-                                                value={inviteEmail}
-                                                onChange={e => setInviteEmail(e.target.value)}
-                                                style={{ fontSize: 12 }}
-                                            />
-                                            <input
-                                                className="input"
-                                                placeholder="+233201234567"
-                                                value={invitePhone}
-                                                onChange={e => setInvitePhone(formatGhanaPhoneInput(e.target.value))}
-                                                style={{ fontSize: 12 }}
-                                            />
-                                        </div>
-                                        <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 8 }}>
-                                            <input
-                                                className="input"
-                                                placeholder="Job title (e.g., Hospital Administrator)"
-                                                value={inviteJobTitle}
-                                                onChange={e => setInviteJobTitle(e.target.value)}
-                                                style={{ fontSize: 12 }}
-                                            />
-                                            <button
-                                                className="btn btn-primary btn-sm"
-                                                onClick={handleInviteAdmin}
-                                                disabled={invitingAdmin || !inviteFirstName.trim() || !inviteLastName.trim() || !inviteEmail.trim() || !invitePhone.trim()}
-                                            >
-                                                <span className="material-icons-round" style={{ fontSize: 14 }}>send</span>
-                                                {invitingAdmin ? 'Sending...' : 'Send Invite'}
-                                            </button>
-                                        </div>
-                                    </div>
-                                )}
-
+                            <div style={{ overflowX: 'auto', overflowY: admins.length > 6 ? 'auto' : 'visible', maxHeight: admins.length > 6 ? 360 : undefined }}>
                                 <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                                     <thead>
                                         <tr style={{ borderBottom: '1px solid var(--border-default)' }}>
-                                            <th style={{ padding: '8px 12px', fontSize: 10, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', textAlign: 'left' }}>User</th>
-                                            <th style={{ padding: '8px 12px', fontSize: 10, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', textAlign: 'left' }}>Role</th>
-                                            <th style={{ padding: '8px 12px', fontSize: 10, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', textAlign: 'left' }}>Status</th>
-                                            <th style={{ padding: '8px 12px', fontSize: 10, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', textAlign: 'left' }}>Last Login</th>
+                                            <th style={{ position: 'sticky', top: 0, zIndex: 1, background: 'var(--surface-card)', padding: '10px 22px', fontSize: 10, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', textAlign: 'left' }}>User</th>
+                                            <th style={{ position: 'sticky', top: 0, zIndex: 1, background: 'var(--surface-card)', padding: '10px 22px', fontSize: 10, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', textAlign: 'left' }}>Role</th>
+                                            <th style={{ position: 'sticky', top: 0, zIndex: 1, background: 'var(--surface-card)', padding: '10px 22px', fontSize: 10, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', textAlign: 'left' }}>Status</th>
+                                            <th style={{ position: 'sticky', top: 0, zIndex: 1, background: 'var(--surface-card)', padding: '10px 22px', fontSize: 10, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', textAlign: 'left' }}>Last Login</th>
                                         </tr>
                                     </thead>
                                     <tbody>
                                         {loadingAdmins ? (
                                             <tr>
-                                                <td colSpan={4} style={{ padding: '16px 12px', fontSize: 12, color: 'var(--text-muted)' }}>
+                                                <td colSpan={4} style={{ padding: '18px 22px', fontSize: 12, color: 'var(--text-muted)' }}>
                                                     Loading facility admins...
                                                 </td>
                                             </tr>
                                         ) : admins.length === 0 ? (
                                             <tr>
-                                                <td colSpan={4} style={{ padding: '16px 12px', fontSize: 12, color: 'var(--text-muted)' }}>
+                                                <td colSpan={4} style={{ padding: '18px 22px', fontSize: 12, color: 'var(--text-muted)' }}>
                                                     No facility admins found
                                                 </td>
                                             </tr>
@@ -1030,8 +1226,8 @@ export default function SettingsPage() {
                                             const adminInitials = admin.name.split(' ').filter(Boolean).map(w => w[0]).slice(0, 2).join('').toUpperCase();
                                             const isSelf = currentUserId !== '' && admin.id === currentUserId;
                                             return (
-                                                <tr key={admin.id} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
-                                                    <td style={{ padding: '12px 12px' }}>
+                                                <tr key={admin.id} className="settings-table-row" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+                                                    <td style={{ padding: '12px 22px' }}>
                                                         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                                                             <div style={{
                                                                 width: 30, height: 30, borderRadius: '50%',
@@ -1051,7 +1247,7 @@ export default function SettingsPage() {
                                                             </div>
                                                         </div>
                                                     </td>
-                                                    <td style={{ padding: '12px 12px' }}>
+                                                    <td style={{ padding: '12px 22px' }}>
                                                         <span style={{
                                                             fontSize: 11, fontWeight: 600,
                                                             color: roleColors[admin.role] || 'var(--text-secondary)',
@@ -1061,12 +1257,12 @@ export default function SettingsPage() {
                                                             {admin.role}
                                                         </span>
                                                     </td>
-                                                    <td style={{ padding: '12px 12px' }}>
+                                                    <td style={{ padding: '12px 22px' }}>
                                                         <span className={`badge ${admin.status === 'Active' ? 'badge-success' : admin.status === 'Invited' ? 'badge-info' : 'badge-neutral'}`} style={{ fontSize: 10 }}>
                                                             {admin.status}
                                                         </span>
                                                     </td>
-                                                    <td style={{ padding: '12px 12px', fontSize: 12, color: 'var(--text-muted)' }}>
+                                                    <td style={{ padding: '12px 22px', fontSize: 12, color: 'var(--text-muted)' }}>
                                                         {admin.lastLogin}
                                                     </td>
                                                 </tr>
@@ -1074,16 +1270,93 @@ export default function SettingsPage() {
                                         })}
                                     </tbody>
                                 </table>
+                            </div>
 
-                                <div style={{ marginTop: 16, padding: '12px 14px', borderRadius: 'var(--radius-md)', background: 'var(--surface-2)', border: '1px solid var(--border-subtle)' }}>
-                                    <div style={{ fontSize: 11.5, color: 'var(--text-secondary)', lineHeight: 1.5 }}>
-                                        <strong>Role Permissions:</strong> Super Admins have full access. Admins can manage staff and escalation. Editors can modify roles and settings. Viewers have read-only access.
-                                    </div>
+                            <div style={{ padding: '14px 22px', borderTop: '1px solid var(--border-subtle)', background: 'var(--surface-2)' }}>
+                                <div style={{ fontSize: 11.5, color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+                                    <strong>Role permissions:</strong> Super Admins have full access. Admins can manage staff and escalation. Editors can modify roles and settings. Viewers have read-only access.
                                 </div>
                             </div>
+                        </div>
                     </div>
                 </main>
             </div>
+
+            {pendingRetention !== undefined && (
+                <div
+                    style={{
+                        position: 'fixed',
+                        inset: 0,
+                        zIndex: 1100,
+                        background: 'rgba(15, 23, 42, 0.35)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        padding: 20,
+                    }}
+                    onClick={() => setPendingRetention(undefined)}
+                >
+                    <div
+                        className="card"
+                        role="dialog"
+                        aria-modal="true"
+                        aria-labelledby="retention-confirm-title"
+                        style={{ width: 'min(440px, 100%)', padding: 18, boxShadow: '0 18px 48px rgba(15,23,42,0.18)' }}
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+                            <div
+                                style={{
+                                    width: 32,
+                                    height: 32,
+                                    borderRadius: 10,
+                                    background: 'var(--warning-bg)',
+                                    color: 'var(--warning)',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    flexShrink: 0,
+                                }}
+                            >
+                                <span className="material-icons-round" style={{ fontSize: 18 }}>warning</span>
+                            </div>
+                            <div style={{ minWidth: 0 }}>
+                                <div id="retention-confirm-title" style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)' }}>
+                                    {pendingRetention === null
+                                        ? 'Turn off conversation retention?'
+                                        : `Shorten retention to ${retentionLabel(pendingRetention)}?`}
+                                </div>
+                                <div style={{ marginTop: 6, fontSize: 12.5, color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+                                    {pendingRetention === null
+                                        ? 'Inactive conversations will no longer be automatically removed from inboxes. Existing retention schedules may still finish for chats already marked to expire.'
+                                        : 'Chats already past the new window will start deleting in about 7 days, not immediately.'}
+                                </div>
+                            </div>
+                        </div>
+                        <div style={{ marginTop: 14, display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+                            <button
+                                type="button"
+                                className="btn btn-secondary btn-sm"
+                                onClick={() => setPendingRetention(undefined)}
+                                disabled={savingRetention}
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                type="button"
+                                className="btn btn-primary btn-sm"
+                                onClick={() => {
+                                    if (pendingRetention === undefined) return;
+                                    void applyConversationRetention(pendingRetention);
+                                }}
+                                disabled={savingRetention}
+                            >
+                                {savingRetention ? 'Saving…' : 'Confirm'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </>
     );
 }

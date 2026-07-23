@@ -448,6 +448,127 @@ a.card:hover,
   margin: 16px 0;
 }
 
+/* Settings page — sectioned list pattern */
+.settings-section {
+  background: var(--surface-card);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+}
+
+.settings-section__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px 22px;
+}
+
+.settings-section__header:not(:last-child) {
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.settings-section__title {
+  font-size: 14px;
+  font-weight: 650;
+  color: var(--text-primary);
+  margin: 0;
+  letter-spacing: -0.01em;
+}
+
+.settings-section__desc {
+  margin: 4px 0 0;
+  font-size: 12.5px;
+  color: var(--text-muted);
+  line-height: 1.55;
+  max-width: 520px;
+}
+
+.settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 15px 22px;
+}
+
+.settings-row + .settings-row {
+  border-top: 1px solid var(--border-subtle);
+}
+
+.settings-row--wrap {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.settings-row__label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.settings-row__desc {
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+.settings-pill-group {
+  display: inline-flex;
+  gap: 3px;
+  padding: 3px;
+  background: var(--surface-3);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+}
+
+.settings-pill {
+  padding: 6px 13px;
+  border-radius: 6px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-muted);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 0.15s var(--ease-smooth);
+}
+
+.settings-pill:hover:not(:disabled):not(.active) {
+  color: var(--text-primary);
+  background: rgba(0, 0, 0, 0.04);
+}
+
+.settings-pill.active {
+  background: var(--helix-primary);
+  color: #fff;
+  box-shadow: 0 1px 2px rgba(30, 58, 95, 0.25);
+}
+
+.settings-pill:disabled {
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
+.settings-status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+}
+
+.settings-table-row {
+  transition: background 0.12s var(--ease-smooth);
+}
+
+.settings-table-row:hover {
+  background: var(--surface-hover);
+}
+
 /* Toggle / Switch */
 .toggle {
   position: relative;

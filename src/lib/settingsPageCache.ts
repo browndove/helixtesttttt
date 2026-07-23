@@ -23,6 +23,8 @@ export type SettingsPageSnapshotV1 = {
     }>;
     facilityId: string;
     screenshotsAllowed: boolean;
+    /** null = retention off; omitted on older cache snapshots. */
+    conversationRetentionMonths?: 1 | 3 | 6 | null;
     admins: Array<{
         id: string;
         name: string;
