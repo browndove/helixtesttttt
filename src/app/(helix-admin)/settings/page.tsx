@@ -413,19 +413,27 @@ export default function SettingsPage() {
             if (!res.ok) {
                 setRetentionMonths(prev);
                 showToast(
-                    String(data?.message || data?.detail || data?.error || 'Failed to update conversation retention'),
+                    String(
+                        data?.message
+                        || data?.detail
+                        || data?.error
+                        || data?.details
+                        || 'Failed to update conversation retention',
+                    ),
                     'error',
                 );
                 return;
             }
             const applied = readConversationRetentionMonths(data);
-            setRetentionMonths(applied);
-            if (applied === null) {
+            // Prefer explicit response field; if omitted on success, keep the value we just saved.
+            const nextApplied = 'conversation_retention_months' in data ? applied : next;
+            setRetentionMonths(nextApplied);
+            if (nextApplied === null) {
                 showToast('Conversation retention turned off');
-            } else if (prev !== null && applied < prev) {
-                showToast(`Retention set to ${retentionLabel(applied)}. Older chats begin deleting in about 7 days.`);
+            } else if (prev !== null && nextApplied < prev) {
+                showToast(`Retention set to ${retentionLabel(nextApplied)}. Older chats begin deleting in about 7 days.`);
             } else {
-                showToast(`Conversation retention set to ${retentionLabel(applied)}`);
+                showToast(`Conversation retention set to ${retentionLabel(nextApplied)}`);
             }
         } catch {
             setRetentionMonths(prev);
@@ -980,13 +988,9 @@ export default function SettingsPage() {
                                                     );
                                                 })}
                                             </div>
-                                            <span style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>
-                                                {savingRetention
-                                                    ? 'Saving…'
-                                                    : retentionMonths === null
-                                                        ? 'Retention is off — inactive conversations are kept indefinitely.'
-                                                        : `Removed from inbox after ${retentionLabel(retentionMonths)} of inactivity.`}
-                                            </span>
+                                            {savingRetention && (
+                                                <span style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>Saving…</span>
+                                            )}
                                         </div>
                                     </div>
                                 </>

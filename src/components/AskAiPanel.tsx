@@ -5,10 +5,17 @@ import { createPortal } from 'react-dom';
 import { API_ENDPOINTS } from '@/lib/config';
 import './ask-ai.css';
 
+type DocBlock =
+    | { type: 'paragraph'; text: string }
+    | { type: 'heading'; text: string; level: 1 | 2 }
+    | { type: 'list'; items: string[] }
+    | { type: 'note'; text: string };
+
 type StructuredAnswer = {
     paragraphs: string[];
     steps: string[];
     tips: string[];
+    blocks?: DocBlock[];
 };
 
 type Message = {
@@ -32,6 +39,24 @@ type AskAiResponse = {
     details?: unknown;
 };
 
+const SECTION_HEADINGS = [
+    'causes',
+    'symptoms',
+    'signs',
+    'investigations',
+    'investigation',
+    'treatment',
+    'treatment objectives',
+    'non-pharmacological treatment',
+    'pharmacological treatment',
+    'referral criteria',
+    'treatment algorithm',
+    'fluid management for children with diarrhoea',
+    'how to prepare ors',
+    'box',
+    'note',
+];
+
 function itemText(item: unknown): string {
     if (typeof item === 'string') return item.trim();
     if (item && typeof item === 'object' && 'text' in item) {
@@ -39,6 +64,17 @@ function itemText(item: unknown): string {
         return typeof text === 'string' ? text.trim() : '';
     }
     return '';
+}
+
+function cleanText(input: string): string {
+    return input
+        .replace(/\u00ad\s*/g, '') // soft hyphens (consid­ er → consider)
+        .replace(/\r\n/g, '\n')
+        .replace(/\u00a0/g, ' ')
+        .replace(/[ \t]+\n/g, '\n')
+        .replace(/\n[ \t]+/g, '\n')
+        .replace(/-(such as|with)\b/gi, ' — $1')
+        .trim();
 }
 
 function parseHowtoObject(value: unknown): StructuredAnswer | null {
@@ -52,10 +88,14 @@ function parseHowtoObject(value: unknown): StructuredAnswer | null {
 
 /** Recover lists from "Steps: 1. ... 2. ... Tips: • ..." text (including jammed one-liners). */
 function parseHowtoPlainText(source: string): StructuredAnswer | null {
-    const normalized = source.replace(/\r\n/g, '\n').trim();
+    const normalized = cleanText(source);
     const hasStepsLabel = /^steps:\s*/i.test(normalized) || /\n\s*steps:\s*/i.test(normalized);
     const hasNumbered = /\d+\.\s+\S/.test(normalized);
     if (!hasStepsLabel && !hasNumbered) return null;
+
+    // Prefer document parser for long clinical text that merely contains numbered lines.
+    const bulletCount = (normalized.match(/[•]/g) || []).length;
+    if (bulletCount >= 4 || normalized.length > 1200) return null;
 
     let stepsBlock = normalized;
     let tipsBlock = '';
@@ -97,6 +137,200 @@ function parseHowtoPlainText(source: string): StructuredAnswer | null {
     return { paragraphs: [], steps, tips };
 }
 
+function looksLikeHeading(line: string): { text: string; level: 1 | 2 } | null {
+    const trimmed = line.trim().replace(/[:.]+$/, '').trim();
+    if (!trimmed || trimmed.length > 80) return null;
+
+    const lower = trimmed.toLowerCase();
+
+    // "Box 1-1: Diagnostic clues..." / "Note 1-1 ..."
+    if (/^(box|note)\s*\d/i.test(trimmed)) {
+        return { text: trimmed, level: 2 };
+    }
+
+    // "Treatment Plan A – No dehydration"
+    if (/^treatment\s+plan\s+[abc]\b/i.test(trimmed)) {
+        return { text: trimmed, level: 2 };
+    }
+
+    // "A. Bacterial gastroenteritis..." / "B. Amoebic..."
+    if (/^[A-D]\.\s+\S/.test(trimmed)) {
+        return { text: trimmed, level: 2 };
+    }
+
+    // Known top-level clinical section titles
+    if (SECTION_HEADINGS.some((h) => lower === h || lower.startsWith(`${h} `))) {
+        return { text: trimmed, level: 1 };
+    }
+
+    // Short Title Case / ALL CAPS lines without sentence punctuation
+    if (
+        trimmed.length <= 48
+        && !/[.!?]/.test(trimmed)
+        && !/[•]/.test(trimmed)
+        && /^[A-Z]/.test(trimmed)
+        && (trimmed === trimmed.toUpperCase() || /^[A-Z][a-z]+(?:\s+[A-Za-z][a-z]*)*$/.test(trimmed))
+    ) {
+        return { text: trimmed, level: 2 };
+    }
+
+    return null;
+}
+
+function splitBulletItems(text: string): string[] {
+    const parts = text
+        .split(/\s*[•]\s*/)
+        .map((p) => p.replace(/^\s*[-*]\s+/, '').trim())
+        .filter(Boolean);
+    return parts;
+}
+
+function isContinuationLine(line: string): boolean {
+    if (!line) return false;
+    if (/^[•\-\*]/.test(line)) return false;
+    if (looksLikeHeading(line)) return false;
+    // Starts lowercase / genus / dosage / fragment → join to previous
+    return /^[a-z(]/.test(line) || /^(spp\.|e\.g\.|i\.e\.|or\b|and\b|then\b)/i.test(line);
+}
+
+/** Rebuild long clinical / guideline text into structured blocks. */
+function parseDocumentText(source: string): DocBlock[] | null {
+    const cleaned = cleanText(source);
+    const bulletCount = (cleaned.match(/[•]/g) || []).length;
+    const hasSections = SECTION_HEADINGS.some((h) => new RegExp(`(?:^|\\n)\\s*${h}\\b`, 'i').test(cleaned));
+    if (cleaned.length < 400 && bulletCount < 3 && !hasSections) return null;
+    if (cleaned.length < 200) return null;
+
+    // Normalize jammed bullets onto their own lines, then rejoin soft wraps.
+    const text = cleaned
+        // Pull known section titles onto their own line when glued mid-stream
+        .replace(
+            /(?:^|[.!?]\s+|\n\s*)(Causes|Symptoms|Signs|Investigations?|Treatment objectives|Non-pharmacological treatment|Pharmacological treatment|Referral Criteria|Treatment algorithm|How to prepare ORS|Fluid management for children with diarrhoea)(?=\s+[A-Z•]|\s*$)/gi,
+            '\n$1\n',
+        )
+        .replace(
+            /(?:^|\n\s*)(Treatment Plan [ABC]\b[^\n•]*)/gi,
+            '\n$1\n',
+        )
+        .replace(/\s*[•]\s*/g, '\n• ')
+        .replace(/\n{3,}/g, '\n\n');
+
+    const rawLines = text.split('\n').map((l) => l.trim()).filter(Boolean);
+    const lines: string[] = [];
+    for (const line of rawLines) {
+        if (lines.length > 0 && isContinuationLine(line) && !lines[lines.length - 1].startsWith('•')) {
+            lines[lines.length - 1] = `${lines[lines.length - 1]} ${line}`.replace(/\s+/g, ' ').trim();
+        } else if (
+            lines.length > 0
+            && lines[lines.length - 1].startsWith('•')
+            && isContinuationLine(line)
+        ) {
+            lines[lines.length - 1] = `${lines[lines.length - 1]} ${line}`.replace(/\s+/g, ' ').trim();
+        } else {
+            lines.push(line);
+        }
+    }
+
+    const blocks: DocBlock[] = [];
+    let listBuf: string[] = [];
+    let paraBuf: string[] = [];
+
+    const flushList = () => {
+        if (!listBuf.length) return;
+        blocks.push({ type: 'list', items: listBuf });
+        listBuf = [];
+    };
+    const flushPara = () => {
+        if (!paraBuf.length) return;
+        const joined = paraBuf.join(' ').replace(/\s+/g, ' ').trim();
+        if (joined) blocks.push({ type: 'paragraph', text: joined });
+        paraBuf = [];
+    };
+
+    for (const line of lines) {
+        // Heading glued to content: "Causes Acute diarrhoea (< 2 weeks) • Infections"
+        const glued = line.match(
+            /^(Causes|Symptoms|Signs|Investigations?|Treatment(?:\s+objectives)?|Referral Criteria|Non-pharmacological treatment|Pharmacological treatment)\s+(.+)$/i,
+        );
+        if (glued && !line.startsWith('•')) {
+            flushList();
+            flushPara();
+            blocks.push({ type: 'heading', text: glued[1].trim(), level: 1 });
+            const rest = glued[2].trim();
+            const subHead = looksLikeHeading(rest.split(/[•]/)[0]?.trim() || '');
+            if (subHead && !/[•]/.test(rest.split(/[•]/)[0] || '')) {
+                const firstChunk = rest.split(/[•]/)[0].trim();
+                blocks.push({ type: 'heading', text: firstChunk.replace(/[:.]+$/, '').trim(), level: 2 });
+                const items = splitBulletItems(rest.slice(firstChunk.length));
+                if (items.length) listBuf.push(...items);
+            } else if (/[•]/.test(rest)) {
+                // Maybe "Acute diarrhoea (< 2 weeks)" before bullets
+                const beforeBullet = rest.split(/[•]/)[0]?.trim();
+                if (beforeBullet && beforeBullet.length < 60 && !/[.!?]/.test(beforeBullet)) {
+                    blocks.push({ type: 'heading', text: beforeBullet, level: 2 });
+                    listBuf.push(...splitBulletItems(rest.slice(beforeBullet.length)));
+                } else {
+                    listBuf.push(...splitBulletItems(rest));
+                }
+            } else {
+                paraBuf.push(rest);
+            }
+            continue;
+        }
+
+        const heading = !line.startsWith('•') ? looksLikeHeading(line) : null;
+        if (heading) {
+            flushList();
+            flushPara();
+            if (/^note\b/i.test(heading.text)) {
+                blocks.push({ type: 'note', text: heading.text });
+            } else {
+                blocks.push({ type: 'heading', text: heading.text, level: heading.level });
+            }
+            continue;
+        }
+
+        if (line.startsWith('•') || /^[-*]\s+\S/.test(line)) {
+            flushPara();
+            const item = line.replace(/^[•\-\*]\s*/, '').trim();
+            if (item) listBuf.push(item);
+            continue;
+        }
+
+        // Inline bullets still on one line
+        if (/[•]/.test(line) && splitBulletItems(line).length >= 2) {
+            flushPara();
+            const parts = splitBulletItems(line);
+            // If first part looks like a short label/heading, promote it
+            if (parts[0] && parts[0].length < 55 && !/[.!?]/.test(parts[0])) {
+                flushList();
+                blocks.push({ type: 'heading', text: parts[0], level: 2 });
+                listBuf.push(...parts.slice(1));
+            } else {
+                listBuf.push(...parts);
+            }
+            continue;
+        }
+
+        flushList();
+        // Sentence-ish paragraph lines: keep separate when they end with . ! ?
+        if (/[.!?]"?$/.test(line) && line.length > 40) {
+            flushPara();
+            blocks.push({ type: 'paragraph', text: line });
+        } else {
+            paraBuf.push(line);
+        }
+    }
+
+    flushList();
+    flushPara();
+
+    // Not worth structured rendering if we barely found structure
+    const structuredCount = blocks.filter((b) => b.type === 'heading' || b.type === 'list').length;
+    if (structuredCount < 2 && blocks.length < 4) return null;
+    return blocks;
+}
+
 function parseAnswer(raw: unknown, fallback?: unknown): StructuredAnswer {
     const asHowto = parseHowtoObject(raw);
     if (asHowto) return asHowto;
@@ -122,15 +356,18 @@ function parseAnswer(raw: unknown, fallback?: unknown): StructuredAnswer {
     const fromPlain = parseHowtoPlainText(source);
     if (fromPlain) return fromPlain;
 
-    const paragraphs = source
+    const blocks = parseDocumentText(source);
+    if (blocks) {
+        return { paragraphs: [], steps: [], tips: [], blocks };
+    }
+
+    const paragraphs = cleanText(source)
         .split(/\n{2,}/)
         .map((p) => p.replace(/\s*\n\s*/g, ' ').trim())
-        // Fix awkward FAQ punctuation like "tools-such as" / "SMS-with"
-        .map((p) => p.replace(/-(such as|with)\b/gi, ' — $1'))
         .filter(Boolean);
 
     return {
-        paragraphs: paragraphs.length ? paragraphs : [source],
+        paragraphs: paragraphs.length ? paragraphs : [cleanText(source)],
         steps: [],
         tips: [],
     };
@@ -206,6 +443,18 @@ function ProseAnswer({ paragraphs }: { paragraphs: string[] }) {
         return <p className="ask-ai-panel__paragraph">{renderInlineText(paragraphs[0])}</p>;
     }
 
+    // Long answers without Helix facets: keep readable paragraph blocks (don't sentence-split)
+    const fullLen = paragraphs.reduce((n, p) => n + p.length, 0);
+    if (fullLen > 600) {
+        return (
+            <div className="ask-ai-panel__prose-body">
+                {paragraphs.map((p, i) => (
+                    <p key={i} className="ask-ai-panel__paragraph">{renderInlineText(p)}</p>
+                ))}
+            </div>
+        );
+    }
+
     const prose = enrichProse(paragraphs);
     const hasExtras = prose.audiences.length > 0 || prose.replaces.length > 0 || prose.traits.length > 0;
 
@@ -268,6 +517,97 @@ function ProseAnswer({ paragraphs }: { paragraphs: string[] }) {
     );
 }
 
+function DocumentAnswer({ blocks }: { blocks: DocBlock[] }) {
+    // Group into sections: intro paragraphs, then each level-1 heading opens a section card.
+    type Section = { heading?: string; blocks: DocBlock[] };
+    const sections: Section[] = [];
+    let current: Section = { blocks: [] };
+
+    for (const block of blocks) {
+        if (block.type === 'heading' && block.level === 1) {
+            if (current.heading || current.blocks.length) sections.push(current);
+            current = { heading: block.text, blocks: [] };
+            continue;
+        }
+        current.blocks.push(block);
+    }
+    if (current.heading || current.blocks.length) sections.push(current);
+
+    const renderBlock = (block: DocBlock, key: number) => {
+                if (block.type === 'heading') {
+                    const isPlan = /^treatment\s+plan\s+[abc]\b/i.test(block.text)
+                        || /^[A-D]\.\s+\S/.test(block.text);
+                    return (
+                        <h5
+                            key={key}
+                            className={`ask-ai-panel__doc-subhead${isPlan ? ' ask-ai-panel__doc-subhead--plan' : ''}`}
+                        >
+                            {block.text}
+                        </h5>
+                    );
+                }
+        if (block.type === 'list') {
+            return (
+                <ul key={key} className="ask-ai-panel__doc-list">
+                    {block.items.map((item, j) => {
+                        const nested = /^(viral|bacterial|protozoal|drug-induced|chronic|functional|inflammatory|adults|children|neonates)\b/i.test(item.trim());
+                        return (
+                            <li
+                                key={j}
+                                className={`ask-ai-panel__doc-li${nested ? ' ask-ai-panel__doc-li--nested' : ''}`}
+                            >
+                                <span className="ask-ai-panel__doc-bullet" aria-hidden />
+                                <span>{renderInlineText(item)}</span>
+                            </li>
+                        );
+                    })}
+                </ul>
+            );
+        }
+        if (block.type === 'note') {
+            return (
+                <aside key={key} className="ask-ai-panel__doc-note">
+                    <span className="material-icons-round ask-ai-panel__doc-note-icon" aria-hidden>info</span>
+                    <span>{renderInlineText(block.text)}</span>
+                </aside>
+            );
+        }
+        return (
+            <p key={key} className="ask-ai-panel__paragraph ask-ai-panel__doc-p">
+                {renderInlineText(block.text)}
+            </p>
+        );
+    };
+
+    const hasSectionCards = sections.some((s) => s.heading);
+
+    return (
+        <div className={`ask-ai-panel__doc${hasSectionCards ? ' ask-ai-panel__doc--sectioned' : ''}`}>
+            {sections.map((section, si) => {
+                if (!section.heading) {
+                    // Lead / intro block
+                    return (
+                        <div key={si} className="ask-ai-panel__doc-intro">
+                            {section.blocks.map((b, bi) => renderBlock(b, bi))}
+                        </div>
+                    );
+                }
+                return (
+                    <section key={si} className="ask-ai-panel__doc-section">
+                        <header className="ask-ai-panel__doc-section-head">
+                            <span className="ask-ai-panel__doc-section-bar" aria-hidden />
+                            <h4 className="ask-ai-panel__doc-section-title">{section.heading}</h4>
+                        </header>
+                        <div className="ask-ai-panel__doc-section-body">
+                            {section.blocks.map((b, bi) => renderBlock(b, bi))}
+                        </div>
+                    </section>
+                );
+            })}
+        </div>
+    );
+}
+
 function AssistantBody({
     message,
 }: {
@@ -284,23 +624,34 @@ function AssistantBody({
     }
 
     const rawContent = message.content || parseAnswer(message.text);
-    // If we somehow stored a flattened "Steps: 1. ..." paragraph, re-parse it.
-    const content =
-        rawContent.steps.length === 0 &&
-        rawContent.paragraphs.some((p) => /steps:\s*\d+\./i.test(p) || /^\d+\.\s+/m.test(p))
-            ? parseAnswer(rawContent.paragraphs.join('\n\n'))
-            : rawContent;
+    // Re-parse flattened howto / long clinical text if stored as plain paragraphs only.
+    const needsReparses =
+        (!rawContent.blocks || rawContent.blocks.length === 0)
+        && rawContent.steps.length === 0
+        && (
+            rawContent.paragraphs.some((p) => /steps:\s*\d+\./i.test(p) || /^\d+\.\s+/m.test(p) || /[•]/.test(p))
+            || rawContent.paragraphs.join(' ').length > 800
+        );
+    const content = needsReparses
+        ? parseAnswer(rawContent.paragraphs.join('\n\n') || message.text)
+        : rawContent;
 
     return (
         <>
-            {content.paragraphs.length > 0 && content.steps.length === 0 && (
-                <ProseAnswer paragraphs={content.paragraphs} />
-            )}
+            {content.blocks && content.blocks.length > 0 ? (
+                <DocumentAnswer blocks={content.blocks} />
+            ) : (
+                <>
+                    {content.paragraphs.length > 0 && content.steps.length === 0 && (
+                        <ProseAnswer paragraphs={content.paragraphs} />
+                    )}
 
-            {content.paragraphs.length > 0 && content.steps.length > 0 && (
-                content.paragraphs.map((p, i) => (
-                    <p key={`p-${i}`} className="ask-ai-panel__paragraph">{renderInlineText(p)}</p>
-                ))
+                    {content.paragraphs.length > 0 && content.steps.length > 0 && (
+                        content.paragraphs.map((p, i) => (
+                            <p key={`p-${i}`} className="ask-ai-panel__paragraph">{renderInlineText(p)}</p>
+                        ))
+                    )}
+                </>
             )}
 
             {content.steps.length > 0 && (
@@ -456,7 +807,11 @@ export default function AskAiPanel({
                     m.id === pendingId
                         ? {
                               ...m,
-                              text: content.paragraphs.join('\n\n') || content.steps.join('\n'),
+                              text:
+                                  (typeof data.answer === 'string' && data.answer.trim())
+                                  || (typeof data.fallback === 'string' && data.fallback.trim())
+                                  || content.paragraphs.join('\n\n')
+                                  || content.steps.join('\n'),
                               content,
                               pending: false,
                               matchedQuestion: data.matched ? data.matched_question || undefined : undefined,
