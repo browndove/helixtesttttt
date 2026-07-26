@@ -601,6 +601,7 @@ export default function RolesBuilderAssignment() {
     const [search, setSearch] = useState('');
     const [loading, setLoading] = useState(true);
     const [selectedId, setSelectedId] = useState<string | null>(null);
+    const detailPanelRef = useRef<HTMLDivElement | null>(null);
 
     // Add Role multi-step form state
     const [showAddForm, setShowAddForm] = useState(false);
@@ -884,6 +885,11 @@ export default function RolesBuilderAssignment() {
     );
 
     const selectedRole = roles.find(r => r.id === selectedId) || null;
+
+    useEffect(() => {
+        if (!selectedId || !detailPanelRef.current) return;
+        detailPanelRef.current.scrollTop = 0;
+    }, [selectedId]);
 
     useEffect(() => {
         if (!selectedId) return;
@@ -2050,9 +2056,9 @@ export default function RolesBuilderAssignment() {
             borderRadius: 'var(--radius-md)',
         };
         return (
-                <div className="app-main">
+                <div className="app-main" style={{ height: '100vh', maxHeight: '100vh', overflow: 'hidden' }}>
                     <TopBar title="Roles" subtitle="Role Management" />
-                    <main style={{ flex: 1, minWidth: 0, overflow: 'auto', padding: '24px 28px', background: 'var(--bg-900)' }}>
+                    <main style={{ flex: 1, minWidth: 0, minHeight: 0, overflow: 'auto', padding: '24px 28px', background: 'var(--bg-900)' }}>
                         <div className="fade-in card">
                             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 20 }}>
                                 <div style={{ ...shimmer, width: 200, height: 16 }} />
@@ -2250,7 +2256,7 @@ export default function RolesBuilderAssignment() {
                 </div>
             )}
 
-            <div className="app-main">
+            <div className="app-main" style={{ height: '100vh', maxHeight: '100vh', overflow: 'hidden' }}>
                 <TopBar
                     title="Roles"
                     subtitle="Role Management"
@@ -2263,11 +2269,22 @@ export default function RolesBuilderAssignment() {
                     }
                 />
 
-                <main style={{ flex: 1, minWidth: 0, overflow: 'auto', padding: '24px 28px', background: 'var(--bg-900)' }}>
+                <main
+                    style={{
+                        flex: 1,
+                        minWidth: 0,
+                        minHeight: 0,
+                        overflow: 'hidden',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        padding: '24px 28px',
+                        background: 'var(--bg-900)',
+                    }}
+                >
 
                     {/* Add Role Multi-Step Form */}
                     {showAddForm && (
-                        <div className="fade-in card" style={{ marginBottom: 18, padding: '22px 24px' }}>
+                        <div className="fade-in card" style={{ marginBottom: 18, padding: '22px 24px', flexShrink: 0, maxHeight: '45vh', overflowY: 'auto' }}>
                             <h4 style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>Create New Role</h4>
 
                             {/* Step 0: Template Selection */}
@@ -2552,18 +2569,22 @@ export default function RolesBuilderAssignment() {
                             display: 'grid',
                             gridTemplateColumns: selectedRole ? 'minmax(0, 1fr) minmax(300px, 340px)' : '1fr',
                             gap: 20,
-                            alignItems: 'start',
+                            alignItems: 'stretch',
                             width: '100%',
                             minWidth: 0,
+                            flex: 1,
+                            minHeight: 0,
                         }}
                     >
-                        {/* Roles Table — horizontal scroll when narrow; cells stay single-line */}
+                        {/* Roles Table — scrolls independently of the detail panel */}
                         <div
-                            className="fade-in delay-1 card"
+                            className="card"
                             style={{
                                 padding: 0,
                                 minWidth: 0,
                                 maxWidth: '100%',
+                                minHeight: 0,
+                                height: '100%',
                                 overflow: 'hidden',
                                 display: 'flex',
                                 flexDirection: 'column',
@@ -2573,11 +2594,12 @@ export default function RolesBuilderAssignment() {
                                 style={{
                                     flex: '1 1 auto',
                                     overflowX: 'auto',
-                                    overflowY: 'hidden',
+                                    overflowY: 'auto',
                                     WebkitOverflowScrolling: 'touch',
                                     width: '100%',
                                     maxWidth: '100%',
                                     minWidth: 0,
+                                    minHeight: 0,
                                 }}
                             >
                             <table style={{ width: 'max-content', minWidth: '100%', borderCollapse: 'separate', borderSpacing: 0, tableLayout: 'auto' }}>
@@ -2755,9 +2777,21 @@ export default function RolesBuilderAssignment() {
                             )}
                         </div>
 
-                        {/* Detail Panel */}
+                        {/* Detail Panel — always visible; scrolls independently of the roles list */}
                         {selectedRole && (
-                            <div className="fade-in" style={{ display: 'flex', flexDirection: 'column', gap: 16, minWidth: 0, alignSelf: 'start' }}>
+                            <div
+                                ref={detailPanelRef}
+                                style={{
+                                    display: 'flex',
+                                    flexDirection: 'column',
+                                    gap: 16,
+                                    minWidth: 0,
+                                    minHeight: 0,
+                                    height: '100%',
+                                    overflowY: 'auto',
+                                    WebkitOverflowScrolling: 'touch',
+                                }}
+                            >
                                 {/* Role Header */}
                                 <div className="card" style={{ padding: '18px 20px' }}>
                                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10, marginBottom: 14 }}>
