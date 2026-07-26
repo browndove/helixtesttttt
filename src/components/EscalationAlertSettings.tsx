@@ -286,16 +286,14 @@ export default function EscalationAlertSettings() {
 
             if (rolesRes.ok && rolesJson != null) writeCachedJson(ROLES_CACHE_ROLES, rolesJson);
             if (deptsRes.ok && deptsJson != null) writeCachedJson(ROLES_CACHE_DEPTS, deptsJson);
-            if (policiesRes.ok && policiesJson != null) writeCachedJson(ROLES_CACHE_POLICIES, policiesJson);
 
             let policiesResolved: Policy[] | null = null;
             if (policiesRes.ok && policiesJson != null) {
                 let policiesArr = extractPolicies(policiesJson);
-                const needsHydration = policiesArr.some(p => !p.steps || p.steps.length === 0);
-                if (needsHydration && policiesArr.length > 0) {
+                // Always re-fetch policy detail — list steps can be stale/non-empty and skip hydrate.
+                if (policiesArr.length > 0) {
                     const hydrated = await Promise.all(
                         policiesArr.map(async (p) => {
-                            if (p.steps && p.steps.length > 0) return p;
                             try {
                                 const res = await fetch(`/api/proxy/escalation-policies/${p.id}`);
                                 if (res.ok) {
@@ -310,6 +308,8 @@ export default function EscalationAlertSettings() {
                     policiesArr = hydrated;
                 }
                 policiesResolved = policiesArr;
+                // Cache hydrated policies only — raw list was wiping Roles page ladders.
+                writeCachedJson(ROLES_CACHE_POLICIES, policiesResolved);
             }
 
             ingestEscalationPayloads(

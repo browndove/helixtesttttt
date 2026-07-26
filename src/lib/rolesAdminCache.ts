@@ -12,22 +12,20 @@ export const ROLES_CACHE_HOSPITAL = '/api/proxy/hospital';
 export function warmRolesPageCache(): void {
     void (async () => {
         try {
-            const [rolesRes, deptsRes, policiesRes, staffFetch, hospitalRes] = await Promise.all([
+            const [rolesRes, deptsRes, staffFetch, hospitalRes] = await Promise.all([
                 fetch(ROLES_CACHE_ROLES),
                 fetch(ROLES_CACHE_DEPTS),
-                fetch(ROLES_CACHE_POLICIES),
                 fetchAllStaffPayload({ credentials: 'include' }),
                 fetch(ROLES_CACHE_HOSPITAL),
             ]);
-            const [rolesJson, deptsJson, policiesJson, hospitalJson] = await Promise.all([
+            const [rolesJson, deptsJson, hospitalJson] = await Promise.all([
                 rolesRes.ok ? rolesRes.json() : Promise.resolve(null),
                 deptsRes.ok ? deptsRes.json() : Promise.resolve(null),
-                policiesRes.ok ? policiesRes.json() : Promise.resolve(null),
                 hospitalRes.ok ? hospitalRes.json() : Promise.resolve(null),
             ]);
             if (rolesRes.ok && rolesJson != null) writeCachedJson(ROLES_CACHE_ROLES, rolesJson);
             if (deptsRes.ok && deptsJson != null) writeCachedJson(ROLES_CACHE_DEPTS, deptsJson);
-            if (policiesRes.ok && policiesJson != null) writeCachedJson(ROLES_CACHE_POLICIES, policiesJson);
+            // Do not warm ROLES_CACHE_POLICIES from the raw list — incomplete steps poison Roles.
             if (staffFetch.ok && staffFetch.data != null) writeCachedJson(ROLES_CACHE_STAFF, staffFetch.data);
             if (hospitalRes.ok && hospitalJson != null) writeCachedJson(ROLES_CACHE_HOSPITAL, hospitalJson);
             if (hospitalJson && typeof hospitalJson === 'object') {

@@ -79,11 +79,14 @@ function extractPolicies(raw: unknown): Policy[] {
     return Array.isArray(list) ? (list as Policy[]) : [];
 }
 
-/** List policies often omit steps; fetch by-role so ladder levels survive reload. */
+/**
+ * Always load steps via by-role. The policies list often returns stale/partial `steps`
+ * (including non-empty outdated arrays), which previously skipped hydrate and wiped
+ * ladders that had just been saved.
+ */
 async function hydrateEscalationPolicySteps(policies: Policy[]): Promise<Policy[]> {
     if (policies.length === 0) return policies;
     return Promise.all(policies.map(async (policy) => {
-        if (Array.isArray(policy.steps) && policy.steps.length > 0) return policy;
         const roleId = String(policy.role_id || '').trim();
         if (!roleId) return policy;
         try {
@@ -100,6 +103,22 @@ async function hydrateEscalationPolicySteps(policies: Policy[]): Promise<Policy[
             return policy;
         }
     }));
+}
+
+/**
+ * Keep a just-saved multi-step ladder when a refresh returns only empty/primary-only
+ * steps (the "disappear" bug). Do not prefer previous when incoming also has 2+
+ * filled levels — that would block intentional shorten and could re-apply stale longer chains.
+ */
+function preferRicherEscalationLevels(
+    incoming: EscalationLevel[],
+    previous: EscalationLevel[] | undefined,
+): EscalationLevel[] {
+    const prev = previous || [];
+    const incomingFilled = incoming.filter(l => Boolean(String(l.target || '').trim())).length;
+    const prevFilled = prev.filter(l => Boolean(String(l.target || '').trim())).length;
+    if (prevFilled > 1 && incomingFilled <= 1) return prev;
+    return incoming;
 }
 
 type RoutingRule = {
@@ -602,6 +621,8 @@ export default function RolesBuilderAssignment() {
     const [loading, setLoading] = useState(true);
     const [selectedId, setSelectedId] = useState<string | null>(null);
     const detailPanelRef = useRef<HTMLDivElement | null>(null);
+    /** Ignore stale overlapping fetchData completions (mount + post-save races). */
+    const fetchDataGenRef = useRef(0);
 
     // Add Role multi-step form state
     const [showAddForm, setShowAddForm] = useState(false);
@@ -745,7 +766,7 @@ export default function RolesBuilderAssignment() {
                     const prevById = new Map(prev.map(x => [x.id, x]));
                     const mapped = rolesArr.map((r: Role & { department_id?: string; department_name?: string; department?: unknown }) => {
                     const policy = policyByRole.get(r.id);
-                    const policyLevels = policy
+                    const fromPolicy = policy
                         ? policyToLadderLevels(
                             policy.role_id,
                             r.name,
@@ -754,10 +775,15 @@ export default function RolesBuilderAssignment() {
                             roleNameMap,
                         )
                         : [];
+                    const prevR = prevById.get(r.id);
+                    // Keep a just-saved richer ladder if refresh returned empty/partial steps.
+                    // If the policy is gone entirely, clear the ladder (intentional delete).
+                    const policyLevels = !policy
+                        ? []
+                        : preferRicherEscalationLevels(fromPolicy, prevR?.escalation_levels);
                     const deptResolved = resolveRoleDepartment(r as unknown as Record<string, unknown>, deptMap);
                         const raw = r as unknown as Record<string, unknown>;
                         const fromApi = readIsTransferRoleFromRaw(raw);
-                        const prevR = prevById.get(r.id);
                         const isTransferRole = fromApi !== undefined
                             ? fromApi
                             : (typeof prevR?.is_transfer_role === 'boolean' ? prevR.is_transfer_role : false);
@@ -806,6 +832,7 @@ export default function RolesBuilderAssignment() {
     }, [ingestRolesPagePayloads]);
 
     const fetchData = useCallback(async () => {
+        const gen = ++fetchDataGenRef.current;
         try {
             const [rolesRes, deptsRes, policiesRes, staffFetch, hospitalRes] = await Promise.all([
                 fetch(ROLES_CACHE_ROLES),
@@ -844,6 +871,9 @@ export default function RolesBuilderAssignment() {
                 policiesForIngest = hydratedPolicies;
             }
 
+            // A newer fetchData started (e.g. post-save) — discard this stale result.
+            if (gen !== fetchDataGenRef.current) return;
+
             ingestRolesPagePayloads(
                 {
                     roles: rolesRes.ok,
@@ -872,9 +902,9 @@ export default function RolesBuilderAssignment() {
                 if (hid) writeCachedJson(`/api/proxy/facilities/${hid}`, facilityJson);
             }
         } catch {
-            showToast('Failed to load data', 'error');
+            if (gen === fetchDataGenRef.current) showToast('Failed to load data', 'error');
         }
-        setLoading(false);
+        if (gen === fetchDataGenRef.current) setLoading(false);
     }, [ingestRolesPagePayloads]);
 
     useEffect(() => { fetchData(); }, [fetchData]);
@@ -913,11 +943,20 @@ export default function RolesBuilderAssignment() {
                         const fromDetail = readIsTransferRoleFromRaw(detailRec);
                         const isTransferRole = fromDetail !== undefined ? fromDetail : Boolean(r.is_transfer_role);
                         const allow = flat.sign_in_allowed_user_ids;
+                        // Role detail payloads can include empty escalation_levels / routing —
+                        // never let them overwrite policy-derived ladders.
+                        const {
+                            escalation_levels: _ignoredLevels,
+                            escalation_routing: _ignoredRouting,
+                            ...detailWithoutLadder
+                        } = flat as Partial<Role> & { id: string };
                         return normalizeRoleForUi({
                             ...r,
-                            ...flat,
+                            ...detailWithoutLadder,
                             is_transfer_role: isTransferRole,
                             department: resolvedDept,
+                            escalation_levels: r.escalation_levels,
+                            escalation_routing: r.escalation_routing,
                             sign_in_allowed_user_ids: Array.isArray(allow) ? allow as string[] : (r.sign_in_allowed_user_ids || []),
                             sign_in_restricted: Boolean(flat.sign_in_restricted) || (Array.isArray(allow) && allow.length > 0),
                         } as Role, departmentIdToName);
