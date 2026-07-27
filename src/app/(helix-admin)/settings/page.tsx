@@ -445,13 +445,8 @@ export default function SettingsPage() {
 
     const requestConversationRetentionChange = (next: RetentionMonths) => {
         if (next === retentionMonths || savingRetention) return;
-        const isShorten = next !== null && retentionMonths !== null && next < retentionMonths;
-        const isTurnOff = next === null && retentionMonths !== null;
-        if (isShorten || isTurnOff) {
-            setPendingRetention(next);
-            return;
-        }
-        void applyConversationRetention(next);
+        // Confirm every change (Off and all month options) before applying.
+        setPendingRetention(next);
     };
 
     const loadSecurityData = useCallback(async (opts?: { background?: boolean }) => {
@@ -1328,12 +1323,18 @@ export default function SettingsPage() {
                                 <div id="retention-confirm-title" style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)' }}>
                                     {pendingRetention === null
                                         ? 'Turn off conversation retention?'
-                                        : `Shorten retention to ${retentionLabel(pendingRetention)}?`}
+                                        : retentionMonths === null
+                                            ? `Turn on retention (${retentionLabel(pendingRetention)})?`
+                                            : pendingRetention < (retentionMonths as 1 | 3 | 6)
+                                                ? `Shorten retention to ${retentionLabel(pendingRetention)}?`
+                                                : `Set retention to ${retentionLabel(pendingRetention)}?`}
                                 </div>
                                 <div style={{ marginTop: 6, fontSize: 12.5, color: 'var(--text-secondary)', lineHeight: 1.5 }}>
                                     {pendingRetention === null
                                         ? 'Inactive conversations will no longer be automatically removed from inboxes. Existing retention schedules may still finish for chats already marked to expire.'
-                                        : 'Chats already past the new window will start deleting in about 7 days, not immediately.'}
+                                        : retentionMonths !== null && pendingRetention < retentionMonths
+                                            ? 'Chats already past the new window will start deleting in about 7 days, not immediately.'
+                                            : `Inactive conversations older than ${retentionLabel(pendingRetention)} will be removed from everyone’s inbox. Activity means messaging — the clock resets when someone sends a message.`}
                                 </div>
                             </div>
                         </div>
