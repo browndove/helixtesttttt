@@ -170,8 +170,11 @@ export type EscalationPolicyStepPayload = {
 
 /**
  * Split UI ladder into policy fields + step rows.
- * UI level N is stored as step_order N (1 = primary role, 2+ = escalation targets).
- * Policy role_id + initial_timeout_seconds mirror level 1 for PUT/create.
+ * Level 1: policy role_id + initial_timeout_seconds (NOT a step row).
+ * Levels 2+: escalation steps with step_order 1 / 2 / … (API index).
+ *
+ * Sending the primary as step_order 1 breaks the API contract (step targets must
+ * differ from the policy role) and causes ladders to disappear after save.
  */
 export function ladderLevelsToPolicyPayload(
     levels: EscalationLadderLevel[],
@@ -201,24 +204,26 @@ export function ladderLevelsToPolicyPayload(
         delayToSeconds(primaryLevel?.delay || '30 sec'),
     );
 
-    const steps = sorted
+    const escalations = sorted.filter(l => l.level >= 2);
+
+    const steps = escalations
         .map((l, idx) => {
-            const isLast = idx === sorted.length - 1;
-            const target_role_id = l.level === 1
-                ? primaryRoleId.trim()
-                : (l.target_role_id || resolveRoleId(l.target) || '').trim();
+            const target_role_id = (l.target_role_id || resolveRoleId(l.target) || '').trim();
             if (target_role_id && l.target.trim()) {
                 registerId(l.target, target_role_id);
             }
+            const isLastEscalation = idx === escalations.length - 1;
             return {
                 target_role_id,
-                step_order: l.level,
-                timeout_seconds: isLast
+                step_order: idx + 1,
+                timeout_seconds: isLastEscalation
                     ? MIN_ESCALATION_DELAY_SEC
                     : clampEscalationDelaySeconds(delayToSeconds(l.delay)),
             };
         })
-        .filter((s): s is EscalationPolicyStepPayload => Boolean(s.target_role_id));
+        .filter((s): s is EscalationPolicyStepPayload => (
+            Boolean(s.target_role_id) && s.target_role_id !== primaryRoleId.trim()
+        ));
 
     return {
         role_id: primaryRoleId.trim(),

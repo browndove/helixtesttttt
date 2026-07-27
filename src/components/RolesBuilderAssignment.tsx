@@ -777,9 +777,10 @@ export default function RolesBuilderAssignment() {
                         : [];
                     const prevR = prevById.get(r.id);
                     // Keep a just-saved richer ladder if refresh returned empty/partial steps.
-                    // If the policy is gone entirely, clear the ladder (intentional delete).
+                    // If the policy is missing from the list mid-refresh, keep previous levels
+                    // (intentional deletes clear local state to [] before fetchData).
                     const policyLevels = !policy
-                        ? []
+                        ? (prevR?.escalation_levels || [])
                         : preferRicherEscalationLevels(fromPolicy, prevR?.escalation_levels);
                     const deptResolved = resolveRoleDepartment(r as unknown as Record<string, unknown>, deptMap);
                         const raw = r as unknown as Record<string, unknown>;
@@ -1112,12 +1113,18 @@ export default function RolesBuilderAssignment() {
         setTemplateCreating(false);
     };
 
+    /**
+     * Persist a full ladder for a role.
+     * Always deletes any existing policy and creates a fresh one — reusing old
+     * policies (delete-steps-then-bulk) fails for some legacy role/policy rows;
+     * deleting the role and recreating works, and this mirrors that for policies.
+     */
     const persistEscalationForRole = async (
         roleId: string,
         roleName: string,
         ladderLevels: EscalationLevel[],
         rolesForResolve: Role[],
-        options?: { existingPolicyId?: string | null; replaceExistingSteps?: boolean },
+        _options?: { existingPolicyId?: string | null; replaceExistingSteps?: boolean },
     ): Promise<{ ok: true; levels: EscalationLevel[] } | { ok: false; message: string }> => {
         const filledEscalationLevels = getFilledEscalationLevels(ladderLevels);
         if (filledEscalationLevels.length === 0) {
@@ -1149,83 +1156,60 @@ export default function RolesBuilderAssignment() {
             };
         }
 
-        let policyId = options?.existingPolicyId?.trim() || null;
-
-        if (policyId) {
-            const putRes = await fetch(`/api/proxy/escalation-policies/${policyId}`, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ role_id, initial_timeout_seconds }),
-            });
-            const putText = await putRes.text();
-            const putParsed = parseFetchJsonBody(putText);
-            if (!putRes.ok) {
-                return {
-                    ok: false,
-                    message: apiErrorMessage(putParsed, 'Failed to update escalation policy'),
-                };
-            }
-            if (options?.replaceExistingSteps) {
-                const existingPolicyRes = await fetch(`/api/proxy/escalation-policies/by-role/${roleId}`);
-                if (existingPolicyRes.ok) {
-                    const existingPolicy = await existingPolicyRes.json();
-                    if (existingPolicy?.steps) {
-                        for (const step of existingPolicy.steps) {
-                            if (step.id) {
-                                await fetch(`/api/proxy/escalation-policies/${policyId}/steps/${step.id}`, { method: 'DELETE' });
-                            }
-                        }
-                    }
+        // Drop any leftover/broken policy for this role, then create clean.
+        try {
+            const existingPolicyRes = await fetch(`/api/proxy/escalation-policies/by-role/${roleId}`);
+            if (existingPolicyRes.ok) {
+                const existingPolicy = await existingPolicyRes.json();
+                const existingId = policyIdFromApiPayload(existingPolicy) || String(existingPolicy?.id || '').trim();
+                if (existingId) {
+                    await fetch(`/api/proxy/escalation-policies/${existingId}`, { method: 'DELETE' });
                 }
             }
-        } else {
-            const policyRes = await fetch('/api/proxy/escalation-policies', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ role_id, initial_timeout_seconds }),
-            });
-            const policyText = await policyRes.text();
-            const policyParsed = parseFetchJsonBody(policyText);
-            if (!policyRes.ok) {
+        } catch {
+            // best effort — create may still succeed
+        }
+
+        const policyRes = await fetch('/api/proxy/escalation-policies', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ role_id, initial_timeout_seconds }),
+        });
+        const policyText = await policyRes.text();
+        const policyParsed = parseFetchJsonBody(policyText);
+        let policyId = policyRes.ok ? (policyIdFromApiPayload(policyParsed) || null) : null;
+
+        // If create failed because one still exists, delete again and retry once.
+        if (!policyId) {
+            try {
                 const byRoleRes = await fetch(`/api/proxy/escalation-policies/by-role/${roleId}`);
                 if (byRoleRes.ok) {
                     const existingPolicy = await byRoleRes.json();
-                    policyId = policyIdFromApiPayload(existingPolicy) || String(existingPolicy?.id || '').trim() || null;
-                    if (policyId) {
-                        const putRes = await fetch(`/api/proxy/escalation-policies/${policyId}`, {
-                            method: 'PUT',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ role_id, initial_timeout_seconds }),
-                        });
-                        if (!putRes.ok) {
-                            const putParsed = parseFetchJsonBody(await putRes.text());
-                            return {
-                                ok: false,
-                                message: apiErrorMessage(putParsed, 'Failed to update escalation policy'),
-                            };
-                        }
-                        if (options?.replaceExistingSteps !== false) {
-                            const stepsToClear = Array.isArray(existingPolicy?.steps) ? existingPolicy.steps : [];
-                            for (const step of stepsToClear) {
-                                if (step?.id) {
-                                    await fetch(`/api/proxy/escalation-policies/${policyId}/steps/${step.id}`, { method: 'DELETE' });
-                                }
-                            }
-                        }
+                    const existingId = policyIdFromApiPayload(existingPolicy) || String(existingPolicy?.id || '').trim();
+                    if (existingId) {
+                        await fetch(`/api/proxy/escalation-policies/${existingId}`, { method: 'DELETE' });
                     }
                 }
-                if (!policyId) {
-                    return {
-                        ok: false,
-                        message: apiErrorMessage(policyParsed, 'Failed to create escalation policy'),
-                    };
+                const retryRes = await fetch('/api/proxy/escalation-policies', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ role_id, initial_timeout_seconds }),
+                });
+                const retryText = await retryRes.text();
+                const retryParsed = parseFetchJsonBody(retryText);
+                if (retryRes.ok) {
+                    policyId = policyIdFromApiPayload(retryParsed) || null;
                 }
-            } else {
-                policyId = policyIdFromApiPayload(policyParsed) || null;
-                if (!policyId) {
-                    return { ok: false, message: 'Escalation policy response was invalid.' };
-                }
+            } catch {
+                // fall through
             }
+        }
+
+        if (!policyId) {
+            return {
+                ok: false,
+                message: apiErrorMessage(policyParsed, 'Failed to create escalation policy'),
+            };
         }
 
         const bulkResult = await postEscalationStepsBulk(policyId, steps);
@@ -1235,9 +1219,17 @@ export default function RolesBuilderAssignment() {
 
         const updatedPolicyRes = await fetch(`/api/proxy/escalation-policies/by-role/${roleId}`);
         if (!updatedPolicyRes.ok) {
+            // Bulk succeeded but read-back failed — keep what we intended to save.
             return { ok: true, levels: ladderLevels };
         }
         const updatedPolicy = await updatedPolicyRes.json();
+        const savedSteps = Array.isArray(updatedPolicy?.steps) ? updatedPolicy.steps : [];
+        if (steps.length > 0 && savedSteps.length < steps.length) {
+            return {
+                ok: false,
+                message: 'Escalation steps did not persist. Try saving again, or delete and recreate this role.',
+            };
+        }
         const roleNameMap = new Map(rolesForResolve.map(r => [r.id, r.name]));
         return {
             ok: true,
@@ -1245,7 +1237,7 @@ export default function RolesBuilderAssignment() {
                 roleId,
                 roleName,
                 updatedPolicy.initial_timeout_seconds ?? initial_timeout_seconds,
-                updatedPolicy.steps || [],
+                savedSteps,
                 roleNameMap,
             ),
         };
@@ -1667,85 +1659,18 @@ export default function RolesBuilderAssignment() {
                         name: editRoleFullName,
                     },
                 ]);
-                const nonCriticalTarget = findNonCriticalEscalationTarget(ladderLevels, rolesForEscalation);
-                if (nonCriticalTarget) {
-                    showToast(`"${nonCriticalTarget}" is not Critical. Only Critical roles can be in an escalation ladder.`, 'error');
-                    setEditSaving(false);
-                    return;
-                }
-                const { role_id, initial_timeout_seconds, steps } = ladderLevelsToPolicyPayload(
-                    ladderLevels,
+                const escalationResult = await persistEscalationForRole(
                     editingRole.id,
                     editRoleFullName,
-                    (targetName) => {
-                        if (targetName.trim().toLowerCase() === editRoleFullName.trim().toLowerCase()) return editingRole.id;
-                        return resolveEscalationTargetRoleId(targetName, rolesForEscalation);
-                    },
+                    ladderLevels,
+                    rolesForEscalation,
                 );
-                const extraTargets = additionalEscalationTargets(ladderLevels);
-                if (extraTargets.length > 0 && steps.length < extraTargets.length) {
-                    showToast('Could not match an escalation target to a role. Select a role from the dropdown.', 'error');
+                if (!escalationResult.ok) {
+                    showToast(escalationResult.message, 'error');
                     setEditSaving(false);
                     return;
                 }
-
-                const existingPolicyRes = await fetch(`/api/proxy/escalation-policies/by-role/${editingRole.id}`);
-                let policyId: string | null = null;
-
-                if (existingPolicyRes.ok) {
-                    const existingPolicy = await existingPolicyRes.json();
-                    if (existingPolicy?.id) {
-                        policyId = existingPolicy.id;
-                        await fetch(`/api/proxy/escalation-policies/${policyId}`, {
-                            method: 'PUT',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ role_id, initial_timeout_seconds }),
-                        });
-                        if (existingPolicy.steps) {
-                            for (const step of existingPolicy.steps) {
-                                if (step.id) {
-                                    await fetch(`/api/proxy/escalation-policies/${policyId}/steps/${step.id}`, { method: 'DELETE' });
-                                }
-                            }
-                        }
-                    }
-                }
-
-                if (!policyId) {
-                    const policyRes = await fetch('/api/proxy/escalation-policies', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            role_id: editingRole.id,
-                            initial_timeout_seconds,
-                        }),
-                    });
-                    if (policyRes.ok) {
-                        const policy = await policyRes.json();
-                        policyId = policy.id;
-                    }
-                }
-
-                if (policyId) {
-                    const bulkResult = await postEscalationStepsBulk(policyId, steps);
-                    if (!bulkResult.ok) {
-                        showToast(bulkResult.message, 'error');
-                        setEditSaving(false);
-                        return;
-                    }
-                    const refreshRes = await fetch(`/api/proxy/escalation-policies/by-role/${editingRole.id}`);
-                    if (refreshRes.ok) {
-                        const refreshed = await refreshRes.json();
-                        const roleNameMap = new Map(roles.map(r => [r.id, r.name]));
-                        finalLevels = policyToLadderLevels(
-                            editingRole.id,
-                            editRoleFullName,
-                            refreshed.initial_timeout_seconds ?? initial_timeout_seconds,
-                            refreshed.steps || [],
-                            roleNameMap,
-                        );
-                    }
-                }
+                finalLevels = escalationResult.levels;
             }
 
             setRoles(prev => prev.map(r => {
