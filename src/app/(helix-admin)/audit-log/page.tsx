@@ -330,13 +330,16 @@ function staffDetailsFallback(actionRaw: string, detailsObj: Record<string, unkn
 function roleDetailsFallback(actionRaw: string, detailsObj: Record<string, unknown> | null): string {
     if (!detailsObj) return '';
     const action = actionRaw.trim().toLowerCase();
-    const roleName = asCleanString(detailsObj.role_name);
+    const roleName = asCleanString(detailsObj.role_name) || asCleanString(detailsObj.name);
+    const priority = asCleanString(detailsObj.priority);
     const changesSummary = summarizeMetadataChanges(detailsObj.changes);
     if (action === 'update' && changesSummary) {
         return roleName ? `Role “${roleName}”: ${changesSummary}` : `Updated ${changesSummary}`;
     }
-    if (roleName) return `Role: ${roleName}`;
-    return '';
+    if (!roleName) return '';
+    return [`Role: ${roleName}`, priority ? `${prettify(priority)} priority` : '']
+        .filter(Boolean)
+        .join(' · ');
 }
 
 function entityDetailsFallback(entityRaw: string, actionRaw: string, detailsObj: Record<string, unknown> | null): string {
@@ -484,15 +487,19 @@ function parseAuditPayload(raw: unknown): { logs: LogEntry[]; total: number } {
         const { firstName, lastName } = actorFirstLastFromRecord(rec, actor);
         const ts = String(rec.timestamp || rec.created_at || new Date().toISOString());
         const detailsObj = mergeAuditDetailObjects(rec);
+        const fallbackDetails = entityDetailsFallback(entityRaw, actionRaw, detailsObj);
+        /** For roles the metadata (role_name + priority) reads better than the backend's raw `role: <name>` summary. */
+        const isRoleEntity = entityRaw.trim().toLowerCase() === 'role';
         const details = [
             rec.display_message,
             detailsObj?.display_message,
             detailsObj?.message,
+            isRoleEntity ? fallbackDetails : '',
             rec.details,
             rec.description,
             rec.message,
             asCleanString(rec.object_summary),
-            entityDetailsFallback(entityRaw, actionRaw, detailsObj),
+            fallbackDetails,
         ]
             .map(v => (typeof v === 'string' ? v.trim() : ''))
             .find(Boolean) || '';
@@ -517,6 +524,60 @@ function parseAuditPayload(raw: unknown): { logs: LogEntry[]; total: number } {
 
     const total = Number(container?.total ?? container?.count ?? logs.length);
     return { logs, total };
+}
+
+/**
+ * Role and escalation-policy rows arrive with only a UUID when the backend omits
+ * metadata, so names are resolved client-side from the roles / policies lists.
+ */
+type NameLookup = {
+    roleNameById: Map<string, string>;
+    roleIdByPolicyId: Map<string, string>;
+};
+
+const EMPTY_NAME_LOOKUP: NameLookup = { roleNameById: new Map(), roleIdByPolicyId: new Map() };
+
+function toRecordList(raw: unknown): Record<string, unknown>[] {
+    const container = raw && typeof raw === 'object' ? raw as Record<string, unknown> : null;
+    const list = Array.isArray(raw)
+        ? raw
+        : (container?.items || container?.data || container?.roles || container?.policies);
+    if (!Array.isArray(list)) return [];
+    return list.filter((x): x is Record<string, unknown> => Boolean(x) && typeof x === 'object' && !Array.isArray(x));
+}
+
+function roleNameForLog(log: LogEntry, lookup: NameLookup): string {
+    if (!log.targetId) return '';
+    const entity = log.entityTypeRaw.trim().toLowerCase();
+    if (entity === 'role') return lookup.roleNameById.get(log.targetId) || '';
+    if (entity === 'escalation_policy') {
+        const roleId = lookup.roleIdByPolicyId.get(log.targetId);
+        return roleId ? (lookup.roleNameById.get(roleId) || '') : '';
+    }
+    return '';
+}
+
+function withResolvedNames(log: LogEntry, lookup: NameLookup): LogEntry {
+    const entity = log.entityTypeRaw.trim().toLowerCase();
+    if (entity !== 'role' && entity !== 'escalation_policy') return log;
+
+    const roleName = roleNameForLog(log, lookup);
+    if (!roleName) return log;
+
+    /** `resolveTargetLabel` falls back to the prettified entity type when it finds no name. */
+    const hasRealTarget = Boolean(log.target)
+        && log.target !== prettify(log.entityTypeRaw)
+        && !looksLikeIdentifier(log.target);
+
+    const details = entity === 'escalation_policy'
+        ? `Escalation ladder for ${roleName}`
+        : (log.details || `Role: ${roleName}`);
+
+    return {
+        ...log,
+        target: hasRealTarget ? log.target : roleName,
+        details,
+    };
 }
 
 
@@ -563,6 +624,39 @@ export default function AuditLogPage() {
     const [expandedId, setExpandedId] = useState<string | null>(null);
     const [dateFrom, setDateFrom] = useState('');
     const [dateTo, setDateTo] = useState('');
+    const [nameLookup, setNameLookup] = useState<NameLookup>(EMPTY_NAME_LOOKUP);
+
+    useEffect(() => {
+        let cancelled = false;
+        (async () => {
+            try {
+                const [rolesRes, policiesRes] = await Promise.all([
+                    fetch('/api/proxy/roles'),
+                    fetch('/api/proxy/escalation-policies'),
+                ]);
+                const roleNameById = new Map<string, string>();
+                const roleIdByPolicyId = new Map<string, string>();
+                if (rolesRes.ok) {
+                    for (const role of toRecordList(await rolesRes.json())) {
+                        const id = asCleanString(role.id);
+                        const name = asCleanString(role.name);
+                        if (id && name) roleNameById.set(id, name);
+                    }
+                }
+                if (policiesRes.ok) {
+                    for (const policy of toRecordList(await policiesRes.json())) {
+                        const id = asCleanString(policy.id);
+                        const roleId = asCleanString(policy.role_id);
+                        if (id && roleId) roleIdByPolicyId.set(id, roleId);
+                    }
+                }
+                if (!cancelled) setNameLookup({ roleNameById, roleIdByPolicyId });
+            } catch {
+                // Names stay unresolved; rows still render with their ids.
+            }
+        })();
+        return () => { cancelled = true; };
+    }, []);
 
     const fetchLogs = useCallback(async () => {
         setLoading(true);
@@ -605,7 +699,7 @@ export default function AuditLogPage() {
     };
 
     const filtered = useMemo(() => {
-        let localLogs = [...logs];
+        let localLogs = logs.map(l => withResolvedNames(l, nameLookup));
 
         if (dateFrom) {
             const from = new Date(dateFrom);
@@ -643,7 +737,7 @@ export default function AuditLogPage() {
         });
 
         return localLogs;
-    }, [logs, search, sortField, sortDir, dateFrom, dateTo]);
+    }, [logs, search, sortField, sortDir, dateFrom, dateTo, nameLookup]);
 
     const SortIcon = ({ field }: { field: SortField }) => (
         <span className="material-icons-round" style={{
