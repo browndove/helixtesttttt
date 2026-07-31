@@ -447,6 +447,8 @@ const defaultRoutingRules: RoutingRule[] = [
 /** Level 1 = primary role; at most two further escalation targets (3 steps total). */
 const ESCALATION_LADDER_MAX_LEVELS = 3;
 
+const ROLES_PER_PAGE = 25;
+
 function clampEscalationLevels(levels: EscalationLevel[]): EscalationLevel[] {
     const sorted = [...levels].sort((a, b) => a.level - b.level);
     return sorted.slice(0, ESCALATION_LADDER_MAX_LEVELS).map((l, i) => ({ ...l, level: i + 1 }));
@@ -618,6 +620,7 @@ export default function RolesBuilderAssignment() {
     }, [deptIdMap]);
     const [toast, setToast] = useState<{ message: string; variant: MacVibrancyToastVariant } | null>(null);
     const [search, setSearch] = useState('');
+    const [rolesPage, setRolesPage] = useState(1);
     const [loading, setLoading] = useState(true);
     const [selectedId, setSelectedId] = useState<string | null>(null);
     const detailPanelRef = useRef<HTMLDivElement | null>(null);
@@ -914,6 +917,14 @@ export default function RolesBuilderAssignment() {
         r.name.toLowerCase().includes(search.toLowerCase()) ||
         r.department.toLowerCase().includes(search.toLowerCase())
     );
+
+    const rolesPageCount = Math.max(1, Math.ceil(filteredRoles.length / ROLES_PER_PAGE));
+    /** Clamped rather than stored, so deleting or filtering roles can never leave the list on an empty page. */
+    const currentRolesPage = Math.min(rolesPage, rolesPageCount);
+    const rolesPageStart = (currentRolesPage - 1) * ROLES_PER_PAGE;
+    const visibleRoles = filteredRoles.slice(rolesPageStart, rolesPageStart + ROLES_PER_PAGE);
+
+    useEffect(() => { setRolesPage(1); }, [search]);
 
     const selectedRole = roles.find(r => r.id === selectedId) || null;
 
@@ -2603,7 +2614,7 @@ export default function RolesBuilderAssignment() {
                                             </td>
                                         </tr>
                                     ) : (
-                                        filteredRoles.map(role => {
+                                        visibleRoles.map(role => {
                                             const activeRules = (role.escalation_routing || []).filter(r => r.enabled).length;
                                             const totalRules = (role.escalation_routing || []).length;
                                             const associatedChains = chainsByRole.get(role.name.toLowerCase()) || [];
@@ -2735,8 +2746,32 @@ export default function RolesBuilderAssignment() {
                             </table>
                             </div>
                             {filteredRoles.length > 0 && (
-                                <div style={{ padding: '10px 16px', borderTop: '1px solid var(--border-subtle)', fontSize: 12, color: 'var(--text-muted)', flexShrink: 0 }}>
-                                    Showing {filteredRoles.length} of {roles.length} roles
+                                <div style={{ padding: '10px 16px', borderTop: '1px solid var(--border-subtle)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', flexShrink: 0 }}>
+                                    <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                                        Showing {rolesPageStart + 1}–{rolesPageStart + visibleRoles.length} of {filteredRoles.length} roles
+                                        {filteredRoles.length !== roles.length && ` (filtered from ${roles.length})`}
+                                    </div>
+                                    {rolesPageCount > 1 && (
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                            <button
+                                                className="btn btn-secondary btn-xs"
+                                                onClick={() => setRolesPage(Math.max(currentRolesPage - 1, 1))}
+                                                disabled={currentRolesPage <= 1}
+                                            >
+                                                Previous
+                                            </button>
+                                            <span style={{ fontSize: 12, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
+                                                Page {currentRolesPage} of {rolesPageCount}
+                                            </span>
+                                            <button
+                                                className="btn btn-secondary btn-xs"
+                                                onClick={() => setRolesPage(Math.min(currentRolesPage + 1, rolesPageCount))}
+                                                disabled={currentRolesPage >= rolesPageCount}
+                                            >
+                                                Next
+                                            </button>
+                                        </div>
+                                    )}
                                 </div>
                             )}
                         </div>
