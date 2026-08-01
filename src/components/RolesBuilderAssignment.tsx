@@ -34,11 +34,14 @@ import {
     roleNamesConflictForEscalation,
 } from '@/lib/role-escalation-ladder';
 import {
-    backfillMissingRolePolicies,
     buildPolicyLookup,
     matchPolicyForRole,
     unwrapEscalationPolicyPayload,
 } from '@/lib/escalation-policy-join';
+import {
+    extractEscalationPoliciesArray,
+    loadAllEscalationPoliciesForRoles,
+} from '@/lib/fetch-all-escalation-policies';
 import { fetchAllStaffPayload } from '@/lib/fetch-all-staff';
 import {
     ROLES_CACHE_DEPTS,
@@ -78,40 +81,7 @@ type Policy = {
 };
 
 function extractPolicies(raw: unknown): Policy[] {
-    if (Array.isArray(raw)) return raw as Policy[];
-    if (!raw || typeof raw !== 'object') return [];
-    const obj = raw as Record<string, unknown>;
-    const list = obj.data ?? obj.items ?? obj.policies ?? obj.results;
-    return Array.isArray(list) ? (list as Policy[]) : [];
-}
-
-/**
- * Always load steps via by-role. The policies list often returns stale/partial `steps`
- * (including non-empty outdated arrays), which previously skipped hydrate and wiped
- * ladders that had just been saved.
- */
-async function hydrateEscalationPolicySteps(policies: Policy[]): Promise<Policy[]> {
-    if (policies.length === 0) return policies;
-    return Promise.all(policies.map(async (policy) => {
-        const roleId = String(policy.role_id || '').trim();
-        if (!roleId) return policy;
-        try {
-            const res = await fetch(`/api/proxy/escalation-policies/by-role/${roleId}`);
-            if (!res.ok) return policy;
-            const detail = unwrapEscalationPolicyPayload(await res.json());
-            const steps = Array.isArray(detail?.steps) ? detail.steps as Policy['steps'] : policy.steps;
-            const initialTimeout = typeof detail?.initial_timeout_seconds === 'number'
-                ? detail.initial_timeout_seconds
-                : policy.initial_timeout_seconds;
-            return {
-                ...policy,
-                steps,
-                initial_timeout_seconds: initialTimeout,
-            };
-        } catch {
-            return policy;
-        }
-    }));
+    return extractEscalationPoliciesArray(raw) as Policy[];
 }
 
 /**
@@ -847,19 +817,17 @@ export default function RolesBuilderAssignment() {
     const fetchData = useCallback(async () => {
         const gen = ++fetchDataGenRef.current;
         try {
-            const [rolesRes, deptsRes, policiesRes, staffFetch, hospitalRes] = await Promise.all([
+            const [rolesRes, deptsRes, staffFetch, hospitalRes] = await Promise.all([
                 fetch(ROLES_CACHE_ROLES),
                 fetch(ROLES_CACHE_DEPTS),
-                fetch(ROLES_CACHE_POLICIES),
                 fetchAllStaffPayload({ credentials: 'include' }),
                 fetch(ROLES_CACHE_HOSPITAL),
             ]);
 
             const staffJson = staffFetch.ok ? staffFetch.data : null;
-            const [rolesJson, deptsJson, policiesJson, hospitalJson] = await Promise.all([
+            const [rolesJson, deptsJson, hospitalJson] = await Promise.all([
                 rolesRes.ok ? rolesRes.json() : Promise.resolve(null),
                 deptsRes.ok ? deptsRes.json() : Promise.resolve(null),
-                policiesRes.ok ? policiesRes.json() : Promise.resolve(null),
                 hospitalRes.ok ? hospitalRes.json() : Promise.resolve(null),
             ]);
 
@@ -878,21 +846,17 @@ export default function RolesBuilderAssignment() {
                 } catch { /* best effort */ }
             }
 
-            let policiesForIngest: unknown = policiesJson;
-            if (policiesRes.ok && policiesJson != null) {
-                const hydratedPolicies = await hydrateEscalationPolicySteps(extractPolicies(policiesJson));
-                // Backfill roles whose policy is missing from the facility-scoped list
-                // (or listed under a different role_id) via a direct by-role read.
-                const rolesForBackfill = Array.isArray(rolesJson) ? (rolesJson as Role[]) : [];
-                policiesForIngest = await backfillMissingRolePolicies(
-                    rolesForBackfill,
-                    hydratedPolicies,
-                    async (roleId) => {
-                        const res = await fetch(`/api/proxy/escalation-policies/by-role/${roleId}`);
-                        return res.ok ? res.json() : null;
-                    },
-                );
-            }
+            const rolesForBackfill = Array.isArray(rolesJson) ? (rolesJson as Role[]) : [];
+            const policiesLoaded = await loadAllEscalationPoliciesForRoles<Policy>(rolesForBackfill, {
+                init: { credentials: 'include' },
+                fetchByRole: async (roleId) => {
+                    const res = await fetch(`/api/proxy/escalation-policies/by-role/${roleId}`, {
+                        credentials: 'include',
+                    });
+                    return res.ok ? res.json() : null;
+                },
+            });
+            const policiesForIngest: unknown = policiesLoaded.ok ? policiesLoaded.policies : null;
 
             // A newer fetchData started (e.g. post-save) — discard this stale result.
             if (gen !== fetchDataGenRef.current) return;
@@ -901,7 +865,7 @@ export default function RolesBuilderAssignment() {
                 {
                     roles: rolesRes.ok,
                     depts: deptsRes.ok,
-                    policies: policiesRes.ok,
+                    policies: policiesLoaded.ok,
                     staff: staffFetch.ok,
                 },
                 {
@@ -915,7 +879,7 @@ export default function RolesBuilderAssignment() {
 
             if (rolesRes.ok && rolesJson != null) writeCachedJson(ROLES_CACHE_ROLES, rolesJson);
             if (deptsRes.ok && deptsJson != null) writeCachedJson(ROLES_CACHE_DEPTS, deptsJson);
-            if (policiesRes.ok && policiesForIngest != null) writeCachedJson(ROLES_CACHE_POLICIES, policiesForIngest);
+            if (policiesLoaded.ok && policiesForIngest != null) writeCachedJson(ROLES_CACHE_POLICIES, policiesForIngest);
             if (staffFetch.ok && staffJson != null) writeCachedJson(ROLES_CACHE_STAFF, staffJson);
             if (hospitalRes.ok && hospitalJson != null) writeCachedJson(ROLES_CACHE_HOSPITAL, hospitalJson);
             if (facilityJson != null && hospitalJson && typeof hospitalJson === 'object') {

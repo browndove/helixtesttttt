@@ -32,6 +32,10 @@ import {
     roleNamesConflictForEscalation,
 } from '@/lib/role-escalation-ladder';
 import {
+    extractEscalationPoliciesArray,
+    loadAllEscalationPoliciesForRoles,
+} from '@/lib/fetch-all-escalation-policies';
+import {
     ROLES_CACHE_DEPTS,
     ROLES_CACHE_POLICIES,
     ROLES_CACHE_ROLES,
@@ -69,11 +73,7 @@ type Policy = {
 };
 
 function extractPolicies(raw: unknown): Policy[] {
-    if (Array.isArray(raw)) return raw as Policy[];
-    if (!raw || typeof raw !== 'object') return [];
-    const obj = raw as Record<string, unknown>;
-    const list = obj.data ?? obj.items ?? obj.policies ?? obj.results;
-    return Array.isArray(list) ? (list as Policy[]) : [];
+    return extractEscalationPoliciesArray(raw) as Policy[];
 }
 
 type Role = {
@@ -273,51 +273,39 @@ export default function EscalationAlertSettings() {
 
     const fetchData = useCallback(async () => {
         try {
-            const [rolesRes, deptsRes, policiesRes] = await Promise.all([
+            const [rolesRes, deptsRes] = await Promise.all([
                 fetch(ROLES_CACHE_ROLES),
                 fetch(ROLES_CACHE_DEPTS),
-                fetch(ROLES_CACHE_POLICIES),
             ]);
-            const [rolesJson, deptsJson, policiesJson] = await Promise.all([
+            const [rolesJson, deptsJson] = await Promise.all([
                 rolesRes.ok ? rolesRes.json() : Promise.resolve(null),
                 deptsRes.ok ? deptsRes.json() : Promise.resolve(null),
-                policiesRes.ok ? policiesRes.json() : Promise.resolve(null),
             ]);
 
             if (rolesRes.ok && rolesJson != null) writeCachedJson(ROLES_CACHE_ROLES, rolesJson);
             if (deptsRes.ok && deptsJson != null) writeCachedJson(ROLES_CACHE_DEPTS, deptsJson);
 
-            let policiesResolved: Policy[] | null = null;
-            if (policiesRes.ok && policiesJson != null) {
-                let policiesArr = extractPolicies(policiesJson);
-                // Always re-fetch policy detail — list steps can be stale/non-empty and skip hydrate.
-                if (policiesArr.length > 0) {
-                    const hydrated = await Promise.all(
-                        policiesArr.map(async (p) => {
-                            try {
-                                const res = await fetch(`/api/proxy/escalation-policies/${p.id}`);
-                                if (res.ok) {
-                                    const full = await res.json();
-                                    writeCachedJson(`/api/proxy/escalation-policies/${p.id}`, full);
-                                    return { ...p, ...full };
-                                }
-                            } catch { /* keep original */ }
-                            return p;
-                        }),
-                    );
-                    policiesArr = hydrated;
-                }
-                policiesResolved = policiesArr;
-                // Cache hydrated policies only — raw list was wiping Roles page ladders.
-                writeCachedJson(ROLES_CACHE_POLICIES, policiesResolved);
-            }
+            const rolesForBackfill = Array.isArray(rolesJson) ? (rolesJson as Role[]) : [];
+            const loaded = await loadAllEscalationPoliciesForRoles<Policy>(rolesForBackfill, {
+                init: { credentials: 'include' },
+                fetchByRole: async (roleId) => {
+                    const res = await fetch(`/api/proxy/escalation-policies/by-role/${roleId}`, {
+                        credentials: 'include',
+                    });
+                    return res.ok ? res.json() : null;
+                },
+            });
+
+            const policiesResolved = loaded.ok ? loaded.policies : null;
+            // Cache the full hydrated + backfilled set so Roles/Home see every policy too.
+            if (policiesResolved != null) writeCachedJson(ROLES_CACHE_POLICIES, policiesResolved);
 
             ingestEscalationPayloads(
-                { roles: rolesRes.ok, depts: deptsRes.ok, policies: policiesRes.ok },
+                { roles: rolesRes.ok, depts: deptsRes.ok, policies: loaded.ok },
                 {
                     roles: rolesJson,
                     departments: deptsJson,
-                    policiesListRaw: policiesJson,
+                    policiesListRaw: null,
                     policiesResolved,
                 },
             );
@@ -332,18 +320,24 @@ export default function EscalationAlertSettings() {
     // Build display rows from escalation policies (one policy = one row)
     const chainGroups = useMemo(() => {
         const roleMap = new Map(roles.map(r => [r.id, r]));
+        const roleByName = new Map(
+            roles
+                .filter(r => r.name?.trim())
+                .map(r => [r.name.trim().toLowerCase(), r] as const),
+        );
         const roleNameMap = new Map(roles.map(r => [r.id, r.name]));
         return policies.map(p => {
-            const role = roleMap.get(p.role_id);
+            const role = roleMap.get(p.role_id)
+                || roleByName.get(String(p.role_name || '').trim().toLowerCase());
             const levels = policyToLadderLevels(
-                p.role_id,
+                role?.id || p.role_id,
                 role?.name || p.role_name || '',
                 p.initial_timeout_seconds,
                 p.steps || [],
                 roleNameMap,
             );
             const targetNames = levels.map(l => l.target).filter(Boolean);
-            const chainName = role?.name || targetNames.join(' \u2192 ') || 'Unnamed Policy';
+            const chainName = role?.name || p.role_name || targetNames.join(' \u2192 ') || 'Unnamed Policy';
             const description = role?.description || `${levels.length} step escalation chain`;
             return {
                 key: p.id,
@@ -353,7 +347,7 @@ export default function EscalationAlertSettings() {
                 roles: role ? [role] : [],
                 department: role?.department || '',
                 enabled: role?.enabled ?? true,
-                primaryRoleId: p.role_id,
+                primaryRoleId: role?.id || p.role_id,
                 policyId: p.id,
                 initial_timeout_seconds: p.initial_timeout_seconds,
             } as ChainGroup;

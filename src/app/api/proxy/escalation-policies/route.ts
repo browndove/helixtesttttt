@@ -4,13 +4,17 @@ import { buildTenantUpstreamUrl, ensureFacilityOnUrl, mergeFacilityIntoBody } fr
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3000';
 
-// GET /escalation-policies - List escalation policies
+// GET /escalation-policies - List escalation policies (supports page_size / page_id)
 export async function GET(req: NextRequest) {
     try {
         const { searchParams } = new URL(req.url);
         let url = new URL(`${API_BASE_URL}/api/v1/escalation-policies`);
-        const departmentId = searchParams.get('department_id');
-        if (departmentId) url.searchParams.set('department_id', departmentId);
+
+        // Forward list filters + pagination. Clients page through this to load all policies.
+        for (const param of ['department_id', 'page_size', 'page_id', 'facility_id'] as const) {
+            const value = searchParams.get(param);
+            if (value) url.searchParams.set(param, value);
+        }
 
         const withFacility = await ensureFacilityOnUrl(req, API_BASE_URL, url);
         if (withFacility instanceof NextResponse) return withFacility;
@@ -37,9 +41,22 @@ export async function GET(req: NextRequest) {
             );
         }
 
-        // Ensure we always return an array — unwrap if wrapped in an object
-        const policies = Array.isArray(data) ? data : (data?.items || data?.data || data?.policies || []);
-        return NextResponse.json(policies, { status: res.status });
+        // Pass through arrays and wrapped envelopes (items/data + pagination meta).
+        // Clients extract the list via extractEscalationPoliciesArray / extractPolicies.
+        if (Array.isArray(data)) {
+            return NextResponse.json(data, { status: res.status });
+        }
+        if (data && typeof data === 'object') {
+            const obj = data as Record<string, unknown>;
+            const hasList = ['items', 'data', 'policies', 'results'].some((k) => Array.isArray(obj[k]));
+            if (hasList) {
+                return NextResponse.json(data, { status: res.status });
+            }
+            // Unknown object shape — keep prior unwrap behavior for compatibility.
+            const policies = obj.items || obj.data || obj.policies || [];
+            return NextResponse.json(Array.isArray(policies) ? policies : [], { status: res.status });
+        }
+        return NextResponse.json([], { status: res.status });
     } catch (err) {
         console.error('Proxy error:', err);
         const message = err instanceof Error ? err.message : 'Unknown error';

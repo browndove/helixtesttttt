@@ -5,6 +5,10 @@ import { useRouter } from 'next/navigation';
 import { Plus_Jakarta_Sans } from 'next/font/google';
 import './home-overview.css';
 import { parseBulkUploadHistoryResponse, type BulkUploadHistoryEntry } from '@/lib/bulk-upload-history';
+import {
+    fetchAllEscalationPoliciesPayload,
+    type EscalationPolicyListItem,
+} from '@/lib/fetch-all-escalation-policies';
 import { fetchAllStaffPayload } from '@/lib/fetch-all-staff';
 import { countCriticalRolesWithoutEscalation } from '@/lib/role-escalation-ladder';
 import { useTeamPresenceRoster } from '@/lib/useTeamPresenceRoster';
@@ -233,7 +237,7 @@ export default function HomePage() {
                 patientRes,
                 teamsRes,
                 departmentsRes,
-                escalationRes,
+                escalationBundleRes,
                 rolesRes,
                 auditRes,
                 historyStaffRes,
@@ -247,7 +251,7 @@ export default function HomePage() {
                 fetch('/api/proxy/patients?page_size=20&page_id=1', { credentials: 'include' }),
                 fetch('/api/proxy/teams', { credentials: 'include' }),
                 fetch('/api/proxy/departments', { credentials: 'include' }),
-                fetch('/api/proxy/escalation-policies', { credentials: 'include' }),
+                fetchAllEscalationPoliciesPayload({ credentials: 'include' }),
                 fetch('/api/proxy/roles', { credentials: 'include' }),
                 fetch('/api/proxy/audit-logs?page_size=5&page_id=1', { credentials: 'include' }),
                 fetch('/api/proxy/bulk-upload-history?kind=staff&page_size=20', { credentials: 'include' }),
@@ -263,7 +267,7 @@ export default function HomePage() {
                 patientJson,
                 teamsJson,
                 departmentsJson,
-                escalationJson,
+                escalationBundle,
                 rolesJson,
                 auditJson,
                 historyStaffJson,
@@ -277,7 +281,7 @@ export default function HomePage() {
                 patientRes.ok ? patientRes.json() : Promise.resolve(null),
                 teamsRes.ok ? teamsRes.json() : Promise.resolve(null),
                 departmentsRes.ok ? departmentsRes.json() : Promise.resolve(null),
-                escalationRes.ok ? escalationRes.json() : Promise.resolve(null),
+                Promise.resolve(escalationBundleRes),
                 rolesRes.ok ? rolesRes.json() : Promise.resolve(null),
                 auditRes.ok ? auditRes.json() : Promise.resolve(null),
                 historyStaffRes.ok ? historyStaffRes.json() : Promise.resolve(null),
@@ -330,7 +334,11 @@ export default function HomePage() {
             const patientItems = getList(patientJson, ['items', 'data', 'patients']);
             const teamItems = getList(teamsJson, ['items', 'data', 'teams']) as SimpleItem[];
             const departmentItems = getList(departmentsJson, ['items', 'data', 'departments']) as SimpleItem[];
-            const escalationItems = getList(escalationJson, ['items', 'data', 'policies', 'results']) as SimpleItem[];
+            const escalationItems = (
+                escalationBundle && typeof escalationBundle === 'object' && (escalationBundle as { ok?: boolean }).ok
+                    ? (escalationBundle as { data: EscalationPolicyListItem[] }).data
+                    : []
+            ) as SimpleItem[];
             const roleItems = getList(rolesJson, ['items', 'data', 'roles', 'results']) as SimpleItem[];
             const escalationGap = countCriticalRolesWithoutEscalation(roleItems, escalationItems);
             setCriticalRolesWithoutEscalation(escalationGap.withoutEscalation);
