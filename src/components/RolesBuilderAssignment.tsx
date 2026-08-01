@@ -33,6 +33,12 @@ import {
     resolveEscalationTargetRoleId,
     roleNamesConflictForEscalation,
 } from '@/lib/role-escalation-ladder';
+import {
+    backfillMissingRolePolicies,
+    buildPolicyLookup,
+    matchPolicyForRole,
+    unwrapEscalationPolicyPayload,
+} from '@/lib/escalation-policy-join';
 import { fetchAllStaffPayload } from '@/lib/fetch-all-staff';
 import {
     ROLES_CACHE_DEPTS,
@@ -92,12 +98,15 @@ async function hydrateEscalationPolicySteps(policies: Policy[]): Promise<Policy[
         try {
             const res = await fetch(`/api/proxy/escalation-policies/by-role/${roleId}`);
             if (!res.ok) return policy;
-            const detail = await res.json();
+            const detail = unwrapEscalationPolicyPayload(await res.json());
             const steps = Array.isArray(detail?.steps) ? detail.steps as Policy['steps'] : policy.steps;
+            const initialTimeout = typeof detail?.initial_timeout_seconds === 'number'
+                ? detail.initial_timeout_seconds
+                : policy.initial_timeout_seconds;
             return {
                 ...policy,
                 steps,
-                initial_timeout_seconds: detail?.initial_timeout_seconds ?? policy.initial_timeout_seconds,
+                initial_timeout_seconds: initialTimeout,
             };
         } catch {
             return policy;
@@ -764,11 +773,11 @@ export default function RolesBuilderAssignment() {
                 const data = parsed.roles;
                 const rolesArr = Array.isArray(data) ? data : [];
                 const roleNameMap = new Map(rolesArr.map((r: Role) => [r.id, r.name]));
-                const policyByRole = new Map(policiesArr.map(p => [p.role_id, p]));
+                const policyLookup = buildPolicyLookup(policiesArr);
                 setRoles(prev => {
                     const prevById = new Map(prev.map(x => [x.id, x]));
                     const mapped = rolesArr.map((r: Role & { department_id?: string; department_name?: string; department?: unknown }) => {
-                    const policy = policyByRole.get(r.id);
+                    const policy = matchPolicyForRole(r, policyLookup);
                     const fromPolicy = policy
                         ? policyToLadderLevels(
                             policy.role_id,
@@ -872,7 +881,17 @@ export default function RolesBuilderAssignment() {
             let policiesForIngest: unknown = policiesJson;
             if (policiesRes.ok && policiesJson != null) {
                 const hydratedPolicies = await hydrateEscalationPolicySteps(extractPolicies(policiesJson));
-                policiesForIngest = hydratedPolicies;
+                // Backfill roles whose policy is missing from the facility-scoped list
+                // (or listed under a different role_id) via a direct by-role read.
+                const rolesForBackfill = Array.isArray(rolesJson) ? (rolesJson as Role[]) : [];
+                policiesForIngest = await backfillMissingRolePolicies(
+                    rolesForBackfill,
+                    hydratedPolicies,
+                    async (roleId) => {
+                        const res = await fetch(`/api/proxy/escalation-policies/by-role/${roleId}`);
+                        return res.ok ? res.json() : null;
+                    },
+                );
             }
 
             // A newer fetchData started (e.g. post-save) — discard this stale result.
@@ -1233,21 +1252,24 @@ export default function RolesBuilderAssignment() {
             // Bulk succeeded but read-back failed — keep what we intended to save.
             return { ok: true, levels: ladderLevels };
         }
-        const updatedPolicy = await updatedPolicyRes.json();
-        const savedSteps = Array.isArray(updatedPolicy?.steps) ? updatedPolicy.steps : [];
+        const updatedPolicy = unwrapEscalationPolicyPayload(await updatedPolicyRes.json());
+        const savedSteps = (Array.isArray(updatedPolicy?.steps) ? updatedPolicy.steps : []) as EscalationStep[];
         if (steps.length > 0 && savedSteps.length < steps.length) {
             return {
                 ok: false,
                 message: 'Escalation steps did not persist. Try saving again, or delete and recreate this role.',
             };
         }
+        const savedInitialTimeout = typeof updatedPolicy?.initial_timeout_seconds === 'number'
+            ? updatedPolicy.initial_timeout_seconds
+            : initial_timeout_seconds;
         const roleNameMap = new Map(rolesForResolve.map(r => [r.id, r.name]));
         return {
             ok: true,
             levels: policyToLadderLevels(
                 roleId,
                 roleName,
-                updatedPolicy.initial_timeout_seconds ?? initial_timeout_seconds,
+                savedInitialTimeout,
                 savedSteps,
                 roleNameMap,
             ),
