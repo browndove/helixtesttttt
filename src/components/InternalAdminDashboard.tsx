@@ -6,6 +6,7 @@ import { API_ENDPOINTS } from '@/lib/config';
 import { primeClientFacilityId } from '@/lib/facility-client';
 import { MacVibrancyToast, MacVibrancyToastPortal } from '@/components/MacVibrancyToast';
 import InternalAdminShell from '@/components/InternalAdminShell';
+import CustomSelect from '@/components/CustomSelect';
 import './internal-admin-dashboard.css';
 
 type FacilityRow = { id: string; name: string; code: string };
@@ -26,6 +27,17 @@ const FACILITY_TYPES = [
     'PSYCHIATRIC HOSPITAL',
     'LEPROSARIUM',
 ] as const;
+
+const FACILITY_TYPE_OPTIONS = FACILITY_TYPES.map((type) => ({ label: type, value: type }));
+
+function facilityTypeOptions(current?: string) {
+    const options = [{ label: 'Select type (optional)', value: '' }, ...FACILITY_TYPE_OPTIONS];
+    const value = (current || '').trim();
+    if (value && !(FACILITY_TYPES as readonly string[]).includes(value)) {
+        return [options[0], { label: value, value }, ...FACILITY_TYPE_OPTIONS];
+    }
+    return options;
+}
 
 function parseFacilities(raw: unknown): FacilityRow[] {
     const list = Array.isArray(raw) ? raw : [];
@@ -460,15 +472,12 @@ export default function InternalAdminDashboard() {
                                     <input className="internal-dash__input" placeholder="District (optional)" value={form.district} onChange={(e) => setField('district', e.target.value)} />
                                 </Field>
                                 <Field label="Facility Type">
-                                    <select className="internal-dash__input" value={form.facility_type} onChange={(e) => setField('facility_type', e.target.value)}>
-                                        <option value="">Select type (optional)</option>
-                                        {form.facility_type && !(FACILITY_TYPES as readonly string[]).includes(form.facility_type) && (
-                                            <option value={form.facility_type}>{form.facility_type}</option>
-                                        )}
-                                        {FACILITY_TYPES.map((type) => (
-                                            <option key={type} value={type}>{type}</option>
-                                        ))}
-                                    </select>
+                                    <CustomSelect
+                                        value={form.facility_type}
+                                        onChange={(v) => setField('facility_type', v)}
+                                        options={facilityTypeOptions(form.facility_type)}
+                                        placeholder="Select type (optional)"
+                                    />
                                 </Field>
                                 <Field label="Facility Email">
                                     <input className="internal-dash__input" type="email" placeholder="info@hospital.org" value={form.email} onChange={(e) => setField('email', e.target.value)} />
@@ -594,15 +603,12 @@ export default function InternalAdminDashboard() {
                                         <div className="internal-edit-modal__field"><label>District</label><input className="internal-edit-modal__input" placeholder="Optional" value={editForm.district} onChange={(e) => setEditField('district', e.target.value)} /></div>
                                         <div className="internal-edit-modal__field">
                                             <label>Facility Type</label>
-                                            <select className="internal-edit-modal__input" value={editForm.facility_type} onChange={(e) => setEditField('facility_type', e.target.value)}>
-                                                <option value="">Select type (optional)</option>
-                                                {editForm.facility_type && !(FACILITY_TYPES as readonly string[]).includes(editForm.facility_type) && (
-                                                    <option value={editForm.facility_type}>{editForm.facility_type}</option>
-                                                )}
-                                                {FACILITY_TYPES.map((type) => (
-                                                    <option key={type} value={type}>{type}</option>
-                                                ))}
-                                            </select>
+                                            <CustomSelect
+                                                value={editForm.facility_type}
+                                                onChange={(v) => setEditField('facility_type', v)}
+                                                options={facilityTypeOptions(editForm.facility_type)}
+                                                placeholder="Select type (optional)"
+                                            />
                                         </div>
                                         <div className="internal-edit-modal__field"><label>Facility Email</label><input className="internal-edit-modal__input" type="email" value={editForm.email} onChange={(e) => setEditField('email', e.target.value)} /></div>
                                         <div className="internal-edit-modal__field"><label>Contact Phone</label><input className="internal-edit-modal__input" type="tel" value={editForm.contact_phone} onChange={(e) => setEditField('contact_phone', e.target.value)} onBlur={() => { const v = toE164(editForm.contact_phone); if (v) setEditField('contact_phone', v); }} /></div>
