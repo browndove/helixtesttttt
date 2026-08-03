@@ -12,6 +12,21 @@ type FacilityRow = { id: string; name: string; code: string };
 
 const FACILITY_PAGE_SIZE = 15;
 
+const FACILITY_TYPES = [
+    'CHPS',
+    'HEALTH CENTRE',
+    'CLINIC',
+    'HOSPITAL',
+    'MATERNITY HOME',
+    'DISTRICT HOSPITAL',
+    'POLYCLINIC',
+    'REGIONAL HOSPITAL',
+    'TEACHING HOSPITAL',
+    'UNIVERSITY HOSPITAL/CLINIC',
+    'PSYCHIATRIC HOSPITAL',
+    'LEPROSARIUM',
+] as const;
+
 function parseFacilities(raw: unknown): FacilityRow[] {
     const list = Array.isArray(raw) ? raw : [];
     return list
@@ -34,6 +49,9 @@ const EMPTY_FACILITY_FORM = {
     address: '',
     city: '',
     region: '',
+    zone: '',
+    district: '',
+    facility_type: '',
     email: '',
     contact_phone: '',
     admin_email: '',
@@ -51,12 +69,16 @@ type FacilityForm = typeof EMPTY_FACILITY_FORM;
 function parseFacilityForm(raw: unknown, fallback?: FacilityRow | null): FacilityForm {
     const rec = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
     const source = (rec.data && typeof rec.data === 'object' ? rec.data : rec) as Record<string, unknown>;
+    const facilityType = String(source.facility_type || '').trim();
     return {
         name: String(source.name || source.facility_name || fallback?.name || '').trim(),
         code: String(source.code || source.facility_code || fallback?.code || '').trim(),
         address: String(source.address || '').trim(),
         city: String(source.city || '').trim(),
         region: String(source.region || '').trim(),
+        zone: String(source.zone || '').trim(),
+        district: String(source.district || '').trim(),
+        facility_type: facilityType,
         email: String(source.email || '').trim(),
         contact_phone: String(source.contact_phone || '').trim(),
         admin_email: String(source.admin_email || '').trim(),
@@ -431,6 +453,23 @@ export default function InternalAdminDashboard() {
                                 <Field label="Region">
                                     <input className="internal-dash__input" placeholder="Region" value={form.region} onChange={(e) => setField('region', e.target.value)} />
                                 </Field>
+                                <Field label="Zone">
+                                    <input className="internal-dash__input" placeholder="Zone (optional)" value={form.zone} onChange={(e) => setField('zone', e.target.value)} />
+                                </Field>
+                                <Field label="District">
+                                    <input className="internal-dash__input" placeholder="District (optional)" value={form.district} onChange={(e) => setField('district', e.target.value)} />
+                                </Field>
+                                <Field label="Facility Type">
+                                    <select className="internal-dash__input" value={form.facility_type} onChange={(e) => setField('facility_type', e.target.value)}>
+                                        <option value="">Select type (optional)</option>
+                                        {form.facility_type && !(FACILITY_TYPES as readonly string[]).includes(form.facility_type) && (
+                                            <option value={form.facility_type}>{form.facility_type}</option>
+                                        )}
+                                        {FACILITY_TYPES.map((type) => (
+                                            <option key={type} value={type}>{type}</option>
+                                        ))}
+                                    </select>
+                                </Field>
                                 <Field label="Facility Email">
                                     <input className="internal-dash__input" type="email" placeholder="info@hospital.org" value={form.email} onChange={(e) => setField('email', e.target.value)} />
                                 </Field>
@@ -551,6 +590,20 @@ export default function InternalAdminDashboard() {
                                         <div className="internal-edit-modal__field"><label>Address</label><input className="internal-edit-modal__input" value={editForm.address} onChange={(e) => setEditField('address', e.target.value)} /></div>
                                         <div className="internal-edit-modal__field"><label>City</label><input className="internal-edit-modal__input" value={editForm.city} onChange={(e) => setEditField('city', e.target.value)} /></div>
                                         <div className="internal-edit-modal__field"><label>Region</label><input className="internal-edit-modal__input" value={editForm.region} onChange={(e) => setEditField('region', e.target.value)} /></div>
+                                        <div className="internal-edit-modal__field"><label>Zone</label><input className="internal-edit-modal__input" placeholder="Optional" value={editForm.zone} onChange={(e) => setEditField('zone', e.target.value)} /></div>
+                                        <div className="internal-edit-modal__field"><label>District</label><input className="internal-edit-modal__input" placeholder="Optional" value={editForm.district} onChange={(e) => setEditField('district', e.target.value)} /></div>
+                                        <div className="internal-edit-modal__field">
+                                            <label>Facility Type</label>
+                                            <select className="internal-edit-modal__input" value={editForm.facility_type} onChange={(e) => setEditField('facility_type', e.target.value)}>
+                                                <option value="">Select type (optional)</option>
+                                                {editForm.facility_type && !(FACILITY_TYPES as readonly string[]).includes(editForm.facility_type) && (
+                                                    <option value={editForm.facility_type}>{editForm.facility_type}</option>
+                                                )}
+                                                {FACILITY_TYPES.map((type) => (
+                                                    <option key={type} value={type}>{type}</option>
+                                                ))}
+                                            </select>
+                                        </div>
                                         <div className="internal-edit-modal__field"><label>Facility Email</label><input className="internal-edit-modal__input" type="email" value={editForm.email} onChange={(e) => setEditField('email', e.target.value)} /></div>
                                         <div className="internal-edit-modal__field"><label>Contact Phone</label><input className="internal-edit-modal__input" type="tel" value={editForm.contact_phone} onChange={(e) => setEditField('contact_phone', e.target.value)} onBlur={() => { const v = toE164(editForm.contact_phone); if (v) setEditField('contact_phone', v); }} /></div>
                                         <div className="internal-edit-modal__field"><label>Admin Email</label><input className="internal-edit-modal__input" type="email" value={editForm.admin_email} onChange={(e) => setEditField('admin_email', e.target.value)} /></div>
