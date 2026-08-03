@@ -98,6 +98,9 @@ export async function PUT(
         if (body.is_doctor !== undefined) {
             forward.is_doctor = Boolean(body.is_doctor);
         }
+        if (body.is_scheduler !== undefined || body.scheduler !== undefined || body.can_schedule !== undefined) {
+            forward.is_scheduler = Boolean(body.is_scheduler ?? body.scheduler ?? body.can_schedule);
+        }
         if (body.account_expires_on) {
             forward.account_expires_on = String(body.account_expires_on).trim();
         }

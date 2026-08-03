@@ -27,6 +27,9 @@ type IncomingStaffBody = {
     is_doctor?: boolean;
     patient_access?: boolean;
     can_access_patients?: boolean;
+    is_scheduler?: boolean;
+    scheduler?: boolean;
+    can_schedule?: boolean;
     role?: string;
 };
 
@@ -140,6 +143,7 @@ export async function POST(req: NextRequest) {
             // Backend field naming has varied; send both for compatibility.
             patient_access: Boolean(body.patient_access ?? body.can_access_patients),
             can_access_patients: Boolean(body.patient_access ?? body.can_access_patients),
+            is_scheduler: Boolean(body.is_scheduler ?? body.scheduler ?? body.can_schedule),
             role: (body.role || 'staff').toLowerCase(),
         };
         if (!payload.middle_name) delete payload.middle_name;

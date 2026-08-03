@@ -64,6 +64,8 @@ type StaffMember = {
     /** Presence last seen from staff list API (`last_seen` field only). */
     last_seen?: string;
     patient_access: boolean;
+    /** When true, this staff member can manage schedules. */
+    is_scheduler: boolean;
     role: 'staff' | 'admin';
     phone?: string;
     dob?: string;
@@ -443,6 +445,7 @@ function parseStaffList(raw: unknown): StaffMember[] {
                 username: String(r.username || '').trim() || undefined,
                 last_seen: String(r.last_seen ?? '').trim() || undefined,
                 patient_access: Boolean(r.patient_access ?? r.can_access_patients ?? false),
+                is_scheduler: Boolean(r.is_scheduler ?? r.scheduler ?? r.can_schedule ?? false),
                 role: String(r.system_role || r.role || 'staff').toLowerCase().includes('admin') ? 'admin' as const : 'staff' as const,
                 phone: pickStaffPhone(r),
                 dob: String(r.dob || '').trim(),
@@ -1081,6 +1084,7 @@ export default function StaffDirectoryManagement() {
     const [newDept, setNewDept] = useState('');
     const [newAccountExpiresOn, setNewAccountExpiresOn] = useState('');
     const [newPatientAccess, setNewPatientAccess] = useState(true);
+    const [newIsScheduler, setNewIsScheduler] = useState(false);
     const [sortKey, setSortKey] = useState<SortKey>('response_order');
     const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
     const [statusFilter, setStatusFilter] = useState('all');
@@ -1710,6 +1714,7 @@ export default function StaffDirectoryManagement() {
                     highest_qualification: newHighestQualification.trim() || undefined,
                     is_doctor: derivedIsDoctor,
                     patient_access: newPatientAccess,
+                    is_scheduler: newIsScheduler,
                     role: 'staff',
                     department: newDept,
                     account_expires_on: newAccountExpiresOn.trim() || undefined,
@@ -1740,6 +1745,7 @@ export default function StaffDirectoryManagement() {
                 access: 'Staff',
                 employee_id: '',
                 patient_access: newPatientAccess,
+                is_scheduler: newIsScheduler,
                 role: 'staff',
                 phone: '',
                 dob: newDob.trim(),
@@ -1758,6 +1764,7 @@ export default function StaffDirectoryManagement() {
                     gender: created.gender || newGender.trim(),
                     is_doctor: created.is_doctor ?? derivedIsDoctor,
                     patient_access: created.patient_access ?? newPatientAccess,
+                    is_scheduler: created.is_scheduler ?? newIsScheduler,
                 }
                 : fallbackMember;
 
@@ -1774,6 +1781,7 @@ export default function StaffDirectoryManagement() {
             setNewHighestQualification('');
             setNewAccountExpiresOn('');
             setNewPatientAccess(true);
+            setNewIsScheduler(false);
             const displayName = `${newFirstName} ${newLastName}`.trim() || 'Staff member';
             showToast(`${displayName} added to staff`, 'success');
             if (member.id && member.email.trim()) {
@@ -1962,6 +1970,35 @@ export default function StaffDirectoryManagement() {
         }
     };
 
+    const toggleScheduler = async (id: string, current: boolean) => {
+        const newVal = !current;
+        const member = staff.find(s => s.id === id);
+        setStaff(prev => prev.map(s => s.id === id ? { ...s, is_scheduler: newVal } : s));
+        setSelected(prev => prev && prev.id === id ? { ...prev, is_scheduler: newVal } : prev);
+        showToast(
+            newVal
+                ? `${member?.first_name} ${member?.last_name} can now schedule`
+                : `Scheduler access removed for ${member?.first_name} ${member?.last_name}`,
+            'success',
+        );
+        try {
+            const res = await fetch(staffUrl(`/api/proxy/staff/${id}`), {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ is_scheduler: newVal }),
+            });
+            if (!res.ok) {
+                setStaff(prev => prev.map(s => s.id === id ? { ...s, is_scheduler: current } : s));
+                setSelected(prev => prev && prev.id === id ? { ...prev, is_scheduler: current } : prev);
+                showToast('Failed to update scheduler access', 'error');
+            }
+        } catch {
+            setStaff(prev => prev.map(s => s.id === id ? { ...s, is_scheduler: current } : s));
+            setSelected(prev => prev && prev.id === id ? { ...prev, is_scheduler: current } : prev);
+            showToast('Failed to update scheduler access', 'error');
+        }
+    };
+
     const assignRole = async (id: string, newRole: 'staff' | 'admin') => {
         const member = staff.find(s => s.id === id);
         const oldRole = member?.role || 'staff';
@@ -2029,6 +2066,9 @@ export default function StaffDirectoryManagement() {
                 department_id: selected.department_id || String(existing.department_id || '').trim() || undefined,
                 patient_access: Boolean(
                     existing.patient_access ?? existing.can_access_patients ?? selected.patient_access ?? false,
+                ),
+                is_scheduler: Boolean(
+                    existing.is_scheduler ?? existing.scheduler ?? existing.can_schedule ?? selected.is_scheduler ?? false,
                 ),
             };
             if (employeeId) payload.employee_id = employeeId;
@@ -2149,6 +2189,7 @@ export default function StaffDirectoryManagement() {
                 highest_qualification: trimmedHq || undefined,
                 department_id: resolvedDeptId || undefined,
                 patient_access: selected.patient_access,
+                is_scheduler: selected.is_scheduler,
                 ...(editAccountExpiresOn.trim()
                     ? { account_expires_on: editAccountExpiresOn.trim() }
                     : selected.account_expires_on
@@ -2368,6 +2409,18 @@ export default function StaffDirectoryManagement() {
                                     />
                                 </div>
                                 <div><label className="label">Patient Access</label><CustomSelect value={newPatientAccess ? 'yes' : 'no'} onChange={v => setNewPatientAccess(v === 'yes')} options={[{ label: 'Yes', value: 'yes' }, { label: 'No', value: 'no' }]} placeholder="-- Select --" /></div>
+                                <div>
+                                    <label className="label">Scheduler</label>
+                                    <CustomSelect
+                                        value={newIsScheduler ? 'yes' : 'no'}
+                                        onChange={v => setNewIsScheduler(v === 'yes')}
+                                        options={[{ label: 'Yes', value: 'yes' }, { label: 'No', value: 'no' }]}
+                                        placeholder="-- Select --"
+                                    />
+                                    <div style={{ marginTop: 4, fontSize: 10.5, color: 'var(--text-muted)' }}>
+                                        Allow this person to create and manage schedules.
+                                    </div>
+                                </div>
                                 <div>
                                     <label className="label">Account Expiry Date</label>
                                     <DatePicker value={newAccountExpiresOn} onChange={setNewAccountExpiresOn} placeholder="No expiry" minDate={new Date().toISOString().slice(0, 10)} />
@@ -2601,6 +2654,7 @@ export default function StaffDirectoryManagement() {
                                             <th style={{ ...staffHeadCell, minWidth: 130, whiteSpace: 'nowrap', cursor: 'pointer', background: '#fafbfc', borderBottom: '1px solid var(--border-default)' }} onClick={() => toggleSort('job_title')}>Rank {sortKey === 'job_title' && (sortDir === 'asc' ? '↑' : '↓')}</th>
                                             <th style={{ ...staffHeadCell, minWidth: 160, whiteSpace: 'nowrap', cursor: 'pointer', background: '#fafbfc', borderBottom: '1px solid var(--border-default)' }} onClick={() => toggleSort('dept')}>Department {sortKey === 'dept' && (sortDir === 'asc' ? '↑' : '↓')}</th>
                                             <th style={{ ...staffHeadCell, minWidth: 140, whiteSpace: 'nowrap', background: '#fafbfc', borderBottom: '1px solid var(--border-default)' }}>Patient Access</th>
+                                            <th style={{ ...staffHeadCell, minWidth: 120, whiteSpace: 'nowrap', background: '#fafbfc', borderBottom: '1px solid var(--border-default)' }}>Scheduler</th>
                                             <th style={{ ...staffHeadCell, minWidth: 88, whiteSpace: 'nowrap', cursor: 'pointer', background: '#fafbfc', borderBottom: '1px solid var(--border-default)' }} onClick={() => toggleSort('status')}>Status {sortKey === 'status' && (sortDir === 'asc' ? '↑' : '↓')}</th>
                                             <th style={{ ...staffHeadCell, minWidth: 88, whiteSpace: 'nowrap', background: '#fafbfc', borderBottom: '1px solid var(--border-default)' }}>Last seen</th>
                                             <th style={{ ...staffHeadCell, width: 72, minWidth: 72, background: '#fafbfc', borderBottom: '1px solid var(--border-default)' }} />
@@ -2609,7 +2663,7 @@ export default function StaffDirectoryManagement() {
                                     <tbody>
                                         {loading && filtered.length === 0 && (
                                             <tr>
-                                                <td colSpan={11} style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--text-muted)', fontSize: 13 }}>
+                                                <td colSpan={12} style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--text-muted)', fontSize: 13 }}>
                                                     <span className="material-icons-round" style={{ fontSize: 24, display: 'block', marginBottom: 8, opacity: 0.4 }}>hourglass_empty</span>
                                                     Loading staff from server...
                                                 </td>
@@ -2617,7 +2671,7 @@ export default function StaffDirectoryManagement() {
                                         )}
                                         {!loading && fetchError && filtered.length === 0 && (
                                             <tr>
-                                                <td colSpan={11} style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--text-muted)', fontSize: 13 }}>
+                                                <td colSpan={12} style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--text-muted)', fontSize: 13 }}>
                                                     <span className="material-icons-round" style={{ fontSize: 24, display: 'block', marginBottom: 8, color: 'var(--critical)' }}>cloud_off</span>
                                                     <div style={{ fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>Could not load staff</div>
                                                     <div style={{ marginBottom: 12 }}>The server is unreachable. Check your connection and try again.</div>
@@ -2629,7 +2683,7 @@ export default function StaffDirectoryManagement() {
                                         )}
                                         {!loading && !fetchError && filtered.length === 0 && (
                                             <tr>
-                                                <td colSpan={11} style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--text-muted)', fontSize: 13 }}>
+                                                <td colSpan={12} style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--text-muted)', fontSize: 13 }}>
                                                     <span className="material-icons-round" style={{ fontSize: 24, display: 'block', marginBottom: 8, opacity: 0.4 }}>person_off</span>
                                                     {search || deptFilter !== 'all' || statusFilter !== 'all' ? 'No staff match your filters.' : 'No staff members yet. Add staff above to get started.'}
                                                 </td>
@@ -2739,6 +2793,12 @@ export default function StaffDirectoryManagement() {
                                                         <div style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '3px 10px 3px 6px', borderRadius: 20, fontSize: 11, fontWeight: 600, background: s.patient_access ? 'rgba(34,139,34,0.08)' : 'rgba(120,120,120,0.08)', color: s.patient_access ? '#2d8a4e' : '#888', border: `1px solid ${s.patient_access ? 'rgba(34,139,34,0.18)' : 'rgba(120,120,120,0.15)'}` }}>
                                                             <span className="material-icons-round" style={{ fontSize: 13 }}>{s.patient_access ? 'verified_user' : 'shield'}</span>
                                                             {s.patient_access ? 'Granted' : 'None'}
+                                                        </div>
+                                                    </td>
+                                                    <td style={{ ...staffBodyCell, minWidth: 120, background: rowBg, borderBottom: '1px solid var(--border-subtle)' }}>
+                                                        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '3px 10px 3px 6px', borderRadius: 20, fontSize: 11, fontWeight: 600, background: s.is_scheduler ? 'rgba(37,99,235,0.08)' : 'rgba(120,120,120,0.08)', color: s.is_scheduler ? '#2563EB' : '#888', border: `1px solid ${s.is_scheduler ? 'rgba(37,99,235,0.18)' : 'rgba(120,120,120,0.15)'}` }}>
+                                                            <span className="material-icons-round" style={{ fontSize: 13 }}>{s.is_scheduler ? 'event_available' : 'event_busy'}</span>
+                                                            {s.is_scheduler ? 'Yes' : 'No'}
                                                         </div>
                                                     </td>
                                                     <td style={{ ...staffBodyCell, minWidth: 88, background: rowBg, borderBottom: '1px solid var(--border-subtle)' }}>
@@ -3350,6 +3410,34 @@ export default function StaffDirectoryManagement() {
                                 </div>
                                 )}
 
+                                {/* Scheduler */}
+                                {!editingSelected && (
+                                <div style={{ background: '#FFFFFF', borderRadius: 14, border: '1px solid #E4E7EC', boxShadow: '0 1px 2px rgba(15, 23, 42, 0.04)', padding: '12px 14px' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                                        <span className="material-icons-round" style={{ fontSize: 18, color: selected.is_scheduler ? '#2563EB' : '#94A3B8' }}>
+                                            {selected.is_scheduler ? 'event_available' : 'event_busy'}
+                                        </span>
+                                        <div style={{ flex: 1, minWidth: 0 }}>
+                                            <div style={{ fontSize: 12, fontWeight: 700, color: '#111827' }}>Scheduler</div>
+                                            <div style={{ fontSize: 11, color: '#6B7280' }}>
+                                                {selected.is_scheduler ? 'Can create and manage schedules' : 'No scheduling access'}
+                                            </div>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={() => toggleScheduler(selected.id, selected.is_scheduler)}
+                                            style={{
+                                                flexShrink: 0, border: '1px solid #E5E7EB', borderRadius: 20,
+                                                padding: '5px 12px', fontSize: 11, fontWeight: 600, fontFamily: 'inherit',
+                                                cursor: 'pointer', background: '#fff', color: '#2563EB',
+                                            }}
+                                        >
+                                            {selected.is_scheduler ? 'Remove' : 'Allow'}
+                                        </button>
+                                    </div>
+                                </div>
+                                )}
+
                                 {/* System Role */}
                                 {!editingSelected && (
                                 <div
@@ -3646,7 +3734,7 @@ export default function StaffDirectoryManagement() {
                                 {
                                     icon: 'badge',
                                     label: 'latest_bulk_upload.csv',
-                                    desc: 'email, first_name, last_name, job_title, middle_name, phone, dob, gender, department, patient_access, employee_id, highest_qualification, is_doctor',
+                                    desc: 'email, first_name, last_name, job_title, middle_name, phone, dob, gender, department, patient_access, is_scheduler, employee_id, highest_qualification, is_doctor',
                                     color: '#4a6fa5',
                                     href: '/templates/latest_bulk_upload.csv',
                                     downloadName: 'latest_bulk_upload.csv',
