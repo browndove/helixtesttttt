@@ -24,6 +24,7 @@ type IncomingStaffBody = {
     job_title?: string;
     highest_qualification?: string;
     highest_qualifications?: string;
+    additional_title?: string;
     is_doctor?: boolean;
     patient_access?: boolean;
     can_access_patients?: boolean;
@@ -139,6 +140,8 @@ export async function POST(req: NextRequest) {
             title: (body.title || '').trim(),
             job_title: (body.job_title || '').trim(),
             highest_qualifications: (body.highest_qualifications || body.highest_qualification || '').trim(),
+            highest_qualification: (body.highest_qualification || body.highest_qualifications || '').trim(),
+            additional_title: (body.additional_title || '').trim(),
             is_doctor: Boolean(body.is_doctor),
             // Backend field naming has varied; send both for compatibility.
             patient_access: Boolean(body.patient_access ?? body.can_access_patients),
@@ -147,6 +150,9 @@ export async function POST(req: NextRequest) {
             role: (body.role || 'staff').toLowerCase(),
         };
         if (!payload.middle_name) delete payload.middle_name;
+        if (!payload.additional_title) delete payload.additional_title;
+        if (!payload.highest_qualification) delete payload.highest_qualification;
+        if (!payload.highest_qualifications) delete payload.highest_qualifications;
         if (body.dob) payload.dob = body.dob.trim();
         if (body.gender) payload.gender = body.gender.trim();
         const upstream = await buildTenantUpstreamUrl(req, API_BASE_URL, `/api/v1/staff`);

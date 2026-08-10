@@ -86,7 +86,11 @@ export async function PUT(
         if (email) forward.email = email;
         if (phone) forward.phone = phone;
         copyString('job_title', body.job_title || body.title);
-        if (hq) forward.highest_qualification = hq;
+        if (hq) {
+            // Backend field naming has varied between singular and plural.
+            forward.highest_qualification = hq;
+            forward.highest_qualifications = hq;
+        }
         copyString('dob', body.dob);
         copyString('gender', body.gender);
         copyString('employee_id', body.employee_id);

@@ -237,6 +237,8 @@ function mergeStaffListRowIntoDetail(prev: StaffMember, fromList: StaffMember): 
         signed_in_role_name: signed,
         employee_id: pickEmployeeId(prev, fromList),
         additional_title: (fromList.additional_title || '').trim() || prev.additional_title,
+        /** List payloads often omit qualification; keep the richer detail value. */
+        highest_qualification: (fromList.highest_qualification || '').trim() || prev.highest_qualification,
         dept,
         department_id: (fromList.department_id || '').trim() || prev.department_id,
     };
@@ -451,7 +453,7 @@ function parseStaffList(raw: unknown): StaffMember[] {
                 dob: String(r.dob || '').trim(),
                 gender: String(r.gender || '').trim().toLowerCase(),
                 title: String(r.title || r.job_title || '').trim(),
-                additional_title: String(r.additional_title || '').trim() || undefined,
+                additional_title: String(r.additional_title || r.title_prefix || '').trim() || undefined,
                 highest_qualification: String(r.highest_qualifications || r.highest_qualification || r.qualification || '').trim(),
                 is_doctor: Boolean(r.is_doctor ?? String(r.title_prefix || '').toLowerCase() === 'dr'),
                 signed_in_role_name: (() => {
@@ -2253,6 +2255,9 @@ export default function StaffDirectoryManagement() {
             }
             if (trimmedAdditionalTitle) {
                 mergedLocal = { ...mergedLocal, additional_title: trimmedAdditionalTitle };
+            }
+            if (trimmedHq) {
+                mergedLocal = { ...mergedLocal, highest_qualification: trimmedHq };
             }
             setStaff(prev => prev.map(s => (s.id === selected.id ? mergeStaffPutResponse(s, mergedLocal) : s)));
             setSelected(mergedLocal);
