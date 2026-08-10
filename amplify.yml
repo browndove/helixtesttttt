@@ -1,0 +1,24 @@
+# Amplify Hosting does not pass console env vars into Next.js SSR/API routes
+# unless they are written into .env.production at build time.
+# See: https://docs.aws.amazon.com/amplify/latest/userguide/ssr-environment-variables.html
+version: 1
+frontend:
+  phases:
+    preBuild:
+      commands:
+        - npm ci
+    build:
+      commands:
+        - env | grep -e NEXT_PUBLIC_ >> .env.production || true
+        - env | grep -e DOWNLOAD_ >> .env.production || true
+        - env | grep -e GOOGLE_PLAY_ >> .env.production || true
+        - env | grep -e DATABASE_URL >> .env.production || true
+        - npm run build
+  artifacts:
+    baseDirectory: .next
+    files:
+      - '**/*'
+  cache:
+    paths:
+      - node_modules/**/*
+      - .next/cache/**/*
