@@ -37,6 +37,13 @@ function normalizeAppleDay(day: string): string {
 
 function normalizePrivateKey(raw: string): string {
     let trimmed = raw.trim();
+    // Env dashboards often paste values with wrapping quotes: "-----BEGIN...\n..."
+    if (
+        (trimmed.startsWith('"') && trimmed.endsWith('"'))
+        || (trimmed.startsWith("'") && trimmed.endsWith("'"))
+    ) {
+        trimmed = trimmed.slice(1, -1).trim();
+    }
     if (trimmed.includes('\\n')) {
         trimmed = trimmed.replace(/\\n/g, '\n');
     }
@@ -49,18 +56,36 @@ function normalizePrivateKey(raw: string): string {
     return `-----BEGIN PRIVATE KEY-----\n${wrapped}\n-----END PRIVATE KEY-----`;
 }
 
-function readPrivateKeyFromEnv(): string | null {
+function readPrivateKeyFromEnv(): { key: string | null; error?: string } {
     const inline = process.env.DOWNLOAD_PRIVATE_KEY?.trim();
-    if (inline) return normalizePrivateKey(inline);
+    if (inline) return { key: normalizePrivateKey(inline) };
 
     const path = process.env.DOWNLOAD_PRIVATE_KEY_PATH?.trim();
-    if (!path) return null;
+    if (!path) {
+        return {
+            key: null,
+            error: 'DOWNLOAD_PRIVATE_KEY or DOWNLOAD_PRIVATE_KEY_PATH is missing',
+        };
+    }
 
-    return readFileSync(path, 'utf8');
+    try {
+        const key = readFileSync(path, 'utf8');
+        if (!key.trim()) {
+            return { key: null, error: `DOWNLOAD_PRIVATE_KEY_PATH file is empty (${path})` };
+        }
+        return { key };
+    } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        // Serverless hosts (Vercel etc.) usually have no uploaded .p8 — use the inline env var instead.
+        return {
+            key: null,
+            error: `DOWNLOAD_PRIVATE_KEY_PATH could not be read (${path}): ${message}. On production, paste the PEM into DOWNLOAD_PRIVATE_KEY instead of using a file path.`,
+        };
+    }
 }
 
 export function getAppStoreConnectConfig(): AppStoreConnectConfig | null {
-    const privateKey = readPrivateKeyFromEnv();
+    const { key: privateKey } = readPrivateKeyFromEnv();
     const keyId = process.env.DOWNLOAD_KEY_ID?.trim();
     const issuerId = process.env.DOWNLOAD_ISSUER_ID?.trim();
     const vendorNumber = process.env.DOWNLOAD_VENDOR_NUMBER?.trim();
@@ -75,8 +100,9 @@ export function getAppStoreConnectConfig(): AppStoreConnectConfig | null {
 
 export function getAppStoreConnectConfigErrors(): string[] {
     const errors: string[] = [];
-    if (!readPrivateKeyFromEnv()) {
-        errors.push('DOWNLOAD_PRIVATE_KEY or DOWNLOAD_PRIVATE_KEY_PATH is missing');
+    const keyResult = readPrivateKeyFromEnv();
+    if (!keyResult.key) {
+        errors.push(keyResult.error || 'DOWNLOAD_PRIVATE_KEY or DOWNLOAD_PRIVATE_KEY_PATH is missing');
     }
     if (!process.env.DOWNLOAD_KEY_ID?.trim()) {
         errors.push('DOWNLOAD_KEY_ID is missing');
@@ -88,6 +114,18 @@ export function getAppStoreConnectConfigErrors(): string[] {
         errors.push('DOWNLOAD_VENDOR_NUMBER is missing (needed for download reports)');
     }
     return errors;
+}
+
+/** Non-secret presence flags for debugging prod env wiring. */
+export function getAppStoreConnectEnvPresence(): Record<string, boolean> {
+    return {
+        DOWNLOAD_KEY_ID: Boolean(process.env.DOWNLOAD_KEY_ID?.trim()),
+        DOWNLOAD_ISSUER_ID: Boolean(process.env.DOWNLOAD_ISSUER_ID?.trim()),
+        DOWNLOAD_PRIVATE_KEY: Boolean(process.env.DOWNLOAD_PRIVATE_KEY?.trim()),
+        DOWNLOAD_PRIVATE_KEY_PATH: Boolean(process.env.DOWNLOAD_PRIVATE_KEY_PATH?.trim()),
+        DOWNLOAD_VENDOR_NUMBER: Boolean(process.env.DOWNLOAD_VENDOR_NUMBER?.trim()),
+        DOWNLOAD_APP_APPLE_ID: Boolean(process.env.DOWNLOAD_APP_APPLE_ID?.trim()),
+    };
 }
 
 async function createAppStoreConnectToken(config: AppStoreConnectConfig): Promise<string> {

@@ -205,9 +205,18 @@ function InternalDownloadsAnalyticsContent() {
             const data = await res.json() as {
                 analytics?: DownloadAnalyticsData;
                 error?: string;
+                missing?: string[];
+                configured?: boolean;
+                env?: Record<string, boolean>;
             };
             if (!res.ok || !data.analytics) {
-                throw new Error(data.error || 'Failed to load live download analytics');
+                const missing = Array.isArray(data.missing) && data.missing.length > 0
+                    ? `\n${data.missing.map((m) => `• ${m}`).join('\n')}`
+                    : '';
+                const envHint = data.env
+                    ? `\nEnv present: ${Object.entries(data.env).map(([k, v]) => `${k}=${v ? 'yes' : 'no'}`).join(', ')}`
+                    : '';
+                throw new Error(`${data.error || 'Failed to load live download analytics'}.${missing}${envHint}`);
             }
             setDownloadData(data.analytics);
         } catch (err) {
@@ -332,7 +341,7 @@ function InternalDownloadsAnalyticsContent() {
                     <div className="usage-inner">
                         <div className="rounded-xl border border-red-300 bg-red-50 p-4 text-red-700">
                             <div className="font-semibold">Live download analytics unavailable</div>
-                            <div className="mt-1 text-sm">{error || 'No analytics returned from API.'}</div>
+                            <div className="mt-1 text-sm whitespace-pre-wrap">{error || 'No analytics returned from API.'}</div>
                             <button className="btn btn-sm btn-primary mt-3" onClick={() => void fetchAnalytics()}>
                                 Retry
                             </button>

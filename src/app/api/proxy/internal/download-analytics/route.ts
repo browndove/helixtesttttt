@@ -4,6 +4,7 @@ import {
     fetchAppleDownloadAnalytics,
     getAppStoreConnectConfig,
     getAppStoreConnectConfigErrors,
+    getAppStoreConnectEnvPresence,
     verifyAppStoreConnectAuth,
 } from '@/lib/app-store-connect';
 import {
@@ -27,6 +28,7 @@ export async function GET(req: NextRequest) {
             return NextResponse.json({
                 configured: false,
                 missing: getAppStoreConnectConfigErrors(),
+                env: getAppStoreConnectEnvPresence(),
                 auth,
                 error: 'App Store Connect is not configured',
             }, { status: 503 });
