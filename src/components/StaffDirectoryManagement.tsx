@@ -83,8 +83,8 @@ type StaffMember = {
     account_expired_at?: string;
 };
 
-type SortKey = 'first_name' | 'last_name' | 'employee_id' | 'dept' | 'job_title' | 'status' | 'response_order';
-type ColumnSortKey = Exclude<SortKey, 'response_order'>;
+type SortKey = 'first_name' | 'last_name' | 'employee_id' | 'dept' | 'job_title' | 'status' | 'last_seen' | 'response_order';
+type ColumnSortKey = Exclude<SortKey, 'response_order' | 'last_seen'>;
 type ImportStatus = 'success' | 'error';
 
 /** Parse `last_name-asc` style values (keys may contain `_`). */
@@ -1477,9 +1477,9 @@ export default function StaffDirectoryManagement() {
         setEditAccountExpiresOn(selected.account_expires_on || '');
     }, [selected, editingContactEmail]);
 
-    const toggleSort = (key: ColumnSortKey) => {
+    const toggleSort = (key: Exclude<SortKey, 'response_order'>) => {
         if (sortKey === key) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
-        else { setSortKey(key); setSortDir('asc'); }
+        else { setSortKey(key); setSortDir(key === 'last_seen' ? 'desc' : 'asc'); }
     };
 
     const clearUploadedFile = () => {
@@ -1623,12 +1623,22 @@ export default function StaffDirectoryManagement() {
             return matchSearch && matchDept && matchStatus;
         });
         if (sortKey === 'response_order') return f;
+        if (sortKey === 'last_seen') {
+            return [...f].sort((a, b) => {
+                const av = staffLastSeenMs(a, lastSeenByKey) ?? 0;
+                const bv = staffLastSeenMs(b, lastSeenByKey) ?? 0;
+                if (av === bv) return 0;
+                if (av === 0) return 1;
+                if (bv === 0) return -1;
+                return sortDir === 'asc' ? av - bv : bv - av;
+            });
+        }
         return [...f].sort((a, b) => {
             const av = a[sortKey as ColumnSortKey].toLowerCase();
             const bv = b[sortKey as ColumnSortKey].toLowerCase();
             return sortDir === 'asc' ? av.localeCompare(bv) : bv.localeCompare(av);
         });
-    }, [staffForList, search, deptFilter, statusFilter, sortKey, sortDir]);
+    }, [staffForList, search, deptFilter, statusFilter, sortKey, sortDir, lastSeenByKey]);
 
     const staffTotalPages = useMemo(() => Math.max(1, Math.ceil(filtered.length / staffPageSize)), [filtered.length, staffPageSize]);
     const paginatedFiltered = useMemo(
@@ -2545,6 +2555,8 @@ export default function StaffDirectoryManagement() {
                                 }}
                                 options={[
                                     { label: 'Original order (default)', value: 'response_order-asc' },
+                                    { label: 'Last seen (newest)', value: 'last_seen-desc' },
+                                    { label: 'Last seen (oldest)', value: 'last_seen-asc' },
                                     { label: 'Last Name A-Z', value: 'last_name-asc' },
                                     { label: 'Last Name Z-A', value: 'last_name-desc' },
                                     { label: 'First Name A-Z', value: 'first_name-asc' },
@@ -2661,7 +2673,7 @@ export default function StaffDirectoryManagement() {
                                             <th style={{ ...staffHeadCell, minWidth: 140, whiteSpace: 'nowrap', background: '#fafbfc', borderBottom: '1px solid var(--border-default)' }}>Patient Access</th>
                                             <th style={{ ...staffHeadCell, minWidth: 120, whiteSpace: 'nowrap', background: '#fafbfc', borderBottom: '1px solid var(--border-default)' }}>Scheduler</th>
                                             <th style={{ ...staffHeadCell, minWidth: 88, whiteSpace: 'nowrap', cursor: 'pointer', background: '#fafbfc', borderBottom: '1px solid var(--border-default)' }} onClick={() => toggleSort('status')}>Status {sortKey === 'status' && (sortDir === 'asc' ? '↑' : '↓')}</th>
-                                            <th style={{ ...staffHeadCell, minWidth: 88, whiteSpace: 'nowrap', background: '#fafbfc', borderBottom: '1px solid var(--border-default)' }}>Last seen</th>
+                                            <th style={{ ...staffHeadCell, minWidth: 88, whiteSpace: 'nowrap', cursor: 'pointer', background: '#fafbfc', borderBottom: '1px solid var(--border-default)' }} onClick={() => toggleSort('last_seen')}>Last seen {sortKey === 'last_seen' && (sortDir === 'asc' ? '↑' : '↓')}</th>
                                             <th style={{ ...staffHeadCell, width: 72, minWidth: 72, background: '#fafbfc', borderBottom: '1px solid var(--border-default)' }} />
                                         </tr>
                                     </thead>
