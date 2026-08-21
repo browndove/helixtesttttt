@@ -37,6 +37,7 @@ interface RevenueChartProps {
     infoText?: string;
     seriesName?: string;
     valueKey?: "total_messages" | "critical_messages" | "standard_messages";
+    secondarySeriesName?: string;
     fixedPeriod?: "7d" | "14d" | "30d";
     hidePeriodSelector?: boolean;
 }
@@ -50,6 +51,7 @@ const RevenueChart = ({
     infoText = defaultInfoText,
     seriesName = "Total Messages",
     valueKey = "total_messages",
+    secondarySeriesName,
     fixedPeriod,
     hidePeriodSelector = false,
 }: RevenueChartProps) => {
@@ -68,22 +70,27 @@ const RevenueChart = ({
         };
     }, [isFullscreen]);
 
-    // Slice daily volume based on selected period
+    // Slice daily volume based on selected period. When the period selector is
+    // hidden and no fixed period is set, show the full series the caller passed.
     const selectedPeriod = fixedPeriod || period;
     const periodDays = selectedPeriod === "30d" ? 30 : selectedPeriod === "14d" ? 14 : 7;
     const volKey = JSON.stringify(dailyVolume);
-    const sliced = useMemo(() => dailyVolume.slice(-periodDays),
+    const sliced = useMemo(
+        () => (hidePeriodSelector && !fixedPeriod ? dailyVolume : dailyVolume.slice(-periodDays)),
         // eslint-disable-next-line react-hooks/exhaustive-deps
-        [volKey, periodDays]
+        [volKey, periodDays, hidePeriodSelector, fixedPeriod],
     );
     const categories = sliced.map(d => {
         const date = new Date(d.day);
         return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
     });
 
-    // Limit visible x-axis labels
-    const tickAmount = periodDays <= 7 ? undefined : periodDays <= 14 ? 7 : 6;
+    const visibleDays = sliced.length || periodDays;
+    const labelStep = 15;
+    const sparseLabels = visibleDays > labelStep;
     const totalData = sliced.map(d => d[valueKey]);
+    const secondaryData = sliced.map(d => d.critical_messages);
+    const dualSeries = Boolean(secondarySeriesName);
 
     const chartOptions: ApexCharts.ApexOptions = {
         chart: {
@@ -95,43 +102,57 @@ const RevenueChart = ({
                 speed: 800,
             },
         },
-        colors: ["#2980D3"],
+        colors: dualSeries ? ["#1A78C4", "#E39200"] : ["#1A78C4"],
         fill: {
             type: "gradient",
             gradient: {
                 shade: "light",
                 type: "vertical",
-                shadeIntensity: 0.3,
-                gradientToColors: ["#2980D3"],
+                shadeIntensity: 0.35,
+                gradientToColors: dualSeries ? ["#1A78C4", "#E39200"] : ["#1A78C4"],
                 inverseColors: false,
-                opacityFrom: 0.4,
-                opacityTo: 0.05,
+                opacityFrom: 0.55,
+                opacityTo: 0.08,
                 stops: [0, 100],
             },
         },
         stroke: {
             curve: "smooth",
-            width: 3,
-            colors: ["#2980D3"],
+            width: 4,
+            colors: dualSeries ? ["#1A78C4", "#E39200"] : ["#1A78C4"],
         },
         markers: {
-            size: periodDays <= 7 ? 5 : periodDays <= 14 ? 3 : 0,
-            colors: ["#2980D3"],
+            size: visibleDays <= 7 ? 5 : visibleDays <= 14 ? 3 : 0,
+            colors: dualSeries ? ["#1A78C4", "#E39200"] : ["#1A78C4"],
             strokeColors: "#FFFFFF",
             strokeWidth: 2,
             hover: {
                 size: 7,
             },
         },
+        legend: {
+            show: dualSeries,
+            fontFamily: "Montserrat",
+            fontWeight: 600,
+            fontSize: "12px",
+            labels: { colors: "var(--text-secondary)" },
+        },
         dataLabels: { enabled: false },
         xaxis: {
             categories,
             axisBorder: { show: false },
             axisTicks: { show: false },
-            tickAmount,
             labels: {
                 rotate: 0,
-                hideOverlappingLabels: true,
+                hideOverlappingLabels: !sparseLabels,
+                formatter: (value: string) => {
+                    if (!sparseLabels) return value;
+                    const index = categories.indexOf(value);
+                    if (index < 0) return '';
+                    const last = visibleDays - 1;
+                    if (index === 0 || index === last || index % labelStep === 0) return value;
+                    return '';
+                },
                 style: {
                     colors: "var(--text-secondary)",
                     fontSize: "12px",
@@ -174,12 +195,14 @@ const RevenueChart = ({
         },
     };
 
-    const chartSeries = [
-        {
-            name: seriesName,
-            data: totalData,
-        },
-    ];
+    const chartSeries = dualSeries
+        ? [
+            { name: seriesName, data: sliced.map((d) => d.standard_messages) },
+            { name: secondarySeriesName, data: secondaryData },
+        ]
+        : [
+            { name: seriesName, data: totalData },
+        ];
 
     const ChartContent = ({
         width,
@@ -228,7 +251,7 @@ const RevenueChart = ({
                                 )}
                             </div>
                         )}
-                        <InfoTooltip text={infoText} show={isHovered} />
+                        {infoText && <InfoTooltip text={infoText} />}
                     </div>
                 </div>
 

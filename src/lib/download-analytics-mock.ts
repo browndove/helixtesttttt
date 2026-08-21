@@ -410,10 +410,27 @@ export function mapDownloadAnalyticsToUgmc(data: DownloadAnalyticsData): Analyti
     };
 }
 
+function todayUTC(): string {
+    return new Date().toISOString().slice(0, 10);
+}
+
 function cutoffDay(days: number): string {
     const cutoff = new Date();
     cutoff.setUTCDate(cutoff.getUTCDate() - Math.max(1, days));
     return cutoff.toISOString().slice(0, 10);
+}
+
+function normalizeRange(from: string, to: string): { from: string; to: string } {
+    const start = from || to || todayUTC();
+    const end = to || from || todayUTC();
+    return start <= end ? { from: start, to: end } : { from: end, to: start };
+}
+
+function inclusiveDayCount(from: string, to: string): number {
+    const start = new Date(`${from}T00:00:00Z`).getTime();
+    const end = new Date(`${to}T00:00:00Z`).getTime();
+    if (!Number.isFinite(start) || !Number.isFinite(end)) return 1;
+    return Math.max(1, Math.round((end - start) / 86_400_000) + 1);
 }
 
 function sumDaily(daily: StoreDailyPoint[], key: keyof StoreDailyPoint): number {
@@ -429,9 +446,9 @@ function latestDaily(daily: StoreDailyPoint[], key: keyof StoreDailyPoint): numb
     return 0;
 }
 
-function sliceStoreToDays(store: StoreAnalytics, days: number): StoreAnalytics {
-    const cutoff = cutoffDay(days);
-    const daily = store.daily.filter((row) => row.day >= cutoff);
+function sliceStoreToRange(store: StoreAnalytics, from: string, to: string): StoreAnalytics {
+    const range = normalizeRange(from, to);
+    const daily = store.daily.filter((row) => row.day >= range.from && row.day <= range.to);
     const first_time_downloads = sumDaily(daily, 'first_time_downloads') || sumDaily(daily, 'user_installs') || sumDaily(daily, 'device_installs');
     const redownloads = sumDaily(daily, 'redownloads');
     const impressions = sumDaily(daily, 'impressions');
@@ -450,6 +467,13 @@ function sliceStoreToDays(store: StoreAnalytics, days: number): StoreAnalytics {
     const installations = sumDaily(daily, 'installations') || device_installs;
     const device_uninstalls = sumDaily(daily, 'device_uninstalls') || sumDaily(daily, 'user_uninstalls') || sumDaily(daily, 'deletions');
     const deletions = sumDaily(daily, 'deletions') || device_uninstalls;
+    // Dimension breakdowns are period totals from the fetch window, not day-sliced.
+    // Keep them only when the filter still covers the full loaded series; otherwise
+    // hide them so a single-day Android view doesn't keep 90-day mix charts.
+    const coversFullLoadedWindow = daily.length === store.daily.length
+        && (daily.length === 0
+            || (daily[0]?.day === store.daily[0]?.day
+                && daily[daily.length - 1]?.day === store.daily[store.daily.length - 1]?.day));
     return {
         ...store,
         first_time_downloads,
@@ -462,17 +486,19 @@ function sliceStoreToDays(store: StoreAnalytics, days: number): StoreAnalytics {
         unique_page_views,
         conversion_percent: unique_impressions > 0
             ? Math.round((total_downloads / unique_impressions) * 1000) / 10
-            : store.conversion_percent,
+            : 0,
         sessions,
-        active_devices: latestDaily(daily, 'active_devices') || store.active_devices,
-        active_last_30_days: latestDaily(daily, 'active_devices') || store.active_last_30_days,
+        // Snapshot-style metrics: use the selected window only — never fall back to the
+        // unfiltered store totals (that made single-day Android filters look unchanged).
+        active_devices: latestDaily(daily, 'active_devices'),
+        active_last_30_days: latestDaily(daily, 'active_devices'),
         installations,
         deletions,
         crashes,
         anrs: sumDaily(daily, 'anrs'),
         crash_free_rate_percent: sessions > 0
             ? Math.round(Math.max(0, Math.min(100, (1 - crashes / sessions) * 100)) * 10) / 10
-            : store.crash_free_rate_percent,
+            : 0,
         user_installs,
         device_installs,
         user_uninstalls: sumDaily(daily, 'user_uninstalls'),
@@ -482,25 +508,31 @@ function sliceStoreToDays(store: StoreAnalytics, days: number): StoreAnalytics {
         listing_acquisitions,
         listing_conversion_percent: listing_visitors > 0
             ? Math.round((listing_acquisitions / listing_visitors) * 1000) / 10
-            : store.listing_conversion_percent,
+            : 0,
+        breakdowns: coversFullLoadedWindow ? store.breakdowns : emptyBreakdowns(),
         daily,
     };
 }
 
-export function filterDownloadAnalyticsByDays(
+export function downloadAnalyticsPresetRange(days: number): { from: string; to: string } {
+    return { from: cutoffDay(days), to: todayUTC() };
+}
+
+export function filterDownloadAnalyticsByRange(
     data: DownloadAnalyticsData,
-    days: number,
+    from: string,
+    to: string,
 ): DownloadAnalyticsData {
-    const cutoff = cutoffDay(days);
-    const slice = data.daily_downloads.filter((row) => row.day >= cutoff);
+    const range = normalizeRange(from, to);
+    const slice = data.daily_downloads.filter((row) => row.day >= range.from && row.day <= range.to);
     const totalDownloads = slice.reduce((s, r) => s + r.downloads, 0);
     const totalInstalls = slice.reduce((s, r) => s + r.installs, 0);
     const totalPlay = slice.reduce((s, r) => s + (r.play_installs ?? 0), 0);
-    const ios_store = data.ios_store ? sliceStoreToDays(data.ios_store, days) : data.ios_store;
-    const android_store = data.android_store ? sliceStoreToDays(data.android_store, days) : data.android_store;
+    const ios_store = data.ios_store ? sliceStoreToRange(data.ios_store, range.from, range.to) : data.ios_store;
+    const android_store = data.android_store ? sliceStoreToRange(data.android_store, range.from, range.to) : data.android_store;
     return {
         ...data,
-        window_days: days,
+        window_days: inclusiveDayCount(range.from, range.to),
         total_downloads: totalDownloads,
         total_installs: totalInstalls,
         total_play_installs: totalPlay,
@@ -508,9 +540,17 @@ export function filterDownloadAnalyticsByDays(
         daily_downloads: slice,
         ios_store,
         android_store,
-        reviews: data.reviews.filter((review) => !review.date || review.date >= cutoff),
+        reviews: data.reviews.filter((review) => !review.date || (review.date >= range.from && review.date <= range.to)),
         install_conversion_percent: totalDownloads > 0
             ? Math.round((totalInstalls / totalDownloads) * 1000) / 10
             : 0,
     };
+}
+
+export function filterDownloadAnalyticsByDays(
+    data: DownloadAnalyticsData,
+    days: number,
+): DownloadAnalyticsData {
+    const range = downloadAnalyticsPresetRange(days);
+    return filterDownloadAnalyticsByRange(data, range.from, range.to);
 }

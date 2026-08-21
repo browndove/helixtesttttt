@@ -4,11 +4,12 @@ import { useState, type ReactNode } from 'react';
 import dynamic from 'next/dynamic';
 import { useTheme } from 'next-themes';
 import type { NamedCount, StoreAnalytics, StoreDailyPoint, DownloadAnalyticsData } from '@/lib/download-analytics-mock';
-import { emptyStoreAnalytics } from '@/lib/download-analytics-mock';
+import { downloadAnalyticsPresetRange, emptyStoreAnalytics } from '@/lib/download-analytics-mock';
 import DashboardCard from '@/components/ugmc-dashboard/shared/dashboard-card';
 import Text from '@/components/text';
 import InfoTooltip from '@/components/info-tooltip';
 import FullscreenOverlay from '@/components/fullscreen-overlay';
+import CalendarRangePicker from '@/components/CalendarRangePicker';
 import clsx from 'clsx';
 import { RiExpandDiagonalLine } from 'react-icons/ri';
 import { GrContract } from 'react-icons/gr';
@@ -157,38 +158,66 @@ const DATE_OPTIONS = [
     { value: 90, label: '90d' },
 ];
 
+function formatRangeDay(day: string): string {
+    const date = new Date(`${day}T00:00:00`);
+    if (Number.isNaN(date.getTime())) return day;
+    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+export function downloadsDateRangeLabel(from: string, to: string): string {
+    const today = new Date().toISOString().slice(0, 10);
+    for (const option of DATE_OPTIONS) {
+        const preset = downloadAnalyticsPresetRange(option.value);
+        if (from === preset.from && to === today && to === preset.to) {
+            return `last ${option.value} days`;
+        }
+    }
+    if (from === to) return formatRangeDay(from);
+    return `${formatRangeDay(from)} – ${formatRangeDay(to)}`;
+}
+
 export function DateRangeFilter({
-    value,
+    from,
+    to,
     onChange,
 }: {
-    value: number;
-    onChange: (days: number) => void;
+    from: string;
+    to: string;
+    onChange: (from: string, to: string) => void;
 }) {
+    const today = new Date().toISOString().slice(0, 10);
+    const activePreset = DATE_OPTIONS.find((option) => {
+        const preset = downloadAnalyticsPresetRange(option.value);
+        return from === preset.from && to === today && to === preset.to;
+    })?.value ?? null;
+
     return (
-        <div
-            className="inline-flex items-center rounded-lg border border-border-subtle bg-secondary p-0.5"
-            role="group"
-            aria-label="Date range"
-        >
-            {DATE_OPTIONS.map((option) => {
-                const active = value === option.value;
-                return (
-                    <button
-                        key={option.value}
-                        type="button"
-                        onClick={() => onChange(option.value)}
-                        className={clsx(
-                            'rounded-md px-3 py-1.5 text-xs font-semibold transition-colors',
-                            active
-                                ? 'bg-[rgba(41,128,211,0.14)] text-accent-primary'
-                                : 'text-text-muted hover:text-text-primary',
-                        )}
-                        aria-pressed={active}
-                    >
-                        {option.label}
-                    </button>
-                );
-            })}
+        <div className="downloads-date-filter" role="group" aria-label="Date range">
+            <div className="inline-flex items-center rounded-lg border border-border-subtle bg-secondary p-0.5">
+                {DATE_OPTIONS.map((option) => {
+                    const active = activePreset === option.value;
+                    return (
+                        <button
+                            key={option.value}
+                            type="button"
+                            onClick={() => {
+                                const preset = downloadAnalyticsPresetRange(option.value);
+                                onChange(preset.from, preset.to);
+                            }}
+                            className={clsx(
+                                'rounded-md px-3 py-1.5 text-xs font-semibold transition-colors',
+                                active
+                                    ? 'bg-[rgba(41,128,211,0.14)] text-accent-primary'
+                                    : 'text-text-muted hover:text-text-primary',
+                            )}
+                            aria-pressed={active}
+                        >
+                            {option.label}
+                        </button>
+                    );
+                })}
+            </div>
+            <CalendarRangePicker from={from} to={to} onChange={onChange} />
         </div>
     );
 }

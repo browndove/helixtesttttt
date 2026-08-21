@@ -6,7 +6,7 @@ import InternalDownloadsSidebar, {
     DownloadsSidebarProvider,
     type DownloadsDashboardTab,
 } from '@/components/internal-downloads/InternalDownloadsSidebar';
-import { filterDownloadAnalyticsByDays, type DownloadAnalyticsData } from '@/lib/download-analytics-mock';
+import { filterDownloadAnalyticsByRange, downloadAnalyticsPresetRange, type DownloadAnalyticsData } from '@/lib/download-analytics-mock';
 import { type PlatformFilterValue } from '@/components/internal-downloads/PlatformFilter';
 import { DownloadsMobileTabs } from '@/components/internal-downloads/DownloadsWidgets';
 
@@ -50,11 +50,13 @@ function PageSkeleton() {
 }
 
 const FETCH_DAYS = 90;
+const INITIAL_RANGE = downloadAnalyticsPresetRange(FETCH_DAYS);
 
 function InternalDownloadsAnalyticsContent() {
     const [activeTab, setActiveTab] = useState<DownloadsDashboardTab>('overview');
     const [platform, setPlatform] = useState<PlatformFilterValue>('all');
-    const [windowDays, setWindowDays] = useState(FETCH_DAYS);
+    const [dateFrom, setDateFrom] = useState(INITIAL_RANGE.from);
+    const [dateTo, setDateTo] = useState(INITIAL_RANGE.to);
     const [downloadData, setDownloadData] = useState<DownloadAnalyticsData | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -93,16 +95,23 @@ function InternalDownloadsAnalyticsContent() {
     }, []);
 
     const filteredData = useMemo(
-        () => (downloadData ? filterDownloadAnalyticsByDays(downloadData, windowDays) : null),
-        [downloadData, windowDays],
+        () => (downloadData ? filterDownloadAnalyticsByRange(downloadData, dateFrom, dateTo) : null),
+        [downloadData, dateFrom, dateTo],
     );
 
     const pageProps = filteredData ? {
         data: filteredData,
         platform,
         onPlatformChange: setPlatform,
-        windowDays,
-        onWindowDaysChange: setWindowDays,
+        dateFrom,
+        dateTo,
+        onDateRangeChange: (from: string, to: string) => {
+            const start = from || to;
+            const end = to || from || start;
+            if (!start) return;
+            setDateFrom(start <= end ? start : end);
+            setDateTo(start <= end ? end : start);
+        },
     } : null;
 
     return (

@@ -144,7 +144,7 @@ const KpiCard = ({ icon, iconBgColor, label, value, change, footer, infoText, an
                                 </Text>
                             </div>
                         )}
-                        {infoText && <InfoTooltip text={infoText} show={isHovered} />}
+                        {infoText && <InfoTooltip text={infoText} />}
                     </div>
                 </div>
 

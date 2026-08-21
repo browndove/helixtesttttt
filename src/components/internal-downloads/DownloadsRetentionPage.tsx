@@ -18,6 +18,7 @@ import {
     RetentionBars,
     blendedPercent,
     dailyToChart,
+    downloadsDateRangeLabel,
     fmtMetric,
     mergeDailySeries,
     mergeNamedCounts,
@@ -31,18 +32,21 @@ export default function DownloadsRetentionPage({
     data,
     platform,
     onPlatformChange,
-    windowDays,
-    onWindowDaysChange,
+    dateFrom,
+    dateTo,
+    onDateRangeChange,
 }: {
     data: DownloadAnalyticsData;
     platform: PlatformFilterValue;
     onPlatformChange: (next: PlatformFilterValue) => void;
-    windowDays: number;
-    onWindowDaysChange: (days: number) => void;
+    dateFrom: string;
+    dateTo: string;
+    onDateRangeChange: (from: string, to: string) => void;
 }) {
     const { ios, android } = resolveStores(data);
     const [fullscreen, setFullscreen] = useState(false);
     const [flowFullscreen, setFlowFullscreen] = useState(false);
+    const rangeLabel = downloadsDateRangeLabel(dateFrom, dateTo);
 
     const kpis = [
         {
@@ -113,12 +117,12 @@ export default function DownloadsRetentionPage({
                 title="Retention"
                 subtitle={platform === 'android'
                     ? `Play does not export D1–D28 cohorts · showing installs, uninstalls, and vitals`
-                    : `Post-install usage · ${platformFilterLabel(platform)} · last ${windowDays} days`}
+                    : `Post-install usage · ${platformFilterLabel(platform)} · ${rangeLabel}`}
                 pending={platform === 'android' ? android.reports_pending : platform === 'ios' ? ios.reports_pending : ios.reports_pending || android.reports_pending}
                 extra={(
                     <>
                         {platform !== 'android' && <OptInBadge />}
-                        <DateRangeFilter value={windowDays} onChange={onWindowDaysChange} />
+                        <DateRangeFilter from={dateFrom} to={dateTo} onChange={onDateRangeChange} />
                         <PlatformFilter value={platform} onChange={onPlatformChange} />
                     </>
                 )}
@@ -209,7 +213,7 @@ export default function DownloadsRetentionPage({
                 onToggleFullscreen={() => setFlowFullscreen(!flowFullscreen)}
                 dailyVolume={qualityDaily}
                 title={platform === 'ios' ? 'Crashes and Deletions' : platform === 'android' ? 'Crashes and ANRs' : 'iOS vs Android crashes'}
-                subtitle={`Last ${windowDays} days`}
+                subtitle={rangeLabel}
                 showAllDays
                 infoText={storeMetricInfo(
                     `Crashes\n${ASC_METRIC_DEFS.crashes}\n\nDeletions\n${ASC_METRIC_DEFS.deletions}`,

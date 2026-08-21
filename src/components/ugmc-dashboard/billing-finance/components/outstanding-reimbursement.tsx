@@ -4,6 +4,7 @@ import * as React from "react";
 import Text from "@/components/text";
 import DashboardCard from "@/components/ugmc-dashboard/shared/dashboard-card";
 import FullscreenOverlay from "@/components/fullscreen-overlay";
+import InfoTooltip from "@/components/info-tooltip";
 
 export type RegionalCoverageItem = {
     name: string;
@@ -57,6 +58,7 @@ const OutstandingReimbursement: React.FC<{
     platformItems?: RegionalPlatformItem[];
     gapLegendLabel?: string;
     installsLegendLabel?: string;
+    infoText?: string;
 }> = ({
     title = "Dept. Coverage & Escalations",
     subtitle = "Filled vs Unfilled Roles by Department",
@@ -65,6 +67,7 @@ const OutstandingReimbursement: React.FC<{
     platformItems,
     gapLegendLabel = "Unfilled",
     installsLegendLabel = "Filled",
+    infoText,
 }) => {
     const isPlatformMode = platformItems !== undefined;
 
@@ -163,6 +166,7 @@ const OutstandingReimbursement: React.FC<{
                     <Text variant="body-sm" color="text-secondary">{subtitle}</Text>
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
+                    {infoText && <InfoTooltip text={infoText} />}
                     <div className="rounded-[5px] bg-accent-primary/10 whitespace-nowrap px-[7px] py-1">
                         <Text variant="body-md-semibold" color="accent-primary">
                             <span className="tabular-nums">{animatedTotal}</span> {badgeLabel}

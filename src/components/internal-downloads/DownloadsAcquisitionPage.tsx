@@ -19,6 +19,7 @@ import {
     ShareMixCard,
     blendedPercent,
     dailyToChart,
+    downloadsDateRangeLabel,
     fmtMetric,
     mergeDailySeries,
     mergeNamedCounts,
@@ -60,18 +61,21 @@ export default function DownloadsAcquisitionPage({
     data,
     platform,
     onPlatformChange,
-    windowDays,
-    onWindowDaysChange,
+    dateFrom,
+    dateTo,
+    onDateRangeChange,
 }: {
     data: DownloadAnalyticsData;
     platform: PlatformFilterValue;
     onPlatformChange: (next: PlatformFilterValue) => void;
-    windowDays: number;
-    onWindowDaysChange: (days: number) => void;
+    dateFrom: string;
+    dateTo: string;
+    onDateRangeChange: (from: string, to: string) => void;
 }) {
     const { ios, android } = resolveStores(data);
     const [fullscreen, setFullscreen] = useState(false);
     const [flowFullscreen, setFlowFullscreen] = useState(false);
+    const rangeLabel = downloadsDateRangeLabel(dateFrom, dateTo);
 
     const discovery = platform === 'ios'
         ? ios.impressions
@@ -167,11 +171,11 @@ export default function DownloadsAcquisitionPage({
         <div className="flex w-full min-w-0 flex-col gap-4">
             <PageToolbar
                 title="Acquisition"
-                subtitle={`How people find ${platformFilterLabel(platform)} · last ${windowDays} days`}
+                subtitle={`How people find ${platformFilterLabel(platform)} · ${rangeLabel}`}
                 pending={platform === 'android' ? android.reports_pending : platform === 'ios' ? ios.reports_pending : ios.reports_pending || android.reports_pending}
                 extra={(
                     <>
-                        <DateRangeFilter value={windowDays} onChange={onWindowDaysChange} />
+                        <DateRangeFilter from={dateFrom} to={dateTo} onChange={onDateRangeChange} />
                         <PlatformFilter value={platform} onChange={onPlatformChange} />
                     </>
                 )}
@@ -246,7 +250,7 @@ export default function DownloadsAcquisitionPage({
                         `First Time Downloads\n${ASC_METRIC_DEFS.first_time_downloads}\n\nRedownloads\n${ASC_METRIC_DEFS.redownloads}`,
                         `Installs\n${PLAY_METRIC_DEFS.device_acquisition}\n\nDevice loss\n${PLAY_METRIC_DEFS.device_loss}`,
                     )}
-                    subtitle={`Last ${windowDays} days`}
+                    subtitle={rangeLabel}
                     showAllDays
                     stacked={platform !== 'android'}
                     primarySeriesLabel={platform === 'ios' ? 'First-time' : platform === 'android' ? 'Installs' : 'Android'}

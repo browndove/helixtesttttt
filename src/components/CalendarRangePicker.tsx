@@ -78,22 +78,19 @@ export default function CalendarRangePicker({ from, to, onChange }: CalendarRang
     const handleDayClick = (d: Date) => {
         const ds = formatDate(d);
         if (picking === 'from') {
-            if (toDate && d > toDate) {
-                onChange(ds, '');
-            } else {
-                onChange(ds, to);
-            }
+            // First click = that day only (works immediately for single-day filters).
+            onChange(ds, ds);
             setPicking('to');
-        } else {
-            if (fromDate && d < fromDate) {
-                onChange(ds, to);
-                setPicking('to');
-            } else {
-                onChange(from, ds);
-                setPicking('from');
-                setOpen(false);
-            }
+            return;
         }
+
+        if (fromDate && d < fromDate) {
+            onChange(ds, from);
+        } else {
+            onChange(from || ds, ds);
+        }
+        setPicking('from');
+        setOpen(false);
     };
 
     const prevMonth = () => {
@@ -131,6 +128,9 @@ export default function CalendarRangePicker({ from, to, onChange }: CalendarRang
 
     const displayLabel = () => {
         if (fromDate && toDate) {
+            if (isSameDay(fromDate, toDate)) {
+                return fromDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+            }
             return `${fromDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} — ${toDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`;
         }
         if (fromDate) {
@@ -142,7 +142,17 @@ export default function CalendarRangePicker({ from, to, onChange }: CalendarRang
     return (
         <div ref={ref} style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', gap: 8 }}>
             <button
-                onClick={() => { setOpen(!open); if (!open && fromDate) { setViewYear(fromDate.getFullYear()); setViewMonth(fromDate.getMonth()); } }}
+                onClick={() => {
+                    const next = !open;
+                    setOpen(next);
+                    if (next) {
+                        setPicking('from');
+                        if (fromDate) {
+                            setViewYear(fromDate.getFullYear());
+                            setViewMonth(fromDate.getMonth());
+                        }
+                    }
+                }}
                 style={{
                     display: 'flex', alignItems: 'center', gap: 6,
                     padding: '6px 12px', borderRadius: 'var(--radius-md)',

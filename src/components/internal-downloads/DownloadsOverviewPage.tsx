@@ -19,6 +19,7 @@ import {
     RetentionBars,
     blendedPercent,
     dailyToChart,
+    downloadsDateRangeLabel,
     fmtMetric,
     mergeDailySeries,
     mergeNamedCounts,
@@ -33,18 +34,21 @@ export default function DownloadsOverviewPage({
     data,
     platform,
     onPlatformChange,
-    windowDays,
-    onWindowDaysChange,
+    dateFrom,
+    dateTo,
+    onDateRangeChange,
 }: {
     data: DownloadAnalyticsData;
     platform: PlatformFilterValue;
     onPlatformChange: (next: PlatformFilterValue) => void;
-    windowDays: number;
-    onWindowDaysChange: (days: number) => void;
+    dateFrom: string;
+    dateTo: string;
+    onDateRangeChange: (from: string, to: string) => void;
 }) {
     const { ios, android } = resolveStores(data);
     const [revenueFullscreen, setRevenueFullscreen] = useState(false);
     const [flowFullscreen, setFlowFullscreen] = useState(false);
+    const rangeLabel = downloadsDateRangeLabel(dateFrom, dateTo);
 
     const combinedInstalls = ios.first_time_downloads + android.device_installs;
     const combinedDiscovery = ios.impressions + android.listing_visitors;
@@ -120,11 +124,11 @@ export default function DownloadsOverviewPage({
         <>
             <PageToolbar
                 title="Downloads Overview"
-                subtitle={`${platformFilterLabel(platform)} · last ${windowDays} days`}
+                subtitle={`${platformFilterLabel(platform)} · ${rangeLabel}`}
                 pending={(ios.reports_pending || android.reports_pending) && platform !== 'android'}
                 extra={(
                     <>
-                        <DateRangeFilter value={windowDays} onChange={onWindowDaysChange} />
+                        <DateRangeFilter from={dateFrom} to={dateTo} onChange={onDateRangeChange} />
                         <PlatformFilter value={platform} onChange={onPlatformChange} />
                     </>
                 )}

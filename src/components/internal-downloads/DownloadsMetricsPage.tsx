@@ -14,6 +14,7 @@ import {
     DownloadsKpiCard,
     PageToolbar,
     dailyToChart,
+    downloadsDateRangeLabel,
     fmtMetric,
     mergeDailySeries,
     mergeNamedCounts,
@@ -198,14 +199,16 @@ export default function DownloadsMetricsPage({
     data,
     platform,
     onPlatformChange,
-    windowDays,
-    onWindowDaysChange,
+    dateFrom,
+    dateTo,
+    onDateRangeChange,
 }: {
     data: DownloadAnalyticsData;
     platform: PlatformFilterValue;
     onPlatformChange: (next: PlatformFilterValue) => void;
-    windowDays: number;
-    onWindowDaysChange: (days: number) => void;
+    dateFrom: string;
+    dateTo: string;
+    onDateRangeChange: (from: string, to: string) => void;
 }) {
     const { ios, android } = resolveStores(data);
     const combined = platform === 'all';
@@ -216,6 +219,7 @@ export default function DownloadsMetricsPage({
     const [dimId, setDimId] = useState(dims[0].id);
     const [chartFullscreen, setChartFullscreen] = useState(false);
     const [compareFullscreen, setCompareFullscreen] = useState(false);
+    const rangeLabel = downloadsDateRangeLabel(dateFrom, dateTo);
 
     useEffect(() => {
         if (platform === 'all') {
@@ -278,10 +282,10 @@ export default function DownloadsMetricsPage({
         <div className="flex w-full min-w-0 flex-col gap-4">
             <PageToolbar
                 title="Metrics"
-                subtitle={`${platformFilterLabel(platform)} · last ${windowDays} days`}
+                subtitle={`${platformFilterLabel(platform)} · ${rangeLabel}`}
                 extra={(
                     <>
-                        <DateRangeFilter value={windowDays} onChange={onWindowDaysChange} />
+                        <DateRangeFilter from={dateFrom} to={dateTo} onChange={onDateRangeChange} />
                         <PlatformFilter value={platform} onChange={onPlatformChange} />
                     </>
                 )}
@@ -377,7 +381,7 @@ export default function DownloadsMetricsPage({
                     onToggleFullscreen={() => setChartFullscreen(!chartFullscreen)}
                     dailyVolume={series}
                     title={metricLabel}
-                    infoText={metricInfo || `${metricLabel} over the last ${windowDays} days.`}
+                    infoText={metricInfo || `${metricLabel} for ${rangeLabel}.`}
                     seriesName={metricLabel}
                     hidePeriodSelector
                 />

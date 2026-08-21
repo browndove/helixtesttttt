@@ -31,6 +31,8 @@ interface DailyPatientFlowProps {
     primarySeriesLabel?: string;
     secondarySeriesLabel?: string;
     tooltipUnitLabel?: string;
+    showAllDays?: boolean;
+    stacked?: boolean;
 }
 
 const DailyPatientFlow = ({
@@ -43,18 +45,24 @@ const DailyPatientFlow = ({
     primarySeriesLabel = "Standard",
     secondarySeriesLabel = "Critical",
     tooltipUnitLabel = "messages",
+    showAllDays = false,
+    stacked = true,
 }: DailyPatientFlowProps) => {
     const [isHovered, setIsHovered] = useState(false);
     const { resolvedTheme } = useTheme();
-    // Take last 7 days
     const volKey = JSON.stringify(dailyVolume);
-    const last7 = useMemo(() => dailyVolume.slice(-7),
+    const points = useMemo(
+        () => (showAllDays ? dailyVolume : dailyVolume.slice(-7)),
         // eslint-disable-next-line react-hooks/exhaustive-deps
-        [volKey]
+        [volKey, showAllDays],
     );
-    const dayLabels = last7.map(d => {
+    const labelStep = 15;
+    const sparseLabels = showAllDays && points.length > labelStep;
+    const dayLabels = points.map((d) => {
         const date = new Date(d.day);
-        return date.toLocaleDateString('en-US', { weekday: 'short' }).toUpperCase();
+        return showAllDays
+            ? date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+            : date.toLocaleDateString('en-US', { weekday: 'short' }).toUpperCase();
     });
 
     // Prevent body scroll when fullscreen
@@ -72,7 +80,7 @@ const DailyPatientFlow = ({
     const chartOptions: ApexCharts.ApexOptions = {
         chart: {
             type: "bar",
-            stacked: true,
+            stacked,
             toolbar: { show: false },
             zoom: { enabled: false },
             animations: {
@@ -86,7 +94,7 @@ const DailyPatientFlow = ({
                 borderRadius: 10,
                 borderRadiusApplication: "end",
                 borderRadiusWhenStacked: "last",
-                columnWidth: "50%",
+                columnWidth: showAllDays && points.length > 14 ? "70%" : "50%",
             },
         },
         dataLabels: { enabled: false },
@@ -95,6 +103,16 @@ const DailyPatientFlow = ({
             axisBorder: { show: false },
             axisTicks: { show: false },
             labels: {
+                rotate: 0,
+                hideOverlappingLabels: !sparseLabels,
+                formatter: (value: string) => {
+                    if (!sparseLabels) return value;
+                    const index = dayLabels.indexOf(value);
+                    if (index < 0) return '';
+                    const last = points.length - 1;
+                    if (index === 0 || index === last || index % labelStep === 0) return value;
+                    return '';
+                },
                 style: {
                     colors: "var(--text-secondary)",
                     fontSize: "12px",
@@ -144,11 +162,11 @@ const DailyPatientFlow = ({
     const chartSeries = [
         {
             name: primarySeriesLabel,
-            data: last7.map(d => d.standard_messages),
+            data: points.map(d => d.standard_messages),
         },
         {
             name: secondarySeriesLabel,
-            data: last7.map(d => d.critical_messages),
+            data: points.map(d => d.critical_messages),
         },
     ];
 
@@ -197,7 +215,7 @@ const DailyPatientFlow = ({
                                 )}
                             </div>
                         )}
-                        <InfoTooltip text={infoText} show={isHovered} />
+                        {infoText && <InfoTooltip text={infoText} />}
                     </div>
                 </div>
 
