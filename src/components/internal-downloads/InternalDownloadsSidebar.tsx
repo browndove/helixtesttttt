@@ -3,10 +3,11 @@
 import Text from '@/components/text';
 import clsx from 'clsx';
 import { createContext, useContext, useState } from 'react';
-import { MdSpaceDashboard } from 'react-icons/md';
+import { MdSpaceDashboard, MdInsights } from 'react-icons/md';
 import { FaDownload } from 'react-icons/fa6';
+import { IoPeople } from 'react-icons/io5';
 
-export type DownloadsDashboardTab = 'overview' | 'acquisition';
+export type DownloadsDashboardTab = 'overview' | 'acquisition' | 'retention' | 'metrics';
 
 export const SIDEBAR_EXPANDED_WIDTH = 243;
 export const SIDEBAR_DOCKED_WIDTH = 58;
@@ -45,7 +46,9 @@ type MenuItem = {
 
 const menuItems: MenuItem[] = [
     { id: 'overview', name: 'Overview', icon: MdSpaceDashboard, iconSize: 15 },
-    { id: 'acquisition', name: 'Acquisition & Stability', icon: FaDownload, iconSize: 15 },
+    { id: 'acquisition', name: 'Acquisition', icon: FaDownload, iconSize: 15 },
+    { id: 'retention', name: 'Retention', icon: IoPeople, iconSize: 16 },
+    { id: 'metrics', name: 'Metrics', icon: MdInsights, iconSize: 16 },
 ];
 
 const SidebarHeader = ({ isDocked, onDockToggle }: { isDocked: boolean; onDockToggle: () => void }) => {

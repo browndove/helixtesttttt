@@ -2,7 +2,9 @@ import { readFileSync } from 'fs';
 import { gunzipSync } from 'zlib';
 import { importPKCS8, SignJWT } from 'jose';
 import type { DownloadAnalyticsData } from '@/lib/download-analytics-mock';
+import { emptyDownloadAnalytics } from '@/lib/download-analytics-mock';
 import { mergeGooglePlayInstalls } from '@/lib/google-play-connect';
+import { fetchIosStoreAnalytics } from '@/lib/apple-analytics-reports';
 
 const APP_STORE_CONNECT_API = 'https://api.appstoreconnect.apple.com/v1';
 const HELIX_APP_BUNDLE_ID = process.env.DOWNLOAD_APP_BUNDLE_ID?.trim() || 'com.helixhealth.app';
@@ -20,6 +22,9 @@ type PublicStoreReview = { author: string; rating: number; comment: string; date
 type CrashMetrics = { crashFreeRatePercent?: number; crashReports: { type: string; count: number }[] };
 
 let cachedToken: { token: string; expiresAt: number } | null = null;
+let analyticsCache: { days: number; at: number; data: DownloadAnalyticsData } | null = null;
+let analyticsInflight: Promise<DownloadAnalyticsData> | null = null;
+const ANALYTICS_CACHE_MS = 5 * 60 * 1000;
 
 function daysAgoIso(n: number): string {
     const d = new Date();
@@ -345,6 +350,7 @@ async function fetchDailySalesReport(
     const res = await fetch(url.toString(), {
         headers: { Authorization: `Bearer ${token}` },
         cache: 'no-store',
+        signal: AbortSignal.timeout(20_000),
     });
 
     if (res.status === 404) return [];
@@ -654,64 +660,95 @@ export async function verifyAppStoreConnectAuth(): Promise<{ ok: true; appCount:
     }
 }
 
-export async function fetchAppleDownloadAnalytics(windowDays = 30): Promise<DownloadAnalyticsData> {
+export async function fetchAppleDownloadAnalytics(windowDays = 90): Promise<DownloadAnalyticsData> {
+    if (analyticsCache && analyticsCache.days === windowDays && Date.now() - analyticsCache.at < ANALYTICS_CACHE_MS) {
+        return analyticsCache.data;
+    }
+    if (analyticsInflight) return analyticsInflight;
+
+    analyticsInflight = fetchAppleDownloadAnalyticsUncached(windowDays)
+        .then((data) => {
+            analyticsCache = { days: windowDays, at: Date.now(), data };
+            return data;
+        })
+        .finally(() => {
+            analyticsInflight = null;
+        });
+    return analyticsInflight;
+}
+
+async function fetchAppleDownloadAnalyticsUncached(windowDays: number): Promise<DownloadAnalyticsData> {
     const config = getAppStoreConnectConfig();
     if (!config) {
         throw new Error(getAppStoreConnectConfigErrors().join('; '));
     }
 
-    if (!config.vendorNumber) {
-        const auth = await verifyAppStoreConnectAuth();
-        if (!auth.ok) {
-            throw new Error(auth.error);
-        }
-        throw new Error(
-            'DOWNLOAD_VENDOR_NUMBER is missing. In App Store Connect go to Agreements, Tax, and Banking → Payments and Financial Reports and copy your Vendor Number (free apps still have one after accepting the standard agreement).',
-        );
-    }
-
     const token = await createAppStoreConnectToken(config);
-    const rows: SalesRow[] = [];
-
-    // Apple daily sales reports are usually delayed by 1–2 days.
-    for (let offset = 2; offset < windowDays + 2; offset += 1) {
-        const reportDate = daysAgoIso(offset);
-        const dayRows = await fetchDailySalesReport(config, token, reportDate);
-        rows.push(...dayRows);
-    }
-
-    const analytics = aggregateSalesRows(rows);
-    let appAppleId = config.appAppleId || primaryAppleIdFromRows(rows);
+    const analytics = emptyDownloadAnalytics(windowDays);
+    let appAppleId = config.appAppleId;
     if (!appAppleId) {
         appAppleId = await lookupAppAppleIdByBundle(HELIX_APP_BUNDLE_ID);
     }
     if (appAppleId) {
         try {
-            const [meta, reviews, crashMetrics, iosActiveDevices] = await Promise.all([
+            const [meta, reviews, iosStore] = await Promise.all([
                 fetchPublicStoreMeta(appAppleId),
                 fetchPublicRecentReviews(appAppleId),
-                fetchCrashMetricsFromAnalyticsReports(token, appAppleId),
-                fetchActiveDevicesFromAnalyticsReports(token, appAppleId).catch(() => undefined),
+                fetchIosStoreAnalytics(token, appAppleId, windowDays).catch(() => null),
             ]);
             analytics.avg_rating = meta.avgRating;
             analytics.rating_count = meta.reviewCount;
-            analytics.reviews = reviews;
+            analytics.reviews = reviews.map((review) => ({ ...review, source: 'ios' as const }));
             analytics.review_count = reviews.length;
-            if (typeof crashMetrics.crashFreeRatePercent === 'number' && Number.isFinite(crashMetrics.crashFreeRatePercent)) {
-                analytics.crash_free_rate_percent = Math.round(crashMetrics.crashFreeRatePercent * 10) / 10;
-            }
-            analytics.crash_reports = crashMetrics.crashReports;
-            if (typeof iosActiveDevices === 'number' && Number.isFinite(iosActiveDevices) && iosActiveDevices > 0) {
-                analytics.ios_active_devices = iosActiveDevices;
-                analytics.active_devices = iosActiveDevices;
+            if (iosStore) {
+                iosStore.avg_rating = meta.avgRating;
+                iosStore.rating_count = meta.reviewCount;
+                analytics.ios_store = iosStore;
+                analytics.total_downloads = iosStore.total_downloads;
+                analytics.total_installs = iosStore.first_time_downloads;
+                analytics.install_conversion_percent = iosStore.conversion_percent;
+                analytics.crash_free_rate_percent = iosStore.crash_free_rate_percent;
+                analytics.crash_reports = iosStore.breakdowns.crashes_by_version.map((row) => ({
+                    type: row.name,
+                    count: row.count,
+                }));
+                if (iosStore.active_devices > 0) {
+                    analytics.ios_active_devices = iosStore.active_devices;
+                    analytics.active_devices = iosStore.active_devices;
+                }
+                analytics.daily_downloads = iosStore.daily.map((row) => ({
+                    day: row.day,
+                    downloads: row.total_downloads,
+                    installs: row.first_time_downloads,
+                    updates: row.updates,
+                    play_installs: 0,
+                }));
+                if (iosStore.breakdowns.territories.length > 0) {
+                    const total = iosStore.breakdowns.territories.reduce((sum, row) => sum + row.count, 0);
+                    analytics.regions = iosStore.breakdowns.territories.map((row) => ({
+                        region: row.name,
+                        downloads: row.count,
+                        installs: row.count,
+                        ios_installs: row.count,
+                        android_installs: 0,
+                        share_percent: total > 0 ? Math.round((row.count / total) * 1000) / 10 : 0,
+                    }));
+                }
+                if (iosStore.breakdowns.versions.length > 0) {
+                    const total = iosStore.breakdowns.versions.reduce((sum, row) => sum + row.count, 0);
+                    analytics.version_breakdown = iosStore.breakdowns.versions.map((row) => ({
+                        version: row.name,
+                        installs: row.count,
+                        share_percent: total > 0 ? Math.round((row.count / total) * 1000) / 10 : 0,
+                    }));
+                }
             }
         } catch {
-            // Keep sales analytics even when metadata/reviews are unavailable.
+            // Keep zeros when Analytics reports are not ready yet.
         }
     }
-    // Ensure a per-platform iOS figure exists for the dashboard even without an analytics report.
     if (typeof analytics.ios_active_devices !== 'number') {
-        analytics.ios_active_devices = analytics.total_installs;
+        analytics.ios_active_devices = 0;
     }
     analytics.window_days = windowDays;
     return mergeGooglePlayInstalls(analytics, windowDays);

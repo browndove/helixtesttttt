@@ -1,6 +1,7 @@
 'use client';
 
-import { useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 
 const InfoIcon = () => (
     <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 14 14" fill="none">
@@ -13,26 +14,118 @@ interface InfoTooltipProps {
     show?: boolean;
 }
 
+function parseSections(text: string): Array<{ title?: string; body: string }> {
+    return text
+        .split(/\n{2,}/)
+        .map((part) => part.trim())
+        .filter(Boolean)
+        .map((part) => {
+            const newline = part.indexOf('\n');
+            if (newline > 0 && newline < 48) {
+                return { title: part.slice(0, newline).trim(), body: part.slice(newline + 1).trim() };
+            }
+            return { body: part };
+        });
+}
+
 const InfoTooltip = ({ text, show = true }: InfoTooltipProps) => {
-    const [showTooltip, setShowTooltip] = useState(false);
+    const [open, setOpen] = useState(false);
+    const [mounted, setMounted] = useState(false);
+    const [coords, setCoords] = useState({ top: 0, left: 0, width: 360 });
+    const buttonRef = useRef<HTMLButtonElement>(null);
+    const panelRef = useRef<HTMLDivElement>(null);
+    const closeTimer = useRef<number | null>(null);
+
+    useEffect(() => {
+        setMounted(true);
+        return () => {
+            if (closeTimer.current) window.clearTimeout(closeTimer.current);
+        };
+    }, []);
+
+    const clearClose = () => {
+        if (closeTimer.current) {
+            window.clearTimeout(closeTimer.current);
+            closeTimer.current = null;
+        }
+    };
+
+    const scheduleClose = () => {
+        clearClose();
+        closeTimer.current = window.setTimeout(() => setOpen(false), 120);
+    };
+
+    useLayoutEffect(() => {
+        if (!open || !buttonRef.current) return;
+
+        const place = () => {
+            const anchor = buttonRef.current?.getBoundingClientRect();
+            if (!anchor) return;
+            const width = Math.min(360, window.innerWidth - 24);
+            const padding = 12;
+            const panelHeight = panelRef.current?.offsetHeight || 220;
+            let left = anchor.right - width;
+            if (left < padding) left = padding;
+            if (left + width > window.innerWidth - padding) {
+                left = window.innerWidth - width - padding;
+            }
+            let top = anchor.bottom + 8;
+            if (top + panelHeight > window.innerHeight - padding) {
+                top = Math.max(padding, anchor.top - panelHeight - 8);
+            }
+            setCoords({ top, left, width });
+        };
+
+        place();
+        window.addEventListener('resize', place);
+        window.addEventListener('scroll', place, true);
+        return () => {
+            window.removeEventListener('resize', place);
+            window.removeEventListener('scroll', place, true);
+        };
+    }, [open, text]);
 
     if (!show) return null;
 
+    const sections = parseSections(text);
+
     return (
-        <div className="relative">
+        <div className="relative shrink-0">
             <button
-                onMouseEnter={() => setShowTooltip(true)}
-                onMouseLeave={() => setShowTooltip(false)}
-                className="p-1 rounded-[6px] hover:bg-secondary transition-colors text-text-tertiary hover:text-text-secondary"
-                title="Info"
+                ref={buttonRef}
+                type="button"
+                onMouseEnter={() => {
+                    clearClose();
+                    setOpen(true);
+                }}
+                onMouseLeave={scheduleClose}
+                onFocus={() => {
+                    clearClose();
+                    setOpen(true);
+                }}
+                onBlur={scheduleClose}
+                className="p-1 rounded-md hover:bg-secondary transition-colors text-text-tertiary hover:text-text-secondary"
+                aria-label="Metric definition"
             >
                 <InfoIcon />
             </button>
-            {showTooltip && (
-                <div className="absolute right-0 top-full mt-2 w-[220px] bg-text-primary/5 backdrop-blur-2xl text-text-primary text-xs rounded-[8px] p-3 z-50 shadow-lg">
-                    {text}
-                    <div className="absolute right-4 -top-1 w-2 h-2 bg-text-primary/5 backdrop-blur-sm rotate-45" />
-                </div>
+            {mounted && open && createPortal(
+                <div
+                    ref={panelRef}
+                    role="tooltip"
+                    className="downloads-info-tooltip"
+                    style={{ top: coords.top, left: coords.left, width: coords.width }}
+                    onMouseEnter={clearClose}
+                    onMouseLeave={scheduleClose}
+                >
+                    {sections.map((section, index) => (
+                        <div key={`${section.title || 'body'}-${index}`} className="downloads-info-tooltip__section">
+                            {section.title && <p className="downloads-info-tooltip__kicker">{section.title}</p>}
+                            <p className="downloads-info-tooltip__body">{section.body}</p>
+                        </div>
+                    ))}
+                </div>,
+                document.body,
             )}
         </div>
     );

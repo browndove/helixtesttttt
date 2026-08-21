@@ -21,7 +21,7 @@ export async function GET(req: NextRequest) {
         }
 
         const { searchParams } = new URL(req.url);
-        const days = Math.min(90, Math.max(1, Number.parseInt(searchParams.get('days') || '30', 10) || 30));
+        const days = Math.min(90, Math.max(1, Number.parseInt(searchParams.get('days') || '90', 10) || 90));
 
         if (!getAppStoreConnectConfig()) {
             const auth = await verifyAppStoreConnectAuth().catch(() => null);
@@ -35,12 +35,21 @@ export async function GET(req: NextRequest) {
         }
 
         try {
-            const auth = await verifyAppStoreConnectAuth();
-            const analytics = await fetchAppleDownloadAnalytics(days);
-            const playConfigured = Boolean(getGooglePlayConfig());
-            const play = playConfigured
-                ? { configured: true, missing: [] as string[], auth: await verifyGooglePlayAuth() }
-                : { configured: false, missing: getGooglePlayConfigErrors(), auth: null as null };
+            const [auth, analytics, play] = await Promise.all([
+                verifyAppStoreConnectAuth(),
+                fetchAppleDownloadAnalytics(days),
+                getGooglePlayConfig()
+                    ? verifyGooglePlayAuth().then((authResult) => ({
+                        configured: true as const,
+                        missing: [] as string[],
+                        auth: authResult,
+                    }))
+                    : Promise.resolve({
+                        configured: false as const,
+                        missing: getGooglePlayConfigErrors(),
+                        auth: null as null,
+                    }),
+            ]);
             return NextResponse.json({
                 source: analytics.total_downloads > 0 ? 'apple' : 'apple-empty',
                 configured: true,

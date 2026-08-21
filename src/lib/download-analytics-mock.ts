@@ -1,5 +1,217 @@
 import type { AnalyticsData } from '@/app/(helix-admin)/usage/page';
 
+export type NamedCount = { name: string; count: number };
+
+export type StoreDailyPoint = {
+    day: string;
+    first_time_downloads: number;
+    redownloads: number;
+    total_downloads: number;
+    updates: number;
+    impressions: number;
+    unique_impressions: number;
+    page_views: number;
+    unique_page_views: number;
+    sessions: number;
+    active_devices: number;
+    installations: number;
+    deletions: number;
+    crashes: number;
+    anrs: number;
+    user_installs: number;
+    device_installs: number;
+    user_uninstalls: number;
+    device_uninstalls: number;
+    upgrades: number;
+    listing_visitors: number;
+    listing_acquisitions: number;
+};
+
+export type StoreBreakdowns = {
+    sources: NamedCount[];
+    app_referrers: NamedCount[];
+    web_referrers: NamedCount[];
+    campaigns: NamedCount[];
+    territories: NamedCount[];
+    devices: NamedCount[];
+    page_types: NamedCount[];
+    product_pages: NamedCount[];
+    versions: NamedCount[];
+    platform_versions: NamedCount[];
+    languages: NamedCount[];
+    carriers: NamedCount[];
+    search_terms: NamedCount[];
+    utm_sources: NamedCount[];
+    utm_campaigns: NamedCount[];
+    crashes_by_version: NamedCount[];
+    crashes_by_device: NamedCount[];
+    crashes_by_os: NamedCount[];
+    anrs_by_version: NamedCount[];
+    anrs_by_device: NamedCount[];
+    anrs_by_os: NamedCount[];
+};
+
+export type StoreAnalytics = {
+    first_time_downloads: number;
+    redownloads: number;
+    total_downloads: number;
+    updates: number;
+    preorders: number;
+    impressions: number;
+    unique_impressions: number;
+    page_views: number;
+    unique_page_views: number;
+    conversion_percent: number;
+    sessions: number;
+    avg_session_duration_seconds: number;
+    active_devices: number;
+    active_last_30_days: number;
+    installations: number;
+    deletions: number;
+    crashes: number;
+    anrs: number;
+    crash_free_rate_percent: number;
+    opt_in_percent: number;
+    retention: { d1: number; d7: number; d14: number; d28: number };
+    user_installs: number;
+    device_installs: number;
+    user_uninstalls: number;
+    device_uninstalls: number;
+    upgrades: number;
+    listing_visitors: number;
+    listing_acquisitions: number;
+    listing_conversion_percent: number;
+    current_device_installs: number;
+    current_user_installs: number;
+    total_user_installs: number;
+    avg_rating: number;
+    daily_avg_rating: number;
+    rating_count: number;
+    daily: StoreDailyPoint[];
+    breakdowns: StoreBreakdowns;
+    reports_pending: boolean;
+    data_through?: string;
+};
+
+export function emptyBreakdowns(): StoreBreakdowns {
+    return {
+        sources: [],
+        app_referrers: [],
+        web_referrers: [],
+        campaigns: [],
+        territories: [],
+        devices: [],
+        page_types: [],
+        product_pages: [],
+        versions: [],
+        platform_versions: [],
+        languages: [],
+        carriers: [],
+        search_terms: [],
+        utm_sources: [],
+        utm_campaigns: [],
+        crashes_by_version: [],
+        crashes_by_device: [],
+        crashes_by_os: [],
+        anrs_by_version: [],
+        anrs_by_device: [],
+        anrs_by_os: [],
+    };
+}
+
+export function emptyDailyPoint(day: string): StoreDailyPoint {
+    return {
+        day,
+        first_time_downloads: 0,
+        redownloads: 0,
+        total_downloads: 0,
+        updates: 0,
+        impressions: 0,
+        unique_impressions: 0,
+        page_views: 0,
+        unique_page_views: 0,
+        sessions: 0,
+        active_devices: 0,
+        installations: 0,
+        deletions: 0,
+        crashes: 0,
+        anrs: 0,
+        user_installs: 0,
+        device_installs: 0,
+        user_uninstalls: 0,
+        device_uninstalls: 0,
+        upgrades: 0,
+        listing_visitors: 0,
+        listing_acquisitions: 0,
+    };
+}
+
+export function emptyStoreAnalytics(): StoreAnalytics {
+    return {
+        first_time_downloads: 0,
+        redownloads: 0,
+        total_downloads: 0,
+        updates: 0,
+        preorders: 0,
+        impressions: 0,
+        unique_impressions: 0,
+        page_views: 0,
+        unique_page_views: 0,
+        conversion_percent: 0,
+        sessions: 0,
+        avg_session_duration_seconds: 0,
+        active_devices: 0,
+        active_last_30_days: 0,
+        installations: 0,
+        deletions: 0,
+        crashes: 0,
+        anrs: 0,
+        crash_free_rate_percent: 0,
+        opt_in_percent: 0,
+        retention: { d1: 0, d7: 0, d14: 0, d28: 0 },
+        user_installs: 0,
+        device_installs: 0,
+        user_uninstalls: 0,
+        device_uninstalls: 0,
+        upgrades: 0,
+        listing_visitors: 0,
+        listing_acquisitions: 0,
+        listing_conversion_percent: 0,
+        current_device_installs: 0,
+        current_user_installs: 0,
+        total_user_installs: 0,
+        avg_rating: 0,
+        daily_avg_rating: 0,
+        rating_count: 0,
+        daily: [],
+        breakdowns: emptyBreakdowns(),
+        reports_pending: true,
+    };
+}
+
+export function emptyDownloadAnalytics(windowDays = 90): DownloadAnalyticsData {
+    return {
+        window_days: windowDays,
+        total_downloads: 0,
+        total_installs: 0,
+        active_devices: 0,
+        avg_rating: 0,
+        rating_count: 0,
+        review_count: 0,
+        crash_free_rate_percent: 0,
+        install_conversion_percent: 0,
+        total_play_installs: 0,
+        daily_downloads: [],
+        version_breakdown: [],
+        crash_reports: [],
+        diagnostics: [],
+        reviews: [],
+        regions: [],
+        devices: [],
+        os_split: [],
+    };
+}
+
 export interface DownloadAnalyticsData {
     window_days: number;
     total_downloads: number;
@@ -31,6 +243,8 @@ export interface DownloadAnalyticsData {
     }[];
     devices: { model: string; os: string; count: number; share_percent: number }[];
     os_split: { os: string; count: number; share_percent: number }[];
+    ios_store?: StoreAnalytics;
+    android_store?: StoreAnalytics;
 }
 
 function daysAgo(n: number): string {
@@ -196,19 +410,105 @@ export function mapDownloadAnalyticsToUgmc(data: DownloadAnalyticsData): Analyti
     };
 }
 
+function cutoffDay(days: number): string {
+    const cutoff = new Date();
+    cutoff.setUTCDate(cutoff.getUTCDate() - Math.max(1, days));
+    return cutoff.toISOString().slice(0, 10);
+}
+
+function sumDaily(daily: StoreDailyPoint[], key: keyof StoreDailyPoint): number {
+    return daily.reduce((sum, row) => sum + (Number(row[key]) || 0), 0);
+}
+
+/** Latest non-zero value in the window. Use for snapshot metrics (Play active device installs, etc.). */
+function latestDaily(daily: StoreDailyPoint[], key: keyof StoreDailyPoint): number {
+    for (let i = daily.length - 1; i >= 0; i -= 1) {
+        const value = Number(daily[i][key]) || 0;
+        if (value > 0) return value;
+    }
+    return 0;
+}
+
+function sliceStoreToDays(store: StoreAnalytics, days: number): StoreAnalytics {
+    const cutoff = cutoffDay(days);
+    const daily = store.daily.filter((row) => row.day >= cutoff);
+    const first_time_downloads = sumDaily(daily, 'first_time_downloads') || sumDaily(daily, 'user_installs') || sumDaily(daily, 'device_installs');
+    const redownloads = sumDaily(daily, 'redownloads');
+    const impressions = sumDaily(daily, 'impressions');
+    const unique_impressions = sumDaily(daily, 'unique_impressions');
+    const page_views = sumDaily(daily, 'page_views');
+    const unique_page_views = sumDaily(daily, 'unique_page_views');
+    const listing_visitors = sumDaily(daily, 'listing_visitors');
+    const listing_acquisitions = sumDaily(daily, 'listing_acquisitions');
+    const sessions = sumDaily(daily, 'sessions');
+    const crashes = sumDaily(daily, 'crashes');
+    const total_downloads = (first_time_downloads + redownloads) || sumDaily(daily, 'total_downloads');
+    const user_installs = sumDaily(daily, 'user_installs');
+    const device_installs = sumDaily(daily, 'device_installs');
+    const upgrades = sumDaily(daily, 'upgrades');
+    const updates = sumDaily(daily, 'updates') || upgrades;
+    const installations = sumDaily(daily, 'installations') || device_installs;
+    const device_uninstalls = sumDaily(daily, 'device_uninstalls') || sumDaily(daily, 'user_uninstalls') || sumDaily(daily, 'deletions');
+    const deletions = sumDaily(daily, 'deletions') || device_uninstalls;
+    return {
+        ...store,
+        first_time_downloads,
+        redownloads,
+        total_downloads,
+        updates,
+        impressions,
+        unique_impressions,
+        page_views,
+        unique_page_views,
+        conversion_percent: unique_impressions > 0
+            ? Math.round((total_downloads / unique_impressions) * 1000) / 10
+            : store.conversion_percent,
+        sessions,
+        active_devices: latestDaily(daily, 'active_devices') || store.active_devices,
+        active_last_30_days: latestDaily(daily, 'active_devices') || store.active_last_30_days,
+        installations,
+        deletions,
+        crashes,
+        anrs: sumDaily(daily, 'anrs'),
+        crash_free_rate_percent: sessions > 0
+            ? Math.round(Math.max(0, Math.min(100, (1 - crashes / sessions) * 100)) * 10) / 10
+            : store.crash_free_rate_percent,
+        user_installs,
+        device_installs,
+        user_uninstalls: sumDaily(daily, 'user_uninstalls'),
+        device_uninstalls,
+        upgrades,
+        listing_visitors,
+        listing_acquisitions,
+        listing_conversion_percent: listing_visitors > 0
+            ? Math.round((listing_acquisitions / listing_visitors) * 1000) / 10
+            : store.listing_conversion_percent,
+        daily,
+    };
+}
+
 export function filterDownloadAnalyticsByDays(
     data: DownloadAnalyticsData,
     days: number,
 ): DownloadAnalyticsData {
-    const slice = data.daily_downloads.slice(-Math.max(1, days));
+    const cutoff = cutoffDay(days);
+    const slice = data.daily_downloads.filter((row) => row.day >= cutoff);
     const totalDownloads = slice.reduce((s, r) => s + r.downloads, 0);
     const totalInstalls = slice.reduce((s, r) => s + r.installs, 0);
+    const totalPlay = slice.reduce((s, r) => s + (r.play_installs ?? 0), 0);
+    const ios_store = data.ios_store ? sliceStoreToDays(data.ios_store, days) : data.ios_store;
+    const android_store = data.android_store ? sliceStoreToDays(data.android_store, days) : data.android_store;
     return {
         ...data,
         window_days: days,
         total_downloads: totalDownloads,
         total_installs: totalInstalls,
+        total_play_installs: totalPlay,
+        android_active_devices: android_store?.active_devices ?? data.android_active_devices,
         daily_downloads: slice,
+        ios_store,
+        android_store,
+        reviews: data.reviews.filter((review) => !review.date || review.date >= cutoff),
         install_conversion_percent: totalDownloads > 0
             ? Math.round((totalInstalls / totalDownloads) * 1000) / 10
             : 0,
