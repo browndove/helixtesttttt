@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { API_ENDPOINTS } from '@/lib/config';
+import AskAiHost from '@/components/AskAiHost';
 import './internal-admin-dashboard.css';
 
 type NavLink = {
@@ -31,6 +32,7 @@ export const EXTERNAL_LINKS: NavLink[] = [
     { label: 'Internal Analytics', href: 'https://analytics.helixhealth.app/internal/login?from=%2Finternal%2Fdashboard', icon: 'open_in_new' },
     { label: 'Field Implementation', href: 'https://field.helixhealth.app/login', icon: 'open_in_new' },
     { label: 'Onboarding admin', href: 'https://www.helixhealth.app/admin/index.html', icon: 'open_in_new' },
+    { label: 'Editors', href: 'https://editors.helixhealth.app/', icon: 'open_in_new' },
 ];
 
 const NAV_GROUPS: NavGroup[] = [
@@ -46,6 +48,7 @@ const NAV_GROUPS: NavGroup[] = [
             { label: 'Test Admin', href: 'https://admintest.helixhealth.app/login', icon: 'open_in_new' },
             { label: 'Prod Admin', href: 'https://admin.helixhealth.app/login', icon: 'open_in_new' },
             { label: 'Onboarding admin', href: 'https://www.helixhealth.app/admin/index.html', icon: 'open_in_new' },
+            { label: 'Editors', href: 'https://editors.helixhealth.app/', icon: 'open_in_new' },
         ],
     },
     {
@@ -202,6 +205,8 @@ export default function InternalAdminShell({
             </nav>
 
             {children}
+
+            <AskAiHost />
 
             <footer className="internal-dash__footer">
                 <div className="internal-dash__footer-inner">

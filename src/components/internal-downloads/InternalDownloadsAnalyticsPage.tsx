@@ -6,7 +6,7 @@ import InternalDownloadsSidebar, {
     DownloadsSidebarProvider,
     type DownloadsDashboardTab,
 } from '@/components/internal-downloads/InternalDownloadsSidebar';
-import { filterDownloadAnalyticsByRange, downloadAnalyticsPresetRange, type DownloadAnalyticsData } from '@/lib/download-analytics-mock';
+import { filterDownloadAnalyticsByRange, downloadAnalyticsAllTimeRange, type DownloadAnalyticsData } from '@/lib/download-analytics-mock';
 import { type PlatformFilterValue } from '@/components/internal-downloads/PlatformFilter';
 import { DownloadsMobileTabs } from '@/components/internal-downloads/DownloadsWidgets';
 
@@ -49,14 +49,13 @@ function PageSkeleton() {
     );
 }
 
-const FETCH_DAYS = 90;
-const INITIAL_RANGE = downloadAnalyticsPresetRange(FETCH_DAYS);
+const FETCH_DAYS = 400;
 
 function InternalDownloadsAnalyticsContent() {
     const [activeTab, setActiveTab] = useState<DownloadsDashboardTab>('overview');
     const [platform, setPlatform] = useState<PlatformFilterValue>('all');
-    const [dateFrom, setDateFrom] = useState(INITIAL_RANGE.from);
-    const [dateTo, setDateTo] = useState(INITIAL_RANGE.to);
+    const [dateFrom, setDateFrom] = useState('');
+    const [dateTo, setDateTo] = useState('');
     const [downloadData, setDownloadData] = useState<DownloadAnalyticsData | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -81,7 +80,10 @@ function InternalDownloadsAnalyticsContent() {
                     : '';
                 throw new Error(`${data.error || 'Failed to load live download analytics'}.${missing}${envHint}`);
             }
+            const range = downloadAnalyticsAllTimeRange(data.analytics);
             setDownloadData(data.analytics);
+            setDateFrom(range.from);
+            setDateTo(range.to);
         } catch (err) {
             setError(err instanceof Error ? err.message : 'Failed to load live download analytics');
             setDownloadData(null);
@@ -94,8 +96,13 @@ function InternalDownloadsAnalyticsContent() {
         void fetchAnalytics();
     }, []);
 
+    const allTimeRange = useMemo(
+        () => (downloadData ? downloadAnalyticsAllTimeRange(downloadData) : { from: '', to: '' }),
+        [downloadData],
+    );
+
     const filteredData = useMemo(
-        () => (downloadData ? filterDownloadAnalyticsByRange(downloadData, dateFrom, dateTo) : null),
+        () => (downloadData && dateFrom && dateTo ? filterDownloadAnalyticsByRange(downloadData, dateFrom, dateTo) : null),
         [downloadData, dateFrom, dateTo],
     );
 
@@ -105,6 +112,8 @@ function InternalDownloadsAnalyticsContent() {
         onPlatformChange: setPlatform,
         dateFrom,
         dateTo,
+        allTimeFrom: allTimeRange.from,
+        allTimeTo: allTimeRange.to,
         onDateRangeChange: (from: string, to: string) => {
             const start = from || to;
             const end = to || from || start;

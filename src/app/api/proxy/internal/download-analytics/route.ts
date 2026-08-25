@@ -21,7 +21,7 @@ export async function GET(req: NextRequest) {
         }
 
         const { searchParams } = new URL(req.url);
-        const days = Math.min(90, Math.max(1, Number.parseInt(searchParams.get('days') || '90', 10) || 90));
+        const days = Math.min(400, Math.max(1, Number.parseInt(searchParams.get('days') || '400', 10) || 400));
 
         if (!getAppStoreConnectConfig()) {
             const auth = await verifyAppStoreConnectAuth().catch(() => null);

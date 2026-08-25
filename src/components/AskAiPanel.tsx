@@ -775,6 +775,7 @@ export default function AskAiPanel({
             const res = await fetch(API_ENDPOINTS.ASK_AI_QUERY, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
                 body: JSON.stringify({ question: text, document_id: '' }),
                 signal: controller.signal,
             });

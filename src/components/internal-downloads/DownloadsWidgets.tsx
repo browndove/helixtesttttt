@@ -153,9 +153,9 @@ export function resolveStores(data: DownloadAnalyticsData): { ios: StoreAnalytic
 }
 
 const DATE_OPTIONS = [
-    { value: 7, label: '7d' },
     { value: 30, label: '30d' },
     { value: 90, label: '90d' },
+    { value: 0, label: 'All time' },
 ];
 
 function formatRangeDay(day: string): string {
@@ -164,9 +164,15 @@ function formatRangeDay(day: string): string {
     return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
-export function downloadsDateRangeLabel(from: string, to: string): string {
+export function downloadsDateRangeLabel(
+    from: string,
+    to: string,
+    allTime?: { from: string; to: string },
+): string {
+    if (allTime && from === allTime.from && to === allTime.to) return 'all time';
     const today = new Date().toISOString().slice(0, 10);
     for (const option of DATE_OPTIONS) {
+        if (option.value <= 0) continue;
         const preset = downloadAnalyticsPresetRange(option.value);
         if (from === preset.from && to === today && to === preset.to) {
             return `last ${option.value} days`;
@@ -180,16 +186,24 @@ export function DateRangeFilter({
     from,
     to,
     onChange,
+    allTimeFrom,
+    allTimeTo,
 }: {
     from: string;
     to: string;
     onChange: (from: string, to: string) => void;
+    allTimeFrom?: string;
+    allTimeTo?: string;
 }) {
     const today = new Date().toISOString().slice(0, 10);
-    const activePreset = DATE_OPTIONS.find((option) => {
-        const preset = downloadAnalyticsPresetRange(option.value);
-        return from === preset.from && to === today && to === preset.to;
-    })?.value ?? null;
+    const allTimeActive = Boolean(allTimeFrom && allTimeTo && from === allTimeFrom && to === allTimeTo);
+    const activePreset = allTimeActive
+        ? 0
+        : DATE_OPTIONS.find((option) => {
+            if (option.value <= 0) return false;
+            const preset = downloadAnalyticsPresetRange(option.value);
+            return from === preset.from && to === today && to === preset.to;
+        })?.value ?? null;
 
     return (
         <div className="downloads-date-filter" role="group" aria-label="Date range">
@@ -201,6 +215,10 @@ export function DateRangeFilter({
                             key={option.value}
                             type="button"
                             onClick={() => {
+                                if (option.value <= 0) {
+                                    onChange(allTimeFrom || from, allTimeTo || to);
+                                    return;
+                                }
                                 const preset = downloadAnalyticsPresetRange(option.value);
                                 onChange(preset.from, preset.to);
                             }}

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { getInternalTokenFromCookie, getTokenFromCookie } from '@/lib/proxy-auth';
 
 const AI_BASE_URL = (process.env.HELIX_AI_BASE_URL || 'http://127.0.0.1:8000').replace(/\/+$/, '');
 
@@ -15,6 +16,11 @@ export type AskAiQueryResponse = {
 // POST /api/proxy/ask-ai/query — proxy to Helix Retrieval QA (local)
 export async function POST(req: NextRequest) {
     try {
+        const token = getTokenFromCookie(req) || getInternalTokenFromCookie(req);
+        if (!token) {
+            return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
+        }
+
         const body = await req.json().catch(() => ({}));
         const question = typeof body?.question === 'string' ? body.question.trim() : '';
 

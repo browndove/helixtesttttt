@@ -1,3 +1,14 @@
+.ask-ai-dock {
+    position: fixed;
+    right: 22px;
+    bottom: 22px;
+    z-index: 90;
+}
+
+.ask-ai-dock .ask-ai-btn {
+    box-shadow: 0 8px 24px rgba(15, 23, 42, 0.22);
+}
+
 .ask-ai-btn {
     display: inline-flex;
     align-items: center;

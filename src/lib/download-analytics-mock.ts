@@ -518,6 +518,22 @@ export function downloadAnalyticsPresetRange(days: number): { from: string; to: 
     return { from: cutoffDay(days), to: todayUTC() };
 }
 
+export function downloadAnalyticsAllTimeRange(data: DownloadAnalyticsData): { from: string; to: string } {
+    const days: string[] = [];
+    for (const row of data.daily_downloads) {
+        if (row.day) days.push(row.day);
+    }
+    for (const row of data.ios_store?.daily || []) {
+        if (row.day) days.push(row.day);
+    }
+    for (const row of data.android_store?.daily || []) {
+        if (row.day) days.push(row.day);
+    }
+    days.sort();
+    if (days.length === 0) return downloadAnalyticsPresetRange(90);
+    return { from: days[0], to: days[days.length - 1] };
+}
+
 export function filterDownloadAnalyticsByRange(
     data: DownloadAnalyticsData,
     from: string,

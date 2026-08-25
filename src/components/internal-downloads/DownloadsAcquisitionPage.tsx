@@ -63,6 +63,8 @@ export default function DownloadsAcquisitionPage({
     onPlatformChange,
     dateFrom,
     dateTo,
+    allTimeFrom,
+    allTimeTo,
     onDateRangeChange,
 }: {
     data: DownloadAnalyticsData;
@@ -70,12 +72,14 @@ export default function DownloadsAcquisitionPage({
     onPlatformChange: (next: PlatformFilterValue) => void;
     dateFrom: string;
     dateTo: string;
+    allTimeFrom: string;
+    allTimeTo: string;
     onDateRangeChange: (from: string, to: string) => void;
 }) {
     const { ios, android } = resolveStores(data);
     const [fullscreen, setFullscreen] = useState(false);
     const [flowFullscreen, setFlowFullscreen] = useState(false);
-    const rangeLabel = downloadsDateRangeLabel(dateFrom, dateTo);
+    const rangeLabel = downloadsDateRangeLabel(dateFrom, dateTo, { from: allTimeFrom, to: allTimeTo });
 
     const discovery = platform === 'ios'
         ? ios.impressions
@@ -175,7 +179,7 @@ export default function DownloadsAcquisitionPage({
                 pending={platform === 'android' ? android.reports_pending : platform === 'ios' ? ios.reports_pending : ios.reports_pending || android.reports_pending}
                 extra={(
                     <>
-                        <DateRangeFilter from={dateFrom} to={dateTo} onChange={onDateRangeChange} />
+                        <DateRangeFilter from={dateFrom} to={dateTo} allTimeFrom={allTimeFrom} allTimeTo={allTimeTo} onChange={onDateRangeChange} />
                         <PlatformFilter value={platform} onChange={onPlatformChange} />
                     </>
                 )}

@@ -41,8 +41,8 @@ function staffUrl(path: string): string {
     const fid = getCachedClientFacilityId() || readHelixFacilityIdFromDocument();
     return appendFacilityIdToProxyUrl(path, fid);
 }
-/** Local-only field on the add-staff form (not sent to the API). */
-const STAFF_CREATE_TITLE_MAX_LEN = 20;
+/** Honorific / additional title (Dr, Prof, Consultant …). Aligned with settings job title. */
+const STAFF_CREATE_TITLE_MAX_LEN = 50;
 
 type StaffMember = {
     id: string;

@@ -201,6 +201,8 @@ export default function DownloadsMetricsPage({
     onPlatformChange,
     dateFrom,
     dateTo,
+    allTimeFrom,
+    allTimeTo,
     onDateRangeChange,
 }: {
     data: DownloadAnalyticsData;
@@ -208,6 +210,8 @@ export default function DownloadsMetricsPage({
     onPlatformChange: (next: PlatformFilterValue) => void;
     dateFrom: string;
     dateTo: string;
+    allTimeFrom: string;
+    allTimeTo: string;
     onDateRangeChange: (from: string, to: string) => void;
 }) {
     const { ios, android } = resolveStores(data);
@@ -219,7 +223,7 @@ export default function DownloadsMetricsPage({
     const [dimId, setDimId] = useState(dims[0].id);
     const [chartFullscreen, setChartFullscreen] = useState(false);
     const [compareFullscreen, setCompareFullscreen] = useState(false);
-    const rangeLabel = downloadsDateRangeLabel(dateFrom, dateTo);
+    const rangeLabel = downloadsDateRangeLabel(dateFrom, dateTo, { from: allTimeFrom, to: allTimeTo });
 
     useEffect(() => {
         if (platform === 'all') {
@@ -285,7 +289,7 @@ export default function DownloadsMetricsPage({
                 subtitle={`${platformFilterLabel(platform)} · ${rangeLabel}`}
                 extra={(
                     <>
-                        <DateRangeFilter from={dateFrom} to={dateTo} onChange={onDateRangeChange} />
+                        <DateRangeFilter from={dateFrom} to={dateTo} allTimeFrom={allTimeFrom} allTimeTo={allTimeTo} onChange={onDateRangeChange} />
                         <PlatformFilter value={platform} onChange={onPlatformChange} />
                     </>
                 )}
