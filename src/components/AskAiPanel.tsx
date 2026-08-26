@@ -823,7 +823,7 @@ export default function AskAiPanel({
             );
         } catch (err) {
             if (err instanceof DOMException && err.name === 'AbortError') return;
-            const errText = 'Unable to reach Helix AI. Make sure it is running on http://127.0.0.1:8000.';
+            const errText = 'Unable to reach Helix documentation assistant. Please try again.';
             setMessages((prev) =>
                 prev.map((m) =>
                     m.id === pendingId
