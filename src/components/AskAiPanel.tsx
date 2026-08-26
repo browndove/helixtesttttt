@@ -776,7 +776,7 @@ export default function AskAiPanel({
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 credentials: 'include',
-                body: JSON.stringify({ question: text, document_id: '' }),
+                body: JSON.stringify({ question: text }),
                 signal: controller.signal,
             });
             const data = (await res.json().catch(() => ({}))) as AskAiResponse;

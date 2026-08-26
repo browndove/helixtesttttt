@@ -76,6 +76,6 @@ export const API_ENDPOINTS = {
   ESCALATION_POLICY_STEPS_BULK: (id: string) => `/api/proxy/escalation-policies/${id}/steps/bulk`,
   ESCALATION_POLICY_STEP: (id: string, stepId: string) => `/api/proxy/escalation-policies/${id}/steps/${stepId}`,
 
-  // Helix Retrieval QA (proxied to HELIX_AI_BASE_URL, default http://127.0.0.1:8000)
+  // Helix Retrieval QA via Go API POST /api/v1/documentation/query
   ASK_AI_QUERY: `/api/proxy/ask-ai/query`,
 };
