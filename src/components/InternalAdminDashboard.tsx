@@ -66,6 +66,7 @@ const EMPTY_FACILITY_FORM = {
     facility_type: '',
     email: '',
     contact_phone: '',
+    emergency_contact: '',
     admin_email: '',
     primary_contact_first_name: '',
     primary_contact_last_name: '',
@@ -93,6 +94,7 @@ function parseFacilityForm(raw: unknown, fallback?: FacilityRow | null): Facilit
         facility_type: facilityType,
         email: String(source.email || '').trim(),
         contact_phone: String(source.contact_phone || '').trim(),
+        emergency_contact: String(source.emergency_contact || '').trim(),
         admin_email: String(source.admin_email || '').trim(),
         primary_contact_first_name: String(source.primary_contact_first_name || '').trim(),
         primary_contact_last_name: String(source.primary_contact_last_name || '').trim(),
@@ -222,7 +224,7 @@ export default function InternalAdminDashboard() {
         return `+${digits}`;
     };
 
-    const PHONE_KEYS: (keyof FacilityForm)[] = ['contact_phone', 'primary_contact_phone'];
+    const PHONE_KEYS: (keyof FacilityForm)[] = ['contact_phone', 'emergency_contact', 'primary_contact_phone'];
 
     const setField = <K extends keyof FacilityForm>(key: K, value: FacilityForm[K]) =>
         setForm((prev) => ({ ...prev, [key]: value }));
@@ -485,6 +487,9 @@ export default function InternalAdminDashboard() {
                                 <Field label="Contact Phone">
                                     <input className="internal-dash__input" type="tel" placeholder="+233301234567" value={form.contact_phone} onChange={(e) => setField('contact_phone', e.target.value)} onBlur={() => { const v = toE164(form.contact_phone); if (v) setField('contact_phone', v); }} />
                                 </Field>
+                                <Field label="Emergency Contact">
+                                    <input className="internal-dash__input" type="tel" placeholder="+233244555911" value={form.emergency_contact} onChange={(e) => setField('emergency_contact', e.target.value)} onBlur={() => { const v = toE164(form.emergency_contact); if (v) setField('emergency_contact', v); }} />
+                                </Field>
                                 <Field label="Admin Email">
                                     <input className="internal-dash__input" type="email" placeholder="admin@hospital.org" value={form.admin_email} onChange={(e) => setField('admin_email', e.target.value)} />
                                 </Field>
@@ -612,6 +617,7 @@ export default function InternalAdminDashboard() {
                                         </div>
                                         <div className="internal-edit-modal__field"><label>Facility Email</label><input className="internal-edit-modal__input" type="email" value={editForm.email} onChange={(e) => setEditField('email', e.target.value)} /></div>
                                         <div className="internal-edit-modal__field"><label>Contact Phone</label><input className="internal-edit-modal__input" type="tel" value={editForm.contact_phone} onChange={(e) => setEditField('contact_phone', e.target.value)} onBlur={() => { const v = toE164(editForm.contact_phone); if (v) setEditField('contact_phone', v); }} /></div>
+                                        <div className="internal-edit-modal__field"><label>Emergency Contact</label><input className="internal-edit-modal__input" type="tel" value={editForm.emergency_contact} onChange={(e) => setEditField('emergency_contact', e.target.value)} onBlur={() => { const v = toE164(editForm.emergency_contact); if (v) setEditField('emergency_contact', v); }} /></div>
                                         <div className="internal-edit-modal__field"><label>Admin Email</label><input className="internal-edit-modal__input" type="email" value={editForm.admin_email} onChange={(e) => setEditField('admin_email', e.target.value)} /></div>
                                     </div>
 
