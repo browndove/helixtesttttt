@@ -1469,8 +1469,8 @@ export default function ProviderTeamsPage() {
                                                                     {coveredByName ? 'badge' : 'badge_outline'}
                                                                 </span>
                                                                 <div style={{ flex: 1, minWidth: 0, textAlign: 'left' }}>
-                                                                    <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.name}</div>
-                                                                    <div style={{ fontSize: 10.5, color: 'var(--text-muted)', marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                                                    <div style={{ display: 'block', width: '100%', textAlign: 'left', fontSize: 12, fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.name}</div>
+                                                                    <div style={{ display: 'block', width: '100%', textAlign: 'left', fontSize: 10.5, color: 'var(--text-muted)', marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                                                         {coveredByName ? (
                                                                             <>Covered by <span style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>{coveredByName}</span></>
                                                                         ) : (
