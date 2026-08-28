@@ -1468,7 +1468,7 @@ export default function ProviderTeamsPage() {
                                                                 <span className="material-icons-round" style={{ fontSize: 14, color: coveredByName ? 'var(--success, #16a34a)' : 'var(--text-disabled)', flexShrink: 0 }}>
                                                                     {coveredByName ? 'badge' : 'badge_outline'}
                                                                 </span>
-                                                                <div style={{ flex: 1, minWidth: 0 }}>
+                                                                <div style={{ flex: 1, minWidth: 0, textAlign: 'left' }}>
                                                                     <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.name}</div>
                                                                     <div style={{ fontSize: 10.5, color: 'var(--text-muted)', marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                                                         {coveredByName ? (
