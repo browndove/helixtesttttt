@@ -2,7 +2,6 @@
 
 import Sidebar from '@/components/Sidebar';
 import navSections from '@/components/navSections';
-import AskAiHost from '@/components/AskAiHost';
 
 /**
  * Single shell for logged-in admin routes so Sidebar does not remount on every
@@ -13,7 +12,6 @@ export default function HelixAdminLayout({ children }: { children: React.ReactNo
         <div className="app-shell">
             <Sidebar sections={navSections} />
             {children}
-            <AskAiHost />
         </div>
     );
 }
