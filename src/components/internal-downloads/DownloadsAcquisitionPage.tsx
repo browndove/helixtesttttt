@@ -17,7 +17,6 @@ import {
     MetricSnapshotRow,
     PageToolbar,
     ShareMixCard,
-    blendedPercent,
     dailyToChart,
     downloadsDateRangeLabel,
     fmtMetric,
@@ -118,11 +117,8 @@ export default function DownloadsAcquisitionPage({
             android: fmtMetric(android.listing_acquisitions),
         },
         {
-            label: platform === 'android' ? 'Store listing conversion' : 'Conversion Rate',
-            value: fmtMetric(platform === 'ios' ? ios.conversion_percent : platform === 'android' ? android.listing_conversion_percent : blendedPercent([
-                { rate: ios.conversion_percent, weight: ios.unique_impressions || ios.impressions },
-                { rate: android.listing_conversion_percent, weight: android.listing_visitors },
-            ]), 'percent'),
+            label: platform === 'all' ? 'Conversion Rate by Platform' : platform === 'android' ? 'Store listing conversion' : 'Conversion Rate',
+            value: platform === 'all' ? '—' : fmtMetric(platform === 'ios' ? ios.conversion_percent : android.listing_conversion_percent, 'percent'),
             icon: <FaPercent className="h-5 w-5 text-accent-orange" />,
             bg: 'bg-[rgba(232,155,0,0.1)]',
             info: storeMetricInfo(ASC_METRIC_DEFS.conversion, PLAY_METRIC_DEFS.listing_conversion),

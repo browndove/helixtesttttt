@@ -17,7 +17,7 @@ import {
     DownloadsKpiCard,
     PageToolbar,
     RetentionBars,
-    blendedPercent,
+    MetricSnapshotRow,
     dailyToChart,
     downloadsDateRangeLabel,
     fmtMetric,
@@ -57,11 +57,6 @@ export default function DownloadsOverviewPage({
     const combinedInstalls = ios.first_time_downloads + android.device_installs;
     const combinedDiscovery = ios.impressions + android.listing_visitors;
     const combinedUpdates = ios.updates + android.upgrades;
-    const combinedConversion = blendedPercent([
-        { rate: ios.conversion_percent, weight: ios.unique_impressions || ios.impressions },
-        { rate: android.listing_conversion_percent, weight: android.listing_visitors },
-    ]);
-
     const kpis = [
         {
             label: platform === 'ios' ? 'First Time Downloads' : platform === 'android' ? 'Installs' : 'Total installs',
@@ -73,8 +68,8 @@ export default function DownloadsOverviewPage({
             android: fmtMetric(android.device_installs),
         },
         {
-            label: platform === 'android' ? 'Store listing conversion' : 'Conversion Rate',
-            value: fmtMetric(platform === 'ios' ? ios.conversion_percent : platform === 'android' ? android.listing_conversion_percent : combinedConversion, 'percent'),
+            label: platform === 'all' ? 'Conversion Rate by Platform' : platform === 'android' ? 'Store listing conversion' : 'Conversion Rate',
+            value: platform === 'all' ? '—' : fmtMetric(platform === 'ios' ? ios.conversion_percent : android.listing_conversion_percent, 'percent'),
             icon: <FaPercent className="h-5 w-5 text-accent-orange" />,
             bg: 'bg-[rgba(232,155,0,0.1)]',
             info: storeMetricInfo(ASC_METRIC_DEFS.conversion, PLAY_METRIC_DEFS.listing_conversion),
@@ -169,24 +164,28 @@ export default function DownloadsOverviewPage({
                 />
 
                 <div className="downloads-overview-mid">
-                    {platform === 'android' || (ios.retention.d1 <= 0 && ios.retention.d7 <= 0 && ios.retention.d14 <= 0 && ios.retention.d28 <= 0) ? (
-                        <BreakdownCard
-                            title="Installs vs uninstalls"
-                            subtitle="Play Console · selected window"
-                            chart="donut"
-                            infoText={storeMetricInfo(
-                                `Installations\n${ASC_METRIC_DEFS.installations}\n\nDeletions\n${ASC_METRIC_DEFS.deletions}`,
-                                `Installs\n${PLAY_METRIC_DEFS.device_acquisition}\n\nDaily users\n${PLAY_METRIC_DEFS.daily_users}\n\nDevice loss\n${PLAY_METRIC_DEFS.device_loss}\n\nDevice updates\n${PLAY_METRIC_DEFS.device_updates}`,
-                            )}
-                            items={[
-                                { name: 'Installs', count: android.device_installs },
-                                { name: 'Device uninstalls', count: android.device_uninstalls || android.user_uninstalls },
-                                { name: 'Daily users', count: android.user_installs },
-                                { name: 'User uninstalls', count: android.user_uninstalls },
-                                { name: 'Upgrades', count: android.upgrades },
-                            ].filter((row) => row.count > 0)}
-                        />
-                    ) : (
+                    {platform === 'android' ? (
+                        <div className="bg-primary rounded-[15px] shadow-soft p-5 sm:p-6">
+                            <div className="mb-4">
+                                <div className="flex items-center gap-2">
+                                    <h3 className="text-sm font-bold text-text-primary">Android installs and lifecycle events</h3>
+                                    <InfoTooltip text={storeMetricInfo(
+                                        `Installs\n${PLAY_METRIC_DEFS.device_acquisition}\n\nDevice uninstalls\n${PLAY_METRIC_DEFS.device_loss}\n\nDaily users\n${PLAY_METRIC_DEFS.daily_users}\n\nUser uninstalls\nUser-level uninstall events from Play bulk reports.\n\nUpgrades\n${PLAY_METRIC_DEFS.device_updates}`,
+                                    )} />
+                                </div>
+                                <p className="mt-1 text-xs text-text-muted">Play Console · selected window</p>
+                            </div>
+                            <MetricSnapshotRow
+                                items={[
+                                    { label: 'Installs', value: fmtMetric(android.device_installs), info: PLAY_METRIC_DEFS.device_acquisition },
+                                    { label: 'Device uninstalls', value: fmtMetric(android.device_uninstalls || android.user_uninstalls), info: PLAY_METRIC_DEFS.device_loss },
+                                    { label: 'Daily users', value: fmtMetric(android.user_installs), info: PLAY_METRIC_DEFS.daily_users },
+                                    { label: 'User uninstalls', value: fmtMetric(android.user_uninstalls), info: 'User-level uninstall events from Play bulk reports.' },
+                                    { label: 'Upgrades', value: fmtMetric(android.upgrades), info: PLAY_METRIC_DEFS.device_updates },
+                                ]}
+                            />
+                        </div>
+                    ) : platform === 'ios' ? (
                         <RetentionBars
                             d1={ios.retention.d1}
                             d7={ios.retention.d7}
@@ -194,6 +193,20 @@ export default function DownloadsOverviewPage({
                             d28={ios.retention.d28}
                             pending={ios.reports_pending}
                             infoText={ANALYTICS_CHART_DEFS.retention}
+                        />
+                    ) : (
+                        <BreakdownCard
+                            title="Installs by platform"
+                            subtitle="App Store + Play Console · selected window"
+                            chart="bar"
+                            infoText={storeMetricInfo(
+                                `iOS first-time downloads\n${ASC_METRIC_DEFS.first_time_downloads}`,
+                                `Android installs\n${PLAY_METRIC_DEFS.device_acquisition}`,
+                            )}
+                            items={[
+                                { name: 'iOS installs', count: ios.first_time_downloads },
+                                { name: 'Android installs', count: android.device_installs },
+                            ].filter((row) => row.count > 0)}
                         />
                     )}
                     <BreakdownCard
