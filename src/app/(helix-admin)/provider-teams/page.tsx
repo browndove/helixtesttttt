@@ -140,7 +140,7 @@ function parseEmbeddedTeamRoles(rec: Record<string, unknown>): TeamLinkedRole[] 
             if (!r || typeof r !== 'object') return null;
             const o = r as Record<string, unknown>;
             const id = String(o.role_id ?? o.id ?? `role-${i}`);
-            const name = String(o.name ?? o.role_name ?? 'Role');
+            const name = cleanApiString(o.name ?? o.role_name) || 'Role';
             return id ? { id, name, ...extractRoleCoverer(o) } : null;
         })
         .filter((x): x is TeamLinkedRole => Boolean(x));
@@ -198,7 +198,7 @@ function parseFacilityRolesList(raw: unknown): TeamLinkedRole[] {
             if (!r || typeof r !== 'object') return null;
             const o = r as Record<string, unknown>;
             const id = String(o.id ?? `r-${i}`);
-            const name = String(o.name ?? 'Unnamed role');
+            const name = cleanApiString(o.name) || 'Unnamed role';
             return id ? { id, name, ...extractRoleCoverer(o) } : null;
         })
         .filter((x): x is TeamLinkedRole => Boolean(x))
@@ -220,7 +220,7 @@ function parseTeamRolesPayload(data: unknown): TeamLinkedRole[] {
             if (!r || typeof r !== 'object') return null;
             const o = r as Record<string, unknown>;
             const id = String(o.id ?? o.role_id ?? `tr-${i}`);
-            const name = String(o.name ?? o.role_name ?? 'Role');
+            const name = cleanApiString(o.name ?? o.role_name) || 'Role';
             return id ? { id, name, ...extractRoleCoverer(o) } : null;
         })
         .filter((x): x is TeamLinkedRole => Boolean(x));
