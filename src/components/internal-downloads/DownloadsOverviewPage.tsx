@@ -194,21 +194,7 @@ export default function DownloadsOverviewPage({
                             pending={ios.reports_pending}
                             infoText={ANALYTICS_CHART_DEFS.retention}
                         />
-                    ) : (
-                        <BreakdownCard
-                            title="Installs by platform"
-                            subtitle="App Store + Play Console · selected window"
-                            chart="bar"
-                            infoText={storeMetricInfo(
-                                `iOS first-time downloads\n${ASC_METRIC_DEFS.first_time_downloads}`,
-                                `Android installs\n${PLAY_METRIC_DEFS.device_acquisition}`,
-                            )}
-                            items={[
-                                { name: 'iOS installs', count: ios.first_time_downloads },
-                                { name: 'Android installs', count: android.device_installs },
-                            ].filter((row) => row.count > 0)}
-                        />
-                    )}
+                    ) : null}
                     <BreakdownCard
                         title={platform === 'android' ? 'Crashes & ANRs' : platform === 'ios' ? 'Crashes by version' : 'Crashes by version'}
                         subtitle={platform === 'all' ? 'iOS opt-in crashes plus Play vitals' : 'Opt-in on iOS · Play vitals on Android'}
