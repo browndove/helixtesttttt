@@ -83,7 +83,7 @@ export const ANALYTICS_CHART_DEFS = {
     campaigns:
         'Campaign-attributed downloads from App Store campaigns, custom product pages, or Play UTM parameters.',
     page_types:
-        'iOS: which App Store surface was viewed (product page, Today, Games, Apps, or Search). Android: Play reports traffic source instead of App Store page type.',
+        'iOS: which page a product page view landed on (product page, store sheet, developer page, or app version history). Counts page views only, so tab impressions reported as "No page" are excluded. Android: Play reports traffic source instead of App Store page type.',
     product_pages:
         'iOS: traffic and downloads by App Store product page, including custom product pages. Android: Play does not split by custom product page; use traffic source and UTM instead.',
     versions:
@@ -102,8 +102,10 @@ export const ANALYTICS_CHART_DEFS = {
         'Discovery to install. iOS: Impressions → Product Page Views → Total Downloads. Android: Store listing visitors → listing acquisitions → daily users. Daily users are unique Play users, not device installs.',
     play_attributes:
         'Android: carrier, OS version, and language attached to store listing visits and installs. iOS: use Device and OS version breakdowns instead.',
+    active_devices_window:
+        'Over a multi-day range: the App Store counts unique devices per day, and a device active on several days is still one device, so the range reports its busiest single day rather than a sum. The Play install base is a running count, so it reports the latest day in the range.',
     mix:
-        'Share of the selected metric across the top values. Remaining rows are grouped as Other.',
+        'Share across the top values, with the remaining rows grouped as Other. Store dimension reports count downloads or store visits, so a breakdown does not always add up to the selected metric.',
     updates_vs_upgrades:
         'iOS Updates include auto-updates. Play Device updates count devices that installed a new version of the app.',
 } as const;

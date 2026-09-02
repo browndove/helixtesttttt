@@ -124,7 +124,7 @@ export default function DownloadsOverviewPage({
             <PageToolbar
                 title="Downloads Overview"
                 subtitle={`${platformFilterLabel(platform)} · ${rangeLabel}`}
-                pending={(ios.reports_pending || android.reports_pending) && platform !== 'android'}
+                pending={platform === 'android' ? android.reports_pending : platform === 'ios' ? ios.reports_pending : ios.reports_pending || android.reports_pending}
                 extra={(
                     <>
                         <DateRangeFilter from={dateFrom} to={dateTo} allTimeFrom={allTimeFrom} allTimeTo={allTimeTo} onChange={onDateRangeChange} />
@@ -196,7 +196,7 @@ export default function DownloadsOverviewPage({
                         />
                     ) : null}
                     <BreakdownCard
-                        title={platform === 'android' ? 'Crashes & ANRs' : platform === 'ios' ? 'Crashes by version' : 'Crashes by version'}
+                        title={platform === 'ios' ? 'Crashes by version' : 'Crashes and ANRs by version'}
                         subtitle={platform === 'all' ? 'iOS opt-in crashes plus Play vitals' : 'Opt-in on iOS · Play vitals on Android'}
                         chart="bar"
                         infoText={ANALYTICS_CHART_DEFS.crashes}

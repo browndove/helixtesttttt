@@ -322,8 +322,12 @@ function applyDiscovery(store: StoreAnalytics, rows: ReportRow[], cutoff: string
         addCount(campaigns, campaignH ? row[campaignH] : '', counts);
         addCount(territories, territoryH ? row[territoryH] : '', counts);
         addCount(devices, deviceH ? row[deviceH] : '', counts);
-        addCount(pageTypes, pageTypeH ? row[pageTypeH] : '', counts);
-        addCount(productPages, pageH ? row[pageH] : '', counts);
+        // Page type and product page only describe engagement rows. Impression rows
+        // report "No page", which would otherwise swamp both breakdowns.
+        if (isPage) {
+            addCount(pageTypes, pageTypeH ? row[pageTypeH] : '', counts);
+            addCount(productPages, pageH ? row[pageH] : '', counts);
+        }
     }
 
     store.breakdowns.sources = toNamed(sources);
@@ -428,7 +432,6 @@ function applySessions(store: StoreAnalytics, rows: ReportRow[], cutoff: string,
         const sessions = sessionsH ? parseMetricNumber(row[sessionsH]) : 0;
         const active = devicesH ? parseMetricNumber(row[devicesH]) : 0;
         store.sessions += sessions;
-        if (active > 0) store.active_devices = Math.max(store.active_devices, active);
         if (day) {
             const bucket = dayBucket(daily, day);
             bucket.sessions += sessions;
@@ -449,6 +452,14 @@ function applySessions(store: StoreAnalytics, rows: ReportRow[], cutoff: string,
         if (d7H) d7.push(parseMetricNumber(row[d7H]));
         if (d14H) d14.push(parseMetricNumber(row[d14H]));
         if (d28H) d28.push(parseMetricNumber(row[d28H]));
+    }
+
+    // Each report row is one dimension slice of a day, so the day total is the sum of
+    // its rows — but a device active on several days is still one device, so the period
+    // figure cannot be summed across days either. The busiest single day is the closest
+    // lower bound the daily reports support.
+    for (const bucket of daily.values()) {
+        store.active_devices = Math.max(store.active_devices, bucket.active_devices);
     }
 
     if (durationN > 0) store.avg_session_duration_seconds = Math.round(durationSum / durationN);

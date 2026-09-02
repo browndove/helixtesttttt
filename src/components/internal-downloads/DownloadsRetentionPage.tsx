@@ -61,7 +61,12 @@ export default function DownloadsRetentionPage({
             info: storeMetricInfo(
                 `Sessions\n${ASC_METRIC_DEFS.sessions}\n\nActive Devices\n${ASC_METRIC_DEFS.active_devices}`,
                 PLAY_METRIC_DEFS.install_base,
-            ) + '\n\n' + dataFreshnessText(ios, android, platform),
+            ) + '\n\n' + ANALYTICS_CHART_DEFS.active_devices_window + '\n\n' + dataFreshnessText(ios, android, platform),
+            note: platform === 'ios'
+                ? 'Every session recorded in the range, added up. The iOS split shows active devices on the busiest single day instead, so the two do not match.'
+                : platform === 'android'
+                    ? 'The Play install base on the most recent day in the range, not a total of the range.'
+                    : 'The two stores added together even though they count different things: iOS is the busiest single day of unique devices, Android is the latest day of the Play install base. Treat it as a rough scale, not an exact device count.',
             ios: fmtMetric(platform === 'ios' ? ios.sessions : ios.active_devices),
             android: fmtMetric(android.active_devices),
         },
@@ -71,6 +76,7 @@ export default function DownloadsRetentionPage({
             icon: <FaTrash className="h-5 w-5 text-accent-orange" />,
             bg: 'bg-[rgba(232,155,0,0.1)]',
             info: storeMetricInfo(ASC_METRIC_DEFS.deletions, PLAY_METRIC_DEFS.device_loss),
+            note: 'Every deletion or uninstall event in the range, added up. Android falls back to user-level uninstalls when Play reports no device-level figure, so it can count one user rather than each of their devices.',
             ios: fmtMetric(ios.deletions),
             android: fmtMetric(android.device_uninstalls || android.user_uninstalls),
         },
@@ -80,6 +86,7 @@ export default function DownloadsRetentionPage({
             icon: <FaShieldHalved className="h-5 w-5 text-accent-orange" />,
             bg: 'bg-[rgba(232,155,0,0.1)]',
             info: storeMetricInfo(ASC_METRIC_DEFS.crashes, PLAY_METRIC_DEFS.crashes),
+            note: 'Every crash report in the range, added up. Both stores only collect from users who opted in to share diagnostics, so the real number is higher.',
             ios: fmtMetric(ios.crashes),
             android: fmtMetric(android.crashes),
         },
@@ -98,7 +105,7 @@ export default function DownloadsRetentionPage({
             info: storeMetricInfo(
                 `Active Devices\n${ASC_METRIC_DEFS.active_devices}`,
                 `ANRs\n${PLAY_METRIC_DEFS.anrs}`,
-            ),
+            ) + (platform === 'ios' ? '\n\n' + ANALYTICS_CHART_DEFS.active_devices_window : ''),
             ios: fmtMetric(ios.active_devices),
             android: fmtMetric(android.anrs),
         },
@@ -150,7 +157,7 @@ export default function DownloadsRetentionPage({
             {platform === 'ios' && (
                 <MetricSnapshotRow
                     items={[
-                        { label: 'Active in Last 30 Days', value: fmtMetric(ios.active_last_30_days), info: storeMetricInfo(ASC_METRIC_DEFS.active_last_30_days, PLAY_METRIC_DEFS.install_base) },
+                        { label: 'Active in Last 30 Days', value: fmtMetric(ios.active_last_30_days), info: storeMetricInfo(ASC_METRIC_DEFS.active_last_30_days, PLAY_METRIC_DEFS.install_base) + '\n\n' + ANALYTICS_CHART_DEFS.active_devices_window },
                         { label: 'Deletions', value: fmtMetric(ios.deletions), info: storeMetricInfo(ASC_METRIC_DEFS.deletions, PLAY_METRIC_DEFS.device_loss) },
                     ]}
                 />
@@ -160,7 +167,8 @@ export default function DownloadsRetentionPage({
                 {platform === 'android' ? (
                     <BreakdownCard
                         title="Install base"
-                        chart="donut"
+                        subtitle="Overlapping Play snapshots · compare sizes, not shares"
+                        chart="bar"
                         infoText={storeMetricInfo(ASC_METRIC_DEFS.active_devices, PLAY_METRIC_DEFS.install_base)}
                         items={[
                             { name: 'Active devices', count: android.active_devices },
@@ -184,8 +192,8 @@ export default function DownloadsRetentionPage({
                     onToggleFullscreen={() => setFullscreen(!fullscreen)}
                     dailyVolume={usageDaily}
                     title={platform === 'ios' ? 'Sessions and active devices' : platform === 'android' ? 'Installs vs uninstalls' : 'iOS sessions vs Play installs'}
-                    seriesName={platform === 'android' ? 'Installs' : platform === 'ios' ? 'Sessions' : 'iOS + Android'}
-                    secondarySeriesName={platform === 'android' ? 'Uninstalls' : undefined}
+                    seriesName={platform === 'android' ? 'Installs' : platform === 'ios' ? 'Sessions' : 'Play installs'}
+                    secondarySeriesName={platform === 'android' ? 'Uninstalls' : platform === 'ios' ? 'Active devices' : 'iOS sessions'}
                     infoText={storeMetricInfo(
                         `Sessions\n${ASC_METRIC_DEFS.sessions}\n\nActive Devices\n${ASC_METRIC_DEFS.active_devices}`,
                         `Installs\n${PLAY_METRIC_DEFS.device_acquisition}\n\nDevice loss\n${PLAY_METRIC_DEFS.device_loss}\n\nDevice updates\n${PLAY_METRIC_DEFS.device_updates}`,
@@ -196,8 +204,9 @@ export default function DownloadsRetentionPage({
 
             {platform === 'all' && (
                 <BreakdownCard
-                    title="Play Console"
-                    chart="polar"
+                    title="Android install base and lifecycle events"
+                    subtitle="Play Console · independent counts, not a shared total"
+                    chart="bar"
                     infoText={storeMetricInfo(
                         `Active Devices\n${ASC_METRIC_DEFS.active_devices}\n\nInstallations\n${ASC_METRIC_DEFS.installations}`,
                         `Install base\n${PLAY_METRIC_DEFS.install_base}\n\nInstalls\n${PLAY_METRIC_DEFS.device_acquisition}\n\nDevice loss\n${PLAY_METRIC_DEFS.device_loss}`,
@@ -262,11 +271,9 @@ export default function DownloadsRetentionPage({
                 )}
                 {platform !== 'ios' && (
                     <>
-                        <BreakdownCard title="ANRs by version" chart="polar" items={android.breakdowns.anrs_by_version} infoText={ANALYTICS_CHART_DEFS.anrs} />
-                        <BreakdownCard title="ANRs by device / OS" chart="column" items={mergeNamedCounts(
-                            android.breakdowns.anrs_by_device,
-                            android.breakdowns.anrs_by_os,
-                        )} infoText={ANALYTICS_CHART_DEFS.anrs} />
+                        <BreakdownCard title="ANRs by version" chart="bar" items={android.breakdowns.anrs_by_version} infoText={ANALYTICS_CHART_DEFS.anrs} />
+                        <BreakdownCard title="ANRs by device" chart="bar" items={android.breakdowns.anrs_by_device} infoText={ANALYTICS_CHART_DEFS.anrs} />
+                        <BreakdownCard title="ANRs by OS version" chart="column" items={android.breakdowns.anrs_by_os} infoText={ANALYTICS_CHART_DEFS.anrs} />
                     </>
                 )}
             </div>

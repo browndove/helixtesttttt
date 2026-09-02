@@ -222,6 +222,22 @@
   max-width: none !important;
 }
 
+/* Without a docked section sidebar the content runs flush to the window, so the
+   downloads shell supplies its own gutters instead of the shared 16px. */
+@media (min-width: 640px) {
+  .internal-downloads-shell {
+    padding-left: 24px;
+    padding-right: 24px;
+  }
+}
+
+@media (min-width: 1280px) {
+  .internal-downloads-shell {
+    padding-left: 40px;
+    padding-right: 40px;
+  }
+}
+
 /* Downloads overview: compact sidebar, natural height */
 /* Downloads overview: full-width stack, no empty sidebar hole */
 .downloads-overview-stack {

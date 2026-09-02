@@ -47,11 +47,11 @@ const IOS_METRICS: MetricDef[] = [
     { id: 'total_downloads', label: 'Total Downloads', kind: 'count', group: 'Downloads', dailyKey: 'total_downloads', info: storeMetricInfo(ASC_METRIC_DEFS.total_downloads, PLAY_METRIC_DEFS.device_acquisition), total: (s) => s.total_downloads, breakdown: (s) => s.breakdowns.sources },
     { id: 'first_time', label: 'First Time Downloads', kind: 'count', group: 'Downloads', dailyKey: 'first_time_downloads', info: storeMetricInfo(ASC_METRIC_DEFS.first_time_downloads, PLAY_METRIC_DEFS.device_acquisition), total: (s) => s.first_time_downloads, breakdown: (s) => s.breakdowns.sources },
     { id: 'redownloads', label: 'Redownloads', kind: 'count', group: 'Downloads', dailyKey: 'redownloads', info: storeMetricInfo(ASC_METRIC_DEFS.redownloads), total: (s) => s.redownloads },
-    { id: 'active', label: 'Active Devices', kind: 'count', group: 'Usage', dailyKey: 'active_devices', info: storeMetricInfo(ASC_METRIC_DEFS.active_devices, PLAY_METRIC_DEFS.install_base), total: (s) => s.active_devices, breakdown: (s) => s.breakdowns.devices },
+    { id: 'active', label: 'Active Devices', kind: 'count', group: 'Usage', dailyKey: 'active_devices', info: storeMetricInfo(ASC_METRIC_DEFS.active_devices, PLAY_METRIC_DEFS.install_base) + '\n\n' + ANALYTICS_CHART_DEFS.active_devices_window, total: (s) => s.active_devices, breakdown: (s) => s.breakdowns.devices },
     { id: 'sessions', label: 'Sessions', kind: 'count', group: 'Usage', dailyKey: 'sessions', info: storeMetricInfo(ASC_METRIC_DEFS.sessions), total: (s) => s.sessions, breakdown: (s) => s.breakdowns.versions },
     { id: 'installs', label: 'Installations', kind: 'count', group: 'Usage', dailyKey: 'installations', info: storeMetricInfo(ASC_METRIC_DEFS.installations, PLAY_METRIC_DEFS.device_acquisition), total: (s) => s.installations },
     { id: 'crashes', label: 'Crashes', kind: 'count', group: 'Usage', dailyKey: 'crashes', info: storeMetricInfo(ASC_METRIC_DEFS.crashes, PLAY_METRIC_DEFS.crashes), total: (s) => s.crashes, breakdown: (s) => s.breakdowns.crashes_by_version },
-    { id: 'active_30', label: 'Active in Last 30 Days', kind: 'count', group: 'Usage', info: storeMetricInfo(ASC_METRIC_DEFS.active_last_30_days, PLAY_METRIC_DEFS.install_base), total: (s) => s.active_last_30_days },
+    { id: 'active_30', label: 'Active in Last 30 Days', kind: 'count', group: 'Usage', info: storeMetricInfo(ASC_METRIC_DEFS.active_last_30_days, PLAY_METRIC_DEFS.install_base) + '\n\n' + ANALYTICS_CHART_DEFS.active_devices_window, total: (s) => s.active_last_30_days },
     { id: 'deletions', label: 'Deletions', kind: 'count', group: 'Usage', dailyKey: 'deletions', info: storeMetricInfo(ASC_METRIC_DEFS.deletions, PLAY_METRIC_DEFS.device_loss), total: (s) => s.deletions },
 ];
 
@@ -135,7 +135,7 @@ const COMBINED_METRICS: {
         kind: 'count',
         iosKey: 'active_devices',
         androidKey: 'active_devices',
-        info: storeMetricInfo(ASC_METRIC_DEFS.active_devices, PLAY_METRIC_DEFS.install_base),
+        info: storeMetricInfo(ASC_METRIC_DEFS.active_devices, PLAY_METRIC_DEFS.install_base) + '\n\n' + ANALYTICS_CHART_DEFS.active_devices_window,
         total: (ios, android) => ios.active_devices + android.active_devices,
         iosTotal: (ios) => ios.active_devices,
         androidTotal: (android) => android.active_devices,
@@ -186,11 +186,15 @@ const ANDROID_DIMS: { id: string; label: string; pick: (s: ReturnType<typeof res
     { id: 'traffic', label: 'Traffic source', pick: (s) => s.breakdowns.sources },
 ];
 
-function conversionDaily(daily: StoreDailyPoint[]) {
+function rateDaily(
+    daily: StoreDailyPoint[],
+    numerator: keyof StoreDailyPoint,
+    denominator: keyof StoreDailyPoint,
+) {
     return daily.map((row) => {
-        const unique = Number(row.unique_impressions) || 0;
-        const downloads = Number(row.total_downloads) || 0;
-        const rate = unique > 0 ? Math.round((downloads / unique) * 1000) / 10 : 0;
+        const base = Number(row[denominator]) || 0;
+        const value = Number(row[numerator]) || 0;
+        const rate = base > 0 ? Math.round((value / base) * 1000) / 10 : 0;
         return { day: row.day, total_messages: rate, critical_messages: rate, standard_messages: rate };
     });
 }
@@ -248,7 +252,11 @@ export default function DownloadsMetricsPage({
                 combinedMetric.androidKey || 'device_installs',
             );
         }
-        if (metric.id === 'conversion' && platform === 'ios') return conversionDaily(store.daily);
+        if (metric.id === 'conversion') {
+            return platform === 'android'
+                ? rateDaily(store.daily, 'listing_acquisitions', 'listing_visitors')
+                : rateDaily(store.daily, 'total_downloads', 'unique_impressions');
+        }
         if (metric.dailyKey) return dailyToChart(store.daily, metric.dailyKey);
         if (metric.id === 'active_30') return dailyToChart(store.daily, 'active_devices');
         return [];
@@ -421,14 +429,15 @@ export default function DownloadsMetricsPage({
                     dailyVolume={compareSeries}
                     title="iOS vs Android installs"
                     infoText={storeMetricInfo(ASC_METRIC_DEFS.first_time_downloads, PLAY_METRIC_DEFS.device_acquisition)}
-                    seriesName="Installs"
+                    seriesName="Android"
+                    secondarySeriesName="iOS"
                     hidePeriodSelector
                 />
             </div>
 
             <div className="dashboard-two-col">
                 <BreakdownCard
-                    title="Crashes by version"
+                    title={platform === 'ios' ? 'Crashes by version' : 'Crashes and ANRs by version'}
                     subtitle="iOS opt-in crashes plus Play vitals"
                     infoText={ANALYTICS_CHART_DEFS.crashes}
                     chart="treemap"
@@ -441,19 +450,21 @@ export default function DownloadsMetricsPage({
                 />
                 <BreakdownCard
                     title="Traffic source"
+                    subtitle="Share of store traffic"
                     items={sourceItems}
                     emptyText="No source breakdown in this window."
                     infoText={ANALYTICS_CHART_DEFS.sources}
-                    chart="polar"
+                    chart="donut"
                 />
             </div>
 
             <RevenueChart
                 isFullscreen={false}
                 dailyVolume={crashSeries}
-                title="Crashes over time"
+                title="iOS vs Android crashes over time"
                 infoText={storeMetricInfo(ASC_METRIC_DEFS.crashes, PLAY_METRIC_DEFS.crashes)}
-                seriesName="Crashes"
+                seriesName="Android"
+                secondarySeriesName="iOS"
                 hidePeriodSelector
             />
         </div>

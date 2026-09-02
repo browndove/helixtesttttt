@@ -437,7 +437,7 @@ function sumDaily(daily: StoreDailyPoint[], key: keyof StoreDailyPoint): number 
     return daily.reduce((sum, row) => sum + (Number(row[key]) || 0), 0);
 }
 
-/** Latest non-zero value in the window. Use for snapshot metrics (Play active device installs, etc.). */
+/** Latest non-zero value in the window. Use for stock metrics (Play active device installs, etc.). */
 function latestDaily(daily: StoreDailyPoint[], key: keyof StoreDailyPoint): number {
     for (let i = daily.length - 1; i >= 0; i -= 1) {
         const value = Number(daily[i][key]) || 0;
@@ -446,7 +446,17 @@ function latestDaily(daily: StoreDailyPoint[], key: keyof StoreDailyPoint): numb
     return 0;
 }
 
-function sliceStoreToRange(store: StoreAnalytics, from: string, to: string): StoreAnalytics {
+/** Busiest single day in the window. Use for metrics that count unique devices per day. */
+function peakDaily(daily: StoreDailyPoint[], key: keyof StoreDailyPoint): number {
+    return daily.reduce((peak, row) => Math.max(peak, Number(row[key]) || 0), 0);
+}
+
+function sliceStoreToRange(
+    store: StoreAnalytics,
+    from: string,
+    to: string,
+    platform: 'ios' | 'android',
+): StoreAnalytics {
     const range = normalizeRange(from, to);
     const daily = store.daily.filter((row) => row.day >= range.from && row.day <= range.to);
     const first_time_downloads = sumDaily(daily, 'first_time_downloads') || sumDaily(daily, 'user_installs') || sumDaily(daily, 'device_installs');
@@ -467,6 +477,9 @@ function sliceStoreToRange(store: StoreAnalytics, from: string, to: string): Sto
     const installations = sumDaily(daily, 'installations') || device_installs;
     const device_uninstalls = sumDaily(daily, 'device_uninstalls') || sumDaily(daily, 'user_uninstalls') || sumDaily(daily, 'deletions');
     const deletions = sumDaily(daily, 'deletions') || device_uninstalls;
+    const activeDevices = platform === 'android'
+        ? latestDaily(daily, 'active_devices')
+        : peakDaily(daily, 'active_devices');
     // Dimension breakdowns are period totals from the fetch window, not day-sliced.
     // Keep them only when the filter still covers the full loaded series; otherwise
     // hide them so a single-day Android view doesn't keep 90-day mix charts.
@@ -484,14 +497,21 @@ function sliceStoreToRange(store: StoreAnalytics, from: string, to: string): Sto
         unique_impressions,
         page_views,
         unique_page_views,
+        // App Store conversion is downloads per unique impression; Play has no impression
+        // equivalent, so fall back to its store listing conversion.
         conversion_percent: unique_impressions > 0
             ? Math.round((total_downloads / unique_impressions) * 1000) / 10
-            : 0,
+            : listing_visitors > 0
+                ? Math.round((listing_acquisitions / listing_visitors) * 1000) / 10
+                : 0,
         sessions,
-        // Snapshot-style metrics: use the selected window only — never fall back to the
-        // unfiltered store totals (that made single-day Android filters look unchanged).
-        active_devices: latestDaily(daily, 'active_devices'),
-        active_last_30_days: latestDaily(daily, 'active_devices'),
+        // Never fall back to the unfiltered store totals here (that made single-day
+        // Android filters look unchanged). Play active device installs are a stock
+        // figure, so the latest day in the range is the current install base. App Store
+        // active devices are per-day unique devices, which cannot be summed across days,
+        // so a multi-day range reports its busiest day.
+        active_devices: activeDevices,
+        active_last_30_days: activeDevices,
         installations,
         deletions,
         crashes,
@@ -544,8 +564,8 @@ export function filterDownloadAnalyticsByRange(
     const totalDownloads = slice.reduce((s, r) => s + r.downloads, 0);
     const totalInstalls = slice.reduce((s, r) => s + r.installs, 0);
     const totalPlay = slice.reduce((s, r) => s + (r.play_installs ?? 0), 0);
-    const ios_store = data.ios_store ? sliceStoreToRange(data.ios_store, range.from, range.to) : data.ios_store;
-    const android_store = data.android_store ? sliceStoreToRange(data.android_store, range.from, range.to) : data.android_store;
+    const ios_store = data.ios_store ? sliceStoreToRange(data.ios_store, range.from, range.to, 'ios') : data.ios_store;
+    const android_store = data.android_store ? sliceStoreToRange(data.android_store, range.from, range.to, 'android') : data.android_store;
     return {
         ...data,
         window_days: inclusiveDayCount(range.from, range.to),

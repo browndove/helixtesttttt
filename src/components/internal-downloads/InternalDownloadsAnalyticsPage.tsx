@@ -2,18 +2,13 @@
 
 import { useState, lazy, Suspense, useEffect, useMemo } from 'react';
 import InternalAdminShell from '@/components/InternalAdminShell';
-import InternalDownloadsSidebar, {
-    DownloadsSidebarProvider,
-    type DownloadsDashboardTab,
-} from '@/components/internal-downloads/InternalDownloadsSidebar';
 import { filterDownloadAnalyticsByRange, downloadAnalyticsAllTimeRange, type DownloadAnalyticsData } from '@/lib/download-analytics-mock';
-import { type PlatformFilterValue } from '@/components/internal-downloads/PlatformFilter';
-import { DownloadsMobileTabs } from '@/components/internal-downloads/DownloadsWidgets';
+import DownloadsComingSoon from '@/components/internal-downloads/DownloadsComingSoon';
 
-const DownloadsOverviewPage = lazy(() => import('@/components/internal-downloads/DownloadsOverviewPage'));
-const DownloadsAcquisitionPage = lazy(() => import('@/components/internal-downloads/DownloadsAcquisitionPage'));
-const DownloadsRetentionPage = lazy(() => import('@/components/internal-downloads/DownloadsRetentionPage'));
-const DownloadsMetricsPage = lazy(() => import('@/components/internal-downloads/DownloadsMetricsPage'));
+/** Flip to true to serve the live dashboard instead of the placeholder. */
+const DOWNLOADS_ANALYTICS_ENABLED: boolean = true;
+
+const DownloadsSinglePage = lazy(() => import('@/components/internal-downloads/DownloadsSinglePage'));
 
 function PageSkeleton() {
     return (
@@ -52,8 +47,6 @@ function PageSkeleton() {
 const FETCH_DAYS = 400;
 
 function InternalDownloadsAnalyticsContent() {
-    const [activeTab, setActiveTab] = useState<DownloadsDashboardTab>('overview');
-    const [platform, setPlatform] = useState<PlatformFilterValue>('all');
     const [dateFrom, setDateFrom] = useState('');
     const [dateTo, setDateTo] = useState('');
     const [downloadData, setDownloadData] = useState<DownloadAnalyticsData | null>(null);
@@ -108,8 +101,6 @@ function InternalDownloadsAnalyticsContent() {
 
     const pageProps = filteredData ? {
         data: filteredData,
-        platform,
-        onPlatformChange: setPlatform,
         dateFrom,
         dateTo,
         allTimeFrom: allTimeRange.from,
@@ -125,10 +116,8 @@ function InternalDownloadsAnalyticsContent() {
 
     return (
         <div className="internal-downloads-layout">
-            <InternalDownloadsSidebar activeTab={activeTab} onTabChange={setActiveTab} />
             <div className="usage-dashboard-shell internal-downloads-shell">
                 <div className="usage-inner">
-                    <DownloadsMobileTabs activeTab={activeTab} onTabChange={setActiveTab} />
                     {loading && <PageSkeleton />}
                     {!loading && (error || !downloadData || !pageProps) && (
                         <div className="rounded-xl border border-red-300 bg-red-50 p-4 text-red-700">
@@ -141,10 +130,7 @@ function InternalDownloadsAnalyticsContent() {
                     )}
                     {!loading && pageProps && (
                         <Suspense fallback={<PageSkeleton />}>
-                            {activeTab === 'overview' && <DownloadsOverviewPage {...pageProps} />}
-                            {activeTab === 'acquisition' && <DownloadsAcquisitionPage {...pageProps} />}
-                            {activeTab === 'retention' && <DownloadsRetentionPage {...pageProps} />}
-                            {activeTab === 'metrics' && <DownloadsMetricsPage {...pageProps} />}
+                            <DownloadsSinglePage {...pageProps} />
                         </Suspense>
                     )}
                 </div>
@@ -156,9 +142,7 @@ function InternalDownloadsAnalyticsContent() {
 export default function InternalDownloadsAnalyticsPage() {
     return (
         <InternalAdminShell>
-            <DownloadsSidebarProvider>
-                <InternalDownloadsAnalyticsContent />
-            </DownloadsSidebarProvider>
+            {DOWNLOADS_ANALYTICS_ENABLED ? <InternalDownloadsAnalyticsContent /> : <DownloadsComingSoon />}
         </InternalAdminShell>
     );
 }

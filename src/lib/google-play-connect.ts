@@ -551,11 +551,13 @@ function parseStorePerformanceCsv(text: string, cutoff: string): {
             existing.acquisitions += acquisitions;
             byDay.set(day, existing);
         }
-        if (countryIdx >= 0) byCountry.push({ name: normalizePlayCountry(cols[countryIdx] || ''), count: acquisitions || visitors });
-        if (sourceIdx >= 0) bySource.push({ name: cols[sourceIdx]?.trim() || '', count: visitors || acquisitions });
-        if (termIdx >= 0) searchTerms.push({ name: cols[termIdx]?.trim() || '', count: visitors || acquisitions });
-        if (utmSourceIdx >= 0) utmSources.push({ name: cols[utmSourceIdx]?.trim() || '', count: visitors || acquisitions });
-        if (utmCampaignIdx >= 0) utmCampaigns.push({ name: cols[utmCampaignIdx]?.trim() || '', count: visitors || acquisitions });
+        // Each breakdown reports exactly one metric. Falling back to the other
+        // column would silently relabel a visitors chart as acquisitions.
+        if (countryIdx >= 0) byCountry.push({ name: normalizePlayCountry(cols[countryIdx] || ''), count: acquisitions });
+        if (sourceIdx >= 0) bySource.push({ name: cols[sourceIdx]?.trim() || '', count: visitors });
+        if (termIdx >= 0) searchTerms.push({ name: cols[termIdx]?.trim() || '', count: visitors });
+        if (utmSourceIdx >= 0) utmSources.push({ name: cols[utmSourceIdx]?.trim() || '', count: visitors });
+        if (utmCampaignIdx >= 0) utmCampaigns.push({ name: cols[utmCampaignIdx]?.trim() || '', count: visitors });
     }
     return { byDay, byCountry, bySource, searchTerms, utmSources, utmCampaigns };
 }
@@ -590,6 +592,8 @@ async function fetchPlayStoreAnalytics(windowDays: number): Promise<StoreAnalyti
     const anrsByDevice: Array<{ name: string; count: number }> = [];
     const anrsByOs: Array<{ name: string; count: number }> = [];
     const devices: Array<{ name: string; count: number }> = [];
+    const installsByCountry: Array<{ name: string; count: number }> = [];
+    const acquisitionsByCountry: Array<{ name: string; count: number }> = [];
     const versions: Array<{ name: string; count: number }> = [];
     const osVersions: Array<{ name: string; count: number }> = [];
     const languages: Array<{ name: string; count: number }> = [];
@@ -711,6 +715,18 @@ async function fetchPlayStoreAnalytics(windowDays: number): Promise<StoreAnalyti
             }
         }
 
+        const countryInstalls = await downloadPlayCsv(
+            token,
+            config.bucket,
+            `${config.installsPrefix}/installs_${config.packageName}_${month}_country.csv`,
+        );
+        if (countryInstalls) {
+            for (const row of parseCountryInstallReportCsv(countryInstalls)) {
+                if (row.day < cutoff) continue;
+                installsByCountry.push({ name: row.country, count: row.installs });
+            }
+        }
+
         const countryPerf = await downloadPlayCsv(
             token,
             config.bucket,
@@ -726,10 +742,7 @@ async function fetchPlayStoreAnalytics(windowDays: number): Promise<StoreAnalyti
                 store.listing_visitors += vals.visitors;
                 store.listing_acquisitions += vals.acquisitions;
             }
-            store.breakdowns.territories = toNamedMap([
-                ...store.breakdowns.territories.map((r) => ({ name: r.name, count: r.count })),
-                ...parsed.byCountry,
-            ]);
+            acquisitionsByCountry.push(...parsed.byCountry);
         }
 
         const sourcePerf = await downloadPlayCsv(
@@ -764,7 +777,7 @@ async function fetchPlayStoreAnalytics(windowDays: number): Promise<StoreAnalyti
     store.active_last_30_days = store.active_devices;
     store.data_through = store.daily.at(-1)?.day;
     store.total_downloads = store.user_installs || store.device_installs;
-    store.first_time_downloads = store.user_installs;
+    store.first_time_downloads = store.user_installs || store.device_installs;
     store.installations = store.device_installs;
     store.deletions = store.device_uninstalls || store.user_uninstalls;
     store.updates = store.upgrades;
@@ -773,6 +786,12 @@ async function fetchPlayStoreAnalytics(windowDays: number): Promise<StoreAnalyti
         store.conversion_percent = store.listing_conversion_percent;
     }
     store.breakdowns.devices = toNamedMap(devices);
+    // Installs by country is the Play counterpart to App Store downloads by territory.
+    // Store listing acquisitions only cover users without the app on any device, so it
+    // is a fallback for when the installs country report is missing.
+    store.breakdowns.territories = toNamedMap(
+        installsByCountry.length > 0 ? installsByCountry : acquisitionsByCountry,
+    );
     store.breakdowns.versions = toNamedMap(versions.map((row) => ({
         name: /^\d+$/.test(row.name) ? `Build ${row.name}` : row.name,
         count: row.count,
@@ -1242,16 +1261,24 @@ export async function mergeGooglePlayInstalls(
         }
 
         if (androidStore) {
+            // rating_count stays 0: Play bulk ratings reports expose averages only, and the
+            // Reviews API returns at most a page of written reviews, not the ratings volume.
             androidStore.avg_rating = androidRating || androidStore.avg_rating;
-            androidStore.rating_count = androidReviews.length || androidStore.rating_count;
             if (androidStore.active_devices === 0 && androidActive > 0) {
                 androidStore.active_devices = androidActive;
+                androidStore.active_last_30_days = androidActive;
             }
             if (androidStore.device_installs === 0 && playByDay.size > 0) {
                 androidStore.device_installs = [...playByDay.values()].reduce((sum, n) => sum + n, 0);
                 androidStore.installations = androidStore.device_installs;
                 androidStore.total_downloads = androidStore.device_installs;
+                androidStore.first_time_downloads = androidStore.user_installs || androidStore.device_installs;
             }
+            // Recompute after the backfills so a store rebuilt from the daily install
+            // report is not still flagged as waiting on Play.
+            androidStore.reports_pending = androidStore.device_installs === 0
+                && androidStore.listing_visitors === 0
+                && androidStore.crashes === 0;
             merged = { ...merged, android_store: androidStore };
         }
 

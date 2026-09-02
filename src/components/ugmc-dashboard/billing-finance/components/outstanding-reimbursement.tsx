@@ -189,7 +189,7 @@ const OutstandingReimbursement: React.FC<{
                 <>
                     <div className="flex flex-col gap-[15px]">
                         {chartRows.map((row, index) => (
-                            <div key={row.name} className="flex items-center gap-[10px]">
+                            <div key={`${row.name}-${index}`} className="flex items-center gap-[10px]">
                                 <Text variant="body-sm" color="text-secondary" className="w-[120px] shrink-0 truncate" title={row.name}>{row.name}</Text>
                                 <div className="flex h-[30px] flex-1 overflow-hidden rounded-[5px] bg-secondary/40">
                                     <div className={`h-full shrink-0 rounded-l-[5px] transition-all duration-100 ${primaryColor}`} style={{ width: `${animatedBars[index]?.primary || 0}%` }} />

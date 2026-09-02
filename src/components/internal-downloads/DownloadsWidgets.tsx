@@ -84,6 +84,36 @@ export function mergeNamedCounts(...lists: NamedCount[][]): NamedCount[] {
         .map(([name, count]) => ({ name, count: Math.round(count) }));
 }
 
+const ANDROID_API_RELEASE: Record<number, string> = {
+    36: '16', 35: '15', 34: '14', 33: '13', 32: '12L', 31: '12',
+    30: '11', 29: '10', 28: '9', 27: '8.1', 26: '8.0', 25: '7.1',
+    24: '7.0', 23: '6.0', 22: '5.1', 21: '5.0',
+};
+
+/** Play reports Android OS as a bare API level; turn it into a release number. */
+export function labelPlayOsVersion(name: string): string {
+    const trimmed = name.trim();
+    if (trimmed === '0') return 'Unknown';
+    const api = Number.parseInt(trimmed, 10);
+    if (!Number.isFinite(api) || String(api) !== trimmed) return name;
+    const release = ANDROID_API_RELEASE[api];
+    return release ? `Android ${release}` : `API ${api}`;
+}
+
+/** Play reports device language as a locale tag; render the English display name. */
+export function labelPlayLanguage(name: string): string {
+    const trimmed = name.trim().replace(/-/g, '_');
+    if (!trimmed) return name;
+    try {
+        const [lang, region] = trimmed.split('_');
+        const display = new Intl.DisplayNames(['en'], { type: 'language' }).of(lang);
+        if (!display) return name;
+        return region ? `${display} (${region})` : display;
+    } catch {
+        return name;
+    }
+}
+
 export function blendedPercent(parts: { rate: number; weight: number }[]): number {
     const usable = parts.filter((part) => part.rate > 0 && part.weight > 0);
     const weight = usable.reduce((sum, part) => sum + part.weight, 0);
@@ -702,9 +732,11 @@ export function ShareMixCard({
     const [fullscreen, setFullscreen] = useState(false);
     const total = totalCount(items);
     const top = items.slice(0, previewCount);
-    const restCount = totalCount(items.slice(previewCount));
-    const slices = restCount > 0 ? [...top, { name: 'Other', count: restCount }] : top;
+    const rest = items.slice(previewCount);
+    const restCount = totalCount(rest);
     const hiddenCount = Math.max(0, items.length - previewCount);
+    // Label the rollup bucket distinctly: stores can return a real category named "Other".
+    const slices = restCount > 0 ? [...top, { name: `Other (${rest.length} more)`, count: restCount }] : top;
     const gradient = slices.length === 0 || total <= 0
         ? 'var(--bg-secondary, #eef2f5)'
         : (() => {
@@ -739,7 +771,7 @@ export function ShareMixCard({
                         </div>
                         <div className="downloads-share-mix__legend">
                             {(expanded ? items : slices).map((item, index) => (
-                                <div key={item.name} className="downloads-share-mix__row">
+                                <div key={`${item.name}-${index}`} className="downloads-share-mix__row">
                                     <i style={{ background: SHARE_COLORS[index % SHARE_COLORS.length] }} />
                                     <span className="downloads-share-mix__name" title={item.name}>{item.name}</span>
                                     <strong>{shareOf(item.count, total).toFixed(0)}%</strong>
@@ -843,6 +875,7 @@ export function DownloadsKpiCard({
     infoText,
     iosValue,
     androidValue,
+    figureNote,
 }: {
     icon: ReactNode;
     iconBgColor: string;
@@ -851,12 +884,18 @@ export function DownloadsKpiCard({
     infoText?: string;
     iosValue: string;
     androidValue: string;
+    /** How the headline number is built from the two stores, for the (i) tooltip. */
+    figureNote?: string;
 }) {
+    const tooltipText = [
+        infoText,
+        `This figure\n${[`${label}: ${value} — iOS ${iosValue}, Android ${androidValue}.`, figureNote?.trim()].filter(Boolean).join(' ')}`,
+    ].filter(Boolean).join('\n\n');
     return (
         <div className="downloads-kpi-card">
             <div className="downloads-kpi-card__head">
                 <div className={clsx('downloads-kpi-card__icon', iconBgColor)}>{icon}</div>
-                {infoText && <InfoTooltip text={infoText} />}
+                <InfoTooltip text={tooltipText} />
             </div>
             <div className="downloads-kpi-card__main">
                 <span className="downloads-kpi-card__label">{label}</span>

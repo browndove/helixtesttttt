@@ -24,37 +24,11 @@ import {
     mergeNamedCounts,
     resolveStores,
     dataFreshnessText,
+    labelPlayOsVersion,
+    labelPlayLanguage,
 } from '@/components/internal-downloads/DownloadsWidgets';
 import { FaDownload, FaEye, FaPercent } from 'react-icons/fa6';
 import { ANALYTICS_CHART_DEFS, ASC_METRIC_DEFS, PLAY_METRIC_DEFS, storeMetricInfo } from '@/lib/app-store-metric-defs';
-
-const ANDROID_API_RELEASE: Record<number, string> = {
-    36: '16', 35: '15', 34: '14', 33: '13', 32: '12L', 31: '12',
-    30: '11', 29: '10', 28: '9', 27: '8.1', 26: '8.0', 25: '7.1',
-    24: '7.0', 23: '6.0', 22: '5.1', 21: '5.0',
-};
-
-function labelPlayOsVersion(name: string): string {
-    const trimmed = name.trim();
-    if (trimmed === '0') return 'Unknown';
-    const api = Number.parseInt(trimmed, 10);
-    if (!Number.isFinite(api) || String(api) !== trimmed) return name;
-    const release = ANDROID_API_RELEASE[api];
-    return release ? `Android ${release}` : `API ${api}`;
-}
-
-function labelPlayLanguage(name: string): string {
-    const trimmed = name.trim().replace(/-/g, '_');
-    if (!trimmed) return name;
-    try {
-        const [lang, region] = trimmed.split('_');
-        const display = new Intl.DisplayNames(['en'], { type: 'language' }).of(lang);
-        if (!display) return name;
-        return region ? `${display} (${region})` : display;
-    } catch {
-        return name;
-    }
-}
 
 export default function DownloadsAcquisitionPage({
     data,
@@ -238,7 +212,8 @@ export default function DownloadsAcquisitionPage({
                     dailyVolume={funnel}
                     title={platform === 'ios' ? 'Impressions and Product Page Views' : platform === 'android' ? 'Listing visitors and acquisitions' : 'iOS impressions vs Play visitors'}
                     infoText={storeMetricInfo(ASC_METRIC_DEFS.impressions, PLAY_METRIC_DEFS.listing_visitors)}
-                    seriesName={platform === 'android' ? 'Visitors' : platform === 'ios' ? 'Impressions' : 'iOS + Android'}
+                    seriesName={platform === 'android' ? 'Visitors' : platform === 'ios' ? 'Impressions' : 'Play visitors'}
+                    secondarySeriesName={platform === 'android' ? 'Acquisitions' : platform === 'ios' ? 'Product Page Views' : 'iOS impressions'}
                     hidePeriodSelector
                 />
                 <DailyPatientFlow
@@ -268,7 +243,7 @@ export default function DownloadsAcquisitionPage({
                 />
                 <BreakdownCard
                     title="Territory"
-                    subtitle="Where people discover the app"
+                    subtitle={platform === 'android' ? 'Play installs by country' : platform === 'ios' ? 'App Store downloads by territory' : 'Installs by country or territory'}
                     items={territories}
                     infoText={ANALYTICS_CHART_DEFS.territories}
                     chart="bar"
@@ -323,6 +298,24 @@ export default function DownloadsAcquisitionPage({
                 <>
                     <div className="dashboard-two-col">
                         <BreakdownCard
+                            title="UTM source"
+                            subtitle="Play listing visitors by tagged link"
+                            items={android.breakdowns.utm_sources}
+                            emptyText="No UTM-tagged traffic in this window."
+                            infoText={ANALYTICS_CHART_DEFS.sources}
+                            chart="bar"
+                        />
+                        <BreakdownCard
+                            title="UTM campaign"
+                            subtitle="Play listing visitors by campaign tag"
+                            items={android.breakdowns.utm_campaigns}
+                            emptyText="No UTM-tagged campaigns in this window."
+                            infoText={ANALYTICS_CHART_DEFS.campaigns}
+                            chart="column"
+                        />
+                    </div>
+                    <div className="dashboard-two-col">
+                        <BreakdownCard
                             title="App version"
                             subtitle="Play installs by Android build"
                             items={android.breakdowns.versions}
@@ -369,6 +362,7 @@ export default function DownloadsAcquisitionPage({
                 <div className="dashboard-two-col">
                     <ShareMixCard
                         title="Page type"
+                        subtitle="Share of Product Page Views"
                         items={ios.breakdowns.page_types}
                         infoText={ANALYTICS_CHART_DEFS.page_types}
                     />
