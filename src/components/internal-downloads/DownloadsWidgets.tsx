@@ -49,15 +49,58 @@ export function dailyToChart(
     }));
 }
 
+export type ChartDayPoint = {
+    day: string;
+    total_messages: number;
+    critical_messages: number;
+    standard_messages: number;
+};
+
+/** Inclusive UTC calendar days from `from` through `to` as YYYY-MM-DD. */
+export function eachUtcDay(from: string, to: string): string[] {
+    if (!from || !to) return [];
+    const start = from <= to ? from : to;
+    const end = from <= to ? to : from;
+    const days: string[] = [];
+    const cursor = new Date(`${start}T00:00:00Z`);
+    const last = new Date(`${end}T00:00:00Z`);
+    if (!Number.isFinite(cursor.getTime()) || !Number.isFinite(last.getTime())) return [];
+    while (cursor <= last) {
+        days.push(cursor.toISOString().slice(0, 10));
+        cursor.setUTCDate(cursor.getUTCDate() + 1);
+    }
+    return days;
+}
+
+/** Fill missing calendar days with zeros so a 7-day window always has 7 points. */
+export function fillDailyChartRange(
+    series: ChartDayPoint[],
+    from: string,
+    to: string,
+): ChartDayPoint[] {
+    const days = eachUtcDay(from, to);
+    if (days.length === 0) return series;
+    const byDay = new Map(series.map((row) => [row.day, row]));
+    return days.map((day) => byDay.get(day) || {
+        day,
+        total_messages: 0,
+        critical_messages: 0,
+        standard_messages: 0,
+    });
+}
+
 export function mergeDailySeries(
     iosDaily: StoreDailyPoint[],
     androidDaily: StoreDailyPoint[],
     iosKey: keyof StoreDailyPoint,
     androidKey: keyof StoreDailyPoint,
+    range?: { from: string; to: string },
 ) {
     const iosMap = new Map(iosDaily.map((row) => [row.day, row]));
     const androidMap = new Map(androidDaily.map((row) => [row.day, row]));
-    const days = [...new Set([...iosMap.keys(), ...androidMap.keys()])].sort();
+    const days = range?.from && range?.to
+        ? eachUtcDay(range.from, range.to)
+        : [...new Set([...iosMap.keys(), ...androidMap.keys()])].sort();
     return days.map((day) => {
         const iosVal = Number(iosMap.get(day)?.[iosKey]) || 0;
         const androidVal = Number(androidMap.get(day)?.[androidKey]) || 0;

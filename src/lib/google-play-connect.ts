@@ -2,7 +2,8 @@ import { readFileSync, readdirSync, existsSync } from 'fs';
 import { join, resolve } from 'path';
 import { importPKCS8, SignJWT } from 'jose';
 import type { DownloadAnalyticsData, NamedCount, StoreAnalytics } from '@/lib/download-analytics-mock';
-import { emptyDailyPoint, emptyStoreAnalytics } from '@/lib/download-analytics-mock';
+import { emptyDailyPoint, emptyStoreAnalytics, regionsFromStoreTerritories } from '@/lib/download-analytics-mock';
+import { normalizeCountryCode } from '@/lib/country-names';
 
 const GCS_SCOPE = 'https://www.googleapis.com/auth/devstorage.read_only';
 const ANDROID_PUBLISHER_SCOPE = 'https://www.googleapis.com/auth/androidpublisher';
@@ -593,6 +594,7 @@ async function fetchPlayStoreAnalytics(windowDays: number): Promise<StoreAnalyti
     const anrsByOs: Array<{ name: string; count: number }> = [];
     const devices: Array<{ name: string; count: number }> = [];
     const installsByCountry: Array<{ name: string; count: number }> = [];
+    const territoryDaily: Array<{ day: string; name: string; count: number }> = [];
     const acquisitionsByCountry: Array<{ name: string; count: number }> = [];
     const versions: Array<{ name: string; count: number }> = [];
     const osVersions: Array<{ name: string; count: number }> = [];
@@ -723,7 +725,11 @@ async function fetchPlayStoreAnalytics(windowDays: number): Promise<StoreAnalyti
         if (countryInstalls) {
             for (const row of parseCountryInstallReportCsv(countryInstalls)) {
                 if (row.day < cutoff) continue;
-                installsByCountry.push({ name: row.country, count: row.installs });
+                const country = normalizeCountryCode(row.country) || row.country;
+                installsByCountry.push({ name: country, count: row.installs });
+                if (row.installs > 0) {
+                    territoryDaily.push({ day: row.day, name: country, count: row.installs });
+                }
             }
         }
 
@@ -791,7 +797,9 @@ async function fetchPlayStoreAnalytics(windowDays: number): Promise<StoreAnalyti
     // is a fallback for when the installs country report is missing.
     store.breakdowns.territories = toNamedMap(
         installsByCountry.length > 0 ? installsByCountry : acquisitionsByCountry,
+        50,
     );
+    store.territory_daily = territoryDaily;
     store.breakdowns.versions = toNamedMap(versions.map((row) => ({
         name: /^\d+$/.test(row.name) ? `Build ${row.name}` : row.name,
         count: row.count,
@@ -849,13 +857,23 @@ function mergeRegionalAndroidInstalls(
 ): DownloadAnalyticsData {
     if (androidByRegion.size === 0) return analytics;
 
-    const regions = analytics.regions.map((region) => ({
-        ...region,
-        ios_installs: region.ios_installs ?? region.installs,
-        android_installs: androidByRegion.get(region.region) ?? 0,
-    }));
+    const normalizedAndroid = new Map<string, number>();
+    for (const [country, installs] of androidByRegion.entries()) {
+        const key = normalizeCountryCode(country) || country;
+        normalizedAndroid.set(key, (normalizedAndroid.get(key) || 0) + installs);
+    }
 
-    for (const [country, androidInstalls] of androidByRegion.entries()) {
+    const regions = analytics.regions.map((region) => {
+        const key = normalizeCountryCode(region.region) || region.region;
+        return {
+            ...region,
+            region: key,
+            ios_installs: region.ios_installs ?? region.installs,
+            android_installs: normalizedAndroid.get(key) ?? 0,
+        };
+    });
+
+    for (const [country, androidInstalls] of normalizedAndroid.entries()) {
         if (regions.some((region) => region.region === country)) continue;
         regions.push({
             region: country,
@@ -1280,6 +1298,13 @@ export async function mergeGooglePlayInstalls(
                 && androidStore.listing_visitors === 0
                 && androidStore.crashes === 0;
             merged = { ...merged, android_store: androidStore };
+        }
+
+        // Prefer store territory breakdowns (download/install only, normalized codes)
+        // over the older sales/region merge when either store has country data.
+        const fromStores = regionsFromStoreTerritories(merged.ios_store, merged.android_store);
+        if (fromStores.length > 0) {
+            merged = { ...merged, regions: fromStores };
         }
 
         return merged;

@@ -75,7 +75,7 @@ export const ANALYTICS_CHART_DEFS = {
     sources:
         'How people reached the listing. App Store Search, Browse, and referrers on iOS; Play Search, Explore, and referrals on Android.',
     territories:
-        'Country or region of the store visit or install. App Store uses territory; Play uses the device country.',
+        'Country of the install. iOS: first-time App Store downloads only (same as New installs — no redownloads or updates). Android: Play install events by device country.',
     devices:
         'Device family or model attributed to the visit, download, or crash.',
     referrers:
@@ -97,7 +97,7 @@ export const ANALYTICS_CHART_DEFS = {
     reviews:
         'Written reviews posted to the App Store and Google Play in the selected window. Star ratings without text are omitted.',
     regions:
-        'Installs by country. Split bars show iOS App Store territory versus Play country when both stores are selected.',
+        'Installs by country for the selected date range. iOS matches New installs (first-time downloads only). Android is Play install events. Split bars join on ISO country codes.',
     funnel:
         'Discovery to install. iOS: Impressions → Product Page Views → Total Downloads. Android: Store listing visitors → listing acquisitions → daily users. Daily users are unique Play users, not device installs.',
     play_attributes:

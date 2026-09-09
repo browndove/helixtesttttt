@@ -26,6 +26,8 @@
 AuthKey_*.p8
 eastern-entity-*.json
 play-reports/
+# bulk Apple Analytics report dumps (downloaded locally / on the server)
+.data/
 
 # debug
 npm-debug.log*

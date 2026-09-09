@@ -81,7 +81,12 @@ const RevenueChart = ({
         [volKey, periodDays, hidePeriodSelector, fixedPeriod],
     );
     const categories = sliced.map(d => {
-        const date = new Date(d.day);
+        // Parse YYYY-MM-DD as a local calendar date. `new Date('YYYY-MM-DD')` is UTC
+        // midnight and shifts the label back a day in US timezones.
+        const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(d.day);
+        const date = match
+            ? new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]))
+            : new Date(d.day);
         return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
     });
 

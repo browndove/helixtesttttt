@@ -216,7 +216,7 @@ export default function DownloadsOverviewPage({
                     <OutstandingReimbursement
                         title="Top regions"
                         subtitle={platformFilterLabel(platform)}
-                        badgeLabel={platform === 'ios' ? 'iOS' : platform === 'android' ? 'Android' : 'All'}
+                        badgeLabel={platform === 'ios' ? 'iOS' : platform === 'android' ? 'Android' : 'installs'}
                         platformItems={regions}
                         infoText={ANALYTICS_CHART_DEFS.regions}
                     />

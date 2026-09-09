@@ -75,6 +75,7 @@ export function dailyInstallRows(
 export function regionalPlatformRows(
     data: DownloadAnalyticsData,
     platform: PlatformFilterValue,
+    limit = 12,
 ) {
     return data.regions
         .map((region) => {
@@ -89,7 +90,7 @@ export function regionalPlatformRows(
         })
         .filter((row) => row.total > 0)
         .sort((a, b) => b.total - a.total)
-        .slice(0, 6);
+        .slice(0, limit);
 }
 
 export function platformFilterLabel(platform: PlatformFilterValue): string {

@@ -1,18 +1,32 @@
 import { gunzipSync } from 'zlib';
+import { mkdir, writeFile } from 'fs/promises';
+import path from 'path';
 import {
     emptyDailyPoint,
     emptyStoreAnalytics,
+    type AppleReportInventoryEntry,
     type NamedCount,
     type StoreAnalytics,
     type StoreDailyPoint,
 } from '@/lib/download-analytics-mock';
+import { normalizeCountryCode } from '@/lib/country-names';
 
 const API = 'https://api.appstoreconnect.apple.com/v1';
 const CACHE_TTL_MS = 60 * 60 * 1000;
 const MAX_INSTANCES_PER_REPORT = 90;
+/** Cap parallel Apple GETs so a full-catalog sync does not trip rate limits. */
+const REPORT_DOWNLOAD_CONCURRENCY = 6;
 
 type ReportRow = Record<string, string>;
 type ReportKind = 'discovery' | 'downloads' | 'sessions' | 'crashes' | 'installs' | 'installs_detailed' | 'optin' | 'retention' | 'other';
+type DownloadedReport = {
+    name: string;
+    category: string;
+    kind: ReportKind;
+    access: 'ongoing' | 'snapshot';
+    rows: ReportRow[];
+    instanceCount: number;
+};
 
 let storeCache: { key: string; at: number; data: StoreAnalytics } | null = null;
 
@@ -103,7 +117,60 @@ function classifyReport(name: string): ReportKind {
         return n.includes('DETAILED') ? 'installs_detailed' : 'installs';
     }
     if (n === 'APP OPT IN' || n.startsWith('APP OPT-IN') || n.startsWith('APP OPT IN ')) return 'optin';
+    if (n.includes('RETENTION')) return 'retention';
     return 'other';
+}
+
+/** Prefer Standard / plain App Crashes over Detailed / Expanded / Context twins. */
+function reportPriority(name: string): number {
+    const n = name.toUpperCase();
+    if (/\b(DETAILED|EXPANDED|CONTEXT)\b/.test(n)) return 2;
+    if (/\bSTANDARD\b/.test(n) || n === 'APP CRASHES') return 0;
+    return 1;
+}
+
+async function mapPool<T, R>(items: T[], concurrency: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+    if (items.length === 0) return [];
+    const results = new Array<R>(items.length);
+    let next = 0;
+    const workers = Array.from({ length: Math.min(concurrency, items.length) }, async () => {
+        while (next < items.length) {
+            const index = next;
+            next += 1;
+            results[index] = await fn(items[index]);
+        }
+    });
+    await Promise.all(workers);
+    return results;
+}
+
+function safeReportFileName(name: string): string {
+    return name.replace(/[^\w.-]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 120) || 'report';
+}
+
+async function persistDownloadedReport(
+    appAppleId: string,
+    access: 'ongoing' | 'snapshot',
+    name: string,
+    rows: ReportRow[],
+): Promise<void> {
+    if (rows.length === 0) return;
+    try {
+        const dir = path.join(process.cwd(), '.data', 'apple-analytics', appAppleId, access);
+        await mkdir(dir, { recursive: true });
+        await writeFile(
+            path.join(dir, `${safeReportFileName(name)}.json`),
+            JSON.stringify({
+                name,
+                access,
+                saved_at: new Date().toISOString(),
+                row_count: rows.length,
+                rows,
+            }),
+        );
+    } catch (err) {
+        console.warn('[apple-analytics-reports] persist failed:', name, err instanceof Error ? err.message : err);
+    }
 }
 
 function toNamed(map: Map<string, number>, limit = 12): NamedCount[] {
@@ -192,11 +259,12 @@ async function rowsForReport(
     reportId: string,
     cutoff: string,
     options?: { ignoreProcessingCutoff?: boolean },
-): Promise<ReportRow[]> {
+): Promise<{ rows: ReportRow[]; instanceCount: number }> {
     const instJson = await jsonGet<{
         data?: Array<{ id: string; attributes?: { granularity?: string; processingDate?: string } }>;
     }>(`${API}/analyticsReports/${reportId}/instances?limit=200`, token);
-    const instances = (instJson?.data || [])
+    const allInstances = instJson?.data || [];
+    const instances = allInstances
         .filter((i) => !i.attributes?.granularity || i.attributes.granularity === 'DAILY')
         .sort((a, b) => String(b.attributes?.processingDate || '').localeCompare(String(a.attributes?.processingDate || '')))
         .slice(0, MAX_INSTANCES_PER_REPORT);
@@ -206,23 +274,26 @@ async function rowsForReport(
         const proc = String(instance.attributes?.processingDate || '');
         if (!options?.ignoreProcessingCutoff && proc && proc < cutoff) continue;
         const segJson = await jsonGet<{ data?: Array<{ attributes?: { url?: string } }> }>(
-            `${API}/analyticsReportInstances/${instance.id}/segments?limit=10`,
+            `${API}/analyticsReportInstances/${instance.id}/segments?limit=20`,
             token,
         );
-        const url = segJson?.data?.[0]?.attributes?.url;
-        if (!url) continue;
-        const rows = await downloadSegmentRows(url);
-        collected.push(...rows);
-        const headers = rows[0] ? Object.keys(rows[0]) : [];
+        const segments = segJson?.data || [];
+        for (const segment of segments) {
+            const url = segment.attributes?.url;
+            if (!url) continue;
+            const rows = await downloadSegmentRows(url);
+            collected.push(...rows);
+        }
+        const headers = collected[0] ? Object.keys(collected[0]) : [];
         const dateHeader = firstHeader(headers, [/^date$/, /begin.?date/, /processing.?date/]);
-        if (dateHeader && !options?.ignoreProcessingCutoff) {
-            const dates = rows.map((r) => normalizeDay(r[dateHeader])).filter(Boolean).sort();
+        if (dateHeader && !options?.ignoreProcessingCutoff && collected.length > 0) {
+            const dates = collected.map((r) => normalizeDay(r[dateHeader])).filter(Boolean).sort();
             if (dates[0] && dates[0] <= cutoff && dates.at(-1)) {
                 break;
             }
         }
     }
-    return collected;
+    return { rows: collected, instanceCount: allInstances.length };
 }
 
 function rowDay(row: ReportRow): string {
@@ -241,26 +312,82 @@ function mergeSnapshotAndOngoing(snapshot: ReportRow[], ongoing: ReportRow[]): R
     })];
 }
 
-async function downloadWantedReports(
+async function listAllReports(
     token: string,
     requestId: string,
+): Promise<Array<{ id: string; attributes?: { name?: string; category?: string } }>> {
+    type ReportsPage = {
+        data?: Array<{ id: string; attributes?: { name?: string; category?: string } }>;
+        links?: { next?: string };
+    };
+    const collected: Array<{ id: string; attributes?: { name?: string; category?: string } }> = [];
+    let url: string | null = `${API}/analyticsReportRequests/${requestId}/reports?limit=200`;
+    while (url) {
+        const page: ReportsPage | null = await jsonGet<ReportsPage>(url, token);
+        collected.push(...(page?.data || []));
+        url = page?.links?.next || null;
+    }
+    return collected;
+}
+
+/**
+ * Download every Analytics Report under the request — not only the kinds the
+ * dashboard charts. Empty reports (no instances) are still recorded so we can
+ * tell "App Crashes exists but Apple published nothing" from "we never asked".
+ */
+async function downloadAllReports(
+    token: string,
+    requestId: string,
+    appAppleId: string,
+    access: 'ongoing' | 'snapshot',
     cutoff: string,
     ignoreProcessingCutoff: boolean,
-): Promise<Array<{ kind: ReportKind; rows: ReportRow[] }>> {
-    const reportsJson = await jsonGet<{
-        data?: Array<{ id: string; attributes?: { name?: string } }>;
-    }>(`${API}/analyticsReportRequests/${requestId}/reports?limit=200`, token);
-    const wanted = (reportsJson?.data || []).filter((r) => classifyReport(String(r.attributes?.name || '')) !== 'other');
-    return Promise.all(wanted.map(async (report) => {
-        const kind = classifyReport(String(report.attributes?.name || ''));
+): Promise<DownloadedReport[]> {
+    const reports = await listAllReports(token, requestId);
+    return mapPool(reports, REPORT_DOWNLOAD_CONCURRENCY, async (report) => {
+        const name = String(report.attributes?.name || '');
+        const category = String(report.attributes?.category || '');
+        const kind = classifyReport(name);
         try {
-            const rows = await rowsForReport(token, report.id, cutoff, { ignoreProcessingCutoff });
-            return { kind, rows };
+            const { rows, instanceCount } = await rowsForReport(token, report.id, cutoff, { ignoreProcessingCutoff });
+            await persistDownloadedReport(appAppleId, access, name, rows);
+            return { name, category, kind, access, rows, instanceCount };
         } catch (err) {
-            console.warn('[apple-analytics-reports]', kind, err instanceof Error ? err.message : err);
-            return { kind, rows: [] as ReportRow[] };
+            console.warn('[apple-analytics-reports]', access, name, err instanceof Error ? err.message : err);
+            return { name, category, kind, access, rows: [] as ReportRow[], instanceCount: 0 };
         }
-    }));
+    });
+}
+
+function pickBestReportsByKind(reports: DownloadedReport[]): Map<ReportKind, DownloadedReport> {
+    const best = new Map<ReportKind, DownloadedReport>();
+    for (const report of reports) {
+        if (report.kind === 'other') continue;
+        const prev = best.get(report.kind);
+        if (!prev) {
+            best.set(report.kind, report);
+            continue;
+        }
+        const prevRank = reportPriority(prev.name);
+        const nextRank = reportPriority(report.name);
+        if (nextRank < prevRank || (nextRank === prevRank && report.rows.length > prev.rows.length)) {
+            best.set(report.kind, report);
+        }
+    }
+    return best;
+}
+
+function toInventory(reports: DownloadedReport[]): AppleReportInventoryEntry[] {
+    return reports
+        .map((report) => ({
+            name: report.name,
+            category: report.category,
+            kind: report.kind,
+            access: report.access,
+            instance_count: report.instanceCount,
+            row_count: report.rows.length,
+        }))
+        .sort((a, b) => a.name.localeCompare(b.name) || a.access.localeCompare(b.access));
 }
 
 function applyDiscovery(store: StoreAnalytics, rows: ReportRow[], cutoff: string, daily: Map<string, StoreDailyPoint>) {
@@ -273,7 +400,6 @@ function applyDiscovery(store: StoreAnalytics, rows: ReportRow[], cutoff: string
     const sourceH = firstHeader(headers, [/source.?type/]);
     const sourceInfoH = firstHeader(headers, [/source.?info/, /referrer/]);
     const deviceH = firstHeader(headers, [/^device$/]);
-    const territoryH = firstHeader(headers, [/territory/, /country/]);
     const pageTypeH = firstHeader(headers, [/page.?type/]);
     const campaignH = firstHeader(headers, [/campaign/]);
     const pageH = firstHeader(headers, [/product.?page/, /page.?title/, /page.?name/]);
@@ -282,7 +408,6 @@ function applyDiscovery(store: StoreAnalytics, rows: ReportRow[], cutoff: string
     const appRefs = new Map<string, number>();
     const webRefs = new Map<string, number>();
     const campaigns = new Map<string, number>();
-    const territories = new Map<string, number>();
     const devices = new Map<string, number>();
     const pageTypes = new Map<string, number>();
     const productPages = new Map<string, number>();
@@ -316,11 +441,17 @@ function applyDiscovery(store: StoreAnalytics, rows: ReportRow[], cutoff: string
         }
         const source = sourceH ? row[sourceH] : '';
         addCount(sources, source, counts);
-        const info = sourceInfoH ? row[sourceInfoH] : '';
-        if (/app/i.test(source)) addCount(appRefs, info || source, counts);
-        if (/web/i.test(source)) addCount(webRefs, info || source, counts);
+        const info = (sourceInfoH ? row[sourceInfoH] : '').trim();
+        const sourceNorm = source.trim().toLowerCase();
+        // Only the dedicated App/Web Referrer source types, and only when Source Info
+        // names the referring app/site. "App Store search" must not match via /app/.
+        if ((sourceNorm === 'app referrer' || sourceNorm === 'app-referrer') && info) {
+            addCount(appRefs, info, counts);
+        }
+        if ((sourceNorm === 'web referrer' || sourceNorm === 'web-referrer') && info) {
+            addCount(webRefs, info, counts);
+        }
         addCount(campaigns, campaignH ? row[campaignH] : '', counts);
-        addCount(territories, territoryH ? row[territoryH] : '', counts);
         addCount(devices, deviceH ? row[deviceH] : '', counts);
         // Page type and product page only describe engagement rows. Impression rows
         // report "No page", which would otherwise swamp both breakdowns.
@@ -334,7 +465,7 @@ function applyDiscovery(store: StoreAnalytics, rows: ReportRow[], cutoff: string
     store.breakdowns.app_referrers = toNamed(appRefs);
     store.breakdowns.web_referrers = toNamed(webRefs);
     store.breakdowns.campaigns = toNamed(campaigns);
-    store.breakdowns.territories = mergeNamed(store.breakdowns.territories, toNamed(territories));
+    // Territories stay download-only — discovery impressions must not inflate Top countries.
     store.breakdowns.devices = mergeNamed(store.breakdowns.devices, toNamed(devices));
     store.breakdowns.page_types = toNamed(pageTypes);
     store.breakdowns.product_pages = toNamed(productPages);
@@ -361,6 +492,7 @@ function applyDownloads(store: StoreAnalytics, rows: ReportRow[], cutoff: string
     const territories = new Map<string, number>();
     const devices = new Map<string, number>();
     const versions = new Map<string, number>();
+    const territoryDaily = new Map<string, number>();
 
     for (const row of rows) {
         const day = dateH ? normalizeDay(row[dateH]) : '';
@@ -386,17 +518,36 @@ function applyDownloads(store: StoreAnalytics, rows: ReportRow[], cutoff: string
             bucket.total_downloads = bucket.first_time_downloads + bucket.redownloads;
         }
 
-        addCount(sources, sourceH ? row[sourceH] : '', counts);
-        addCount(territories, territoryH ? row[territoryH] : '', counts);
+        // Top countries must match the New installs KPI: first-time downloads only.
+        // Redownloads and updates are excluded so country totals stay uniform with the headline.
+        const countsAsFirstTime = isFirst || (!isRe && !isUpdate && !isPreorder);
+        if (countsAsFirstTime) {
+            addCount(sources, sourceH ? row[sourceH] : '', counts);
+            const territory = normalizeCountryCode(territoryH ? row[territoryH] : '')
+                || String(territoryH ? row[territoryH] : '').trim();
+            addCount(territories, territory, counts);
+            if (day && territory && counts > 0) {
+                const key = `${day}\t${territory}`;
+                territoryDaily.set(key, (territoryDaily.get(key) || 0) + counts);
+            }
+        }
         addCount(devices, deviceH ? row[deviceH] : '', counts);
         addCount(versions, versionH ? row[versionH] : '', counts);
     }
 
     store.total_downloads = store.first_time_downloads + store.redownloads;
     store.breakdowns.sources = mergeNamed(store.breakdowns.sources, toNamed(sources));
-    store.breakdowns.territories = mergeNamed(store.breakdowns.territories, toNamed(territories));
+    // Downloads report is the only source for Top countries / territories.
+    store.breakdowns.territories = toNamed(territories, 50);
     store.breakdowns.devices = mergeNamed(store.breakdowns.devices, toNamed(devices));
     store.breakdowns.versions = mergeNamed(store.breakdowns.versions, toNamed(versions));
+    store.territory_daily = [
+        ...(store.territory_daily || []),
+        ...[...territoryDaily.entries()].map(([key, count]) => {
+            const [day, name] = key.split('\t');
+            return { day, name, count: Math.round(count) };
+        }),
+    ];
 }
 
 function applySessions(store: StoreAnalytics, rows: ReportRow[], cutoff: string, daily: Map<string, StoreDailyPoint>) {
@@ -409,7 +560,6 @@ function applySessions(store: StoreAnalytics, rows: ReportRow[], cutoff: string,
     const versionH = firstHeader(headers, [/app.?version/, /^version$/]);
     const platformH = firstHeader(headers, [/platform.?version/, /os.?version/]);
     const deviceH = firstHeader(headers, [/^device$/]);
-    const territoryH = firstHeader(headers, [/territory/, /country/]);
     const d1H = firstHeader(headers, [/day.?1/, /d1.?retention/, /retention.?1/]);
     const d7H = firstHeader(headers, [/day.?7/, /d7.?retention/, /retention.?7/]);
     const d14H = firstHeader(headers, [/day.?14/, /d14.?retention/, /retention.?14/]);
@@ -418,7 +568,6 @@ function applySessions(store: StoreAnalytics, rows: ReportRow[], cutoff: string,
     const versions = new Map<string, number>();
     const platforms = new Map<string, number>();
     const devices = new Map<string, number>();
-    const territories = new Map<string, number>();
     let durationSum = 0;
     let durationN = 0;
     const d1: number[] = [];
@@ -447,7 +596,6 @@ function applySessions(store: StoreAnalytics, rows: ReportRow[], cutoff: string,
         addCount(versions, versionH ? row[versionH] : '', sessions || active);
         addCount(platforms, platformH ? row[platformH] : '', sessions || active);
         addCount(devices, deviceH ? row[deviceH] : '', sessions || active);
-        addCount(territories, territoryH ? row[territoryH] : '', sessions || active);
         if (d1H) d1.push(parseMetricNumber(row[d1H]));
         if (d7H) d7.push(parseMetricNumber(row[d7H]));
         if (d14H) d14.push(parseMetricNumber(row[d14H]));
@@ -477,7 +625,7 @@ function applySessions(store: StoreAnalytics, rows: ReportRow[], cutoff: string,
     store.breakdowns.versions = mergeNamed(store.breakdowns.versions, toNamed(versions));
     store.breakdowns.platform_versions = toNamed(platforms);
     store.breakdowns.devices = mergeNamed(store.breakdowns.devices, toNamed(devices));
-    store.breakdowns.territories = mergeNamed(store.breakdowns.territories, toNamed(territories));
+    // Do not merge session territories into download territories.
 }
 
 function applyCrashes(store: StoreAnalytics, rows: ReportRow[], cutoff: string, daily: Map<string, StoreDailyPoint>) {
@@ -600,7 +748,7 @@ export async function fetchIosStoreAnalytics(
     appAppleId: string,
     windowDays: number,
 ): Promise<StoreAnalytics> {
-    const key = `${appAppleId}:${windowDays}:snapshot+ongoing`;
+    const key = `${appAppleId}:${windowDays}:snapshot+ongoing:all-reports`;
     if (storeCache && storeCache.key === key && Date.now() - storeCache.at < CACHE_TTL_MS) {
         return storeCache.data;
     }
@@ -622,26 +770,46 @@ export async function fetchIosStoreAnalytics(
     let foundAny = false;
 
     const [snapshotReports, ongoingReports] = await Promise.all([
-        snapshotId ? downloadWantedReports(token, snapshotId, cutoff, true) : Promise.resolve([]),
-        ongoingId ? downloadWantedReports(token, ongoingId, cutoff, false) : Promise.resolve([]),
+        snapshotId
+            ? downloadAllReports(token, snapshotId, appAppleId, 'snapshot', cutoff, true)
+            : Promise.resolve([] as DownloadedReport[]),
+        ongoingId
+            ? downloadAllReports(token, ongoingId, appAppleId, 'ongoing', cutoff, false)
+            : Promise.resolve([] as DownloadedReport[]),
     ]);
 
-    const kinds = new Set([...snapshotReports, ...ongoingReports].map((item) => item.kind));
-    const downloaded: Array<{ kind: ReportKind; rows: ReportRow[] }> = [];
+    store.report_inventory = toInventory([...snapshotReports, ...ongoingReports]);
+
+    const kinds = new Set<ReportKind>([
+        ...snapshotReports.map((item) => item.kind),
+        ...ongoingReports.map((item) => item.kind),
+    ]);
+    const snapshotBest = pickBestReportsByKind(snapshotReports);
+    const ongoingBest = pickBestReportsByKind(ongoingReports);
+    const downloaded: Array<{ kind: ReportKind; rows: ReportRow[]; name: string }> = [];
     for (const kind of kinds) {
         if (kind === 'other') continue;
-        const snapshotRows = snapshotReports.filter((item) => item.kind === kind).flatMap((item) => item.rows);
-        const ongoingRows = ongoingReports.filter((item) => item.kind === kind).flatMap((item) => item.rows);
-        downloaded.push({ kind, rows: mergeSnapshotAndOngoing(snapshotRows, ongoingRows) });
+        const snapshot = snapshotBest.get(kind);
+        const ongoing = ongoingBest.get(kind);
+        downloaded.push({
+            kind,
+            name: ongoing?.name || snapshot?.name || kind,
+            rows: mergeSnapshotAndOngoing(snapshot?.rows || [], ongoing?.rows || []),
+        });
     }
+
     const hasStandardInstalls = downloaded.some((item) => item.kind === 'installs' && item.rows.length > 0);
+    let crashesRows = 0;
     for (const { kind, rows } of downloaded) {
         if (rows.length === 0) continue;
         foundAny = true;
         if (kind === 'discovery') applyDiscovery(store, rows, cutoff, daily);
         if (kind === 'downloads') applyDownloads(store, rows, cutoff, daily);
         if (kind === 'sessions') applySessions(store, rows, cutoff, daily);
-        if (kind === 'crashes') applyCrashes(store, rows, cutoff, daily);
+        if (kind === 'crashes') {
+            crashesRows = rows.length;
+            applyCrashes(store, rows, cutoff, daily);
+        }
         if (kind === 'installs') applyInstalls(store, rows, cutoff, daily, true);
         if (kind === 'installs_detailed') applyInstalls(store, rows, cutoff, daily, !hasStandardInstalls);
         if (kind === 'optin') applyOptIn(store, rows);
@@ -654,8 +822,13 @@ export async function fetchIosStoreAnalytics(
     if (store.unique_impressions > 0) {
         store.conversion_percent = Math.round((store.total_downloads / store.unique_impressions) * 1000) / 10;
     }
-    if (store.sessions > 0) {
+    // Only derive crash-free when Apple actually published crash rows. An empty
+    // App Crashes export must not read as a perfect 100% rate.
+    store.crashes_report_available = crashesRows > 0 || store.crashes > 0;
+    if (store.crashes_report_available && store.sessions > 0) {
         store.crash_free_rate_percent = Math.round(Math.max(0, Math.min(100, (1 - store.crashes / store.sessions) * 100)) * 10) / 10;
+    } else {
+        store.crash_free_rate_percent = 0;
     }
     store.reports_pending = !foundAny;
     store.active_last_30_days = store.active_devices;

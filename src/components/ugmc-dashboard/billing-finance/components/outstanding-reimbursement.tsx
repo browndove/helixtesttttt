@@ -28,6 +28,13 @@ const defaultCoverageData: RegionalCoverageItem[] = [
     { name: "Pharmacy", gap: 1, installs: 7, downloads: 8 },
 ];
 
+function formatCount(n: number): string {
+    if (!Number.isFinite(n) || n === 0) return "0";
+    if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+    if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
+    return Math.round(n).toLocaleString();
+}
+
 function axisTicks(maxValue: number): number[] {
     if (maxValue <= 0) return [0];
     const step = maxValue <= 20 ? 4 : Math.ceil(maxValue / 5 / 10) * 10;
@@ -77,7 +84,7 @@ const OutstandingReimbursement: React.FC<{
     );
 
     const platformData = React.useMemo(
-        () => (platformItems ?? []).filter((item) => item.ios > 0 || item.android > 0).slice(0, 6),
+        () => (platformItems ?? []).filter((item) => item.ios > 0 || item.android > 0).slice(0, 12),
         [platformItems],
     );
 
@@ -94,8 +101,9 @@ const OutstandingReimbursement: React.FC<{
         ? platformData.reduce((sum, item) => {
             const label = badgeLabel.toLowerCase();
             if (label.includes('ios')) return sum + item.ios;
-            if (label.includes('total') || label.includes('install')) return sum + item.ios + item.android;
-            return sum + item.android;
+            if (label.includes('android')) return sum + item.android;
+            // "All", "installs", "total", etc. — both stores
+            return sum + item.ios + item.android;
         }, 0)
         : coverageData.reduce((sum, i) => sum + i.gap, 0);
     const scaleTicks = React.useMemo(() => axisTicks(maxValue), [maxValue]);
@@ -167,10 +175,13 @@ const OutstandingReimbursement: React.FC<{
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
                     {infoText && <InfoTooltip text={infoText} />}
-                    <div className="rounded-[5px] bg-accent-primary/10 whitespace-nowrap px-[7px] py-1">
-                        <Text variant="body-md-semibold" color="accent-primary">
-                            <span className="tabular-nums">{animatedTotal}</span> {badgeLabel}
-                        </Text>
+                    <div className="inline-flex items-center gap-1.5 rounded-md bg-accent-primary/10 px-2.5 py-1">
+                        <span className="text-sm font-semibold tabular-nums text-accent-primary">
+                            {formatCount(animatedTotal)}
+                        </span>
+                        <span className="text-xs font-semibold uppercase tracking-wide text-accent-primary/80">
+                            {badgeLabel}
+                        </span>
                     </div>
                     {!isModal && (
                         <button onClick={() => setIsMaximized(true)} className="flex size-[30px] cursor-pointer items-center justify-center rounded-[10px] bg-secondary transition-colors hover:bg-tertiary" title="Maximize"><MaximizeIcon /></button>
@@ -188,17 +199,45 @@ const OutstandingReimbursement: React.FC<{
             ) : (
                 <>
                     <div className="flex flex-col gap-[15px]">
-                        {chartRows.map((row, index) => (
-                            <div key={`${row.name}-${index}`} className="flex items-center gap-[10px]">
-                                <Text variant="body-sm" color="text-secondary" className="w-[120px] shrink-0 truncate" title={row.name}>{row.name}</Text>
-                                <div className="flex h-[30px] flex-1 overflow-hidden rounded-[5px] bg-secondary/40">
-                                    <div className={`h-full shrink-0 rounded-l-[5px] transition-all duration-100 ${primaryColor}`} style={{ width: `${animatedBars[index]?.primary || 0}%` }} />
-                                    <div className={`h-full shrink-0 rounded-r-[5px] transition-all duration-100 ${secondaryColor}`} style={{ width: `${animatedBars[index]?.secondary || 0}%` }} />
+                        {chartRows.map((row, index) => {
+                            const platformRow = isPlatformMode ? (row as RegionalPlatformItem) : null;
+                            const coverageRow = !isPlatformMode ? (row as RegionalCoverageItem) : null;
+                            const total = platformRow
+                                ? platformRow.ios + platformRow.android
+                                : (coverageRow?.gap ?? 0) + (coverageRow?.installs ?? 0);
+                            return (
+                                <div key={`${row.name}-${index}`} className="flex items-center gap-[10px]">
+                                    <Text variant="body-sm" color="text-secondary" className="w-[120px] shrink-0 truncate" title={row.name}>{row.name}</Text>
+                                    <div className="flex h-[30px] min-w-0 flex-1 overflow-hidden rounded-[5px] bg-secondary/40">
+                                        <div className={`h-full shrink-0 rounded-l-[5px] transition-all duration-100 ${primaryColor}`} style={{ width: `${animatedBars[index]?.primary || 0}%` }} />
+                                        <div className={`h-full shrink-0 rounded-r-[5px] transition-all duration-100 ${secondaryColor}`} style={{ width: `${animatedBars[index]?.secondary || 0}%` }} />
+                                    </div>
+                                    {platformRow ? (
+                                        <div
+                                            className="flex w-[118px] shrink-0 flex-col items-end leading-tight"
+                                            title={`iOS first-time ${formatCount(platformRow.ios)} · Android installs ${formatCount(platformRow.android)}`}
+                                        >
+                                            <span className="text-xs font-semibold tabular-nums text-text-primary">
+                                                {formatCount(total)}
+                                            </span>
+                                            <span className="text-[10px] tabular-nums text-text-muted">
+                                                {formatCount(platformRow.ios)}
+                                                <span className="text-accent-primary"> iOS</span>
+                                                {' · '}
+                                                {formatCount(platformRow.android)}
+                                                <span className="text-accent-green"> And</span>
+                                            </span>
+                                        </div>
+                                    ) : (
+                                        <span className="w-[52px] shrink-0 text-right text-xs font-semibold tabular-nums text-text-primary">
+                                            {formatCount(total)}
+                                        </span>
+                                    )}
                                 </div>
-                            </div>
-                        ))}
+                            );
+                        })}
                     </div>
-                    <div className="ml-[130px] flex justify-between">
+                    <div className="ml-[130px] mr-[128px] flex justify-between">
                         {scaleTicks.map((val) => (
                             <Text key={val} variant="body-xs" color="text-tertiary">{val >= 1000 ? `${(val / 1000).toFixed(1)}K` : val}</Text>
                         ))}

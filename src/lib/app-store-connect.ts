@@ -5,6 +5,7 @@ import type { DownloadAnalyticsData } from '@/lib/download-analytics-mock';
 import { emptyDownloadAnalytics } from '@/lib/download-analytics-mock';
 import { mergeGooglePlayInstalls } from '@/lib/google-play-connect';
 import { fetchIosStoreAnalytics } from '@/lib/apple-analytics-reports';
+import { normalizeCountryCode } from '@/lib/country-names';
 
 const APP_STORE_CONNECT_API = 'https://api.appstoreconnect.apple.com/v1';
 const HELIX_APP_BUNDLE_ID = process.env.DOWNLOAD_APP_BUNDLE_ID?.trim() || 'com.helixhealth.app';
@@ -726,7 +727,7 @@ async function fetchAppleDownloadAnalyticsUncached(windowDays: number): Promise<
                 if (iosStore.breakdowns.territories.length > 0) {
                     const total = iosStore.breakdowns.territories.reduce((sum, row) => sum + row.count, 0);
                     analytics.regions = iosStore.breakdowns.territories.map((row) => ({
-                        region: row.name,
+                        region: normalizeCountryCode(row.name) || row.name,
                         downloads: row.count,
                         installs: row.count,
                         ios_installs: row.count,

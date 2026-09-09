@@ -16,6 +16,7 @@ import {
     PageToolbar,
     dailyToChart,
     downloadsDateRangeLabel,
+    fillDailyChartRange,
     fmtMetric,
     labelPlayLanguage,
     labelPlayOsVersion,
@@ -160,20 +161,23 @@ export default function DownloadsSinglePage({
     ];
 
     const installSeries = useMemo(
-        () => mergeDailySeries(ios.daily, android.daily, 'first_time_downloads', 'device_installs'),
-        [ios.daily, android.daily],
+        () => mergeDailySeries(ios.daily, android.daily, 'first_time_downloads', 'device_installs', { from: dateFrom, to: dateTo }),
+        [ios.daily, android.daily, dateFrom, dateTo],
     );
     const updateSeries = useMemo(
-        () => mergeDailySeries(ios.daily, android.daily, 'updates', 'upgrades'),
-        [ios.daily, android.daily],
+        () => mergeDailySeries(ios.daily, android.daily, 'updates', 'upgrades', { from: dateFrom, to: dateTo }),
+        [ios.daily, android.daily, dateFrom, dateTo],
     );
     const crashSeries = useMemo(
-        () => mergeDailySeries(ios.daily, android.daily, 'crashes', 'crashes'),
-        [ios.daily, android.daily],
+        () => mergeDailySeries(ios.daily, android.daily, 'crashes', 'crashes', { from: dateFrom, to: dateTo }),
+        [ios.daily, android.daily, dateFrom, dateTo],
     );
-    const anrSeries = useMemo(() => dailyToChart(android.daily, 'anrs'), [android.daily]);
+    const anrSeries = useMemo(
+        () => fillDailyChartRange(dailyToChart(android.daily, 'anrs'), dateFrom, dateTo),
+        [android.daily, dateFrom, dateTo],
+    );
 
-    const regions = regionalPlatformRows(data, 'all');
+    const regions = regionalPlatformRows(data, 'all', 12);
 
     const sharedSources = mergeNamedCounts(ios.breakdowns.sources, android.breakdowns.sources);
     const sharedDevices = mergeNamedCounts(ios.breakdowns.devices, android.breakdowns.devices);
@@ -340,12 +344,27 @@ export default function DownloadsSinglePage({
                 <StorePanel
                     store="ios"
                     title="App Store stability"
-                    subtitle="Crash-free rate needs sessions, so it exists only on iOS"
+                    subtitle={ios.crashes_report_available
+                        ? 'Crash-free rate needs sessions, so it exists only on iOS'
+                        : 'Apple listed App Crashes but has not published any downloadable report instances yet'}
                     badge={<OptInBadge />}
-                    infoText={storePanelInfo('ios', ASC_METRIC_DEFS.crashes)}
+                    infoText={storePanelInfo('ios', ASC_METRIC_DEFS.crashes)
+                        + (ios.crashes_report_available
+                            ? ''
+                            : '\n\nThe Metrics website can still show crashes while the Analytics Reports API returns zero instances. Until Apple publishes files, this panel cannot mirror Connect.')}
                     items={[
-                        { label: 'Crashes', value: fmtMetric(ios.crashes), info: ASC_METRIC_DEFS.crashes },
-                        { label: 'Crash-free rate', value: fmtMetric(ios.crash_free_rate_percent, 'percent'), info: 'Sessions without a crash, derived from crashes divided by sessions. Play reports no sessions, so it has no equivalent.' },
+                        {
+                            label: 'Crashes',
+                            value: ios.crashes_report_available ? fmtMetric(ios.crashes) : 'Unavailable',
+                            info: ASC_METRIC_DEFS.crashes,
+                        },
+                        {
+                            label: 'Crash-free rate',
+                            value: ios.crashes_report_available
+                                ? fmtMetric(ios.crash_free_rate_percent, 'percent')
+                                : 'Unavailable',
+                            info: 'Sessions without a crash, derived from crashes divided by sessions. Shown as Unavailable when Apple has not published the App Crashes export.',
+                        },
                     ]}
                 />
                 <StorePanel
@@ -404,8 +423,8 @@ export default function DownloadsSinglePage({
             />
             <OutstandingReimbursement
                 title="Top countries"
-                subtitle="Split bars show App Store territory against Play country"
-                badgeLabel="All"
+                subtitle="iOS first-time downloads and Play installs for the selected date range"
+                badgeLabel="installs"
                 platformItems={regions}
                 infoText={ANALYTICS_CHART_DEFS.regions}
             />

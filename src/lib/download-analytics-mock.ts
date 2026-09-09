@@ -1,5 +1,7 @@
 import type { AnalyticsData } from '@/app/(helix-admin)/usage/page';
 
+import { normalizeCountryCode } from '@/lib/country-names';
+
 export type NamedCount = { name: string; count: number };
 
 export type StoreDailyPoint = {
@@ -89,8 +91,26 @@ export type StoreAnalytics = {
     rating_count: number;
     daily: StoreDailyPoint[];
     breakdowns: StoreBreakdowns;
+    /**
+     * Per-day install/download counts by country code. Used to rebuild the
+     * territory breakdown when the date filter is narrower than the fetch window.
+     */
+    territory_daily: { day: string; name: string; count: number }[];
     reports_pending: boolean;
     data_through?: string;
+    /** False when Apple listed App Crashes but published no downloadable rows. */
+    crashes_report_available?: boolean;
+    /** Every Analytics Report we probed, including ones the UI does not chart. */
+    report_inventory?: AppleReportInventoryEntry[];
+};
+
+export type AppleReportInventoryEntry = {
+    name: string;
+    category: string;
+    kind: string;
+    access: 'ongoing' | 'snapshot';
+    instance_count: number;
+    row_count: number;
 };
 
 export function emptyBreakdowns(): StoreBreakdowns {
@@ -185,7 +205,10 @@ export function emptyStoreAnalytics(): StoreAnalytics {
         rating_count: 0,
         daily: [],
         breakdowns: emptyBreakdowns(),
+        territory_daily: [],
         reports_pending: true,
+        crashes_report_available: false,
+        report_inventory: [],
     };
 }
 
@@ -451,6 +474,60 @@ function peakDaily(daily: StoreDailyPoint[], key: keyof StoreDailyPoint): number
     return daily.reduce((peak, row) => Math.max(peak, Number(row[key]) || 0), 0);
 }
 
+function aggregateTerritoryDaily(
+    rows: { day: string; name: string; count: number }[],
+    from: string,
+    to: string,
+): NamedCount[] {
+    const map = new Map<string, number>();
+    for (const row of rows) {
+        if (row.day < from || row.day > to || row.count <= 0) continue;
+        const name = row.name.trim();
+        if (!name) continue;
+        map.set(name, (map.get(name) || 0) + row.count);
+    }
+    return [...map.entries()]
+        .map(([name, count]) => ({ name, count: Math.round(count) }))
+        .sort((a, b) => b.count - a.count);
+}
+
+export function regionsFromStoreTerritories(
+    ios?: StoreAnalytics | null,
+    android?: StoreAnalytics | null,
+): DownloadAnalyticsData['regions'] {
+    const map = new Map<string, { ios: number; android: number }>();
+    for (const row of ios?.breakdowns.territories || []) {
+        const key = normalizeCountryCode(row.name) || row.name.trim();
+        if (!key || row.count <= 0) continue;
+        const entry = map.get(key) || { ios: 0, android: 0 };
+        entry.ios += row.count;
+        map.set(key, entry);
+    }
+    for (const row of android?.breakdowns.territories || []) {
+        const key = normalizeCountryCode(row.name) || row.name.trim();
+        if (!key || row.count <= 0) continue;
+        const entry = map.get(key) || { ios: 0, android: 0 };
+        entry.android += row.count;
+        map.set(key, entry);
+    }
+    const regions = [...map.entries()].map(([region, counts]) => {
+        const installs = counts.ios + counts.android;
+        return {
+            region,
+            downloads: counts.ios,
+            installs,
+            ios_installs: counts.ios,
+            android_installs: counts.android,
+            share_percent: 0,
+        };
+    });
+    const total = regions.reduce((sum, row) => sum + row.installs, 0);
+    for (const row of regions) {
+        row.share_percent = total > 0 ? Math.round((row.installs / total) * 1000) / 10 : 0;
+    }
+    return regions.sort((a, b) => b.installs - a.installs);
+}
+
 function sliceStoreToRange(
     store: StoreAnalytics,
     from: string,
@@ -459,6 +536,9 @@ function sliceStoreToRange(
 ): StoreAnalytics {
     const range = normalizeRange(from, to);
     const daily = store.daily.filter((row) => row.day >= range.from && row.day <= range.to);
+    const territory_daily = (store.territory_daily || []).filter(
+        (row) => row.day >= range.from && row.day <= range.to,
+    );
     const first_time_downloads = sumDaily(daily, 'first_time_downloads') || sumDaily(daily, 'user_installs') || sumDaily(daily, 'device_installs');
     const redownloads = sumDaily(daily, 'redownloads');
     const impressions = sumDaily(daily, 'impressions');
@@ -483,10 +563,21 @@ function sliceStoreToRange(
     // Dimension breakdowns are period totals from the fetch window, not day-sliced.
     // Keep them only when the filter still covers the full loaded series; otherwise
     // hide them so a single-day Android view doesn't keep 90-day mix charts.
+    // Territories are an exception: territory_daily lets us rebuild for any window.
     const coversFullLoadedWindow = daily.length === store.daily.length
         && (daily.length === 0
             || (daily[0]?.day === store.daily[0]?.day
                 && daily[daily.length - 1]?.day === store.daily[store.daily.length - 1]?.day));
+    const slicedTerritories = aggregateTerritoryDaily(store.territory_daily || [], range.from, range.to);
+    const breakdowns = coversFullLoadedWindow
+        ? {
+            ...store.breakdowns,
+            territories: slicedTerritories.length > 0 ? slicedTerritories : store.breakdowns.territories,
+        }
+        : {
+            ...emptyBreakdowns(),
+            territories: slicedTerritories,
+        };
     return {
         ...store,
         first_time_downloads,
@@ -529,7 +620,8 @@ function sliceStoreToRange(
         listing_conversion_percent: listing_visitors > 0
             ? Math.round((listing_acquisitions / listing_visitors) * 1000) / 10
             : 0,
-        breakdowns: coversFullLoadedWindow ? store.breakdowns : emptyBreakdowns(),
+        breakdowns,
+        territory_daily,
         daily,
     };
 }
@@ -576,6 +668,9 @@ export function filterDownloadAnalyticsByRange(
         daily_downloads: slice,
         ios_store,
         android_store,
+        // Rebuild from the date-sliced store territory totals so Top countries
+        // follows the same window as the KPIs.
+        regions: regionsFromStoreTerritories(ios_store, android_store),
         reviews: data.reviews.filter((review) => !review.date || (review.date >= range.from && review.date <= range.to)),
         install_conversion_percent: totalDownloads > 0
             ? Math.round((totalInstalls / totalDownloads) * 1000) / 10
