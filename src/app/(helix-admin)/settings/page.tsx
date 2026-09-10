@@ -739,10 +739,12 @@ export default function SettingsPage() {
 
     const sendPasswordResetEmail = async (targetEmail: string): Promise<boolean> => {
         try {
+            const fid = facilityId.trim();
+            if (!fid) return false;
             const res = await fetch(API_ENDPOINTS.REQUEST_RESET, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ email: targetEmail }),
+                body: JSON.stringify({ email: targetEmail, facility_id: fid }),
             });
             return res.ok;
         } catch {

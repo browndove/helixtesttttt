@@ -711,7 +711,14 @@ export default function HospitalAdminLogin() {
 
                             <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', marginTop: -4 }}>
                                 <Link
-                                    href={email.trim() ? `/forgot-password?email=${encodeURIComponent(email.trim())}` : '/forgot-password'}
+                                    href={(() => {
+                                        const qs = new URLSearchParams();
+                                        if (email.trim()) qs.set('email', email.trim());
+                                        const code = normalizeFacilityCode(facilityCode);
+                                        if (code) qs.set('facility_code', code);
+                                        const q = qs.toString();
+                                        return q ? `/forgot-password?${q}` : '/forgot-password';
+                                    })()}
                                     style={{
                                         ...ghostBtnSm,
                                         padding: '2px 0',
