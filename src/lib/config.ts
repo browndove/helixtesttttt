@@ -40,6 +40,7 @@ export const API_ENDPOINTS = {
   INTERNAL_ACT_AS: `/api/proxy/internal/act-as`,
   INTERNAL_EXIT_ACT_AS: `/api/proxy/internal/exit-act-as`,
   INTERNAL_AUDIT: `/api/proxy/internal/audit`,
+  INTERNAL_FEATURE_USAGE_METRICS: `/api/proxy/internal/feature-usage-metrics`,
 
   // Departments
   DEPARTMENTS: `/api/proxy/departments`,
