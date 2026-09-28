@@ -47,6 +47,11 @@ export const API_ENDPOINTS = {
   DEPARTMENT: (id: string) => `/api/proxy/departments/${id}`,
   DEPARTMENT_WARDS: (id: string) => `/api/proxy/departments/${id}/wards`,
 
+  // Beds
+  BEDS_SUMMARY: `/api/proxy/beds/summary`,
+  BED: (id: string) => `/api/proxy/beds/${id}`,
+  DEPARTMENT_BEDS: (deptId: string) => `/api/proxy/departments/${deptId}/beds`,
+
   // Hospital
   HOSPITAL: `/api/proxy/hospital`,
   FACILITIES: `/api/proxy/facilities`,

@@ -7,6 +7,8 @@ interface TopBarProps {
     subtitle?: string;
     breadcrumbs?: string[];
     actions?: React.ReactNode;
+    /** Controls rendered immediately after the title, before the flexible spacer. */
+    accessory?: React.ReactNode;
     search?: {
         placeholder?: string;
         value?: string;
@@ -14,7 +16,7 @@ interface TopBarProps {
     };
 }
 
-export default function TopBar({ title, subtitle, breadcrumbs, actions, search }: TopBarProps) {
+export default function TopBar({ title, subtitle, breadcrumbs, actions, accessory, search }: TopBarProps) {
     return (
         <div style={{
             position: 'sticky',
@@ -30,7 +32,7 @@ export default function TopBar({ title, subtitle, breadcrumbs, actions, search }
             flexShrink: 0,
         }}>
             {/* Left: Title + Breadcrumbs */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0 }}>
                 <h1 style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)', whiteSpace: 'nowrap', margin: 0, letterSpacing: '-0.01em' }}>
                     {title}
                 </h1>
@@ -47,10 +49,12 @@ export default function TopBar({ title, subtitle, breadcrumbs, actions, search }
                 {subtitle && (
                     <>
                         <span style={{ fontSize: 12, color: 'var(--text-disabled)' }}>·</span>
-                        <span style={{ fontSize: 12, color: 'var(--text-muted)', fontWeight: 500 }}>{subtitle}</span>
+                        <span style={{ fontSize: 12, color: 'var(--text-muted)', fontWeight: 500, whiteSpace: 'nowrap' }}>{subtitle}</span>
                     </>
                 )}
             </div>
+
+            {accessory}
 
             {/* Spacer */}
             <div style={{ flex: 1 }} />

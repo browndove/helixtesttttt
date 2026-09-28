@@ -55,7 +55,7 @@
   --critical-bg: #f8f0f1;
 
   /* Sidebar */
-  --sidebar-width: 240px;
+  --sidebar-width: 285px;
   --sidebar-bg: #ffffff;
 
   /* Spacing */
@@ -1614,6 +1614,8 @@ select.input {
 
 .app-shell {
   min-height: 100vh;
+  display: flex;
+  width: 100%;
 }
 
 .app-sidebar {
@@ -1621,19 +1623,22 @@ select.input {
   top: 0;
   left: 0;
   width: var(--sidebar-width);
-  min-width: 200px;
+  min-width: var(--sidebar-width);
   height: 100vh;
   z-index: 50;
   overflow-y: auto;
+  box-sizing: border-box;
 }
 
 .app-main {
   display: flex;
   flex-direction: column;
+  flex: 1;
   min-width: 0;
   margin-left: var(--sidebar-width);
-  width: calc(100vw - var(--sidebar-width));
-  overflow-x: hidden;
+  width: calc(100% - var(--sidebar-width));
+  max-width: calc(100vw - var(--sidebar-width));
+  overflow-x: auto;
   box-sizing: border-box;
 }
 
