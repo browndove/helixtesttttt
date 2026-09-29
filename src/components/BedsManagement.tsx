@@ -5,7 +5,7 @@ import TopBar from '@/components/TopBar';
 import { MacVibrancyToast, MacVibrancyToastPortal } from '@/components/MacVibrancyToast';
 import { API_ENDPOINTS } from '@/lib/config';
 import { appendFacilityIdForProxy } from '@/lib/facility-client';
-import type { Bed, BedStatus, FacilityBedSummary, DepartmentBedSummary } from '@/lib/beds';
+import type { Bed, BedStatus, FacilityBedSummary, DepartmentBedSummary, BedCapacity } from '@/lib/beds';
 import {
     Bed as BedIcon,
     Users,
@@ -27,6 +27,42 @@ import {
 const POLL_INTERVAL_MS = 20_000;
 
 type ToastItem = { message: string; variant: 'success' | 'error' | 'info' };
+
+type CareUnit = {
+    id: string;
+    name: string;
+    department_id?: string;
+};
+
+type UnitBedRow = DepartmentBedSummary & { unit_id: string };
+
+const UNMAPPED_CAPACITY: BedCapacity = {
+    total: 0,
+    occupied: 0,
+    blocked: 0,
+    available: 0,
+    occupancy_percent: 0,
+    capacity_level: 'unmapped',
+    capacity_color: '',
+    capacity_label: 'Unmapped',
+};
+
+function parseCareUnits(raw: unknown): CareUnit[] {
+    const list = Array.isArray(raw)
+        ? raw
+        : (raw && typeof raw === 'object' && Array.isArray((raw as { units?: unknown }).units)
+            ? (raw as { units: unknown[] }).units
+            : []);
+    return list.flatMap((item) => {
+        if (!item || typeof item !== 'object') return [];
+        const rec = item as Record<string, unknown>;
+        const id = String(rec.id || '').trim();
+        const name = String(rec.name || '').trim();
+        if (!id || !name) return [];
+        const departmentId = String(rec.department_id || '').trim();
+        return [{ id, name, ...(departmentId ? { department_id: departmentId } : {}) }];
+    });
+}
 
 type Ward = { id: string; name: string };
 type DepartmentDetail = {
@@ -72,10 +108,11 @@ function compareBeds(a: Bed, b: Bed): number {
     return aNum.localeCompare(bNum, undefined, { numeric: true, sensitivity: 'base' });
 }
 
-function relativeTime(iso: string): string {
-    if (!iso) return '1 day ago';
-    const diff = Date.now() - new Date(iso).getTime();
-    if (isNaN(diff)) return '1 day ago';
+function relativeTime(iso?: string): string {
+    if (!iso) return '—';
+    const when = new Date(iso);
+    const diff = Date.now() - when.getTime();
+    if (isNaN(diff)) return '—';
     const mins = Math.floor(diff / 60_000);
     if (mins < 1) return 'just now';
     if (mins < 60) return `${mins}m ago`;
@@ -83,7 +120,7 @@ function relativeTime(iso: string): string {
     if (hrs < 24) return `${hrs}h ago`;
     const days = Math.floor(hrs / 24);
     if (days < 30) return `${days} day${days > 1 ? 's' : ''} ago`;
-    return '1 day ago';
+    return when.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
 const BED_STATUS_COLORS: Record<BedStatus, { bg: string; fg: string; border: string; label: string }> = {
@@ -91,26 +128,6 @@ const BED_STATUS_COLORS: Record<BedStatus, { bg: string; fg: string; border: str
     occupied: { bg: '#FEF2F2', fg: '#DC2626', border: '#FECACA', label: 'Occupied' },
     blocked: { bg: '#F3F4F6', fg: '#4B5563', border: '#E5E7EB', label: 'Blocked' },
 };
-
-/* Department metadata mapping for secondary unit subtitle line */
-const DEPT_SUBTITLES: Record<string, string> = {
-    administration: 'Wing 4-A · Executive & Overnight Observation Suites',
-    anesthesiology: 'Floor 2 · Post-Anesthesia Recovery (PACU)',
-    cardiology: 'Floor 3 · Heart & Vascular Institute (Cardiac Care Unit)',
-    emergency: 'Ground Floor · Trauma Bay & Rapid Assessment Unit',
-    'gym center': 'Floor 1 · Physical Therapy & Neuro Rehab Suites',
-    'intensive care unit': 'Floor 2 · Medical & Surgical Critical Care (MICU/SICU)',
-    'internal medicine': 'Floor 3 · General Inpatient Ward C',
-    'neurology & neurosurgery': 'Floor 4 · Stroke Care & Neurological Monitoring',
-    oncology: 'Floor 5 · Infusion & Chemotherapy Inpatient Bay',
-    pediatrics: 'Floor 2 · Pediatric Medical Inpatient Wing',
-};
-
-function getDeptSubtitle(deptName: string): string {
-    const key = deptName.toLowerCase().trim();
-    if (DEPT_SUBTITLES[key]) return DEPT_SUBTITLES[key];
-    return 'Main Hospital Building · Clinical Care Suite';
-}
 
 /* ─── component ─────────────────────────────────────────────────────── */
 
@@ -130,7 +147,10 @@ export default function BedsManagement() {
 
     /* summary board */
     const [summary, setSummary] = useState<FacilityBedSummary | null>(null);
+    const [units, setUnits] = useState<CareUnit[]>([]);
     const [summaryLoading, setSummaryLoading] = useState(true);
+    const [selectedUnitId, setSelectedUnitId] = useState<string | null>(null);
+    const [selectedUnitName, setSelectedUnitName] = useState<string | null>(null);
 
     /* Search, Pagination, and Filters */
     const [searchQuery, setSearchQuery] = useState('');
@@ -179,13 +199,19 @@ export default function BedsManagement() {
     const fetchSummary = useCallback(async () => {
         try {
             const url = await appendFacilityIdForProxy(API_ENDPOINTS.BEDS_SUMMARY);
-            const res = await fetch(url, { credentials: 'include' });
+            const [res, unitsRes] = await Promise.all([
+                fetch(url, { credentials: 'include' }),
+                fetch('/api/proxy/units', { credentials: 'include' }),
+            ]);
             if (res.ok) {
                 const data = await res.json();
                 setSummary(data as FacilityBedSummary);
             } else {
                 const err = await res.json().catch(() => ({}));
                 console.error('Beds summary error:', err);
+            }
+            if (unitsRes.ok) {
+                setUnits(parseCareUnits(await unitsRes.json()));
             }
         } catch (e) {
             console.error('Beds summary fetch failed:', e);
@@ -241,8 +267,20 @@ export default function BedsManagement() {
         fetchDeptBeds(deptId);
     }, [fetchDeptDetail, fetchDeptBeds]);
 
+    const openUnit = useCallback((row: UnitBedRow) => {
+        if (!row.department_id) {
+            showToast('This unit is not linked to a department', 'info');
+            return;
+        }
+        setSelectedUnitId(row.unit_id);
+        setSelectedUnitName(row.department_name);
+        openDepartment(row.department_id);
+    }, [openDepartment, showToast]);
+
     const closeDrawer = useCallback(() => {
         setSelectedDeptId(null);
+        setSelectedUnitId(null);
+        setSelectedUnitName(null);
         setDeptDetail(null);
         setDeptBeds([]);
         setActiveWardId(null);
@@ -408,34 +446,47 @@ export default function BedsManagement() {
         return () => document.removeEventListener('mousedown', handler);
     }, [statusMenuBedId]);
 
+    const unitRows = useMemo<UnitBedRow[]>(() => {
+        const byDepartment = new Map(
+            (summary?.departments || []).map(dept => [dept.department_id, dept]),
+        );
+        return units.map(unit => {
+            const dept = unit.department_id ? byDepartment.get(unit.department_id) : undefined;
+            return {
+                ...(dept ?? UNMAPPED_CAPACITY),
+                department_id: unit.department_id || '',
+                department_name: unit.name,
+                unit_id: unit.id,
+            };
+        });
+    }, [summary, units]);
+
     /* ── filtering & pagination calculation ─────────────────────────── */
-    const filteredDepartments = useMemo(() => {
-        if (!summary?.departments) return [];
-        return summary.departments.filter(dept => {
+    const filteredUnits = useMemo(() => {
+        return unitRows.filter(unit => {
             const matchesSearch = !searchQuery.trim() ||
-                dept.department_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                getDeptSubtitle(dept.department_name).toLowerCase().includes(searchQuery.toLowerCase());
+                unit.department_name.toLowerCase().includes(searchQuery.toLowerCase());
 
             let matchesStatus = true;
             if (selectedStatusFilter !== 'all') {
-                if (selectedStatusFilter === 'available') matchesStatus = dept.available > 0;
-                else if (selectedStatusFilter === 'occupied') matchesStatus = dept.occupied > 0;
-                else if (selectedStatusFilter === 'blocked') matchesStatus = dept.blocked > 0;
-                else if (selectedStatusFilter === 'unmapped') matchesStatus = dept.capacity_level === 'unmapped';
+                if (selectedStatusFilter === 'available') matchesStatus = unit.available > 0;
+                else if (selectedStatusFilter === 'occupied') matchesStatus = unit.occupied > 0;
+                else if (selectedStatusFilter === 'blocked') matchesStatus = unit.blocked > 0;
+                else if (selectedStatusFilter === 'unmapped') matchesStatus = unit.capacity_level === 'unmapped';
             }
             return matchesSearch && matchesStatus;
         });
-    }, [summary, searchQuery, selectedStatusFilter]);
+    }, [unitRows, searchQuery, selectedStatusFilter]);
 
-    const totalPages = Math.ceil(filteredDepartments.length / pageSize) || 1;
-    const paginatedDepartments = useMemo(() => {
+    const totalPages = Math.ceil(filteredUnits.length / pageSize) || 1;
+    const paginatedUnits = useMemo(() => {
         const start = (currentPage - 1) * pageSize;
-        return filteredDepartments.slice(start, start + pageSize);
-    }, [filteredDepartments, currentPage, pageSize]);
+        return filteredUnits.slice(start, start + pageSize);
+    }, [filteredUnits, currentPage, pageSize]);
 
     const assignedCount = useMemo(() => {
-        return (summary?.departments || []).filter(d => d.total > 0).length;
-    }, [summary]);
+        return unitRows.filter(unit => unit.total > 0).length;
+    }, [unitRows]);
 
     /* ── filtered beds for ward tab ─────────────────────────────────── */
     const displayedBeds = useMemo(() => {
@@ -568,7 +619,7 @@ export default function BedsManagement() {
                                 type="text"
                                 value={searchQuery}
                                 onChange={e => { setSearchQuery(e.target.value); setCurrentPage(1); }}
-                                placeholder="Filter by department name, ward, floor or service..."
+                                placeholder="Filter by unit name..."
                                 style={{
                                     width: '100%', height: 32, padding: '0 10px 0 28px',
                                     borderRadius: 5, border: '1px solid #DCE4ED',
@@ -635,7 +686,8 @@ export default function BedsManagement() {
                 )}
             />
 
-            <main style={{
+            <style>{BEDS_TABLE_CSS}</style>
+            <main className="beds-page" style={{
                 flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflowY: 'auto',
                 padding: '18px 24px 22px', background: '#F8FAFC', minWidth: 0,
             }}>
@@ -661,24 +713,21 @@ export default function BedsManagement() {
                             </span>
                         </div>
                         <div style={{ fontSize: 11.5, lineHeight: '16px', fontWeight: 400, color: '#8290A5', marginTop: 3 }}>
-                            Real-time departmental bed capacity, occupancy allocation, and clinical unit assignment.
+                            Real-time unit bed capacity and occupancy.
                         </div>
                     </div>
                 </div>
 
                 {/* ── Summary Cards Row (5 Cards) ───────────────────────────── */}
                 {summary && (
-                    <div style={{
-                        display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 12,
-                        marginBottom: 14, flexShrink: 0
-                    }}>
+                    <div className="beds-summary-grid" style={{ flexShrink: 0 }}>
                         {/* 1. TOTAL BED CAPACITY */}
                         <SummaryCard
                             label="TOTAL BED CAPACITY"
                             icon={<BedIcon size={14} strokeWidth={1.7} color="#718097" />}
                             number={summary.total}
                             unitLabel="registered beds"
-                            subtext={`${summary.departments.length} Units · 2 Active wards configured`}
+                            subtext={`${units.length} Units`}
                         />
 
                         {/* 2. OCCUPIED BEDS */}
@@ -725,13 +774,13 @@ export default function BedsManagement() {
                 )}
 
                 {/* ── Table Container ────────────────────────────────────────── */}
-                <div style={{
+                <div className="beds-table-shell" style={{
                     flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column',
                     background: '#FFFFFF', border: '1px solid #E7ECF2', borderRadius: 6,
                     overflow: 'hidden', minWidth: 0,
                 }}>
-                    <div style={{ overflowX: 'auto', flex: 1 }}>
-                        <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 800 }}>
+                    <div className="beds-table-scroll">
+                        <table className="beds-data-table">
                             <thead>
                                 <tr style={{
                                     height: 38, background: '#FFFFFF', borderBottom: '1px solid #E7ECF2',
@@ -741,7 +790,7 @@ export default function BedsManagement() {
                                         fontSize: 11, fontWeight: 700, letterSpacing: '0.04em',
                                         color: '#718097', textTransform: 'uppercase',
                                     }}>
-                                        DEPARTMENT / CLINICAL UNIT
+                                        UNIT
                                     </th>
                                     <th style={{
                                         padding: '0 8px', textAlign: 'center', width: 90,
@@ -795,20 +844,19 @@ export default function BedsManagement() {
                                 </tr>
                             </thead>
                             <tbody>
-                                {paginatedDepartments.map(dept => (
+                                {paginatedUnits.map(unit => (
                                     <DepartmentRow
-                                        key={dept.department_id}
-                                        dept={dept}
-                                        isSelected={selectedDeptId === dept.department_id}
+                                        key={unit.unit_id}
+                                        dept={unit}
+                                        isSelected={selectedUnitId === unit.unit_id}
                                         isAdmin={isAdmin}
-                                        lastUpdated={summary?.last_updated_at}
-                                        onClick={() => openDepartment(dept.department_id)}
+                                        onClick={() => openUnit(unit)}
                                     />
                                 ))}
-                                {paginatedDepartments.length === 0 && (
+                                {paginatedUnits.length === 0 && (
                                     <tr>
                                         <td colSpan={8} style={{ padding: '36px 14px', textAlign: 'center', color: '#9AA7B8', fontSize: 12.5 }}>
-                                            {searchQuery ? 'No matching departments found.' : 'No departments configured yet.'}
+                                            {searchQuery ? 'No matching units found.' : 'No units configured yet.'}
                                         </td>
                                     </tr>
                                 )}
@@ -816,14 +864,31 @@ export default function BedsManagement() {
                         </table>
                     </div>
 
+                    <div className="beds-card-list">
+                        {paginatedUnits.map(unit => (
+                            <DepartmentCard
+                                key={unit.unit_id}
+                                dept={unit}
+                                isSelected={selectedUnitId === unit.unit_id}
+                                isAdmin={isAdmin}
+                                onClick={() => openUnit(unit)}
+                            />
+                        ))}
+                        {paginatedUnits.length === 0 && (
+                            <div style={{ padding: '36px 14px', textAlign: 'center', color: '#9AA7B8', fontSize: 12.5 }}>
+                                {searchQuery ? 'No matching units found.' : 'No units configured yet.'}
+                            </div>
+                        )}
+                    </div>
+
                     {/* Table Footer / Pagination */}
-                    <div style={{
+                    <div className="beds-table-footer" style={{
                         height: 38, padding: '0 14px', borderTop: '1px solid #F0F3F6',
                         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                         fontSize: 12.5, color: '#8290A5', background: '#FFFFFF', flexShrink: 0
                     }}>
                         <div>
-                            Showing <strong style={{ color: '#0E182A' }}>1 to {paginatedDepartments.length}</strong> of <strong style={{ color: '#0E182A' }}>{summary?.departments.length || 0}</strong> clinical departments
+                            Showing <strong style={{ color: '#0E182A' }}>{filteredUnits.length === 0 ? 0 : (currentPage - 1) * pageSize + 1} to {Math.min(currentPage * pageSize, filteredUnits.length)}</strong> of <strong style={{ color: '#0E182A' }}>{filteredUnits.length}</strong> units
                             <span style={{ margin: '0 8px', color: '#CBD5E1' }}>—</span>
                             <span style={{ color: '#009B68', fontWeight: 500 }}>{assignedCount} units with assigned beds</span>
                         </div>
@@ -907,7 +972,7 @@ export default function BedsManagement() {
                         }}>
                             <div>
                                 <div style={{ fontSize: 15, fontWeight: 700, color: '#0E182A' }}>
-                                    {deptDetail?.name || 'Department Bed Mapping'}
+                                    {selectedUnitName || deptDetail?.name || 'Unit bed mapping'}
                                 </div>
                                 <div style={{ fontSize: 11, color: '#8290A5', marginTop: 2 }}>
                                     Map beds and manage clinical status{deptDetail?.wards?.length ? ` · ${deptDetail.wards.length} ward${deptDetail.wards.length !== 1 ? 's' : ''}` : ''}
@@ -1263,23 +1328,15 @@ function SummaryCard({
     );
 }
 
-function DepartmentRow({ dept, isSelected, isAdmin, lastUpdated, onClick }: {
-    dept: DepartmentBedSummary;
-    isSelected: boolean;
-    isAdmin: boolean;
-    lastUpdated?: string;
-    onClick: () => void;
-}) {
+function capacityStatus(dept: DepartmentBedSummary) {
     const isUnmapped = dept.capacity_level === 'unmapped';
-
-    // Status Badge calculation
     let statusBg = '#ECFBF5';
     let statusFg = '#008B60';
     let statusBorder = '#BCEBD9';
     let statusDotColor = '#009B68';
     let statusLabel = 'Beds available';
 
-    if (dept.capacity_level === 'unmapped') {
+    if (isUnmapped) {
         statusBg = '#FFF9E8';
         statusFg = '#B87800';
         statusBorder = '#F4D98A';
@@ -1299,7 +1356,38 @@ function DepartmentRow({ dept, isSelected, isAdmin, lastUpdated, onClick }: {
         statusLabel = dept.capacity_label || 'Moderate';
     }
 
-    const subtitle = getDeptSubtitle(dept.department_name);
+    return { isUnmapped, statusBg, statusFg, statusBorder, statusDotColor, statusLabel };
+}
+
+const BEDS_TABLE_CSS = `
+.beds-page { container-type: inline-size; }
+.beds-table-shell { container-type: inline-size; min-width: 0; }
+.beds-table-scroll { min-width: 0; width: 100%; overflow-x: auto; flex: 1; }
+.beds-data-table { width: 100%; min-width: 980px; border-collapse: collapse; }
+.beds-data-table th { white-space: nowrap; }
+.beds-card-list { display: none; }
+.beds-card-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-top: 10px; }
+.beds-summary-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; margin-bottom: 14px; }
+@container (max-width: 980px) {
+  .beds-summary-grid { grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); }
+}
+@container (max-width: 860px) {
+  .beds-table-scroll { display: none; }
+  .beds-card-list { display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: auto; }
+  .beds-table-footer { height: auto !important; flex-wrap: wrap; gap: 10px; padding-top: 10px !important; padding-bottom: 10px !important; }
+}
+@container (max-width: 420px) {
+  .beds-card-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+`;
+
+function DepartmentRow({ dept, isSelected, isAdmin, onClick }: {
+    dept: DepartmentBedSummary;
+    isSelected: boolean;
+    isAdmin: boolean;
+    onClick: () => void;
+}) {
+    const { isUnmapped, statusBg, statusFg, statusBorder, statusDotColor, statusLabel } = capacityStatus(dept);
 
     return (
         <tr
@@ -1313,16 +1401,10 @@ function DepartmentRow({ dept, isSelected, isAdmin, lastUpdated, onClick }: {
             onMouseEnter={e => { if (!isSelected) (e.currentTarget as HTMLElement).style.background = '#F8FAFC'; }}
             onMouseLeave={e => { if (!isSelected) (e.currentTarget as HTMLElement).style.background = isSelected ? '#F8FAFC' : '#FFFFFF'; }}
         >
-            {/* Department / Clinical Unit Name & Subtitle */}
             <td style={{ padding: '0 14px', textAlign: 'left' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <div>
-                        <div style={{ fontSize: 13.5, fontWeight: 600, color: '#152033', lineHeight: '17px' }}>
-                            {dept.department_name}
-                        </div>
-                        <div style={{ fontSize: 11, fontWeight: 400, color: '#8290A5', lineHeight: '15px', marginTop: 1 }}>
-                            {subtitle}
-                        </div>
+                    <div style={{ fontSize: 13.5, fontWeight: 600, color: '#152033', lineHeight: '17px' }}>
+                        {dept.department_name}
                     </div>
 
                     {isUnmapped && isAdmin && (
@@ -1378,7 +1460,7 @@ function DepartmentRow({ dept, isSelected, isAdmin, lastUpdated, onClick }: {
 
             {/* Last Activity */}
             <td style={{ padding: '0 10px', textAlign: 'center', fontSize: 11.5, fontWeight: 400, color: '#8290A5' }}>
-                {relativeTime(lastUpdated || '')}
+                {relativeTime(dept.last_updated_at)}
             </td>
 
             {/* Actions */}
@@ -1394,5 +1476,78 @@ function DepartmentRow({ dept, isSelected, isAdmin, lastUpdated, onClick }: {
                 </div>
             </td>
         </tr>
+    );
+}
+
+function DepartmentCard({ dept, isSelected, isAdmin, onClick }: {
+    dept: DepartmentBedSummary;
+    isSelected: boolean;
+    isAdmin: boolean;
+    onClick: () => void;
+}) {
+    const { isUnmapped, statusBg, statusFg, statusBorder, statusDotColor, statusLabel } = capacityStatus(dept);
+    const stats = [
+        { label: 'Total', value: dept.total, color: '#40516A' },
+        { label: 'Occupied', value: dept.occupied, color: dept.occupied > 0 ? '#DC2626' : '#40516A' },
+        { label: 'Available', value: dept.available, color: dept.available > 0 ? '#009B68' : '#40516A' },
+        { label: 'Blocked', value: dept.blocked, color: '#40516A' },
+    ];
+
+    return (
+        <article
+            onClick={onClick}
+            style={{
+                padding: '12px 14px', cursor: 'pointer',
+                background: isSelected ? '#F8FAFC' : '#FFFFFF',
+                borderBottom: '1px solid #F0F3F6',
+            }}
+        >
+            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 }}>
+                <div style={{ minWidth: 0, fontSize: 13.5, fontWeight: 600, color: '#152033', lineHeight: '17px' }}>
+                    {dept.department_name}
+                </div>
+                <span style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 5, flexShrink: 0,
+                    height: 22, padding: '0 10px', borderRadius: 9999,
+                    fontSize: 11, fontWeight: 600,
+                    background: statusBg, border: `1px solid ${statusBorder}`,
+                    color: statusFg,
+                }}>
+                    <span style={{ width: 5, height: 5, borderRadius: '50%', background: statusDotColor }} />
+                    {statusLabel}
+                </span>
+            </div>
+
+            <div className="beds-card-stats">
+                {stats.map(stat => (
+                    <div key={stat.label} style={{
+                        background: '#F8FAFC', border: '1px solid #F0F3F6', borderRadius: 6, padding: '8px 10px',
+                    }}>
+                        <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.04em', color: '#718097', textTransform: 'uppercase' }}>
+                            {stat.label}
+                        </div>
+                        <div style={{ fontSize: 16, fontWeight: 700, color: stat.color, marginTop: 2 }}>{stat.value}</div>
+                    </div>
+                ))}
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginTop: 10 }}>
+                <span style={{ fontSize: 11.5, color: '#8290A5' }}>{relativeTime(dept.last_updated_at)}</span>
+                <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                    {isUnmapped && isAdmin && (
+                        <span style={{
+                            fontSize: 10.5, fontWeight: 500, color: '#1685D1',
+                            background: '#F4FAFF', border: '1px solid #CDE7FA',
+                            borderRadius: 4, padding: '2px 6px',
+                        }}>
+                            + Add Beds
+                        </span>
+                    )}
+                    <span style={{ fontSize: 12.5, fontWeight: 600, color: isUnmapped ? '#718097' : '#1685D1' }}>
+                        {isUnmapped ? 'Configure' : 'Manage'}
+                    </span>
+                </div>
+            </div>
+        </article>
     );
 }
