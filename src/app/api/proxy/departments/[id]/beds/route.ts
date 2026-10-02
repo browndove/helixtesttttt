@@ -12,11 +12,15 @@ export async function GET(
     try {
         const { id } = await params;
         const wardId = req.nextUrl.searchParams.get('ward_id');
+        const floorId = req.nextUrl.searchParams.get('floor_id');
         const upstream = await buildTenantUpstreamUrl(
             req,
             API_BASE_URL,
             `/api/v1/departments/${id}/beds`,
-            wardId ? { ward_id: wardId } : undefined
+            {
+                ...(wardId ? { ward_id: wardId } : {}),
+                ...(floorId ? { floor_id: floorId } : {}),
+            }
         );
 
         if (upstream instanceof NextResponse) return upstream;

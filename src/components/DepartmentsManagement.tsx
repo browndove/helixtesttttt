@@ -3,6 +3,8 @@
 import { useState, useEffect, useLayoutEffect, useCallback, useMemo, useRef } from 'react';
 import TopBar from '@/components/TopBar';
 import { DEPARTMENT_DESCRIPTION_MAX_LENGTH, DEPARTMENT_NAME_MAX_LENGTH } from '@/lib/departmentName';
+import { parseCareUnitFloors, parseCareUnits, type CareUnitFloor } from '@/lib/care-units';
+import UnitFloorsEditor from '@/components/UnitFloorsEditor';
 import { MacVibrancyToast, MacVibrancyToastPortal } from '@/components/MacVibrancyToast';
 import { readCachedJson, writeCachedJson } from '@/lib/getJsonCache';
 
@@ -20,7 +22,15 @@ const departmentsAppMainStyle = {
 
 type FloorItem = { id: string; name: string };
 type WardItem = { id: string; name: string };
-type UnitItem = { id: string; name: string; description?: string; department_id?: string; department_name?: string };
+type UnitItem = {
+    id: string;
+    name: string;
+    description?: string;
+    department_id?: string;
+    department_name?: string;
+    floor_count: number;
+    floors: CareUnitFloor[];
+};
 type PendingDelete =
     | { kind: 'department'; id: string; label: string }
     | { kind: 'unit'; id: string; label: string };
@@ -125,8 +135,7 @@ export default function DepartmentsManagement() {
             const res = await fetch('/api/proxy/units');
             if (res.ok) {
                 const data = await res.json();
-                const list = Array.isArray(data) ? data : (Array.isArray((data as { units?: unknown }).units) ? (data as { units: UnitItem[] }).units : []);
-                setUnits(list as UnitItem[]);
+                setUnits(parseCareUnits(data));
             }
         } catch { /* ignore */ }
         setUnitsLoading(false);
@@ -287,6 +296,7 @@ export default function DepartmentsManagement() {
                 const description = typeof raw.description === 'string' ? raw.description : '';
                 setUnitDetailName(name);
                 setUnitDetailDescription(description);
+                const floors = parseCareUnitFloors(raw.floors);
                 setUnits(prev => prev.map(u => {
                     if (u.id !== editingUnit) return u;
                     return {
@@ -295,6 +305,8 @@ export default function DepartmentsManagement() {
                         description,
                         department_id: typeof raw.department_id === 'string' ? raw.department_id : u.department_id,
                         department_name: typeof raw.department_name === 'string' ? raw.department_name : u.department_name,
+                        floors,
+                        floor_count: floors.length,
                     };
                 }));
             } catch (e) {
@@ -464,12 +476,16 @@ export default function DepartmentsManagement() {
                 }),
             });
             if (res.ok) {
-                const unit = await res.json() as UnitItem;
-                setUnits(prev => [...prev, unit]);
-                setEditingUnit(unit.id);
-                showToast(`Unit "${name}" added`);
-                resetNewUnitForm();
-                setShowAddUnit(false);
+                const created = parseCareUnits([await res.json()])[0];
+                if (created) {
+                    setUnits(prev => [...prev, created]);
+                    setEditingUnit(created.id);
+                    showToast(`Unit "${name}" added`);
+                    resetNewUnitForm();
+                    setShowAddUnit(false);
+                } else {
+                    showToast('Unit was created, but the response could not be read');
+                }
             } else {
                 const err = await res.json().catch(() => ({} as { error?: string; detail?: string }));
                 showToast(String(err.error || err.detail || 'Failed to add unit'));
@@ -1162,7 +1178,10 @@ export default function DepartmentsManagement() {
                                                 <div style={{ flex: 1, minWidth: 0 }}>
                                                     <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{u.name}</div>
                                                     <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                                                        {u.description || u.department_name || 'Unit'}
+                                                        {(u.floors?.length ?? u.floor_count ?? 0) === 0
+                                                            ? 'No floors'
+                                                            : `${u.floors?.length ?? u.floor_count} floor${(u.floors?.length ?? u.floor_count) === 1 ? '' : 's'}`}
+                                                        {u.department_name ? ` · ${u.department_name}` : ''}
                                                     </div>
                                                 </div>
                                             </button>
@@ -1252,6 +1271,21 @@ export default function DepartmentsManagement() {
                                                     Linked department: <strong style={{ color: 'var(--text-secondary)' }}>{editUnit.department_name}</strong>
                                                 </p>
                                             ) : null}
+                                        </div>
+
+                                        <div className="card" style={{ padding: '16px 18px', marginTop: 14, background: 'var(--surface-2)', border: '1px solid var(--border-subtle)' }}>
+                                            <UnitFloorsEditor
+                                                unitId={editUnit.id}
+                                                floors={editUnit.floors || []}
+                                                canEdit
+                                                onChange={floors => {
+                                                    setUnits(prev => prev.map(unit => (
+                                                        unit.id === editUnit.id
+                                                            ? { ...unit, floors, floor_count: floors.length }
+                                                            : unit
+                                                    )));
+                                                }}
+                                            />
                                         </div>
                                     </div>
                                 ) : (

@@ -1,11 +1,14 @@
 'use client';
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import Link from 'next/link';
 import TopBar from '@/components/TopBar';
 import { MacVibrancyToast, MacVibrancyToastPortal } from '@/components/MacVibrancyToast';
 import { API_ENDPOINTS } from '@/lib/config';
 import { appendFacilityIdForProxy } from '@/lib/facility-client';
 import type { Bed, BedStatus, FacilityBedSummary, DepartmentBedSummary, BedCapacity } from '@/lib/beds';
+import { parseCareUnits, type CareUnit, type CareUnitFloor } from '@/lib/care-units';
+import UnitFloorsEditor from '@/components/UnitFloorsEditor';
 import {
     Bed as BedIcon,
     Users,
@@ -20,6 +23,9 @@ import {
     ChevronLeft,
     ChevronRight,
     X,
+    LayoutGrid,
+    List,
+    Building2,
 } from 'lucide-react';
 
 /* ─── constants ─────────────────────────────────────────────────────── */
@@ -28,13 +34,11 @@ const POLL_INTERVAL_MS = 20_000;
 
 type ToastItem = { message: string; variant: 'success' | 'error' | 'info' };
 
-type CareUnit = {
-    id: string;
-    name: string;
-    department_id?: string;
+type UnitBedRow = DepartmentBedSummary & {
+    unit_id: string;
+    floors: CareUnitFloor[];
+    floor_count: number;
 };
-
-type UnitBedRow = DepartmentBedSummary & { unit_id: string };
 
 const UNMAPPED_CAPACITY: BedCapacity = {
     total: 0,
@@ -47,21 +51,10 @@ const UNMAPPED_CAPACITY: BedCapacity = {
     capacity_label: 'Unmapped',
 };
 
-function parseCareUnits(raw: unknown): CareUnit[] {
-    const list = Array.isArray(raw)
-        ? raw
-        : (raw && typeof raw === 'object' && Array.isArray((raw as { units?: unknown }).units)
-            ? (raw as { units: unknown[] }).units
-            : []);
-    return list.flatMap((item) => {
-        if (!item || typeof item !== 'object') return [];
-        const rec = item as Record<string, unknown>;
-        const id = String(rec.id || '').trim();
-        const name = String(rec.name || '').trim();
-        if (!id || !name) return [];
-        const departmentId = String(rec.department_id || '').trim();
-        return [{ id, name, ...(departmentId ? { department_id: departmentId } : {}) }];
-    });
+function replaceUnitFloors(units: CareUnit[], unitId: string, floors: CareUnitFloor[]): CareUnit[] {
+    return units.map(unit => (
+        unit.id === unitId ? { ...unit, floors, floor_count: floors.length } : unit
+    ));
 }
 
 type Ward = { id: string; name: string };
@@ -123,11 +116,18 @@ function relativeTime(iso?: string): string {
     return when.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
-const BED_STATUS_COLORS: Record<BedStatus, { bg: string; fg: string; border: string; label: string }> = {
-    available: { bg: '#ECFBF5', fg: '#008B60', border: '#BCEBD9', label: 'Available' },
-    occupied: { bg: '#FEF2F2', fg: '#DC2626', border: '#FECACA', label: 'Occupied' },
-    blocked: { bg: '#F3F4F6', fg: '#4B5563', border: '#E5E7EB', label: 'Blocked' },
+const BED_STATUS_COLORS: Record<BedStatus, { bg: string; fg: string; dot: string; label: string; border: string }> = {
+    available: { bg: '#E7F8EF', fg: '#17803D', dot: '#22A35A', label: 'Available', border: '#B7E4C7' },
+    occupied: { bg: '#E7F0FE', fg: '#1D4ED8', dot: '#3B82F6', label: 'Occupied', border: '#BFDBFE' },
+    blocked: { bg: '#F3F4F6', fg: '#4B5563', dot: '#6B7280', label: 'Blocked', border: '#E5E7EB' },
 };
+
+function formatBedLabel(bedNumber: string): string {
+    const trimmed = bedNumber.trim();
+    if (/^bed\b/i.test(trimmed)) return trimmed;
+    if (/^\d+$/.test(trimmed)) return `Bed ${trimmed.padStart(2, '0')}`;
+    return `Bed ${trimmed}`;
+}
 
 /* ─── component ─────────────────────────────────────────────────────── */
 
@@ -165,6 +165,9 @@ export default function BedsManagement() {
     const [deptBeds, setDeptBeds] = useState<Bed[]>([]);
     const [deptBedsLoading, setDeptBedsLoading] = useState(false);
     const [activeWardId, setActiveWardId] = useState<string | null>(null);
+    const [selectedFloorId, setSelectedFloorId] = useState<string | null>(null);
+    const [bedStatusFilter, setBedStatusFilter] = useState<'all' | BedStatus>('all');
+    const [inventoryLayout, setInventoryLayout] = useState<'floors' | 'matrix'>('floors');
 
     /* add beds input */
     const [bedChips, setBedChips] = useState<string[]>([]);
@@ -241,16 +244,24 @@ export default function BedsManagement() {
         } catch { /* ignore */ }
     }, []);
 
-    const fetchDeptBeds = useCallback(async (deptId: string, wardId?: string | null) => {
+    const fetchDeptBeds = useCallback(async (deptId: string, floorId?: string | null) => {
         setDeptBedsLoading(true);
         try {
             let url = API_ENDPOINTS.DEPARTMENT_BEDS(deptId);
-            if (wardId) url += `?ward_id=${wardId}`;
+            if (floorId) url += `?floor_id=${encodeURIComponent(floorId)}`;
             url = await appendFacilityIdForProxy(url);
             const res = await fetch(url, { credentials: 'include' });
             if (res.ok) {
                 const data = await res.json();
-                setDeptBeds(Array.isArray(data) ? (data as Bed[]).sort(compareBeds) : []);
+                const rawList = Array.isArray(data) ? data : (Array.isArray(data?.beds) ? data.beds : []);
+                const normalized = rawList.map((bed: Record<string, unknown>) => {
+                    const fId = bed.floor_id || bed.care_unit_floor_id || bed.unit_floor_id || bed.floorId || (typeof bed.floor === 'object' && bed.floor ? (bed.floor as { id?: string }).id : undefined);
+                    return {
+                        ...bed,
+                        floor_id: fId ? String(fId) : undefined,
+                    } as Bed;
+                });
+                setDeptBeds(normalized.sort(compareBeds));
             }
         } catch { /* ignore */ }
         setDeptBedsLoading(false);
@@ -264,18 +275,26 @@ export default function BedsManagement() {
         setChipInput('');
         setStatusMenuBedId(null);
         fetchDeptDetail(deptId);
-        fetchDeptBeds(deptId);
-    }, [fetchDeptDetail, fetchDeptBeds]);
+    }, [fetchDeptDetail]);
 
     const openUnit = useCallback((row: UnitBedRow) => {
-        if (!row.department_id) {
-            showToast('This unit is not linked to a department', 'info');
-            return;
-        }
         setSelectedUnitId(row.unit_id);
         setSelectedUnitName(row.department_name);
+        setBedChips([]);
+        setChipInput('');
+        setStatusMenuBedId(null);
+        setSelectedFloorId(null);
+        setBedStatusFilter('all');
+        if (!row.department_id) {
+            setSelectedDeptId(null);
+            setDeptDetail(null);
+            setDeptBeds([]);
+            setActiveWardId(null);
+            setSelectedFloorId(null);
+            return;
+        }
         openDepartment(row.department_id);
-    }, [openDepartment, showToast]);
+    }, [openDepartment]);
 
     const closeDrawer = useCallback(() => {
         setSelectedDeptId(null);
@@ -284,16 +303,18 @@ export default function BedsManagement() {
         setDeptDetail(null);
         setDeptBeds([]);
         setActiveWardId(null);
+        setSelectedFloorId(null);
+        setBedStatusFilter('all');
         setBedChips([]);
         setChipInput('');
         setStatusMenuBedId(null);
     }, []);
 
-    /* re-fetch beds when ward tab changes */
+    /* load every bed in the department so floor tabs can show counts */
     useEffect(() => {
         if (!selectedDeptId) return;
-        fetchDeptBeds(selectedDeptId, activeWardId);
-    }, [selectedDeptId, activeWardId, fetchDeptBeds]);
+        fetchDeptBeds(selectedDeptId);
+    }, [selectedDeptId, fetchDeptBeds]);
 
     /* ── chip input ─────────────────────────────────────────────────── */
     const addChipsFromInput = useCallback(() => {
@@ -321,12 +342,17 @@ export default function BedsManagement() {
 
     /* ── mutations ──────────────────────────────────────────────────── */
     const addBeds = useCallback(async () => {
-        if (!selectedDeptId || bedChips.length === 0) return;
+        if (!selectedDeptId || !selectedFloorId || bedChips.length === 0) return;
         setAddingBeds(true);
         try {
             let url = API_ENDPOINTS.DEPARTMENT_BEDS(selectedDeptId);
             url = await appendFacilityIdForProxy(url);
-            const body: Record<string, unknown> = { bed_numbers: bedChips };
+            const body: Record<string, unknown> = {
+                bed_numbers: bedChips,
+                floor_id: selectedFloorId,
+                care_unit_floor_id: selectedFloorId,
+                unit_floor_id: selectedFloorId,
+            };
             if (activeWardId) body.ward_id = activeWardId;
             const res = await fetch(url, {
                 method: 'POST',
@@ -338,7 +364,7 @@ export default function BedsManagement() {
                 showToast(`Added ${bedChips.length} bed${bedChips.length !== 1 ? 's' : ''}`);
                 setBedChips([]);
                 setChipInput('');
-                fetchDeptBeds(selectedDeptId, activeWardId);
+                fetchDeptBeds(selectedDeptId);
                 fetchSummary();
             } else {
                 const err = await res.json().catch(() => ({} as Record<string, string>));
@@ -348,7 +374,7 @@ export default function BedsManagement() {
             showToast('Failed to add beds', 'error');
         }
         setAddingBeds(false);
-    }, [selectedDeptId, bedChips, activeWardId, fetchDeptBeds, fetchSummary, showToast]);
+    }, [selectedDeptId, selectedFloorId, bedChips, activeWardId, fetchDeptBeds, fetchSummary, showToast]);
 
     const deleteBed = useCallback(async (bed: Bed) => {
         setConfirmAction({
@@ -362,7 +388,7 @@ export default function BedsManagement() {
                     const res = await fetch(url, { method: 'DELETE', credentials: 'include' });
                     if (res.ok || res.status === 204) {
                         showToast(`Bed ${bed.bed_number} removed`);
-                        if (selectedDeptId) fetchDeptBeds(selectedDeptId, activeWardId);
+                        if (selectedDeptId) fetchDeptBeds(selectedDeptId);
                         fetchSummary();
                     } else {
                         const err = await res.json().catch(() => ({}));
@@ -373,20 +399,25 @@ export default function BedsManagement() {
                 }
             },
         });
-    }, [selectedDeptId, activeWardId, fetchDeptBeds, fetchSummary, showToast]);
+    }, [selectedDeptId, fetchDeptBeds, fetchSummary, showToast]);
 
     const replaceAllBeds = useCallback(() => {
-        if (!selectedDeptId) return;
+        if (!selectedDeptId || !selectedFloorId) return;
+        const floorName = units.find(unit => unit.id === selectedUnitId)?.floors.find(floor => floor.id === selectedFloorId)?.name || 'this floor';
         setConfirmAction({
-            title: 'Replace all beds',
-            message: 'This replaces every mapped bed in this department, including all wards. Occupancy resets to available. This cannot be undone.',
+            title: 'Replace beds on this floor',
+            message: `This replaces every mapped bed on ${floorName}. Occupancy resets to available. This cannot be undone.`,
             confirmLabel: 'Replace All',
             onConfirm: async () => {
                 try {
                     let url = API_ENDPOINTS.DEPARTMENT_BEDS(selectedDeptId);
                     url = await appendFacilityIdForProxy(url);
-                    const body: Record<string, unknown> = { bed_numbers: bedChips };
-                    if (activeWardId) body.ward_id = activeWardId;
+                    const body: Record<string, unknown> = {
+                        bed_numbers: bedChips,
+                        floor_id: selectedFloorId,
+                        care_unit_floor_id: selectedFloorId,
+                        unit_floor_id: selectedFloorId,
+                    };
                     const res = await fetch(url, {
                         method: 'PUT',
                         headers: { 'Content-Type': 'application/json' },
@@ -394,10 +425,10 @@ export default function BedsManagement() {
                         body: JSON.stringify(body),
                     });
                     if (res.ok) {
-                        showToast(`Replaced beds in department`);
+                        showToast(`Replaced beds on ${floorName}`);
                         setBedChips([]);
                         setChipInput('');
-                        fetchDeptBeds(selectedDeptId, activeWardId);
+                        fetchDeptBeds(selectedDeptId);
                         fetchSummary();
                     } else {
                         const err = await res.json().catch(() => ({} as Record<string, string>));
@@ -408,7 +439,7 @@ export default function BedsManagement() {
                 }
             },
         });
-    }, [selectedDeptId, bedChips, activeWardId, fetchDeptBeds, fetchSummary, showToast]);
+    }, [selectedDeptId, selectedFloorId, selectedUnitId, units, bedChips, fetchDeptBeds, fetchSummary, showToast]);
 
     const patchBedStatus = useCallback(async (bedId: string, newStatus: BedStatus) => {
         setStatusMenuBedId(null);
@@ -457,6 +488,8 @@ export default function BedsManagement() {
                 department_id: unit.department_id || '',
                 department_name: unit.name,
                 unit_id: unit.id,
+                floors: unit.floors,
+                floor_count: unit.floors.length,
             };
         });
     }, [summary, units]);
@@ -489,8 +522,53 @@ export default function BedsManagement() {
     }, [unitRows]);
 
     /* ── filtered beds for ward tab ─────────────────────────────────── */
+    const scopeBeds = useMemo(() => {
+        const rows = selectedFloorId
+            ? deptBeds.filter(bed => bed.floor_id === selectedFloorId)
+            : deptBeds;
+        return [...rows].sort(compareBeds);
+    }, [deptBeds, selectedFloorId]);
+
     const displayedBeds = useMemo(() => {
-        return deptBeds.sort(compareBeds);
+        if (bedStatusFilter === 'all') return scopeBeds;
+        return scopeBeds.filter(bed => bed.status === bedStatusFilter);
+    }, [scopeBeds, bedStatusFilter]);
+
+    const bedGroups = useMemo(() => {
+        const floors = units.find(unit => unit.id === selectedUnitId)?.floors ?? [];
+        const floorName = new Map(floors.map(floor => [floor.id, floor.name]));
+        const buckets = new Map<string, Bed[]>();
+        for (const bed of displayedBeds) {
+            const key = bed.floor_id || 'unassigned';
+            const list = buckets.get(key) ?? [];
+            list.push(bed);
+            buckets.set(key, list);
+        }
+        const groups: { id: string; name: string; beds: Bed[] }[] = [];
+        const orderedIds = selectedFloorId ? [selectedFloorId] : floors.map(floor => floor.id);
+        for (const id of orderedIds) {
+            const beds = buckets.get(id);
+            if (beds?.length) groups.push({ id, name: floorName.get(id) || 'Floor', beds });
+            buckets.delete(id);
+        }
+        for (const [id, beds] of buckets) {
+            if (!beds.length) continue;
+            groups.push({
+                id,
+                name: id === 'unassigned' ? 'Unassigned' : (floorName.get(id) || 'Floor'),
+                beds,
+            });
+        }
+        return groups;
+    }, [displayedBeds, units, selectedUnitId, selectedFloorId]);
+
+    const floorBedCounts = useMemo(() => {
+        const counts: Record<string, number> = {};
+        for (const bed of deptBeds) {
+            if (!bed.floor_id) continue;
+            counts[bed.floor_id] = (counts[bed.floor_id] || 0) + 1;
+        }
+        return counts;
     }, [deptBeds]);
 
     /* ── shimmer loading skeleton ────────────────────────────────────── */
@@ -502,6 +580,11 @@ export default function BedsManagement() {
     };
 
     /* ── RENDER ──────────────────────────────────────────────────────── */
+
+    const selectedUnit = units.find(unit => unit.id === selectedUnitId) || null;
+    const unitHasFloors = (selectedUnit?.floors.length ?? 0) > 0;
+    const selectedFloorName = selectedUnit?.floors.find(floor => floor.id === selectedFloorId)?.name || '';
+    const canManageBeds = unitHasFloors && Boolean(selectedDeptId);
 
     if (summaryLoading && !summary) {
         return (
@@ -606,6 +689,20 @@ export default function BedsManagement() {
             <TopBar
                 title="Beds"
                 subtitle="Manage bed mapping and occupancy"
+                accessory={(
+                    <Link
+                        href="/beds/layout-setup"
+                        style={{
+                            height: 28, padding: '0 10px', borderRadius: 999, flexShrink: 0,
+                            border: '1px solid #DCE4ED', background: '#FFFFFF',
+                            fontSize: 12, fontWeight: 600, color: '#1D6FB8', textDecoration: 'none',
+                            display: 'inline-flex', alignItems: 'center', gap: 5,
+                        }}
+                    >
+                        <Building2 size={13} strokeWidth={1.8} />
+                        Blocks & rooms
+                    </Link>
+                )}
                 actions={(
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
                         <div style={{ position: 'relative', width: 240, height: 32, flexShrink: 1 }}>
@@ -835,7 +932,7 @@ export default function BedsManagement() {
                                         LAST ACTIVITY
                                     </th>
                                     <th style={{
-                                        padding: '0 14px', textAlign: 'right', width: 100,
+                                        padding: '0 14px', textAlign: 'right', width: 132,
                                         fontSize: 11, fontWeight: 700, letterSpacing: '0.04em',
                                         color: '#718097', textTransform: 'uppercase',
                                     }}>
@@ -944,290 +1041,468 @@ export default function BedsManagement() {
             </main>
 
             {/* ── Drawer for Department Bed Management ──────────────────────── */}
-            {selectedDeptId && (
+            {selectedUnitId && (
                 <div
                     style={{
                         position: 'fixed', inset: 0, zIndex: 1000,
                         display: 'flex', justifyContent: 'flex-end',
-                        background: 'rgba(14, 24, 42, 0.35)', backdropFilter: 'blur(1px)',
+                        background: 'rgba(15, 23, 42, 0.45)', backdropFilter: 'blur(8px)',
                     }}
                     onClick={closeDrawer}
                 >
                     <div
                         style={{
-                            width: 'min(600px, 100vw)', height: '100vh',
+                            width: 'min(780px, 100vw)', height: '100vh',
                             display: 'flex', flexDirection: 'column', overflow: 'hidden',
-                            borderLeft: '1px solid #E6EBF1', background: '#FFFFFF',
-                            boxShadow: '-10px 0 25px -5px rgba(14, 24, 42, 0.08)',
-                            animation: 'slideInRight 0.18s ease-out',
+                            borderLeft: '1px solid #E2E8F0', background: '#F8FAFC',
+                            boxShadow: '-16px 0 36px -8px rgba(15, 23, 42, 0.16)',
+                            animation: 'slideInRight 0.22s cubic-bezier(0.16, 1, 0.3, 1)',
                             fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
                         }}
                         onClick={e => e.stopPropagation()}
                     >
                         {/* Drawer Header */}
                         <div style={{
-                            padding: '16px 20px', borderBottom: '1px solid #E6EBF1',
-                            display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0,
-                            background: '#F8FAFC',
+                            padding: '20px 24px 16px',
+                            background: '#FFFFFF',
+                            borderBottom: '1px solid #E2E8F0',
+                            display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexShrink: 0,
                         }}>
-                            <div>
-                                <div style={{ fontSize: 15, fontWeight: 700, color: '#0E182A' }}>
-                                    {selectedUnitName || deptDetail?.name || 'Unit bed mapping'}
-                                </div>
-                                <div style={{ fontSize: 11, color: '#8290A5', marginTop: 2 }}>
-                                    Map beds and manage clinical status{deptDetail?.wards?.length ? ` · ${deptDetail.wards.length} ward${deptDetail.wards.length !== 1 ? 's' : ''}` : ''}
+                            <div style={{ minWidth: 0 }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                                    <div style={{
+                                        width: 36, height: 36, borderRadius: 10, background: '#EFF6FF',
+                                        border: '1px solid #DBEAFE', display: 'flex', alignItems: 'center', justifyContent: 'center'
+                                    }}>
+                                        <BedIcon size={18} color="#2563EB" strokeWidth={2} />
+                                    </div>
+                                    <div>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                            <h2 style={{ fontSize: 20, fontWeight: 700, color: '#0F172A', letterSpacing: '-0.02em', margin: 0 }}>
+                                                {selectedUnitName || deptDetail?.name || 'Unit'}
+                                            </h2>
+                                            <span style={{
+                                                fontSize: 11, fontWeight: 600, color: '#2563EB',
+                                                background: '#EFF6FF', border: '1px solid #BFDBFE', borderRadius: 999, padding: '2px 8px',
+                                            }}>
+                                                Bed Mapping & Census
+                                            </span>
+                                            <span style={{ fontSize: 12, fontWeight: 500, color: '#64748B' }}>
+                                                {selectedUnit?.floors.length ?? 0} floor{(selectedUnit?.floors.length ?? 0) === 1 ? '' : 's'}
+                                            </span>
+                                        </div>
+                                        <div style={{ fontSize: 12.5, color: '#64748B', marginTop: 2 }}>
+                                            Map bed slots, manage patient occupancy, and configure unit capacity
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                             <button
                                 type="button"
                                 style={{
-                                    background: 'none', border: 'none', cursor: 'pointer',
-                                    color: '#8290A5', padding: 4, display: 'flex', alignItems: 'center', borderRadius: 4
+                                    background: '#F1F5F9', border: '1px solid #E2E8F0', cursor: 'pointer',
+                                    color: '#64748B', width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 8,
+                                    transition: 'all 0.15s ease',
                                 }}
                                 onClick={closeDrawer}
                                 aria-label="Close drawer"
                             >
-                                <X size={18} strokeWidth={1.7} />
+                                <X size={16} strokeWidth={2} />
                             </button>
                         </div>
 
-                        {/* Ward Tabs */}
-                        {deptDetail && deptDetail.wards.length > 0 && (
-                            <div style={{
-                                padding: '10px 20px', borderBottom: '1px solid #E6EBF1',
-                                display: 'flex', gap: 6, flexShrink: 0, overflowX: 'auto', background: '#FFFFFF',
-                            }}>
-                                <button
-                                    type="button"
-                                    style={{
-                                        height: 26, padding: '0 12px', borderRadius: 4, fontSize: 11, fontWeight: 600,
-                                        border: activeWardId === null ? 'none' : '1px solid #DCE4ED',
-                                        background: activeWardId === null ? '#101B30' : '#FFFFFF',
-                                        color: activeWardId === null ? '#FFFFFF' : '#718097',
-                                        cursor: 'pointer',
+                        {/* Floor Navigation Bar */}
+                        {selectedUnit && (
+                            <div style={{ padding: '14px 24px 10px', background: '#FFFFFF', borderBottom: '1px solid #E2E8F0', flexShrink: 0, minWidth: 0, maxWidth: '100%', overflow: 'hidden' }}>
+                                <UnitFloorsEditor
+                                    unitId={selectedUnit.id}
+                                    floors={selectedUnit.floors}
+                                    canEdit={isAdmin}
+                                    showBedGate
+                                    showAllTab
+                                    selectedFloorId={selectedFloorId}
+                                    floorCounts={floorBedCounts}
+                                    allCount={deptBeds.length}
+                                    onSelectFloor={floorId => {
+                                        setSelectedFloorId(floorId);
+                                        setBedStatusFilter('all');
+                                        setBedChips([]);
+                                        setChipInput('');
                                     }}
-                                    onClick={() => setActiveWardId(null)}
-                                >
-                                    All Wards
-                                </button>
-                                {deptDetail.wards.map(w => (
-                                    <button
-                                        key={w.id}
-                                        type="button"
-                                        style={{
-                                            height: 26, padding: '0 12px', borderRadius: 4, fontSize: 11, fontWeight: 600,
-                                            border: activeWardId === w.id ? 'none' : '1px solid #DCE4ED',
-                                            background: activeWardId === w.id ? '#101B30' : '#FFFFFF',
-                                            color: activeWardId === w.id ? '#FFFFFF' : '#718097',
-                                            cursor: 'pointer',
-                                        }}
-                                        onClick={() => setActiveWardId(w.id)}
-                                    >
-                                        {w.name}
-                                    </button>
-                                ))}
+                                    onChange={floors => setUnits(prev => replaceUnitFloors(prev, selectedUnit.id, floors))}
+                                />
+                                {unitHasFloors && !selectedDeptId && (
+                                    <p style={{ fontSize: 12, color: '#64748B', margin: '8px 0 0', display: 'flex', alignItems: 'center', gap: 6 }}>
+                                        ⚠️ Link this unit to a department before mapping beds.
+                                    </p>
+                                )}
                             </div>
                         )}
 
-                        {/* Add Bed Chips Input (Admin Only) */}
-                        {isAdmin && (
+                        {/* Visual Census Meter & Filter Bar */}
+                        {canManageBeds && (
                             <div style={{
-                                padding: '14px 20px', borderBottom: '1px solid #E6EBF1', flexShrink: 0, background: '#F8FAFC',
+                                padding: '12px 24px',
+                                background: '#FFFFFF',
+                                borderBottom: '1px solid #E2E8F0',
+                                display: 'flex', flexDirection: 'column', gap: 10, flexShrink: 0,
                             }}>
-                                <div style={{ fontSize: 11, fontWeight: 600, color: '#718097', marginBottom: 6 }}>
-                                    Add Bed Numbers
+                                {/* Visual Census Meter */}
+                                {scopeBeds.length > 0 && (
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11.5, fontWeight: 600, color: '#475569' }}>
+                                            <span>Occupancy Progress</span>
+                                            <span>{scopeBeds.filter(b => b.status === 'occupied').length} / {scopeBeds.length} Occupied ({scopeBeds.length > 0 ? Math.round((scopeBeds.filter(b => b.status === 'occupied').length / scopeBeds.length) * 100) : 0}%)</span>
+                                        </div>
+                                        <div style={{ height: 6, width: '100%', background: '#F1F5F9', borderRadius: 999, overflow: 'hidden', display: 'flex' }}>
+                                            <div style={{ width: `${scopeBeds.length > 0 ? (scopeBeds.filter(b => b.status === 'occupied').length / scopeBeds.length) * 100 : 0}%`, background: '#2563EB', transition: 'width 0.3s ease' }} />
+                                            <div style={{ width: `${scopeBeds.length > 0 ? (scopeBeds.filter(b => b.status === 'available').length / scopeBeds.length) * 100 : 0}%`, background: '#16A34A', transition: 'width 0.3s ease' }} />
+                                            <div style={{ width: `${scopeBeds.length > 0 ? (scopeBeds.filter(b => b.status === 'blocked').length / scopeBeds.length) * 100 : 0}%`, background: '#94A3B8', transition: 'width 0.3s ease' }} />
+                                        </div>
+                                    </div>
+                                )}
+
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0, overflowX: 'auto' }}>
+                                        <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', color: '#64748B', flexShrink: 0, marginRight: 2 }}>FILTER:</span>
+                                        {([
+                                            ['all', 'All', scopeBeds.length, '#0F172A'],
+                                            ['available', 'Available', scopeBeds.filter(bed => bed.status === 'available').length, '#16A34A'],
+                                            ['occupied', 'Occupied', scopeBeds.filter(bed => bed.status === 'occupied').length, '#2563EB'],
+                                            ['blocked', 'Blocked', scopeBeds.filter(bed => bed.status === 'blocked').length, '#64748B'],
+                                        ] as const).map(([key, label, count, dot]) => {
+                                            const active = bedStatusFilter === key;
+                                            return (
+                                                <button
+                                                    key={key}
+                                                    type="button"
+                                                    onClick={() => setBedStatusFilter(key)}
+                                                    style={{
+                                                        flex: '0 0 auto',
+                                                        height: 28,
+                                                        padding: '0 10px',
+                                                        borderRadius: 7,
+                                                        border: active ? '1px solid #0F172A' : '1px solid #E2E8F0',
+                                                        background: active ? '#0F172A' : '#FFFFFF',
+                                                        color: active ? '#FFFFFF' : '#475569',
+                                                        fontSize: 12,
+                                                        fontWeight: 600,
+                                                        display: 'inline-flex',
+                                                        alignItems: 'center',
+                                                        gap: 6,
+                                                        cursor: 'pointer',
+                                                        transition: 'all 0.15s ease',
+                                                    }}
+                                                >
+                                                    {key !== 'all' && (
+                                                        <span style={{ width: 7, height: 7, borderRadius: '50%', background: active ? '#FFFFFF' : dot }} />
+                                                    )}
+                                                    {label} <span style={{ opacity: active ? 0.9 : 0.6, fontSize: 11 }}>({count})</span>
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+                                    <span style={{ fontSize: 12, fontWeight: 500, color: '#64748B', flexShrink: 0 }}>
+                                        <strong style={{ color: '#0F172A' }}>{scopeBeds.length}</strong> beds mapped
+                                    </span>
                                 </div>
+                            </div>
+                        )}
+
+                        {/* Add Bed Generator Card */}
+                        {canManageBeds && isAdmin && (
+                            <div style={{ padding: '16px 24px 8px', flexShrink: 0 }}>
                                 <div style={{
-                                    display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center',
-                                    padding: '6px 10px', minHeight: 36,
-                                    border: '1px solid #DCE4ED', borderRadius: 5,
-                                    background: '#FFFFFF',
+                                    border: '1px solid #E2E8F0', borderRadius: 14, background: '#FFFFFF', padding: '16px',
+                                    boxShadow: '0 2px 6px rgba(15, 23, 42, 0.04)',
                                 }}>
-                                    {bedChips.map((chip, i) => (
-                                        <span
-                                            key={`${chip}-${i}`}
-                                            style={{
-                                                display: 'inline-flex', alignItems: 'center', gap: 4,
-                                                padding: '2px 8px', borderRadius: 4, fontSize: 10, fontWeight: 600,
-                                                background: '#ECFBF5', color: '#008B60', border: '1px solid #BCEBD9',
-                                            }}
-                                        >
-                                            {chip}
-                                            <button
-                                                type="button"
-                                                onClick={() => removeChip(i)}
-                                                style={{
-                                                    background: 'none', border: 'none', padding: 0, cursor: 'pointer',
-                                                    color: '#008B60', fontSize: 11, display: 'flex', alignItems: 'center',
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+                                        <div style={{ fontSize: 13.5, fontWeight: 700, color: '#0F172A', display: 'flex', alignItems: 'center', gap: 6 }}>
+                                            <Plus size={15} color="#2563EB" strokeWidth={2.5} />
+                                            Add bed numbers{selectedFloorName ? ` to ${selectedFloorName}` : ''}
+                                        </div>
+                                        <div style={{ fontSize: 11.5, color: '#94A3B8' }}>Comma or hyphen separated (e.g. 1-10, ICU-1)</div>
+                                    </div>
+                                    <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                                        <div style={{
+                                            flex: 1, minWidth: 0, display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center',
+                                            minHeight: 42, padding: '6px 12px', border: '1px solid #CBD5E1', borderRadius: 10, background: '#F8FAFC',
+                                            transition: 'border-color 0.15s ease',
+                                        }}>
+                                            {bedChips.map((chip, i) => (
+                                                <span
+                                                    key={`${chip}-${i}`}
+                                                    style={{
+                                                        display: 'inline-flex', alignItems: 'center', gap: 5,
+                                                        padding: '3px 8px', borderRadius: 6, fontSize: 11.5, fontWeight: 600,
+                                                        background: '#DCFCE7', color: '#15803D', border: '1px solid #BBF7D0',
+                                                    }}
+                                                >
+                                                    {chip}
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => removeChip(i)}
+                                                        style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: '#15803D', display: 'flex' }}
+                                                    >
+                                                        <X size={12} strokeWidth={2} />
+                                                    </button>
+                                                </span>
+                                            ))}
+                                            <input
+                                                value={chipInput}
+                                                onChange={e => setChipInput(e.target.value)}
+                                                onKeyDown={e => {
+                                                    if (e.key === 'Enter' || e.key === ',') {
+                                                        e.preventDefault();
+                                                        addChipsFromInput();
+                                                    }
+                                                    if (e.key === 'Backspace' && chipInput === '' && bedChips.length > 0) {
+                                                        setBedChips(prev => prev.slice(0, -1));
+                                                    }
                                                 }}
-                                            >
-                                                <X size={12} strokeWidth={1.7} />
-                                            </button>
-                                        </span>
-                                    ))}
-                                    <input
-                                        value={chipInput}
-                                        onChange={e => setChipInput(e.target.value)}
-                                        onKeyDown={e => {
-                                            if (e.key === 'Enter' || e.key === ',') {
-                                                e.preventDefault();
-                                                addChipsFromInput();
-                                            }
-                                            if (e.key === 'Backspace' && chipInput === '' && bedChips.length > 0) {
-                                                setBedChips(prev => prev.slice(0, -1));
-                                            }
-                                        }}
-                                        onBlur={addChipsFromInput}
-                                        placeholder={bedChips.length === 0 ? 'e.g. 1-20, ICU-1, 12A' : ''}
-                                        style={{
-                                            flex: 1, minWidth: 120, border: 'none', outline: 'none',
-                                            background: 'transparent', fontSize: 11, color: '#0E182A',
-                                        }}
-                                    />
-                                </div>
-                                <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-                                    <button
-                                        type="button"
-                                        disabled={bedChips.length === 0 || addingBeds}
-                                        onClick={addBeds}
-                                        style={{
-                                            display: 'inline-flex', alignItems: 'center', gap: 5,
-                                            height: 28, padding: '0 12px', borderRadius: 5, border: 'none',
-                                            background: '#101B30', color: '#FFFFFF', fontSize: 11, fontWeight: 600,
-                                            cursor: bedChips.length === 0 || addingBeds ? 'default' : 'pointer',
-                                            opacity: bedChips.length === 0 || addingBeds ? 0.5 : 1,
-                                        }}
-                                    >
-                                        <Plus size={13} strokeWidth={1.7} />
-                                        {addingBeds ? 'Adding…' : `Add ${bedChips.length || ''} bed${bedChips.length !== 1 ? 's' : ''}`}
-                                    </button>
-                                    {bedChips.length > 0 && (
+                                                onBlur={addChipsFromInput}
+                                                placeholder={bedChips.length === 0 ? 'Type bed numbers (e.g. 1-20, ICU-12)' : ''}
+                                                style={{
+                                                    flex: 1, minWidth: 160, border: 'none', outline: 'none',
+                                                    background: 'transparent', fontSize: 13, color: '#0F172A',
+                                                }}
+                                            />
+                                        </div>
                                         <button
                                             type="button"
-                                            onClick={replaceAllBeds}
+                                            disabled={!selectedFloorId || bedChips.length === 0 || addingBeds}
+                                            onClick={addBeds}
                                             style={{
-                                                height: 28, padding: '0 12px', borderRadius: 5, border: '1px solid #FECACA',
-                                                background: '#FEF2F2', color: '#DC2626', fontSize: 11, fontWeight: 600,
-                                                cursor: 'pointer',
+                                                height: 42, padding: '0 16px', borderRadius: 10, border: 'none',
+                                                background: '#0F172A', color: '#FFFFFF', fontSize: 13, fontWeight: 650,
+                                                display: 'inline-flex', alignItems: 'center', gap: 6, flexShrink: 0,
+                                                cursor: !selectedFloorId || bedChips.length === 0 || addingBeds ? 'default' : 'pointer',
+                                                opacity: !selectedFloorId || bedChips.length === 0 || addingBeds ? 0.45 : 1,
+                                                transition: 'all 0.15s ease',
+                                                boxShadow: bedChips.length > 0 ? '0 2px 8px rgba(15, 23, 42, 0.2)' : 'none'
                                             }}
                                         >
-                                            Replace All
+                                            <Plus size={15} strokeWidth={2.5} />
+                                            {addingBeds ? 'Adding…' : 'Add Beds'}
                                         </button>
-                                    )}
+                                    </div>
+
+                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 14, marginTop: 10, flexWrap: 'wrap' }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                            <span style={{ fontSize: 11.5, fontWeight: 600, color: '#64748B' }}>Quick presets:</span>
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    const labels = expandBedLabels('1-10');
+                                                    setBedChips(prev => {
+                                                        const seen = new Set(prev.map(chip => chip.toLowerCase()));
+                                                        const next = [...prev];
+                                                        for (const label of labels) {
+                                                            if (!seen.has(label.toLowerCase())) {
+                                                                seen.add(label.toLowerCase());
+                                                                next.push(label);
+                                                            }
+                                                        }
+                                                        return next;
+                                                    });
+                                                }}
+                                                style={{
+                                                    border: '1px solid #DBEAFE', background: '#EFF6FF', borderRadius: 6,
+                                                    padding: '2px 8px', color: '#2563EB', fontSize: 11.5, fontWeight: 600, cursor: 'pointer'
+                                                }}
+                                            >
+                                                Beds 1–10
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    const labels = expandBedLabels('11-20');
+                                                    setBedChips(prev => {
+                                                        const seen = new Set(prev.map(chip => chip.toLowerCase()));
+                                                        const next = [...prev];
+                                                        for (const label of labels) {
+                                                            if (!seen.has(label.toLowerCase())) {
+                                                                seen.add(label.toLowerCase());
+                                                                next.push(label);
+                                                            }
+                                                        }
+                                                        return next;
+                                                    });
+                                                }}
+                                                style={{
+                                                    border: '1px solid #DBEAFE', background: '#EFF6FF', borderRadius: 6,
+                                                    padding: '2px 8px', color: '#2563EB', fontSize: 11.5, fontWeight: 600, cursor: 'pointer'
+                                                }}
+                                            >
+                                                Beds 11–20
+                                            </button>
+                                        </div>
+
+                                        {bedChips.length > 0 && (
+                                            <button
+                                                type="button"
+                                                onClick={replaceAllBeds}
+                                                style={{ border: 'none', background: 'none', padding: 0, color: '#EF4444', fontSize: 11.5, fontWeight: 600, cursor: 'pointer' }}
+                                            >
+                                                Replace beds on this floor
+                                            </button>
+                                        )}
+                                        {!selectedFloorId && (
+                                            <span style={{ fontSize: 11.5, color: '#D97706', fontWeight: 500 }}>Select a floor tab to add beds there.</span>
+                                        )}
+                                    </div>
                                 </div>
                             </div>
                         )}
 
-                        {/* Bed Grid Display */}
-                        <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '16px 20px', background: '#FFFFFF' }}>
+                        {/* Bed Inventory Cards Grid */}
+                        {canManageBeds && (
+                        <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '12px 24px 24px', background: '#F8FAFC' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 14 }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+                                    <span style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.05em', color: '#0F172A', textTransform: 'uppercase' }}>
+                                        BED INVENTORY & LAYOUT
+                                    </span>
+                                    <span style={{ fontSize: 11, fontWeight: 600, color: '#2563EB', background: '#EFF6FF', border: '1px solid #BFDBFE', borderRadius: 999, padding: '2px 8px', whiteSpace: 'nowrap' }}>
+                                        {scopeBeds.length} slot{scopeBeds.length === 1 ? '' : 's'} mapped
+                                    </span>
+                                </div>
+                                <div style={{
+                                    display: 'inline-flex', padding: 2, borderRadius: 8, background: '#E2E8F0',
+                                    border: '1px solid #CBD5E1', flexShrink: 0,
+                                }}>
+                                    {([
+                                        ['floors', 'Floor layout', LayoutGrid],
+                                        ['matrix', 'Matrix list', List],
+                                    ] as const).map(([key, label, Icon]) => {
+                                        const active = inventoryLayout === key;
+                                        return (
+                                            <button
+                                                key={key}
+                                                type="button"
+                                                onClick={() => setInventoryLayout(key)}
+                                                style={{
+                                                    height: 28, padding: '0 10px', borderRadius: 6, border: 'none',
+                                                    background: active ? '#FFFFFF' : 'transparent',
+                                                    color: active ? '#0F172A' : '#64748B',
+                                                    boxShadow: active ? '0 1px 2px rgba(15, 23, 42, 0.08)' : 'none',
+                                                    fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                                                    display: 'inline-flex', alignItems: 'center', gap: 5,
+                                                    transition: 'all 0.15s ease'
+                                                }}
+                                            >
+                                                <Icon size={13} strokeWidth={2} />
+                                                {label}
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            </div>
                             {deptBedsLoading ? (
-                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(100px, 1fr))', gap: 10 }}>
-                                    {[1, 2, 3, 4, 5, 6, 7, 8].map(i => <div key={i} style={{ ...shimmer, height: 60 }} />)}
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 12 }}>
+                                    {[1, 2, 3, 4].map(i => <div key={i} style={{ ...shimmer, height: 92 }} />)}
                                 </div>
                             ) : displayedBeds.length === 0 ? (
-                                <div style={{ textAlign: 'center', padding: '44px 16px', color: '#8290A5' }}>
-                                    <BedIcon size={36} strokeWidth={1.7} color="#CBD5E1" style={{ marginBottom: 8 }} />
-                                    <div style={{ fontSize: 13, fontWeight: 600, color: '#0E182A', marginBottom: 4 }}>
-                                        {isAdmin ? 'No beds mapped yet' : 'No beds assigned to this department'}
+                                <div style={{
+                                    textAlign: 'center', padding: '48px 16px', color: '#64748B',
+                                    background: '#FFFFFF', borderRadius: 14, border: '1px solid #E2E8F0'
+                                }}>
+                                    <BedIcon size={40} strokeWidth={1.5} color="#94A3B8" style={{ marginBottom: 10 }} />
+                                    <div style={{ fontSize: 14, fontWeight: 600, color: '#0F172A', marginBottom: 4 }}>
+                                        {selectedFloorName ? `No beds on ${selectedFloorName} yet` : 'No beds mapped yet'}
                                     </div>
-                                    {isAdmin && (
-                                        <div style={{ fontSize: 11, color: '#8290A5' }}>
-                                            Type ranges like 1-20 or individual numbers in the box above to generate beds.
-                                        </div>
-                                    )}
+                                    <div style={{ fontSize: 12, color: '#94A3B8' }}>Use the box above to add bed slots to this floor.</div>
                                 </div>
-                            ) : (
-                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(100px, 1fr))', gap: 10 }}>
-                                    {displayedBeds.map(bed => {
-                                        const statusConfig = BED_STATUS_COLORS[bed.status] || BED_STATUS_COLORS.blocked;
+                            ) : inventoryLayout === 'matrix' ? (
+                                <div style={{ border: '1px solid #E2E8F0', borderRadius: 12, overflow: 'hidden', background: '#FFFFFF' }}>
+                                    {displayedBeds.map((bed, index) => {
+                                        const floorName = selectedUnit?.floors.find(floor => floor.id === bed.floor_id)?.name;
                                         return (
                                             <div
                                                 key={bed.id}
                                                 style={{
-                                                    position: 'relative',
-                                                    padding: '10px 12px',
-                                                    borderRadius: 5,
-                                                    border: `1px solid ${statusMenuBedId === bed.id ? '#101B30' : '#E6EBF1'}`,
+                                                    display: 'grid',
+                                                    gridTemplateColumns: 'minmax(0, 1.2fr) minmax(0, 1fr) auto auto',
+                                                    gap: 12,
+                                                    alignItems: 'center',
+                                                    padding: '12px 16px',
+                                                    borderTop: index === 0 ? 'none' : '1px solid #F1F5F9',
                                                     background: '#FFFFFF',
-                                                    cursor: isAdmin ? 'pointer' : 'default',
-                                                    transition: 'all 0.12s',
                                                 }}
-                                                onClick={() => isAdmin && setStatusMenuBedId(prev => prev === bed.id ? null : bed.id)}
                                             >
-                                                {/* Delete Button */}
-                                                {isAdmin && (
+                                                <span style={{ fontSize: 13.5, fontWeight: 700, color: '#0F172A' }}>{formatBedLabel(bed.bed_number)}</span>
+                                                <span style={{ fontSize: 12.5, color: '#64748B', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                                    {floorName || 'Unassigned'}
+                                                </span>
+                                                <BedStatusControl
+                                                    bed={bed}
+                                                    isAdmin={isAdmin}
+                                                    open={statusMenuBedId === bed.id}
+                                                    menuRef={statusMenuRef}
+                                                    onToggle={() => setStatusMenuBedId(prev => prev === bed.id ? null : bed.id)}
+                                                    onSelect={status => patchBedStatus(bed.id, status)}
+                                                />
+                                                {isAdmin ? (
                                                     <button
                                                         type="button"
-                                                        onClick={e => { e.stopPropagation(); deleteBed(bed); }}
-                                                        style={{
-                                                            position: 'absolute', top: 5, right: 5,
-                                                            background: 'none', border: 'none', cursor: 'pointer',
-                                                            color: '#9AA7B8', padding: 2, borderRadius: 3, display: 'flex', alignItems: 'center',
-                                                        }}
+                                                        onClick={() => deleteBed(bed)}
+                                                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94A3B8', padding: 4, display: 'flex', borderRadius: 4 }}
                                                         aria-label={`Remove bed ${bed.bed_number}`}
                                                     >
-                                                        <X size={12} strokeWidth={1.7} />
+                                                        <X size={14} strokeWidth={2} />
                                                     </button>
-                                                )}
-
-                                                {/* Bed Number */}
-                                                <div style={{ fontSize: 13, fontWeight: 700, color: '#0E182A', marginBottom: 5 }}>
-                                                    {bed.bed_number}
-                                                </div>
-
-                                                {/* Status Pill Badge */}
-                                                <span style={{
-                                                    display: 'inline-flex', alignItems: 'center', gap: 4,
-                                                    height: 16, padding: '0 7px', borderRadius: 9999,
-                                                    fontSize: 9, fontWeight: 600,
-                                                    background: statusConfig.bg, color: statusConfig.fg,
-                                                    border: `1px solid ${statusConfig.border}`,
-                                                }}>
-                                                    <span style={{ width: 4.5, height: 4.5, borderRadius: '50%', background: statusConfig.fg }} />
-                                                    {statusConfig.label}
-                                                </span>
-
-                                                {/* Status Dropdown Options */}
-                                                {isAdmin && statusMenuBedId === bed.id && (
-                                                    <div
-                                                        ref={statusMenuRef}
-                                                        style={{
-                                                            position: 'absolute', top: '100%', left: 0, zIndex: 20, marginTop: 4,
-                                                            background: '#FFFFFF', border: '1px solid #E6EBF1',
-                                                            borderRadius: 5, boxShadow: '0 6px 16px -2px rgba(14, 24, 42, 0.1)',
-                                                            minWidth: 130, overflow: 'hidden',
-                                                        }}
-                                                        onClick={e => e.stopPropagation()}
-                                                    >
-                                                        {(['available', 'occupied', 'blocked'] as BedStatus[]).map(s => (
-                                                            <button
-                                                                key={s}
-                                                                type="button"
-                                                                disabled={bed.status === s}
-                                                                onClick={() => patchBedStatus(bed.id, s)}
-                                                                style={{
-                                                                    display: 'flex', alignItems: 'center', gap: 8,
-                                                                    width: '100%', padding: '7px 12px',
-                                                                    border: 'none', background: bed.status === s ? '#F8FAFC' : 'transparent',
-                                                                    cursor: bed.status === s ? 'default' : 'pointer',
-                                                                    fontSize: 10, color: '#0E182A', textAlign: 'left',
-                                                                }}
-                                                            >
-                                                                <span style={{
-                                                                    width: 6, height: 6, borderRadius: '50%',
-                                                                    background: BED_STATUS_COLORS[s].fg,
-                                                                }} />
-                                                                {BED_STATUS_COLORS[s].label}
-                                                            </button>
-                                                        ))}
-                                                    </div>
-                                                )}
+                                                ) : <span />}
                                             </div>
+                                        );
+                                    })}
+                                </div>
+                            ) : (
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                                    {bedGroups.map(group => {
+                                        const available = group.beds.filter(bed => bed.status === 'available').length;
+                                        const occupied = group.beds.filter(bed => bed.status === 'occupied').length;
+                                        const blocked = group.beds.filter(bed => bed.status === 'blocked').length;
+                                        return (
+                                            <section key={group.id} style={{ border: '1px solid #E2E8F0', borderRadius: 14, padding: 16, background: '#FFFFFF', boxShadow: '0 1px 3px rgba(15, 23, 42, 0.04)' }}>
+                                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 14 }}>
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+                                                        <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#2563EB', flexShrink: 0 }} />
+                                                        <span style={{ fontSize: 14, fontWeight: 700, color: '#0F172A', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                                            {group.name}
+                                                        </span>
+                                                        {selectedUnitName && (
+                                                            <span style={{ fontSize: 12, color: '#94A3B8', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                                                · {selectedUnitName}
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0, fontSize: 12, fontWeight: 600 }}>
+                                                        {available > 0 && <span style={{ color: '#16A34A', display: 'flex', alignItems: 'center', gap: 4 }}><span style={{ width: 6, height: 6, borderRadius: '50%', background: '#16A34A' }} />{available} Available</span>}
+                                                        {occupied > 0 && <span style={{ color: '#2563EB', display: 'flex', alignItems: 'center', gap: 4 }}><span style={{ width: 6, height: 6, borderRadius: '50%', background: '#2563EB' }} />{occupied} Occupied</span>}
+                                                        {blocked > 0 && <span style={{ color: '#64748B', display: 'flex', alignItems: 'center', gap: 4 }}><span style={{ width: 6, height: 6, borderRadius: '50%', background: '#64748B' }} />{blocked} Blocked</span>}
+                                                    </div>
+                                                </div>
+                                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(210px, 1fr))', gap: 12 }}>
+                                                    {group.beds.map(bed => (
+                                                        <BedSlotCard
+                                                            key={bed.id}
+                                                            bed={bed}
+                                                            isAdmin={isAdmin}
+                                                            menuOpen={statusMenuBedId === bed.id}
+                                                            menuRef={statusMenuRef}
+                                                            onToggleMenu={() => setStatusMenuBedId(prev => prev === bed.id ? null : bed.id)}
+                                                            onSelectStatus={status => patchBedStatus(bed.id, status)}
+                                                            onRemove={() => deleteBed(bed)}
+                                                        />
+                                                    ))}
+                                                </div>
+                                            </section>
                                         );
                                     })}
                                 </div>
                             )}
                         </div>
+                        )}
                     </div>
                 </div>
             )}
@@ -1248,6 +1523,160 @@ export default function BedsManagement() {
 }
 
 /* ─── sub-components ────────────────────────────────────────────────── */
+
+function BedStatusMenu({
+    bed,
+    menuRef,
+    onSelect,
+}: {
+    bed: Bed;
+    menuRef: React.RefObject<HTMLDivElement | null>;
+    onSelect: (status: BedStatus) => void;
+}) {
+    return (
+        <div
+            ref={menuRef}
+            style={{
+                position: 'absolute', top: '100%', left: 0, zIndex: 20, marginTop: 4,
+                background: '#FFFFFF', border: '1px solid #E6EBF1',
+                borderRadius: 8, boxShadow: '0 8px 20px rgba(16, 24, 40, 0.12)',
+                minWidth: 140, overflow: 'hidden',
+            }}
+            onClick={e => e.stopPropagation()}
+        >
+            {(['available', 'occupied', 'blocked'] as BedStatus[]).map(status => (
+                <button
+                    key={status}
+                    type="button"
+                    disabled={bed.status === status}
+                    onClick={() => onSelect(status)}
+                    style={{
+                        display: 'flex', alignItems: 'center', gap: 8,
+                        width: '100%', padding: '8px 12px',
+                        border: 'none', background: bed.status === status ? '#F8FAFC' : 'transparent',
+                        cursor: bed.status === status ? 'default' : 'pointer',
+                        fontSize: 12, color: '#172033', textAlign: 'left',
+                    }}
+                >
+                    <span style={{ width: 6, height: 6, borderRadius: '50%', background: BED_STATUS_COLORS[status].dot }} />
+                    {BED_STATUS_COLORS[status].label}
+                </button>
+            ))}
+        </div>
+    );
+}
+
+function BedStatusControl({
+    bed,
+    isAdmin,
+    open,
+    menuRef,
+    onToggle,
+    onSelect,
+}: {
+    bed: Bed;
+    isAdmin: boolean;
+    open: boolean;
+    menuRef: React.RefObject<HTMLDivElement | null>;
+    onToggle: () => void;
+    onSelect: (status: BedStatus) => void;
+}) {
+    const statusConfig = BED_STATUS_COLORS[bed.status] || BED_STATUS_COLORS.blocked;
+    return (
+        <div style={{ position: 'relative' }}>
+            <button
+                type="button"
+                onClick={isAdmin ? onToggle : undefined}
+                style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 6,
+                    height: 26, padding: '0 8px', borderRadius: 999, border: 'none',
+                    fontSize: 12, fontWeight: 650,
+                    background: statusConfig.bg, color: statusConfig.fg,
+                    cursor: isAdmin ? 'pointer' : 'default',
+                }}
+            >
+                <span style={{ width: 6, height: 6, borderRadius: '50%', background: statusConfig.dot }} />
+                {statusConfig.label}
+            </button>
+            {isAdmin && open && <BedStatusMenu bed={bed} menuRef={menuRef} onSelect={onSelect} />}
+        </div>
+    );
+}
+
+function BedSlotCard({
+    bed,
+    isAdmin,
+    menuOpen,
+    menuRef,
+    onToggleMenu,
+    onSelectStatus,
+    onRemove,
+}: {
+    bed: Bed;
+    isAdmin: boolean;
+    menuOpen: boolean;
+    menuRef: React.RefObject<HTMLDivElement | null>;
+    onToggleMenu: () => void;
+    onSelectStatus: (status: BedStatus) => void;
+    onRemove: () => void;
+}) {
+    const statusConfig = BED_STATUS_COLORS[bed.status] || BED_STATUS_COLORS.blocked;
+    return (
+        <div
+            style={{
+                position: 'relative',
+                padding: '14px 16px',
+                minHeight: 92,
+                borderRadius: 14,
+                border: `1.5px solid ${menuOpen ? '#2563EB' : statusConfig.border}`,
+                background: '#FFFFFF',
+                cursor: isAdmin ? 'pointer' : 'default',
+                boxShadow: menuOpen ? '0 4px 12px rgba(37, 99, 235, 0.12)' : '0 1px 3px rgba(15, 23, 42, 0.04)',
+                transition: 'all 0.15s cubic-bezier(0.16, 1, 0.3, 1)',
+                display: 'flex', flexDirection: 'column', justifyContent: 'space-between'
+            }}
+            onClick={() => isAdmin && onToggleMenu()}
+        >
+            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <div style={{
+                        width: 28, height: 28, borderRadius: 8, background: statusConfig.bg,
+                        display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0
+                    }}>
+                        <BedIcon size={14} color={statusConfig.fg} strokeWidth={2} />
+                    </div>
+                    <div style={{ fontSize: 15, fontWeight: 750, color: '#0F172A', lineHeight: '20px' }}>
+                        {formatBedLabel(bed.bed_number)}
+                    </div>
+                </div>
+                {isAdmin && (
+                    <button
+                        type="button"
+                        onClick={e => { e.stopPropagation(); onRemove(); }}
+                        style={{
+                            background: 'none', border: 'none', cursor: 'pointer',
+                            color: '#94A3B8', padding: 2, display: 'flex', borderRadius: 4,
+                            transition: 'color 0.15s ease',
+                        }}
+                        aria-label={`Remove bed ${bed.bed_number}`}
+                    >
+                        <X size={14} strokeWidth={2} />
+                    </button>
+                )}
+            </div>
+            <div style={{ marginTop: 12 }} onClick={e => e.stopPropagation()}>
+                <BedStatusControl
+                    bed={bed}
+                    isAdmin={isAdmin}
+                    open={menuOpen}
+                    menuRef={menuRef}
+                    onToggle={onToggleMenu}
+                    onSelect={onSelectStatus}
+                />
+            </div>
+        </div>
+    );
+}
 
 function SummaryCard({
     label,
@@ -1382,7 +1811,7 @@ const BEDS_TABLE_CSS = `
 `;
 
 function DepartmentRow({ dept, isSelected, isAdmin, onClick }: {
-    dept: DepartmentBedSummary;
+    dept: UnitBedRow;
     isSelected: boolean;
     isAdmin: boolean;
     onClick: () => void;
@@ -1407,7 +1836,21 @@ function DepartmentRow({ dept, isSelected, isAdmin, onClick }: {
                         {dept.department_name}
                     </div>
 
-                    {isUnmapped && isAdmin && (
+                    {dept.floor_count === 0 && isAdmin && (
+                        <button
+                            type="button"
+                            onClick={e => { e.stopPropagation(); onClick(); }}
+                            style={{
+                                fontSize: 10.5, fontWeight: 500, color: '#1685D1',
+                                background: '#F4FAFF', border: '1px solid #CDE7FA',
+                                borderRadius: 4, padding: '2px 6px', cursor: 'pointer',
+                                marginLeft: 4, outline: 'none',
+                            }}
+                        >
+                            + Add floors
+                        </button>
+                    )}
+                    {dept.floor_count > 0 && isUnmapped && isAdmin && (
                         <button
                             type="button"
                             onClick={e => { e.stopPropagation(); onClick(); }}
@@ -1464,13 +1907,13 @@ function DepartmentRow({ dept, isSelected, isAdmin, onClick }: {
             </td>
 
             {/* Actions */}
-            <td style={{ padding: '0 14px', textAlign: 'right' }}>
-                <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+            <td style={{ padding: '0 14px', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, whiteSpace: 'nowrap' }}>
                     <span style={{
-                        fontSize: 12.5, fontWeight: 600,
-                        color: isUnmapped ? '#718097' : '#1685D1',
+                        fontSize: 12.5, fontWeight: 600, whiteSpace: 'nowrap',
+                        color: dept.floor_count === 0 || isUnmapped ? '#718097' : '#1685D1',
                     }}>
-                        {isUnmapped ? 'Configure' : 'Manage'}
+                        {dept.floor_count === 0 ? 'Add floors' : isUnmapped ? 'Configure' : 'Manage'}
                     </span>
                     <MoreVertical size={14} strokeWidth={1.7} color="#9AA7B8" />
                 </div>
@@ -1480,7 +1923,7 @@ function DepartmentRow({ dept, isSelected, isAdmin, onClick }: {
 }
 
 function DepartmentCard({ dept, isSelected, isAdmin, onClick }: {
-    dept: DepartmentBedSummary;
+    dept: UnitBedRow;
     isSelected: boolean;
     isAdmin: boolean;
     onClick: () => void;
@@ -1534,7 +1977,16 @@ function DepartmentCard({ dept, isSelected, isAdmin, onClick }: {
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginTop: 10 }}>
                 <span style={{ fontSize: 11.5, color: '#8290A5' }}>{relativeTime(dept.last_updated_at)}</span>
                 <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-                    {isUnmapped && isAdmin && (
+                    {dept.floor_count === 0 && isAdmin && (
+                        <span style={{
+                            fontSize: 10.5, fontWeight: 500, color: '#1685D1',
+                            background: '#F4FAFF', border: '1px solid #CDE7FA',
+                            borderRadius: 4, padding: '2px 6px',
+                        }}>
+                            + Add floors
+                        </span>
+                    )}
+                    {dept.floor_count > 0 && isUnmapped && isAdmin && (
                         <span style={{
                             fontSize: 10.5, fontWeight: 500, color: '#1685D1',
                             background: '#F4FAFF', border: '1px solid #CDE7FA',
@@ -1543,8 +1995,8 @@ function DepartmentCard({ dept, isSelected, isAdmin, onClick }: {
                             + Add Beds
                         </span>
                     )}
-                    <span style={{ fontSize: 12.5, fontWeight: 600, color: isUnmapped ? '#718097' : '#1685D1' }}>
-                        {isUnmapped ? 'Configure' : 'Manage'}
+                    <span style={{ fontSize: 12.5, fontWeight: 600, whiteSpace: 'nowrap', color: dept.floor_count === 0 || isUnmapped ? '#718097' : '#1685D1' }}>
+                        {dept.floor_count === 0 ? 'Add floors' : isUnmapped ? 'Configure' : 'Manage'}
                     </span>
                 </div>
             </div>

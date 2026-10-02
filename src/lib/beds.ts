@@ -4,6 +4,7 @@ export type Bed = {
     id: string;
     department_id: string;
     ward_id?: string;
+    floor_id?: string;
     bed_number: string;
     status: BedStatus;
     occupied_patient_id?: string | null;
