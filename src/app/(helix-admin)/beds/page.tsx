@@ -1,5 +1,5 @@
-import BedsManagement from '@/components/BedsManagement';
+import BedLayoutExplorer from '@/components/bed-layout/BedLayoutExplorer';
 
 export default function BedsPage() {
-    return <BedsManagement />;
+    return <BedLayoutExplorer />;
 }

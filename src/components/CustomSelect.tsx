@@ -25,6 +25,11 @@ interface Props {
     dropdownMinWidth?: number;
     /** Placeholder for the dropdown search field (when the list is searchable). */
     searchPlaceholder?: string;
+    disabled?: boolean;
+    /** Short lists stay a plain menu. Defaults to on once there are more than 6 options. */
+    searchable?: boolean;
+    /** Hide the option list until the user types, so a large catalog is not rendered up front. */
+    requireQuery?: boolean;
 }
 export default function CustomSelect({
     value,
@@ -39,6 +44,9 @@ export default function CustomSelect({
     customEntryHint = 'Not in the list? Type below, then Enter.',
     dropdownMinWidth,
     searchPlaceholder = 'Search...',
+    disabled = false,
+    searchable,
+    requireQuery = false,
 }: Props) {
     const [open, setOpen] = useState(false);
     const [q, setQ] = useState('');
@@ -80,7 +88,10 @@ export default function CustomSelect({
         if (o.value.toLowerCase().includes(qLower)) return true;
         return false;
     };
-    const list = q ? options.filter(o => optionMatchesQuery(o, q)) : options;
+    const matched = q ? options.filter(o => optionMatchesQuery(o, q)) : options;
+    const waitingForQuery = requireQuery && !q.trim();
+    const list = waitingForQuery ? [] : matched.slice(0, requireQuery ? 40 : matched.length);
+    const hiddenCount = waitingForQuery ? 0 : matched.length - list.length;
     const triggerText = sel ? (sel.triggerLabel ?? sel.label) : (value || placeholder);
     const commitCustom = () => {
         const next = q.trim();
@@ -108,7 +119,7 @@ export default function CustomSelect({
             borderRadius: 'var(--radius-md,6px)', boxShadow: '0 8px 24px rgba(0,0,0,0.15)',
             zIndex: 99999, overflow: 'hidden',
         }}>
-            {(options.length > 6 || allowCustom) && (
+            {((searchable ?? options.length > 6) || allowCustom || requireQuery) && (
                 <div
                     style={{
                         padding: allowCustom ? '10px 10px 10px' : '6px 8px',
@@ -161,7 +172,8 @@ export default function CustomSelect({
                 </div>
             )}
             <div style={{ maxHeight: maxH, overflowY: 'auto' }}>
-                {list.length === 0 && <div style={{ padding: '10px 12px', fontSize: 12, color: 'var(--text-muted)', textAlign: 'center' }}>No results</div>}
+                {waitingForQuery && <div style={{ padding: '10px 12px', fontSize: 12, color: 'var(--text-muted)', textAlign: 'center' }}>Type to search</div>}
+                {!waitingForQuery && list.length === 0 && <div style={{ padding: '10px 12px', fontSize: 12, color: 'var(--text-muted)', textAlign: 'center' }}>No results</div>}
                 {list.map(o => (
                     <button key={o.value} type="button" onClick={() => { onChange(o.value); close(); }}
                         style={{ width: '100%', padding: '8px 12px', fontSize: 13, lineHeight: 1.35, textAlign: 'left', whiteSpace: 'normal', background: o.value === value ? 'rgba(99,102,241,0.08)' : 'transparent', border: 'none', cursor: 'pointer', color: o.value === value ? 'var(--helix-primary,#6366f1)' : 'var(--text-primary,#111)', fontWeight: o.value === value ? 600 : 400 }}
@@ -170,6 +182,11 @@ export default function CustomSelect({
                         {o.value === value && <span style={{ marginRight: 6, fontSize: 12 }}>✓</span>}{o.label}
                     </button>
                 ))}
+                {hiddenCount > 0 && (
+                    <div style={{ padding: '8px 12px', fontSize: 12, color: 'var(--text-muted)', textAlign: 'center' }}>
+                        Keep typing to narrow this list.
+                    </div>
+                )}
                 {allowCustom && q.trim() && !options.some(o => o.value.toLowerCase() === q.trim().toLowerCase()) && (
                     <button
                         type="button"
@@ -204,6 +221,7 @@ export default function CustomSelect({
         ...btnStyle,
         ...(style || {}),
         width: '100%',
+        ...(disabled ? { opacity: 0.6, cursor: 'default' } : {}),
     };
     if (triggerStyle.minHeight !== undefined && triggerStyle.minHeight !== null) {
         triggerStyle.height = 'auto';
@@ -214,8 +232,9 @@ export default function CustomSelect({
             <button
                 ref={btnRef}
                 type="button"
+                disabled={disabled}
                 title={allowCustom ? 'Open to pick from the list or type your own value' : undefined}
-                onClick={() => { if (!open) updatePos(); setOpen(p => !p); }}
+                onClick={() => { if (disabled) return; if (!open) updatePos(); setOpen(p => !p); }}
                 style={triggerStyle}
             >
                 <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>

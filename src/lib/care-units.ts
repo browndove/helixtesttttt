@@ -14,6 +14,7 @@ export type CareUnit = {
     description?: string;
     department_id?: string;
     department_name?: string;
+    block_id?: string;
     facility_id?: string;
     patient_count?: number;
     floor_count: number;
@@ -66,6 +67,7 @@ export function parseCareUnit(raw: unknown): CareUnit | null {
     const floors = parseCareUnitFloors(rec.floors);
     const departmentId = String(rec.department_id || '').trim();
     const departmentName = String(rec.department_name || '').trim();
+    const blockId = String(rec.block_id || '').trim();
     const description = typeof rec.description === 'string' ? rec.description : '';
     const facilityId = String(rec.facility_id || '').trim();
     const createdAt = String(rec.created_at || '').trim();
@@ -76,6 +78,7 @@ export function parseCareUnit(raw: unknown): CareUnit | null {
         ...(description ? { description } : {}),
         ...(departmentId ? { department_id: departmentId } : {}),
         ...(departmentName ? { department_name: departmentName } : {}),
+        ...(blockId ? { block_id: blockId } : {}),
         ...(facilityId ? { facility_id: facilityId } : {}),
         ...(Number.isFinite(patientCount) ? { patient_count: patientCount } : {}),
         floor_count: floors.length,

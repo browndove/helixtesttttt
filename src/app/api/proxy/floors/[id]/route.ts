@@ -15,5 +15,5 @@ export async function PUT(req: NextRequest, { params }: Params) {
 
 export async function DELETE(req: NextRequest, { params }: Params) {
     const { id } = await params;
-    return forwardToApi(req, { path: `floors/${id}`, method: 'DELETE', forwardQuery: ['cascade'] });
+    return forwardToApi(req, { path: `floors/${id}`, method: 'DELETE' });
 }

@@ -1,9 +1,11 @@
 import type { BedStatus } from '@/lib/beds';
 
 /**
- * Block → Floor → Ward → Room → Bed, per BED_MANAGEMENT_API_CONTRACT.md.
- * The backend does not serve these resources yet, so every parser tolerates
- * missing aggregates and missing embedded children.
+ * Block → floor → unit (ward) → room → bed.
+ * Hierarchy wards are /units. /floors/{id}/wards is the list/create alias.
+ * /wards/{id} is the old department-ward API and is not used here.
+ * Beds keep department_id; set it on the unit before adding beds.
+ * Unit type is an open string. Bed status is available | occupied | blocked.
  */
 
 export const WARD_TYPES = [
@@ -45,6 +47,7 @@ export type BedCounts = {
 export type HierarchyBed = {
     id: string;
     room_id: string;
+    department_id?: string;
     bed_number: string;
     bed_code?: string;
     status: BedStatus;
@@ -69,11 +72,13 @@ export type Room = BedCounts & {
 
 export type Ward = BedCounts & {
     id: string;
+    updated_at?: string;
     floor_id: string;
     floor_name?: string;
     block_id?: string;
     block_name?: string;
     department_id?: string;
+    department_name?: string;
     name: string;
     code?: string;
     type?: string;
@@ -85,6 +90,7 @@ export type Ward = BedCounts & {
 
 export type Floor = BedCounts & {
     id: string;
+    updated_at?: string;
     block_id: string;
     block_name?: string;
     name: string;
@@ -95,6 +101,7 @@ export type Floor = BedCounts & {
 
 export type Block = BedCounts & {
     id: string;
+    updated_at?: string;
     facility_id?: string;
     name: string;
     floor_count: number;
@@ -186,6 +193,7 @@ export function parseBed(raw: unknown): HierarchyBed | null {
     return {
         id,
         room_id: str(rec.room_id),
+        ...(optionalStr(rec.department_id) ? { department_id: str(rec.department_id) } : {}),
         bed_number: bedNumber,
         ...(optionalStr(rec.bed_code ?? rec.code) ? { bed_code: str(rec.bed_code ?? rec.code) } : {}),
         status: bedStatus(rec.status),
@@ -260,6 +268,7 @@ export function parseWard(raw: unknown): Ward | null {
         ...(optionalStr(rec.block_id) ? { block_id: str(rec.block_id) } : {}),
         ...(optionalStr(rec.block_name) ? { block_name: str(rec.block_name) } : {}),
         ...(optionalStr(rec.department_id) ? { department_id: str(rec.department_id) } : {}),
+        ...(optionalStr(rec.department_name) ? { department_name: str(rec.department_name) } : {}),
         name,
         ...(optionalStr(rec.code) ? { code: str(rec.code) } : {}),
         ...(optionalStr(rec.type) ? { type: str(rec.type) } : {}),
@@ -269,6 +278,7 @@ export function parseWard(raw: unknown): Ward | null {
         room_count: rooms.length || int(rec.room_count),
         sort_order: int(rec.sort_order),
         rooms,
+        ...(optionalStr(rec.updated_at) ? { updated_at: str(rec.updated_at) } : {}),
         ...countsFrom(rec, rooms),
     };
 }
@@ -297,6 +307,7 @@ export function parseFloor(raw: unknown): Floor | null {
         ward_count: wards.length || int(rec.ward_count),
         sort_order: int(rec.sort_order),
         wards,
+        ...(optionalStr(rec.updated_at) ? { updated_at: str(rec.updated_at) } : {}),
         ...countsFrom(rec, wards),
     };
 }
@@ -325,8 +336,26 @@ export function parseBlock(raw: unknown): Block | null {
         floor_count: floors.length || int(rec.floor_count),
         sort_order: int(rec.sort_order),
         floors,
+        ...(optionalStr(rec.updated_at) ? { updated_at: str(rec.updated_at) } : {}),
         ...countsFrom(rec, floors),
     };
+}
+
+/** Newest timestamp in a subtree, for the tables' "last modified" column. */
+export function lastModified(node: { updated_at?: string; rooms?: Room[]; wards?: Ward[]; floors?: Floor[] }): string {
+    const candidates: string[] = node.updated_at ? [node.updated_at] : [];
+    for (const room of node.rooms || []) {
+        if (room.updated_at) candidates.push(room.updated_at);
+    }
+    for (const ward of node.wards || []) {
+        const nested = lastModified(ward);
+        if (nested) candidates.push(nested);
+    }
+    for (const floor of node.floors || []) {
+        const nested = lastModified(floor);
+        if (nested) candidates.push(nested);
+    }
+    return candidates.sort().at(-1) || '';
 }
 
 export function parseBlocks(raw: unknown): Block[] {

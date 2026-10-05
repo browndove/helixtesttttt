@@ -9,7 +9,11 @@ export default function AskAiHost() {
     const pathname = usePathname();
 
     // Dense analytics dashboards — keep the Ask AI dock off these routes.
-    if (pathname?.startsWith('/internal/downloads') || pathname?.startsWith('/internal/feature-usage')) {
+    if (
+        pathname?.startsWith('/internal/downloads')
+        || pathname?.startsWith('/internal/feature-usage')
+        || pathname?.startsWith('/internal/leaderboard')
+    ) {
         return null;
     }
 

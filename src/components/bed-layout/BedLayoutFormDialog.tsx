@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Plus, X } from 'lucide-react';
+import CustomSelect from '@/components/CustomSelect';
 import { API_ENDPOINTS } from '@/lib/config';
 import { appendFacilityIdForProxy } from '@/lib/facility-client';
 import type { BedStatus } from '@/lib/beds';
@@ -11,6 +12,10 @@ import {
     WARD_TYPES,
     genderLabel,
     hierarchyApiMessage,
+    parseBlock,
+    parseBlocks,
+    parseFloor,
+    parseWard,
     wardTypeLabel,
     type Block,
     type Floor,
@@ -26,8 +31,8 @@ import {
     linkButton,
     primaryButton,
     secondaryButton,
-    select as selectStyle,
 } from './bed-layout-ui';
+import type { PreviewOp } from './preview-store';
 
 export type LayoutLevel = 'block' | 'floor' | 'ward' | 'room' | 'bed';
 
@@ -46,12 +51,56 @@ export type FormDialogRequest =
     | { kind: 'edit'; level: 'room'; entity: Room }
     | { kind: 'edit'; level: 'bed'; entity: HierarchyBed };
 
-type WardDraft = { name: string; code: string; type: string; typeOther: string; gender: string };
+type WardDraft = {
+    name: string;
+    nameChoice: string;
+    code: string;
+    type: string;
+    typeOther: string;
+    gender: string;
+    departmentId: string;
+};
+type DeptOption = { id: string; name: string };
 type RoomDraft = { number: string; name: string };
 type BedDraft = { bed_number: string; bed_code: string; status: BedStatus };
 
 const NEW = '__new';
 const OTHER = '__other';
+
+const fieldSelectStyle = {
+    height: 38,
+    borderRadius: 8,
+    border: '1px solid #E1E7EF',
+    fontSize: 13,
+};
+
+function FieldSelect({
+    value,
+    onChange,
+    options,
+    placeholder = 'Select…',
+    disabled = false,
+    searchable,
+}: {
+    value: string;
+    onChange: (value: string) => void;
+    options: { label: string; value: string }[];
+    placeholder?: string;
+    disabled?: boolean;
+    searchable?: boolean;
+}) {
+    return (
+        <CustomSelect
+            value={value}
+            onChange={onChange}
+            options={options}
+            placeholder={placeholder}
+            disabled={disabled}
+            searchable={searchable}
+            style={fieldSelectStyle}
+        />
+    );
+}
 
 const LEVEL_TITLES: Record<LayoutLevel, { create: string; edit: string }> = {
     block: { create: 'Add building / block', edit: 'Edit block info' },
@@ -62,7 +111,25 @@ const LEVEL_TITLES: Record<LayoutLevel, { create: string; edit: string }> = {
 };
 
 function emptyWard(): WardDraft {
-    return { name: '', code: '', type: '', typeOther: '', gender: '' };
+    return { name: '', nameChoice: '', code: '', type: '', typeOther: '', gender: '', departmentId: '' };
+}
+
+function readDepartments(raw: unknown): DeptOption[] {
+    const record = raw && typeof raw === 'object' ? raw as Record<string, unknown> : null;
+    const rows = Array.isArray(raw)
+        ? raw
+        : record
+            ? (['departments', 'items', 'data', 'results'] as const)
+                .map(key => record[key])
+                .find(Array.isArray) || []
+            : [];
+    return rows.flatMap(item => {
+        if (!item || typeof item !== 'object') return [];
+        const row = item as Record<string, unknown>;
+        const id = typeof row.id === 'string' ? row.id : '';
+        const name = typeof row.name === 'string' ? row.name.trim() : '';
+        return id && name ? [{ id, name }] : [];
+    });
 }
 
 function emptyRoom(): RoomDraft {
@@ -80,23 +147,36 @@ function wardPayload(draft: WardDraft): Record<string, unknown> {
         ...(draft.code.trim() ? { code: draft.code.trim() } : {}),
         ...(type ? { type } : {}),
         ...(draft.gender ? { gender_restriction: draft.gender } : {}),
+        ...(draft.departmentId ? { department_id: draft.departmentId } : {}),
     };
 }
 
-function roomPayload(draft: RoomDraft, beds?: BedDraft[]): Record<string, unknown> {
-    const usable = (beds || []).filter(bed => bed.bed_number.trim());
-    return {
-        number: draft.number.trim(),
-        ...(draft.name.trim() ? { name: draft.name.trim() } : {}),
-        ...(usable.length ? { beds: usable.map(bedPayload) } : {}),
-    };
-}
-
-function bedPayload(draft: BedDraft): Record<string, unknown> {
+function bedPayload(draft: BedDraft, departmentId?: string): Record<string, unknown> {
     return {
         bed_number: draft.bed_number.trim(),
         ...(draft.bed_code.trim() ? { bed_code: draft.bed_code.trim() } : {}),
         status: draft.status,
+        ...(departmentId ? { department_id: departmentId } : {}),
+    };
+}
+
+function readCreatedBlock(raw: unknown): Block | null {
+    if (!raw || typeof raw !== 'object') return null;
+    const rec = raw as Record<string, unknown>;
+    return parseBlock(raw)
+        || parseBlock(rec.block)
+        || parseBlock(rec.data)
+        || parseBlocks(raw)[0]
+        || parseBlocks(rec.data)[0]
+        || null;
+}
+
+function roomPayload(draft: RoomDraft, beds?: BedDraft[], departmentId?: string): Record<string, unknown> {
+    const usable = (beds || []).filter(bed => bed.bed_number.trim());
+    return {
+        number: draft.number.trim(),
+        ...(draft.name.trim() ? { name: draft.name.trim() } : {}),
+        ...(usable.length ? { beds: usable.map(item => bedPayload(item, departmentId)) } : {}),
     };
 }
 
@@ -104,15 +184,23 @@ export default function BedLayoutFormDialog({
     request,
     blocks,
     rooms,
+    existingWards = [],
+    preview = false,
     onClose,
     onSaved,
+    onPreviewOp,
 }: {
     request: FormDialogRequest;
     blocks: Block[];
     /** Rooms of the ward in context, for the bed parent picker. */
     rooms: Room[];
+    /** Units and wards already on this facility, so a building can attach them. */
+    existingWards?: { id: string; name: string; departmentId?: string; blockId?: string }[];
+    /** Showing the sample layout: apply locally instead of calling the API. */
+    preview?: boolean;
     onClose: () => void;
     onSaved: (message: string) => void;
+    onPreviewOp?: (op: PreviewOp) => void;
 }) {
     const { kind, level } = request;
     const context = useMemo<LayoutContext>(
@@ -140,6 +228,10 @@ export default function BedLayoutFormDialog({
 
     const [error, setError] = useState('');
     const [saving, setSaving] = useState(false);
+    const [departments, setDepartments] = useState<DeptOption[]>([]);
+    const [bedDepartmentId, setBedDepartmentId] = useState('');
+    const [attachedUnitIds, setAttachedUnitIds] = useState<string[]>([]);
+    const [attachPick, setAttachPick] = useState('');
 
     /* ── prefill ────────────────────────────────────────────────────── */
     useEffect(() => {
@@ -154,9 +246,23 @@ export default function BedLayoutFormDialog({
         setChildWards([]);
         setChildRooms([]);
         setChildBeds([]);
+        setAttachedUnitIds([]);
+        setAttachPick('');
 
         if (kind === 'edit') {
-            if (request.level === 'block') setName(request.entity.name);
+            if (request.level === 'block') {
+                setName(request.entity.name);
+                const catalogIds = new Set(existingWards.map(unit => unit.id));
+                const placed = request.entity.floors.flatMap(floor => {
+                    if (floor.name.trim().toLowerCase() !== 'unassigned') return floor.wards;
+                    const holdsEveryUnit = catalogIds.size > 0
+                        && floor.wards.length === catalogIds.size
+                        && floor.wards.every(ward => catalogIds.has(ward.id));
+                    return holdsEveryUnit ? [] : floor.wards;
+                });
+                const linked = existingWards.filter(unit => unit.blockId === request.entity.id).map(unit => unit.id);
+                setAttachedUnitIds([...new Set([...placed.map(unit => unit.id), ...linked])]);
+            }
             if (request.level === 'floor') {
                 setName(request.entity.name);
                 setFloorNameChoice(/^([1-9]|10)$/.test(request.entity.name) ? request.entity.name : OTHER);
@@ -164,12 +270,15 @@ export default function BedLayoutFormDialog({
             if (request.level === 'ward') {
                 const entity = request.entity;
                 const known = entity.type && (WARD_TYPES as readonly string[]).includes(entity.type);
+                const matched = existingWards.find(item => item.id === entity.id || item.name === entity.name);
                 setWard({
                     name: entity.name,
+                    nameChoice: matched ? matched.id : entity.name ? OTHER : '',
                     code: entity.code || '',
                     type: entity.type ? (known ? entity.type : OTHER) : '',
                     typeOther: known ? '' : entity.type || '',
                     gender: entity.gender_restriction || '',
+                    departmentId: entity.department_id || '',
                 });
             }
             if (request.level === 'room') setRoom({ number: request.entity.number, name: request.entity.name || '' });
@@ -188,9 +297,25 @@ export default function BedLayoutFormDialog({
         setWard(emptyWard());
         setRoom(emptyRoom());
         setBed(emptyBed());
+        setBedDepartmentId('');
         if (level === 'bed') setChildBeds([]);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [request]);
+
+    useEffect(() => {
+        if (preview) return;
+        let cancelled = false;
+        (async () => {
+            try {
+                const url = await appendFacilityIdForProxy(API_ENDPOINTS.DEPARTMENTS);
+                const res = await fetch(url, { credentials: 'include' });
+                if (!res.ok) return;
+                const data = await res.json().catch(() => []);
+                if (!cancelled) setDepartments(readDepartments(data));
+            } catch { /* beds stay blocked until a department can be chosen */ }
+        })();
+        return () => { cancelled = true; };
+    }, [preview]);
 
     /* ── cascading options ──────────────────────────────────────────── */
     const selectedBlock = useMemo(
@@ -222,8 +347,42 @@ export default function BedLayoutFormDialog({
 
     const resolvedFloorName = floorNameChoice === OTHER ? name.trim() : floorNameChoice;
 
+    const attachOptions = useMemo(() => (
+        existingWards.flatMap(unit => (
+            attachedUnitIds.includes(unit.id) ? [] : [{ label: unit.name, value: `unit:${unit.id}` }]
+        ))
+    ), [existingWards, attachedUnitIds]);
+
+    const attachedUnits = useMemo(() => (
+        attachedUnitIds.flatMap(unitId => {
+            const unit = existingWards.find(item => item.id === unitId);
+            return unit ? [{ id: unit.id, name: unit.name }] : [];
+        })
+    ), [attachedUnitIds, existingWards]);
+
+    const addAttachment = (value: string) => {
+        setAttachPick('');
+        if (!value.startsWith('unit:')) return;
+        const unitId = value.slice('unit:'.length);
+        setAttachedUnitIds(prev => prev.includes(unitId) ? prev : [...prev, unitId]);
+    };
+
+    const removeAttachedUnit = (unitId: string) => {
+        setAttachedUnitIds(prev => prev.filter(id => id !== unitId));
+    };
+
     /* ── submit ─────────────────────────────────────────────────────── */
-    const post = useCallback(async (endpoint: string, method: 'POST' | 'PUT' | 'PATCH', body: unknown) => {
+    /** Sends to the API, or applies the equivalent op to the sample layout. */
+    const send = useCallback(async (
+        endpoint: string,
+        method: 'POST' | 'PUT' | 'PATCH',
+        body: Record<string, unknown>,
+        op: PreviewOp,
+    ) => {
+        if (preview) {
+            onPreviewOp?.(op);
+            return null;
+        }
         const url = await appendFacilityIdForProxy(endpoint);
         const res = await fetch(url, {
             method,
@@ -234,7 +393,33 @@ export default function BedLayoutFormDialog({
         const data = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(hierarchyApiMessage(data, `Request failed (${res.status})`));
         return data;
-    }, []);
+    }, [preview, onPreviewOp]);
+
+    /** Staff board still keys beds by department, so the unit must carry one first. */
+    const departmentForBeds = useCallback(async (unitId: string): Promise<string> => {
+        const fromTree = blocks.flatMap(block => block.floors.flatMap(floor => floor.wards)).find(item => item.id === unitId) || null;
+        if (fromTree?.department_id) return fromTree.department_id;
+        let unit = fromTree;
+        if (!unit && !preview) {
+            const url = await appendFacilityIdForProxy(API_ENDPOINTS.WARD(unitId));
+            const res = await fetch(url, { credentials: 'include' });
+            const data = await res.json().catch(() => ({}));
+            unit = res.ok ? parseWard(data) : null;
+        }
+        if (unit?.department_id) return unit.department_id;
+        if (!bedDepartmentId) throw new Error('Choose a department for this unit before adding beds.');
+        if (!unit) throw new Error('Choose a department for this unit before adding beds.');
+        const body = {
+            name: unit.name,
+            ...(unit.code ? { code: unit.code } : {}),
+            ...(unit.type ? { type: unit.type } : {}),
+            ...(unit.gender_restriction ? { gender_restriction: unit.gender_restriction } : {}),
+            ...(unit.floor_id ? { floor_id: unit.floor_id } : {}),
+            department_id: bedDepartmentId,
+        };
+        await send(API_ENDPOINTS.WARD(unit.id), 'PUT', body, { kind: 'edit', level: 'ward', id: unit.id, body });
+        return bedDepartmentId;
+    }, [blocks, preview, bedDepartmentId, send]);
 
     const submit = useCallback(async () => {
         setError('');
@@ -244,24 +429,66 @@ export default function BedLayoutFormDialog({
         const wardId = context.wardId || wardChoice;
         const roomId = context.roomId || roomChoice;
 
+        const placeAttachedUnits = async (block: Block | null) => {
+            if (!attachedUnitIds.length || !block) return;
+            const realFloors = (block.floors || []).filter(item => {
+                const label = item.name.trim().toLowerCase();
+                return label !== 'unassigned' && label !== 'attached units';
+            });
+            let floorId = realFloors[0]?.id
+                || block.floors.find(item => item.name.trim().toLowerCase() === 'attached units')?.id
+                || '';
+            if (!floorId) {
+                const floorData = await send(API_ENDPOINTS.BLOCK_FLOORS(block.id), 'POST', { name: 'Attached units' }, {
+                    kind: 'create', level: 'floor', parentId: block.id, body: { name: 'Attached units' },
+                });
+                const createdFloor = parseFloor(floorData)
+                    || (floorData && typeof floorData === 'object' ? parseFloor((floorData as { floor?: unknown }).floor) || parseFloor((floorData as { data?: unknown }).data) : null);
+                floorId = createdFloor?.id || '';
+            }
+            if (!floorId) throw new Error('Could not attach the units to this building.');
+            const floorByUnit = new Map<string, string>();
+            for (const floor of realFloors) {
+                for (const ward of floor.wards) floorByUnit.set(ward.id, floor.id);
+            }
+            for (const unitId of attachedUnitIds) {
+                const unit = existingWards.find(item => item.id === unitId);
+                if (!unit) continue;
+                const body = {
+                    name: unit.name,
+                    block_id: block.id,
+                    floor_id: floorByUnit.get(unitId) || floorId,
+                    ...(unit.departmentId ? { department_id: unit.departmentId } : {}),
+                };
+                await send(API_ENDPOINTS.WARD(unit.id), 'PUT', body, { kind: 'edit', level: 'ward', id: unit.id, body });
+            }
+        };
+
         setSaving(true);
         try {
             if (kind === 'edit') {
+                const id = request.entity.id;
                 if (level === 'block') {
                     if (!name.trim()) throw new Error('Block name is required.');
-                    await post(API_ENDPOINTS.BLOCK(request.entity.id), 'PUT', { name: name.trim() });
+                    const body = { name: name.trim() };
+                    await send(API_ENDPOINTS.BLOCK(id), 'PUT', body, { kind: 'edit', level, id, body });
+                    if (request.level === 'block') await placeAttachedUnits(request.entity);
                 } else if (level === 'floor') {
                     if (!resolvedFloorName) throw new Error('Floor name is required.');
-                    await post(API_ENDPOINTS.FLOOR(request.entity.id), 'PUT', { name: resolvedFloorName });
+                    const body = { name: resolvedFloorName };
+                    await send(API_ENDPOINTS.FLOOR(id), 'PUT', body, { kind: 'edit', level, id, body });
                 } else if (level === 'ward') {
                     if (!ward.name.trim()) throw new Error('Ward name is required.');
-                    await post(API_ENDPOINTS.WARD(request.entity.id), 'PUT', wardPayload(ward));
+                    const body = wardPayload(ward);
+                    await send(API_ENDPOINTS.WARD(id), 'PUT', body, { kind: 'edit', level, id, body });
                 } else if (level === 'room') {
                     if (!room.number.trim()) throw new Error('Room number is required.');
-                    await post(API_ENDPOINTS.ROOM(request.entity.id), 'PUT', roomPayload(room));
+                    const body = roomPayload(room);
+                    await send(API_ENDPOINTS.ROOM(id), 'PUT', body, { kind: 'edit', level, id, body });
                 } else {
                     if (!bed.bed_number.trim()) throw new Error('Bed number is required.');
-                    await post(API_ENDPOINTS.BED(request.entity.id), 'PATCH', bedPayload(bed));
+                    const body = bedPayload(bed, request.entity.department_id);
+                    await send(API_ENDPOINTS.BED(id), 'PATCH', body, { kind: 'edit', level, id, body });
                 }
                 onSaved(`${LEVEL_TITLES[level].edit.replace('Edit ', '').replace(' info', '')} updated`);
                 return;
@@ -270,10 +497,23 @@ export default function BedLayoutFormDialog({
             if (level === 'block') {
                 if (!name.trim()) throw new Error('Block name is required.');
                 const floors = childFloors.filter(floor => floor.name.trim());
-                await post(API_ENDPOINTS.BLOCKS, 'POST', {
+                const body = {
                     name: name.trim(),
                     ...(floors.length ? { floors: floors.map(floor => ({ name: floor.name.trim() })) } : {}),
-                });
+                };
+                const data = await send(API_ENDPOINTS.BLOCKS, 'POST', body, { kind: 'create', level: 'block', body });
+                let created = readCreatedBlock(data);
+                if (created && floors.length && !created.floors.some(floor => floor.name.trim().toLowerCase() !== 'unassigned')) {
+                    const floorData = await send(API_ENDPOINTS.BLOCK_FLOORS(created.id), 'POST', { name: floors[0].name }, {
+                        kind: 'create', level: 'floor', parentId: created.id, body: { name: floors[0].name },
+                    });
+                    const floor = parseFloor(floorData);
+                    if (floor) created = { ...created, floors: [...created.floors, floor] };
+                }
+                if (!created && attachedUnitIds.length && !preview) {
+                    throw new Error('The building was created, but the units could not be attached. Open it and attach them again.');
+                }
+                await placeAttachedUnits(created);
                 onSaved('Block created');
                 return;
             }
@@ -283,9 +523,12 @@ export default function BedLayoutFormDialog({
                 const wards = childWards.filter(item => item.name.trim()).map(wardPayload);
                 const floorBody = { name: resolvedFloorName, ...(wards.length ? { wards } : {}) };
                 if (blockId) {
-                    await post(API_ENDPOINTS.BLOCK_FLOORS(blockId), 'POST', floorBody);
+                    await send(API_ENDPOINTS.BLOCK_FLOORS(blockId), 'POST', floorBody, {
+                        kind: 'create', level: 'floor', parentId: blockId, body: floorBody,
+                    });
                 } else if (newBlockName.trim()) {
-                    await post(API_ENDPOINTS.BLOCKS, 'POST', { name: newBlockName.trim(), floors: [floorBody] });
+                    const body = { name: newBlockName.trim(), floors: [floorBody] };
+                    await send(API_ENDPOINTS.BLOCKS, 'POST', body, { kind: 'create', level: 'block', body });
                 } else {
                     throw new Error('Pick a block or enter a new block name.');
                 }
@@ -296,16 +539,22 @@ export default function BedLayoutFormDialog({
             if (level === 'ward') {
                 if (!ward.name.trim()) throw new Error('Ward name is required.');
                 const roomsPayload = childRooms.filter(item => item.number.trim()).map(item => roomPayload(item));
-                const body = { ...wardPayload(ward), ...(roomsPayload.length ? { rooms: roomsPayload } : {}) };
+                const wardBody = { ...wardPayload(ward), ...(roomsPayload.length ? { rooms: roomsPayload } : {}) };
                 if (floorId) {
-                    await post(API_ENDPOINTS.FLOOR_WARDS(floorId), 'POST', body);
-                } else if (blockId && newFloorName.trim()) {
-                    await post(API_ENDPOINTS.BLOCK_FLOORS(blockId), 'POST', { name: newFloorName.trim(), wards: [body] });
-                } else if (newBlockName.trim() && newFloorName.trim()) {
-                    await post(API_ENDPOINTS.BLOCKS, 'POST', {
-                        name: newBlockName.trim(),
-                        floors: [{ name: newFloorName.trim(), wards: [body] }],
+                    await send(API_ENDPOINTS.FLOOR_WARDS(floorId), 'POST', wardBody, {
+                        kind: 'create', level: 'ward', parentId: floorId, body: wardBody,
                     });
+                } else if (blockId && newFloorName.trim()) {
+                    const body = { name: newFloorName.trim(), wards: [wardBody] };
+                    await send(API_ENDPOINTS.BLOCK_FLOORS(blockId), 'POST', body, {
+                        kind: 'create', level: 'floor', parentId: blockId, body,
+                    });
+                } else if (newBlockName.trim() && newFloorName.trim()) {
+                    const body = {
+                        name: newBlockName.trim(),
+                        floors: [{ name: newFloorName.trim(), wards: [wardBody] }],
+                    };
+                    await send(API_ENDPOINTS.BLOCKS, 'POST', body, { kind: 'create', level: 'block', body });
                 } else {
                     throw new Error('Pick the block and floor this ward belongs to.');
                 }
@@ -316,15 +565,31 @@ export default function BedLayoutFormDialog({
             if (level === 'room') {
                 if (!wardId) throw new Error('Pick the ward this room belongs to.');
                 if (!room.number.trim()) throw new Error('Room number is required.');
-                await post(API_ENDPOINTS.WARD_ROOMS(wardId), 'POST', roomPayload(room, childBeds));
+                const addingBeds = childBeds.some(item => item.bed_number.trim());
+                if (addingBeds && childBeds.filter(item => item.bed_number.trim()).length > NESTED_LIMITS.bedsPerRoom) {
+                    throw new Error(`A room can include up to ${NESTED_LIMITS.bedsPerRoom} beds.`);
+                }
+                const departmentId = addingBeds ? await departmentForBeds(wardId) : undefined;
+                const body = roomPayload(room, childBeds, departmentId);
+                await send(API_ENDPOINTS.WARD_ROOMS(wardId), 'POST', body, {
+                    kind: 'create', level: 'room', parentId: wardId, body,
+                });
                 onSaved('Room created');
                 return;
             }
 
             if (!roomId) throw new Error('Pick the room this bed belongs to.');
+            if (!wardId) throw new Error('Pick the ward this bed belongs to.');
             const beds = [bed, ...childBeds].filter(item => item.bed_number.trim());
             if (!beds.length) throw new Error('Bed number is required.');
-            await post(API_ENDPOINTS.ROOM_BEDS(roomId), 'POST', { beds: beds.map(bedPayload) });
+            if (beds.length > NESTED_LIMITS.bedsPerRoom) {
+                throw new Error(`A room can include up to ${NESTED_LIMITS.bedsPerRoom} beds.`);
+            }
+            const departmentId = await departmentForBeds(wardId);
+            const body = { beds: beds.map(item => bedPayload(item, departmentId)) };
+            await send(API_ENDPOINTS.ROOM_BEDS(roomId), 'POST', body, {
+                kind: 'create', level: 'bed', parentId: roomId, body,
+            });
             onSaved(beds.length === 1 ? 'Bed added' : `${beds.length} beds added`);
         } catch (err) {
             setError(err instanceof Error ? err.message : 'Something went wrong.');
@@ -334,7 +599,8 @@ export default function BedLayoutFormDialog({
     }, [
         kind, level, request, context, blockChoice, floorChoice, wardChoice, roomChoice,
         name, resolvedFloorName, ward, room, bed, childFloors, childWards, childRooms, childBeds,
-        newBlockName, newFloorName, post, onSaved,
+        newBlockName, newFloorName, send, onSaved, departmentForBeds, bedDepartmentId,
+        attachedUnitIds, existingWards, preview,
     ]);
 
     /* ── field renderers ────────────────────────────────────────────── */
@@ -342,17 +608,15 @@ export default function BedLayoutFormDialog({
         <div style={{ display: 'grid', gridTemplateColumns: floorNameChoice === OTHER ? '1fr 1fr' : '1fr', gap: 10 }}>
             <div>
                 <label style={fieldLabel}>Floor name / number</label>
-                <select
+                <FieldSelect
                     value={floorNameChoice}
-                    onChange={e => setFloorNameChoice(e.target.value)}
-                    style={selectStyle}
-                >
-                    <option value="">Select…</option>
-                    {Array.from({ length: 10 }, (_, i) => String(i + 1)).map(n => (
-                        <option key={n} value={n}>{n}</option>
-                    ))}
-                    <option value={OTHER}>Type a name…</option>
-                </select>
+                    onChange={setFloorNameChoice}
+                    searchable={false}
+                    options={[
+                        ...Array.from({ length: 10 }, (_, i) => ({ label: String(i + 1), value: String(i + 1) })),
+                        { label: 'Type a name…', value: OTHER },
+                    ]}
+                />
             </div>
             {floorNameChoice === OTHER && (
                 <div>
@@ -373,11 +637,21 @@ export default function BedLayoutFormDialog({
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
                 <div>
                     <label style={fieldLabel}>Ward / unit name *</label>
-                    <input
-                        value={draft.name}
-                        onChange={e => update({ ...draft, name: e.target.value })}
-                        placeholder="e.g. Labour & Delivery Unit"
-                        style={input}
+                    <FieldSelect
+                        value={draft.nameChoice}
+                        searchable={existingWards.length > 8}
+                        onChange={value => {
+                            if (value === OTHER) {
+                                update({ ...draft, nameChoice: OTHER, name: '' });
+                                return;
+                            }
+                            const picked = existingWards.find(item => item.id === value);
+                            update({ ...draft, nameChoice: value, name: picked?.name || '' });
+                        }}
+                        options={[
+                            ...existingWards.map(item => ({ label: item.name, value: item.id })),
+                            { label: 'Type a name…', value: OTHER },
+                        ]}
                     />
                 </div>
                 <div>
@@ -390,33 +664,37 @@ export default function BedLayoutFormDialog({
                     />
                 </div>
             </div>
+            {draft.nameChoice === OTHER && (
+                <div>
+                    <label style={fieldLabel}>New ward / unit name *</label>
+                    <input
+                        value={draft.name}
+                        onChange={e => update({ ...draft, name: e.target.value })}
+                        placeholder="e.g. Labour & Delivery Unit"
+                        style={input}
+                    />
+                </div>
+            )}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
                 <div>
                     <label style={fieldLabel}>Ward / unit type</label>
-                    <select
+                    <FieldSelect
                         value={draft.type}
-                        onChange={e => update({ ...draft, type: e.target.value })}
-                        style={selectStyle}
-                    >
-                        <option value="">Select…</option>
-                        {WARD_TYPES.map(type => (
-                            <option key={type} value={type}>{wardTypeLabel(type)}</option>
-                        ))}
-                        <option value={OTHER}>Type a type…</option>
-                    </select>
+                        onChange={type => update({ ...draft, type })}
+                        searchable={false}
+                        options={[
+                            ...WARD_TYPES.map(type => ({ label: wardTypeLabel(type), value: type })),
+                            { label: 'Type a type…', value: OTHER },
+                        ]}
+                    />
                 </div>
                 <div>
                     <label style={fieldLabel}>Gender restriction</label>
-                    <select
+                    <FieldSelect
                         value={draft.gender}
-                        onChange={e => update({ ...draft, gender: e.target.value })}
-                        style={selectStyle}
-                    >
-                        <option value="">Select…</option>
-                        {GENDER_RESTRICTIONS.map(value => (
-                            <option key={value} value={value}>{genderLabel(value)}</option>
-                        ))}
-                    </select>
+                        onChange={gender => update({ ...draft, gender })}
+                        options={GENDER_RESTRICTIONS.map(value => ({ label: genderLabel(value), value }))}
+                    />
                 </div>
             </div>
             {draft.type === OTHER && (
@@ -430,6 +708,17 @@ export default function BedLayoutFormDialog({
                     />
                 </div>
             )}
+            <div>
+                <label style={fieldLabel}>Department</label>
+                <FieldSelect
+                    value={draft.departmentId}
+                    onChange={departmentId => update({ ...draft, departmentId })}
+                    options={departments.map(dept => ({ label: dept.name, value: dept.id }))}
+                />
+                <div style={{ marginTop: 4, fontSize: 12, color: '#98A2B3' }}>
+                    Set this before adding beds. The staff board still lists beds by department.
+                </div>
+            </div>
         </div>
     );
 
@@ -478,15 +767,14 @@ export default function BedLayoutFormDialog({
             </div>
             <div>
                 <label style={fieldLabel}>Bed status</label>
-                <select
+                <FieldSelect
                     value={draft.status}
-                    onChange={e => update({ ...draft, status: e.target.value as BedStatus })}
-                    style={selectStyle}
-                >
-                    {(Object.keys(BED_STATUS_META) as BedStatus[]).map(status => (
-                        <option key={status} value={status}>{BED_STATUS_META[status].label}</option>
-                    ))}
-                </select>
+                    onChange={status => update({ ...draft, status: status as BedStatus })}
+                    options={(Object.keys(BED_STATUS_META) as BedStatus[]).map(status => ({
+                        label: BED_STATUS_META[status].label,
+                        value: status,
+                    }))}
+                />
             </div>
         </div>
     );
@@ -574,22 +862,20 @@ export default function BedLayoutFormDialog({
                         </div>
                     )}
 
+
                     {/* Parent context the caller didn't supply */}
                     {needs.block && (
                         <div style={{ display: 'grid', gridTemplateColumns: blockChoice === NEW ? '1fr 1fr' : '1fr', gap: 10 }}>
                             <div>
                                 <label style={fieldLabel}>Building / block *</label>
-                                <select
+                                <FieldSelect
                                     value={blockChoice}
-                                    onChange={e => { setBlockChoice(e.target.value); setFloorChoice(''); setWardChoice(''); setRoomChoice(''); }}
-                                    style={selectStyle}
-                                >
-                                    <option value="">Select…</option>
-                                    {blocks.map(block => (
-                                        <option key={block.id} value={block.id}>{block.name}</option>
-                                    ))}
-                                    <option value={NEW}>Add a new block…</option>
-                                </select>
+                                    onChange={value => { setBlockChoice(value); setFloorChoice(''); setWardChoice(''); setRoomChoice(''); }}
+                                    options={[
+                                        ...blocks.map(block => ({ label: block.name, value: block.id })),
+                                        { label: 'Add a new block…', value: NEW },
+                                    ]}
+                                />
                             </div>
                             {blockChoice === NEW && (
                                 <div>
@@ -609,18 +895,15 @@ export default function BedLayoutFormDialog({
                         <div style={{ display: 'grid', gridTemplateColumns: floorChoice === NEW || blockChoice === NEW ? '1fr 1fr' : '1fr', gap: 10 }}>
                             <div>
                                 <label style={fieldLabel}>Floor *</label>
-                                <select
+                                <FieldSelect
                                     value={blockChoice === NEW ? NEW : floorChoice}
                                     disabled={blockChoice === NEW || !blockChoice}
-                                    onChange={e => { setFloorChoice(e.target.value); setWardChoice(''); setRoomChoice(''); }}
-                                    style={{ ...selectStyle, opacity: blockChoice === NEW || !blockChoice ? 0.6 : 1 }}
-                                >
-                                    <option value="">Select…</option>
-                                    {floorOptions.map(floor => (
-                                        <option key={floor.id} value={floor.id}>{floor.name}</option>
-                                    ))}
-                                    <option value={NEW}>Add a new floor…</option>
-                                </select>
+                                    onChange={value => { setFloorChoice(value); setWardChoice(''); setRoomChoice(''); }}
+                                    options={[
+                                        ...floorOptions.map(floor => ({ label: floor.name, value: floor.id })),
+                                        { label: 'Add a new floor…', value: NEW },
+                                    ]}
+                                />
                             </div>
                             {(floorChoice === NEW || blockChoice === NEW) && (
                                 <div>
@@ -639,53 +922,97 @@ export default function BedLayoutFormDialog({
                     {needs.ward && (
                         <div>
                             <label style={fieldLabel}>Ward / unit *</label>
-                            <select
+                            <FieldSelect
                                 value={wardChoice}
                                 disabled={!floorChoice || floorChoice === NEW}
-                                onChange={e => { setWardChoice(e.target.value); setRoomChoice(''); }}
-                                style={{ ...selectStyle, opacity: !floorChoice || floorChoice === NEW ? 0.6 : 1 }}
-                            >
-                                <option value="">Select…</option>
-                                {wardOptions.map(option => (
-                                    <option key={option.id} value={option.id}>{option.name}</option>
-                                ))}
-                            </select>
+                                onChange={value => { setWardChoice(value); setRoomChoice(''); }}
+                                options={wardOptions.map(option => ({ label: option.name, value: option.id }))}
+                            />
                         </div>
                     )}
 
                     {needs.room && (
                         <div>
                             <label style={fieldLabel}>Room / cubicle *</label>
-                            <select
+                            <FieldSelect
                                 value={roomChoice}
                                 disabled={!wardChoice}
-                                onChange={e => setRoomChoice(e.target.value)}
-                                style={{ ...selectStyle, opacity: !wardChoice ? 0.6 : 1 }}
-                            >
-                                <option value="">Select…</option>
-                                {roomOptions.map(option => (
-                                    <option key={option.id} value={option.id}>
-                                        {option.name ? `${option.number} · ${option.name}` : option.number}
-                                    </option>
-                                ))}
-                            </select>
+                                onChange={setRoomChoice}
+                                options={roomOptions.map(option => ({
+                                    label: option.name ? `${option.number} · ${option.name}` : option.number,
+                                    value: option.id,
+                                }))}
+                            />
                         </div>
                     )}
 
                     {/* The level's own fields */}
                     {level === 'block' && (
-                        <div>
-                            <label style={fieldLabel}>Building / block name *</label>
-                            <input
-                                value={name}
-                                onChange={e => setName(e.target.value)}
-                                placeholder="e.g. Maternity Block"
-                                style={input}
-                            />
+                        <div style={{ display: 'grid', gap: 14 }}>
+                            <div>
+                                <label style={fieldLabel}>Building / block name *</label>
+                                <input
+                                    value={name}
+                                    onChange={e => setName(e.target.value)}
+                                    placeholder="e.g. Maternity Block"
+                                    style={input}
+                                />
+                            </div>
+                            <div>
+                                <label style={fieldLabel}>Units</label>
+                                <div style={{ marginTop: 4, marginBottom: 8, fontSize: 12, color: '#98A2B3' }}>
+                                    Added units belong to this building.
+                                </div>
+                                <CustomSelect
+                                    value={attachPick}
+                                    onChange={addAttachment}
+                                    options={attachOptions}
+                                    placeholder={attachOptions.length ? 'Select a unit' : 'No units yet'}
+                                    disabled={attachOptions.length === 0 && attachedUnits.length === 0}
+                                    searchable={attachOptions.length > 6}
+                                    searchPlaceholder="Search units"
+                                    style={fieldSelectStyle}
+                                    maxH={240}
+                                />
+                                {attachedUnits.length > 0 && (
+                                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 10, maxHeight: 180, overflowY: 'auto' }}>
+                                        {attachedUnits.map(unit => (
+                                            <span key={unit.id} style={{
+                                                display: 'inline-flex', alignItems: 'center', gap: 4,
+                                                padding: '3px 6px 3px 8px', borderRadius: 999, border: '1px solid #E1E7EF',
+                                                background: '#F8FAFC', fontSize: 12, color: '#172033',
+                                            }}>
+                                                {unit.name}
+                                                <button
+                                                    type="button"
+                                                    onClick={() => removeAttachedUnit(unit.id)}
+                                                    aria-label={`Remove ${unit.name}`}
+                                                    style={{ border: 'none', background: 'none', padding: 0, cursor: 'pointer', color: '#98A2B3', display: 'inline-flex' }}
+                                                >
+                                                    <X size={11} strokeWidth={2} />
+                                                </button>
+                                            </span>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
                         </div>
                     )}
                     {level === 'floor' && floorNameField}
                     {level === 'ward' && wardFields(ward, setWard)}
+                    {kind === 'create' && (level === 'room' || level === 'bed') && (context.wardId || wardChoice) && !selectedWard?.department_id && (
+                        <div>
+                            <label style={fieldLabel}>Department *</label>
+                            <FieldSelect
+                                value={bedDepartmentId}
+                                onChange={setBedDepartmentId}
+                                options={departments.map(dept => ({ label: dept.name, value: dept.id }))}
+                            />
+                            <div style={{ marginTop: 4, fontSize: 12, color: '#98A2B3' }}>
+                                This unit needs a department before beds can be added.
+                            </div>
+                        </div>
+                    )}
                     {level === 'room' && roomFields(room, setRoom)}
                     {level === 'bed' && bedFields(bed, setBed)}
 
@@ -767,7 +1094,7 @@ export default function BedLayoutFormDialog({
                             ))}
                             {addMoreButton(
                                 childBeds.length === 0 && level === 'room' ? 'Add bed' : 'Add another bed',
-                                childBeds.length >= NESTED_LIMITS.bedsPerRoom,
+                                childBeds.length >= (level === 'bed' ? NESTED_LIMITS.bedsPerRoom - 1 : NESTED_LIMITS.bedsPerRoom),
                                 () => setChildBeds(prev => [...prev, emptyBed()]),
                             )}
                         </div>

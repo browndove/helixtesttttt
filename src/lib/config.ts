@@ -41,6 +41,8 @@ export const API_ENDPOINTS = {
   INTERNAL_EXIT_ACT_AS: `/api/proxy/internal/exit-act-as`,
   INTERNAL_AUDIT: `/api/proxy/internal/audit`,
   INTERNAL_FEATURE_USAGE_METRICS: `/api/proxy/internal/feature-usage-metrics`,
+  INTERNAL_LEADERBOARD_METRICS: `/api/proxy/internal/leaderboard-metrics`,
+  INTERNAL_LEADERBOARD_USER: (id: string) => `/api/proxy/internal/leaderboard-metrics/users/${encodeURIComponent(id)}`,
 
   // Departments
   DEPARTMENTS: `/api/proxy/departments`,
@@ -53,15 +55,16 @@ export const API_ENDPOINTS = {
   UNIT_FLOORS: (id: string) => `/api/proxy/units/${id}/floors`,
   UNIT_FLOOR: (unitId: string, floorId: string) => `/api/proxy/units/${unitId}/floors/${floorId}`,
 
-  // Bed layout hierarchy: block → floor → ward → room → bed
+  // Bed layout hierarchy: block → floor → unit (ward) → room → bed.
+  // Hierarchy wards are care units. /wards/{id} is the old department-ward API.
+  // Listing and creating wards on a floor uses the /floors/{id}/wards alias.
   BLOCKS: `/api/proxy/blocks`,
   BLOCK: (id: string) => `/api/proxy/blocks/${id}`,
   BLOCK_FLOORS: (id: string) => `/api/proxy/blocks/${id}/floors`,
   FLOOR: (id: string) => `/api/proxy/floors/${id}`,
   FLOOR_WARDS: (id: string) => `/api/proxy/floors/${id}/wards`,
-  WARDS: `/api/proxy/wards`,
-  WARD: (id: string) => `/api/proxy/wards/${id}`,
-  WARD_ROOMS: (id: string) => `/api/proxy/wards/${id}/rooms`,
+  WARD: (id: string) => `/api/proxy/units/${id}`,
+  WARD_ROOMS: (id: string) => `/api/proxy/units/${id}/rooms`,
   ROOMS: `/api/proxy/rooms`,
   ROOM: (id: string) => `/api/proxy/rooms/${id}`,
   ROOM_BEDS: (id: string) => `/api/proxy/rooms/${id}/beds`,

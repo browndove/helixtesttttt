@@ -35,8 +35,25 @@ export type DepartmentBedSummary = BedCapacity & {
     department_name: string;
 };
 
+export type BlockBedSummary = BedCapacity & {
+    block_id: string;
+    block_name: string;
+    floors?: Array<BedCapacity & {
+        floor_id: string;
+        floor_name: string;
+        wards?: Array<BedCapacity & {
+            ward_id?: string;
+            unit_id?: string;
+            ward_name?: string;
+            name?: string;
+        }>;
+    }>;
+};
+
+/** Hierarchy rollup in `blocks[]`, plus the department rollup the staff board still reads. */
 export type FacilityBedSummary = BedCapacity & {
     facility_id: string;
     facility_name?: string;
+    blocks?: BlockBedSummary[];
     departments: DepartmentBedSummary[];
 };

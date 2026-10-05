@@ -1,5 +1,5 @@
-import BedLayoutExplorer from '@/components/bed-layout/BedLayoutExplorer';
+import { redirect } from 'next/navigation';
 
 export default function BedLayoutPage() {
-    return <BedLayoutExplorer />;
+    redirect('/beds');
 }

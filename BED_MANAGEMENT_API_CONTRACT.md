@@ -1,8 +1,7 @@
-# Bed Management API Contract (requested)
+# Bed Management API Contract
 
-Derived from `BED MANAGEMENT_MOB.pdf`. This is what the admin panel needs from the backend
-to build the bed management screens in that spec. Nothing here exists yet except `/units`
-and unit-scoped floors, both of which need to change (see **Migration**).
+Derived from `BED MANAGEMENT_MOB.pdf`, then aligned with the backend as built.
+Hierarchy is block → floor → ward (a care unit) → room → bed.
 
 Base URLs: staging `https://api.helixhealth.app/api/v1`, prod `https://api-prod.helixhealth.app/api/v1`.
 
@@ -21,29 +20,23 @@ Every level is addressable on its own, because the spec has a page per level: a 
 lists floors, a floor page lists wards, a ward page lists rooms (the main table), and a room
 page lists beds.
 
-## 2. Migration from what exists today
+## 2. What stayed on purpose
 
-Three breaking changes. We need these resolved before any UI work starts.
+**Hierarchy wards are units.** `GET/PUT/DELETE /units/{id}` is the hierarchy ward.
+`/wards/{id}` stays the old department-ward API and is not part of this tree.
+Listing and creating wards on a floor uses the alias `GET/POST /floors/{id}/wards`.
+Rooms hang off the unit: `GET/POST /units/{id}/rooms`.
 
-**Floors move from units to blocks.** Today a floor is created with
-`POST /units/{id}/floors` and carries `unit_id`. In the spec a floor belongs to a block and
-*contains* wards. So `floor.unit_id` becomes `floor.block_id`, and the unit gains
-`floor_id`. The admin panel's current unit-floors editor is built on the old shape and will
-be rewritten.
+**Beds keep `department_id`.** Placement is `room_id`, and the staff board
+`GET /departments/{id}/beds` still works. Put `department_id` on the unit before adding
+beds. The admin sends that on the unit, then includes the same `department_id` on each bed.
 
-**Beds move from departments to rooms.** Today beds are created with
-`POST /departments/{id}/beds` and carry `department_id` plus an optional `floor_id` and
-`ward_id`. In the spec a bed always belongs to a room, and "Add bed" is only ever initiated
-from a room. `bed.department_id` should become `bed.room_id`.
+**Bed status stays** `available` | `occupied` | `blocked`.
 
-**Department has no place in the spec's hierarchy.** If departments must stay (they drive
-roles, staff, and escalation), we need to know whether a ward keeps a `department_id`
-pointer for those features, or whether bed occupancy stops being reportable per department.
+**Unassigned backfill is visible and renameable.** The admin does not hide those rows.
 
-For existing facility data, we suggest the backend backfills a single `Unassigned` block
-with one `Unassigned` floor per facility, attaches every existing unit to it, and creates one
-`Unassigned` room per ward to hold that ward's existing beds. Confirm whether you want the
-admin panel to surface those placeholder rows or hide them.
+**Unit `type` is an open string.** The form offers common values and also sends whatever
+was typed.
 
 ## 3. Conventions
 
@@ -114,28 +107,23 @@ Extends the existing care unit. New fields are `floor_id`, `code`, `type`, and
 | `floor_name`, `block_id`, `block_name` | string | read-only, for breadcrumbs |
 | `name` | string | **required** |
 | `code` | string | optional |
-| `type` | enum | see below, plus free text |
+| `department_id` | string | required before beds are added |
+| `type` | string | open string; common values are suggestions only |
 | `gender_restriction` | enum | `male` \| `female` \| `mixed` |
 | `rooms` | Room[] | embedded on GET |
 | `room_count` | int | |
 
-`type` values: `general`, `emergency`, `icu`, `maternity`, `labour`, `nicu`, `paediatric`,
-`isolation`, `recovery`, `private`, `psychiatric`, `surgical`. The spec allows typing a
-value that isn't in the list, so either accept arbitrary strings or add a `type_other`
-free-text field — tell us which.
-
 ```
-GET    /wards            ?floor_id= &block_id=
-POST   /wards
-GET    /wards/{id}
-PUT    /wards/{id}
-DELETE /wards/{id}
-GET    /wards/{id}/rooms
-POST   /wards/{id}/rooms
+GET    /floors/{id}/wards
+POST   /floors/{id}/wards
+GET    /units/{id}
+PUT    /units/{id}
+DELETE /units/{id}
+GET    /units/{id}/rooms
+POST   /units/{id}/rooms
 ```
 
-If `/units` is kept as the route name instead of `/wards`, that's fine — we just need one
-canonical name and the new fields.
+`/wards/{id}` is the old department-ward API. Do not use it for this hierarchy.
 
 ### 4.4 Room / Cubicle
 
@@ -173,7 +161,8 @@ to fetch every room's beds to render one table.
 | Field | Type | Notes |
 |---|---|---|
 | `id` | string | |
-| `room_id` | string | replaces `department_id` |
+| `room_id` | string | where the bed sits in the hierarchy |
+| `department_id` | string | kept so `GET /departments/{id}/beds` still works |
 | `bed_number` | string | **required**, unique per room |
 | `bed_code` | string | optional, new ("Bed Code/Name" in the spec) |
 | `status` | enum | `available` \| `occupied` \| `blocked` |
@@ -191,11 +180,11 @@ DELETE /beds/{id}
 rows at once:
 
 ```json
-{ "beds": [{ "bed_number": "01", "bed_code": "Telemetry", "status": "available" }] }
+{ "beds": [{ "bed_number": "01", "bed_code": "Telemetry", "status": "available", "department_id": "…" }] }
 ```
 
-The spec's bed status dropdown is the only place a status is set; confirm the three existing
-values cover it, since the mock for the mobile view also showed a "turnover"-style state.
+Status is only `available`, `occupied`, or `blocked`. The unit's `department_id` is set
+before this call, and each bed keeps that same `department_id`.
 
 ## 5. Nested create
 
@@ -207,8 +196,8 @@ for the user to tell what succeeded.
 |---|---|---|
 | `POST /blocks` | `floors[]` | 5 |
 | `POST /blocks/{id}/floors` | `wards[]` | 3 |
-| `POST /wards` | `rooms[]` | 6 |
-| `POST /rooms` | `beds[]` | see open questions |
+| `POST /floors/{id}/wards` | `rooms[]` | 6 |
+| `POST /units/{id}/rooms` and `POST /rooms/{id}/beds` | `beds[]` | 50 |
 
 Example:
 
@@ -255,36 +244,26 @@ The bed management homepage needs a facility rollup without walking the tree:
 GET /beds/summary
 ```
 
-It should return facility totals (total, available, occupied, blocked, occupancy percent,
-`last_updated_at`) and a breakdown by block, each block by floor, each floor by ward. The
-existing `/beds/summary` returns a per-department breakdown, which no longer matches the
-hierarchy.
+It returns facility totals plus `blocks[]` (each block by floor, each floor by ward) and the
+existing `departments[]` rollup. The staff board keeps reading `departments[]`.
 
-Also needed: the homepage lets a user run any "Add" action with no context selected, so the
-cascading selects need the whole tree cheaply. The admin panel calls
-`GET /blocks?depth=full` and expects blocks with `floors[]`, each floor with `wards[]`, and
-each ward with `rooms[]`. Without `depth`, it should return blocks with floors only, and the
-UI will fall back to `GET /blocks/{id}/floors`, `GET /floors/{id}/wards`, and
-`GET /wards/{id}/rooms` per level.
+`GET /blocks` returns floors. `GET /blocks?depth=full` adds `wards[]` and `rooms[]`, plus
+room number, list counts, and breadcrumb names (`block_name`, `floor_name`, `ward_name`).
+Per-level fallbacks are `GET /blocks/{id}/floors`, `GET /floors/{id}/wards`, and
+`GET /units/{id}/rooms`.
 
 ## 7. Delete semantics
 
-Please confirm. Our assumption:
+- Success is `200` with `{ "message": "… deleted" }`.
+- `409` when the resource still has children, or when a bed is occupied.
+- There is no cascade flag. The admin shows the `message` from a `409` and leaves the tree
+  in place.
 
-- Deleting a parent with children returns `409` with a message naming the blocker, unless
-  `?cascade=true` is passed.
-- Deleting a room or bed whose bed is `occupied` returns `409` regardless of cascade.
-- Delete returns `{ "message": "<Resource> deleted" }` with `200`, matching the current
-  floors endpoint.
+## 8. Settled
 
-## 8. Open questions
-
-1. Does a ward still carry `department_id` so roles, staff, and escalation keep working?
-2. Is `type` an open string or a fixed enum plus a separate free-text field?
-3. Is there a cap on beds embedded in `POST /rooms`? The spec caps floors, wards, and rooms
-   but is silent on beds. We suggest 50.
-4. Is a floor name really optional? If two unnamed floors can exist in one block, the UI
-   needs something to label them with.
-5. How should the backfilled `Unassigned` block, floor, and room appear to admins — visible
-   and renameable, or hidden until data is reorganised?
-6. Is the bed status list staying at three values?
+1. The unit carries `department_id`. Set it before adding beds. Beds keep `department_id` too.
+2. `type` is an open string.
+3. Nested bed cap is 50.
+4. The admin always sends a floor name. A missing name is shown as "Unnamed floor".
+5. Unassigned backfill rows are visible and can be renamed.
+6. Bed status stays `available` / `occupied` / `blocked`.
