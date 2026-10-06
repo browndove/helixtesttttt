@@ -12,9 +12,6 @@ import {
     WARD_TYPES,
     genderLabel,
     hierarchyApiMessage,
-    parseBlock,
-    parseBlocks,
-    parseFloor,
     parseWard,
     wardTypeLabel,
     type Block,
@@ -160,17 +157,6 @@ function bedPayload(draft: BedDraft, departmentId?: string): Record<string, unkn
     };
 }
 
-function readCreatedBlock(raw: unknown): Block | null {
-    if (!raw || typeof raw !== 'object') return null;
-    const rec = raw as Record<string, unknown>;
-    return parseBlock(raw)
-        || parseBlock(rec.block)
-        || parseBlock(rec.data)
-        || parseBlocks(raw)[0]
-        || parseBlocks(rec.data)[0]
-        || null;
-}
-
 function roomPayload(draft: RoomDraft, beds?: BedDraft[], departmentId?: string): Record<string, unknown> {
     const usable = (beds || []).filter(bed => bed.bed_number.trim());
     return {
@@ -216,7 +202,6 @@ export default function BedLayoutFormDialog({
     const [roomChoice, setRoomChoice] = useState('');
 
     const [name, setName] = useState('');
-    const [floorNameChoice, setFloorNameChoice] = useState('');
     const [ward, setWard] = useState<WardDraft>(emptyWard);
     const [room, setRoom] = useState<RoomDraft>(emptyRoom);
     const [bed, setBed] = useState<BedDraft>(emptyBed);
@@ -230,8 +215,6 @@ export default function BedLayoutFormDialog({
     const [saving, setSaving] = useState(false);
     const [departments, setDepartments] = useState<DeptOption[]>([]);
     const [bedDepartmentId, setBedDepartmentId] = useState('');
-    const [attachedUnitIds, setAttachedUnitIds] = useState<string[]>([]);
-    const [attachPick, setAttachPick] = useState('');
 
     /* ── prefill ────────────────────────────────────────────────────── */
     useEffect(() => {
@@ -246,27 +229,10 @@ export default function BedLayoutFormDialog({
         setChildWards([]);
         setChildRooms([]);
         setChildBeds([]);
-        setAttachedUnitIds([]);
-        setAttachPick('');
 
         if (kind === 'edit') {
-            if (request.level === 'block') {
-                setName(request.entity.name);
-                const catalogIds = new Set(existingWards.map(unit => unit.id));
-                const placed = request.entity.floors.flatMap(floor => {
-                    if (floor.name.trim().toLowerCase() !== 'unassigned') return floor.wards;
-                    const holdsEveryUnit = catalogIds.size > 0
-                        && floor.wards.length === catalogIds.size
-                        && floor.wards.every(ward => catalogIds.has(ward.id));
-                    return holdsEveryUnit ? [] : floor.wards;
-                });
-                const linked = existingWards.filter(unit => unit.blockId === request.entity.id).map(unit => unit.id);
-                setAttachedUnitIds([...new Set([...placed.map(unit => unit.id), ...linked])]);
-            }
-            if (request.level === 'floor') {
-                setName(request.entity.name);
-                setFloorNameChoice(/^([1-9]|10)$/.test(request.entity.name) ? request.entity.name : OTHER);
-            }
+            if (request.level === 'block') setName(request.entity.name);
+            if (request.level === 'floor') setName(request.entity.name);
             if (request.level === 'ward') {
                 const entity = request.entity;
                 const known = entity.type && (WARD_TYPES as readonly string[]).includes(entity.type);
@@ -293,7 +259,6 @@ export default function BedLayoutFormDialog({
         }
 
         setName('');
-        setFloorNameChoice('');
         setWard(emptyWard());
         setRoom(emptyRoom());
         setBed(emptyBed());
@@ -345,31 +310,32 @@ export default function BedLayoutFormDialog({
         room: level === 'bed' && !context.roomId,
     };
 
-    const resolvedFloorName = floorNameChoice === OTHER ? name.trim() : floorNameChoice;
-
-    const attachOptions = useMemo(() => (
-        existingWards.flatMap(unit => (
-            attachedUnitIds.includes(unit.id) ? [] : [{ label: unit.name, value: `unit:${unit.id}` }]
-        ))
-    ), [existingWards, attachedUnitIds]);
-
-    const attachedUnits = useMemo(() => (
-        attachedUnitIds.flatMap(unitId => {
-            const unit = existingWards.find(item => item.id === unitId);
-            return unit ? [{ id: unit.id, name: unit.name }] : [];
-        })
-    ), [attachedUnitIds, existingWards]);
-
-    const addAttachment = (value: string) => {
-        setAttachPick('');
-        if (!value.startsWith('unit:')) return;
-        const unitId = value.slice('unit:'.length);
-        setAttachedUnitIds(prev => prev.includes(unitId) ? prev : [...prev, unitId]);
-    };
-
-    const removeAttachedUnit = (unitId: string) => {
-        setAttachedUnitIds(prev => prev.filter(id => id !== unitId));
-    };
+    const savedBuildings = useMemo(
+        () => blocks.filter(block => block.name.trim().toLowerCase() !== 'unassigned'),
+        [blocks],
+    );
+    const resolvedFloorName = name.trim();
+    const chosenBuildingId = savedBuildings.some(block => block.id === name) ? name : '';
+    const floorBlockId = context.blockId
+        || (blockChoice && blockChoice !== NEW ? blockChoice : '')
+        || (level === 'block' ? chosenBuildingId : '');
+    const buildingFloors = useMemo(() => {
+        const parent = blocks.find(item => item.id === floorBlockId);
+        return (parent?.floors || [])
+            .filter(floor => {
+                const key = floor.name.trim().toLowerCase();
+                return key !== 'unassigned' && key !== 'attached units';
+            })
+            .sort((a, b) => b.name.localeCompare(a.name, undefined, { numeric: true, sensitivity: 'base' }));
+    }, [blocks, floorBlockId]);
+    const takenFloorNames = useMemo(() => {
+        const ignoreId = kind === 'edit' && level === 'floor' ? request.entity.id : '';
+        return new Set(
+            buildingFloors
+                .filter(floor => floor.id !== ignoreId)
+                .map(floor => floor.name.trim().toLowerCase()),
+        );
+    }, [buildingFloors, kind, level, request]);
 
     /* ── submit ─────────────────────────────────────────────────────── */
     /** Sends to the API, or applies the equivalent op to the sample layout. */
@@ -429,41 +395,6 @@ export default function BedLayoutFormDialog({
         const wardId = context.wardId || wardChoice;
         const roomId = context.roomId || roomChoice;
 
-        const placeAttachedUnits = async (block: Block | null) => {
-            if (!attachedUnitIds.length || !block) return;
-            const realFloors = (block.floors || []).filter(item => {
-                const label = item.name.trim().toLowerCase();
-                return label !== 'unassigned' && label !== 'attached units';
-            });
-            let floorId = realFloors[0]?.id
-                || block.floors.find(item => item.name.trim().toLowerCase() === 'attached units')?.id
-                || '';
-            if (!floorId) {
-                const floorData = await send(API_ENDPOINTS.BLOCK_FLOORS(block.id), 'POST', { name: 'Attached units' }, {
-                    kind: 'create', level: 'floor', parentId: block.id, body: { name: 'Attached units' },
-                });
-                const createdFloor = parseFloor(floorData)
-                    || (floorData && typeof floorData === 'object' ? parseFloor((floorData as { floor?: unknown }).floor) || parseFloor((floorData as { data?: unknown }).data) : null);
-                floorId = createdFloor?.id || '';
-            }
-            if (!floorId) throw new Error('Could not attach the units to this building.');
-            const floorByUnit = new Map<string, string>();
-            for (const floor of realFloors) {
-                for (const ward of floor.wards) floorByUnit.set(ward.id, floor.id);
-            }
-            for (const unitId of attachedUnitIds) {
-                const unit = existingWards.find(item => item.id === unitId);
-                if (!unit) continue;
-                const body = {
-                    name: unit.name,
-                    block_id: block.id,
-                    floor_id: floorByUnit.get(unitId) || floorId,
-                    ...(unit.departmentId ? { department_id: unit.departmentId } : {}),
-                };
-                await send(API_ENDPOINTS.WARD(unit.id), 'PUT', body, { kind: 'edit', level: 'ward', id: unit.id, body });
-            }
-        };
-
         setSaving(true);
         try {
             if (kind === 'edit') {
@@ -472,9 +403,11 @@ export default function BedLayoutFormDialog({
                     if (!name.trim()) throw new Error('Block name is required.');
                     const body = { name: name.trim() };
                     await send(API_ENDPOINTS.BLOCK(id), 'PUT', body, { kind: 'edit', level, id, body });
-                    if (request.level === 'block') await placeAttachedUnits(request.entity);
                 } else if (level === 'floor') {
                     if (!resolvedFloorName) throw new Error('Floor name is required.');
+                    if (takenFloorNames.has(resolvedFloorName.trim().toLowerCase())) {
+                        throw new Error(`Floor ${resolvedFloorName} is already on this building. Pick another name.`);
+                    }
                     const body = { name: resolvedFloorName };
                     await send(API_ENDPOINTS.FLOOR(id), 'PUT', body, { kind: 'edit', level, id, body });
                 } else if (level === 'ward') {
@@ -495,25 +428,31 @@ export default function BedLayoutFormDialog({
             }
 
             if (level === 'block') {
-                if (!name.trim()) throw new Error('Block name is required.');
                 const floors = childFloors.filter(floor => floor.name.trim());
+                const existing = savedBuildings.find(block => block.id === name);
+                if (existing) {
+                    const taken = new Set(existing.floors.map(floor => floor.name.trim().toLowerCase()));
+                    for (const floor of floors) {
+                        const floorName = floor.name.trim();
+                        if (taken.has(floorName.toLowerCase())) continue;
+                        try {
+                            await send(API_ENDPOINTS.BLOCK_FLOORS(existing.id), 'POST', { name: floorName }, {
+                                kind: 'create', level: 'floor', parentId: existing.id, body: { name: floorName },
+                            });
+                        } catch (err) {
+                            const message = err instanceof Error ? err.message : '';
+                            if (!/already exists/i.test(message)) throw err;
+                        }
+                    }
+                    onSaved(floors.length ? 'Floors added' : 'Building already saved');
+                    return;
+                }
+                if (!name.trim()) throw new Error('Building name is required.');
                 const body = {
                     name: name.trim(),
                     ...(floors.length ? { floors: floors.map(floor => ({ name: floor.name.trim() })) } : {}),
                 };
-                const data = await send(API_ENDPOINTS.BLOCKS, 'POST', body, { kind: 'create', level: 'block', body });
-                let created = readCreatedBlock(data);
-                if (created && floors.length && !created.floors.some(floor => floor.name.trim().toLowerCase() !== 'unassigned')) {
-                    const floorData = await send(API_ENDPOINTS.BLOCK_FLOORS(created.id), 'POST', { name: floors[0].name }, {
-                        kind: 'create', level: 'floor', parentId: created.id, body: { name: floors[0].name },
-                    });
-                    const floor = parseFloor(floorData);
-                    if (floor) created = { ...created, floors: [...created.floors, floor] };
-                }
-                if (!created && attachedUnitIds.length && !preview) {
-                    throw new Error('The building was created, but the units could not be attached. Open it and attach them again.');
-                }
-                await placeAttachedUnits(created);
+                await send(API_ENDPOINTS.BLOCKS, 'POST', body, { kind: 'create', level: 'block', body });
                 onSaved('Block created');
                 return;
             }
@@ -522,10 +461,18 @@ export default function BedLayoutFormDialog({
                 if (!resolvedFloorName) throw new Error('Floor name or number is required.');
                 const wards = childWards.filter(item => item.name.trim()).map(wardPayload);
                 const floorBody = { name: resolvedFloorName, ...(wards.length ? { wards } : {}) };
+                const alreadyThere = takenFloorNames.has(resolvedFloorName.trim().toLowerCase());
                 if (blockId) {
-                    await send(API_ENDPOINTS.BLOCK_FLOORS(blockId), 'POST', floorBody, {
-                        kind: 'create', level: 'floor', parentId: blockId, body: floorBody,
-                    });
+                    if (!alreadyThere) {
+                        try {
+                            await send(API_ENDPOINTS.BLOCK_FLOORS(blockId), 'POST', floorBody, {
+                                kind: 'create', level: 'floor', parentId: blockId, body: floorBody,
+                            });
+                        } catch (err) {
+                            const message = err instanceof Error ? err.message : '';
+                            if (!/already exists/i.test(message)) throw err;
+                        }
+                    }
                 } else if (newBlockName.trim()) {
                     const body = { name: newBlockName.trim(), floors: [floorBody] };
                     await send(API_ENDPOINTS.BLOCKS, 'POST', body, { kind: 'create', level: 'block', body });
@@ -600,35 +547,73 @@ export default function BedLayoutFormDialog({
         kind, level, request, context, blockChoice, floorChoice, wardChoice, roomChoice,
         name, resolvedFloorName, ward, room, bed, childFloors, childWards, childRooms, childBeds,
         newBlockName, newFloorName, send, onSaved, departmentForBeds, bedDepartmentId,
-        attachedUnitIds, existingWards, preview,
+        takenFloorNames, savedBuildings,
     ]);
 
     /* ── field renderers ────────────────────────────────────────────── */
+    const floorNameOptions = (current: string, extraTaken: Iterable<string> = []) => {
+        const blocked = new Set(extraTaken);
+        const existing = buildingFloors
+            .filter(floor => !blocked.has(floor.name.trim().toLowerCase()))
+            .map(floor => ({ label: floor.name, value: floor.name }));
+        const used = new Set(existing.map(option => option.value.toLowerCase()));
+        const numbers = Array.from({ length: 10 }, (_, i) => String(i + 1))
+            .filter(value => !used.has(value.toLowerCase()) && !blocked.has(value.toLowerCase()))
+            .map(value => ({ label: value, value }));
+        const options = [...existing, ...numbers];
+        const typed = current.trim();
+        if (typed && !options.some(option => option.value.toLowerCase() === typed.toLowerCase())) {
+            return [{ label: typed, value: typed }, ...options];
+        }
+        return options;
+    };
+
+    const floorNameSelect = (value: string, onChange: (next: string) => void, extraTaken?: Iterable<string>) => (
+        <CustomSelect
+            value={value}
+            onChange={onChange}
+            options={floorNameOptions(value, extraTaken)}
+            placeholder="Select a floor"
+            allowCustom
+            customEntryTitle="Custom floor"
+            customEntryHint="Not listed? Type here, then Enter."
+            customPlaceholder="Type floor — Enter"
+            style={fieldSelectStyle}
+            maxH={280}
+        />
+    );
+
+    const buildingOptions = (current: string) => {
+        const listed = savedBuildings.map(block => ({ label: block.name, value: block.id }));
+        const typed = current.trim();
+        if (typed && !savedBuildings.some(block => block.id === typed || block.name.trim().toLowerCase() === typed.toLowerCase())) {
+            return [{ label: typed, value: typed }, ...listed];
+        }
+        return listed;
+    };
+
+    const buildingSelect = (value: string, onChange: (next: string) => void) => (
+        <CustomSelect
+            value={value}
+            onChange={next => {
+                const match = savedBuildings.find(block => block.id === next || block.name.trim().toLowerCase() === next.trim().toLowerCase());
+                onChange(match ? match.id : next);
+            }}
+            options={buildingOptions(value)}
+            placeholder="Select a building"
+            allowCustom
+            customEntryTitle="Custom building"
+            customEntryHint="Not listed? Type here, then Enter."
+            customPlaceholder="Type building — Enter"
+            style={fieldSelectStyle}
+            maxH={280}
+        />
+    );
+
     const floorNameField = (
-        <div style={{ display: 'grid', gridTemplateColumns: floorNameChoice === OTHER ? '1fr 1fr' : '1fr', gap: 10 }}>
-            <div>
-                <label style={fieldLabel}>Floor name / number</label>
-                <FieldSelect
-                    value={floorNameChoice}
-                    onChange={setFloorNameChoice}
-                    searchable={false}
-                    options={[
-                        ...Array.from({ length: 10 }, (_, i) => ({ label: String(i + 1), value: String(i + 1) })),
-                        { label: 'Type a name…', value: OTHER },
-                    ]}
-                />
-            </div>
-            {floorNameChoice === OTHER && (
-                <div>
-                    <label style={fieldLabel}>Name</label>
-                    <input
-                        value={name}
-                        onChange={e => setName(e.target.value)}
-                        placeholder="e.g. Ground floor"
-                        style={input}
-                    />
-                </div>
-            )}
+        <div>
+            <label style={fieldLabel}>Floor name / number</label>
+            {floorNameSelect(name, setName)}
         </div>
     );
 
@@ -865,29 +850,16 @@ export default function BedLayoutFormDialog({
 
                     {/* Parent context the caller didn't supply */}
                     {needs.block && (
-                        <div style={{ display: 'grid', gridTemplateColumns: blockChoice === NEW ? '1fr 1fr' : '1fr', gap: 10 }}>
-                            <div>
-                                <label style={fieldLabel}>Building / block *</label>
-                                <FieldSelect
-                                    value={blockChoice}
-                                    onChange={value => { setBlockChoice(value); setFloorChoice(''); setWardChoice(''); setRoomChoice(''); }}
-                                    options={[
-                                        ...blocks.map(block => ({ label: block.name, value: block.id })),
-                                        { label: 'Add a new block…', value: NEW },
-                                    ]}
-                                />
-                            </div>
-                            {blockChoice === NEW && (
-                                <div>
-                                    <label style={fieldLabel}>New block name *</label>
-                                    <input
-                                        value={newBlockName}
-                                        onChange={e => setNewBlockName(e.target.value)}
-                                        placeholder="e.g. Maternity Block"
-                                        style={input}
-                                    />
-                                </div>
-                            )}
+                        <div>
+                            <label style={fieldLabel}>Building / block *</label>
+                            {buildingSelect(blockChoice === NEW ? newBlockName : blockChoice, value => {
+                                const match = savedBuildings.find(block => block.id === value);
+                                setBlockChoice(match ? match.id : value ? NEW : '');
+                                setNewBlockName(match ? '' : value);
+                                setFloorChoice('');
+                                setWardChoice('');
+                                setRoomChoice('');
+                            })}
                         </div>
                     )}
 
@@ -908,12 +880,7 @@ export default function BedLayoutFormDialog({
                             {(floorChoice === NEW || blockChoice === NEW) && (
                                 <div>
                                     <label style={fieldLabel}>New floor name / number *</label>
-                                    <input
-                                        value={newFloorName}
-                                        onChange={e => setNewFloorName(e.target.value)}
-                                        placeholder="e.g. 2"
-                                        style={input}
-                                    />
+                                    {floorNameSelect(newFloorName, setNewFloorName)}
                                 </div>
                             )}
                         </div>
@@ -948,54 +915,16 @@ export default function BedLayoutFormDialog({
 
                     {/* The level's own fields */}
                     {level === 'block' && (
-                        <div style={{ display: 'grid', gap: 14 }}>
-                            <div>
-                                <label style={fieldLabel}>Building / block name *</label>
+                        <div>
+                            <label style={fieldLabel}>Building / block name *</label>
+                            {kind === 'edit' ? (
                                 <input
                                     value={name}
                                     onChange={e => setName(e.target.value)}
                                     placeholder="e.g. Maternity Block"
                                     style={input}
                                 />
-                            </div>
-                            <div>
-                                <label style={fieldLabel}>Units</label>
-                                <div style={{ marginTop: 4, marginBottom: 8, fontSize: 12, color: '#98A2B3' }}>
-                                    Added units belong to this building.
-                                </div>
-                                <CustomSelect
-                                    value={attachPick}
-                                    onChange={addAttachment}
-                                    options={attachOptions}
-                                    placeholder={attachOptions.length ? 'Select a unit' : 'No units yet'}
-                                    disabled={attachOptions.length === 0 && attachedUnits.length === 0}
-                                    searchable={attachOptions.length > 6}
-                                    searchPlaceholder="Search units"
-                                    style={fieldSelectStyle}
-                                    maxH={240}
-                                />
-                                {attachedUnits.length > 0 && (
-                                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 10, maxHeight: 180, overflowY: 'auto' }}>
-                                        {attachedUnits.map(unit => (
-                                            <span key={unit.id} style={{
-                                                display: 'inline-flex', alignItems: 'center', gap: 4,
-                                                padding: '3px 6px 3px 8px', borderRadius: 999, border: '1px solid #E1E7EF',
-                                                background: '#F8FAFC', fontSize: 12, color: '#172033',
-                                            }}>
-                                                {unit.name}
-                                                <button
-                                                    type="button"
-                                                    onClick={() => removeAttachedUnit(unit.id)}
-                                                    aria-label={`Remove ${unit.name}`}
-                                                    style={{ border: 'none', background: 'none', padding: 0, cursor: 'pointer', color: '#98A2B3', display: 'inline-flex' }}
-                                                >
-                                                    <X size={11} strokeWidth={2} />
-                                                </button>
-                                            </span>
-                                        ))}
-                                    </div>
-                                )}
-                            </div>
+                            ) : buildingSelect(name, setName)}
                         </div>
                     )}
                     {level === 'floor' && floorNameField}
@@ -1024,12 +953,11 @@ export default function BedLayoutFormDialog({
                                 () => setChildFloors(prev => prev.filter((_, i) => i !== index)),
                                 <div>
                                     <label style={fieldLabel}>Floor name / number</label>
-                                    <input
-                                        value={floor.name}
-                                        onChange={e => setChildFloors(prev => prev.map((item, i) => i === index ? { name: e.target.value } : item))}
-                                        placeholder="e.g. 1"
-                                        style={input}
-                                    />
+                                    {floorNameSelect(
+                                        floor.name,
+                                        value => setChildFloors(prev => prev.map((item, i) => i === index ? { ...item, name: value } : item)),
+                                        childFloors.flatMap((item, i) => i === index || !item.name.trim() ? [] : [item.name.trim().toLowerCase()]),
+                                    )}
                                 </div>,
                             ))}
                             {addMoreButton(

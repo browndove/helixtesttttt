@@ -3,3 +3,6 @@ export const DEPARTMENT_NAME_MAX_LENGTH = 100;
 
 /** Max length for department description in the UI (backend may allow more). */
 export const DEPARTMENT_DESCRIPTION_MAX_LENGTH = 2000;
+
+/** Max length for a care-unit description. */
+export const UNIT_DESCRIPTION_MAX_LENGTH = 300;

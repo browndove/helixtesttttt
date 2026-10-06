@@ -540,30 +540,6 @@ function LeaderboardContent() {
         }
         return { up, fresh };
     }, [board, priorByUser]);
-    const facilityStats = useMemo(() => {
-        if (!facility) return null;
-        const top3Points = facility.top
-            .filter((entry) => entry.rank <= 3)
-            .reduce((sum, entry) => sum + entry.points, 0);
-        const leader = facility.top[0] ?? null;
-        let up = 0;
-        let fresh = 0;
-        for (const entry of facility.top) {
-            const previous = priorByUser.get(`${facility.facility_id}:${entry.user_id}`);
-            if (previous == null) fresh += 1;
-            else if (entry.points - previous > 0.5) up += 1;
-        }
-        return {
-            avg: facility.ranked_users > 0 ? facility.facility_points / facility.ranked_users : 0,
-            top3Share: facility.facility_points > 0 ? (top3Points / facility.facility_points) * 100 : 0,
-            leaderShare: leader && facility.facility_points > 0 ? (leader.points / facility.facility_points) * 100 : 0,
-            leader,
-            doctors: facility.top.filter((entry) => entry.is_doctor).length,
-            up,
-            fresh,
-        };
-    }, [facility, priorByUser]);
-
     return (
         <div className="internal-downloads-layout">
             <div className="usage-dashboard-shell internal-downloads-shell">
@@ -745,40 +721,6 @@ function LeaderboardContent() {
                                             </div>
                                         )}
                                     </section>
-
-                                    {facilityStats && (
-                                        <section className="lb-card lb-facts" aria-label={`${facility?.facility_name ?? 'Facility'} stats`}>
-                                            <header className="lb-card__head">
-                                                <h2 className="lb-kicker">{facility?.facility_name ?? 'Facility'}</h2>
-                                            </header>
-                                            <dl>
-                                                <div>
-                                                    <dt>Avg points</dt>
-                                                    <dd>{formatScore(facilityStats.avg)}</dd>
-                                                </div>
-                                                <div>
-                                                    <dt>Leader share</dt>
-                                                    <dd>{facilityStats.leader ? `${facilityStats.leaderShare.toFixed(1)}%` : '—'}</dd>
-                                                </div>
-                                                <div>
-                                                    <dt>Top 3 share</dt>
-                                                    <dd>{`${facilityStats.top3Share.toFixed(1)}%`}</dd>
-                                                </div>
-                                                <div>
-                                                    <dt>Doctors in view</dt>
-                                                    <dd>{facilityStats.doctors.toLocaleString('en-US')}</dd>
-                                                </div>
-                                                <div>
-                                                    <dt>Points up</dt>
-                                                    <dd>{facilityStats.up.toLocaleString('en-US')}</dd>
-                                                </div>
-                                                <div>
-                                                    <dt>New in the top</dt>
-                                                    <dd>{facilityStats.fresh.toLocaleString('en-US')}</dd>
-                                                </div>
-                                            </dl>
-                                        </section>
-                                    )}
                                 </div>
 
                                 <section className="lb-board lb-card" aria-label={facility ? `${facility.facility_name} standings` : 'Standings'}>

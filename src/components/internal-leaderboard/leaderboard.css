@@ -301,8 +301,7 @@
   border-left: none;
 }
 
-.lb-metrics span,
-.lb-facts dt {
+.lb-metrics span {
   font-size: 11px;
   font-weight: 650;
   letter-spacing: 0.04em;
@@ -310,8 +309,7 @@
   color: var(--text-muted, #667085);
 }
 
-.lb-metrics strong,
-.lb-facts dd {
+.lb-metrics strong {
   font-size: 18px;
   font-weight: 650;
   letter-spacing: -0.03em;
@@ -326,18 +324,6 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.lb-facts dl {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px 16px;
-  margin: 0;
-  padding: 4px 16px 16px;
-}
-
-.lb-facts dd {
-  margin: 2px 0 0;
 }
 
 .lb-pace {

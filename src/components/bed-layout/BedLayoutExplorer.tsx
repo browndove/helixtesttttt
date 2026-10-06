@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import { Bed as BedIcon, Building2, ChevronDown, ChevronLeft, DoorOpen, Layers, Plus } from 'lucide-react';
 import TopBar from '@/components/TopBar';
 import { MacVibrancyToast, MacVibrancyToastPortal } from '@/components/MacVibrancyToast';
@@ -88,6 +88,13 @@ function directoryGroups(wards: Ward[], departments: DeptRef[], units: CareUnit[
     }
 
     return [...groups.values()].sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function genderOf(unit: Ward, careUnits: CareUnit[]): string {
+    const listed = careUnits.find(item => item.id === unit.id)?.gender_restriction;
+    const value = unit.gender_restriction
+        || (listed === 'male' || listed === 'female' || listed === 'mixed' ? listed : undefined);
+    return genderLabel(value) || '—';
 }
 
 /** The API backfills one Unassigned block and floor. That bucket is not a building or a floor. */
@@ -576,7 +583,7 @@ export default function BedLayoutExplorer() {
             const matched = floors.filter(floor => {
                 const haystack = `${block.name} ${floor.name}`.toLowerCase();
                 return (!needle || haystack.includes(needle)) && matchesStatus(floor, status);
-            });
+            }).sort((a, b) => b.name.localeCompare(a.name, undefined, { numeric: true, sensitivity: 'base' }));
             if (matched.length) return matched.map(floor => ({ block, floor }));
             const nameMatches = !needle || block.name.toLowerCase().includes(needle);
             if (!floors.length && nameMatches) return [{ block, floor: null }];
@@ -815,7 +822,7 @@ export default function BedLayoutExplorer() {
                     emptyPanel(
                         <Building2 size={34} strokeWidth={1.6} color="#CBD5E1" />,
                         'No buildings yet',
-                        'Add a building or block, then attach the departments and units that belong in it.',
+                        'Add a building, then add a floor and the units on that floor.',
                         isAdmin ? (
                             <button type="button" onClick={() => setDialog({ kind: 'create', level: 'block', context: {} })} style={primaryButton}>
                                 <Plus size={14} strokeWidth={2} /> Add building / block
@@ -850,7 +857,7 @@ export default function BedLayoutExplorer() {
                                             <tbody key={blockId}>
                                                 {groupRow(
                                                     groupBlock.name,
-                                                    `${attached.unitNames.length ? attached.unitNames.join(', ') : '0 units'} · ${attached.floors} floor${attached.floors === 1 ? '' : 's'}`,
+                                                    `${attached.floors} floor${attached.floors === 1 ? '' : 's'}`,
                                                     isAdmin ? (
                                                         <>
                                                             <button
@@ -879,26 +886,17 @@ export default function BedLayoutExplorer() {
                                                     5,
                                                 )}
                                                 {group.every(row => !row.floor) ? (
-                                                    attached.units.length === 0 ? (
-                                                        <tr>
-                                                            <td colSpan={5} style={{ ...TD, color: '#A3AEBD', fontSize: 12.5 }}>
-                                                                No floors in this building yet.
-                                                            </td>
-                                                        </tr>
-                                                    ) : attached.units.map(unit => (
-                                                        <tr key={unit.id}>
-                                                            <td style={TD}>
-                                                                <div style={{ fontSize: 13.5, fontWeight: 700, color: '#172033' }}>{unit.name}</div>
-                                                                <div style={{ fontSize: 11.5, color: '#A3AEBD', marginTop: 2 }}>Unit</div>
-                                                            </td>
-                                                            <td colSpan={4} style={TD} />
-                                                        </tr>
-                                                    ))
+                                                    <tr>
+                                                        <td colSpan={5} style={{ ...TD, color: '#A3AEBD', fontSize: 12.5 }}>
+                                                            No floors in this building yet.
+                                                        </td>
+                                                    </tr>
                                                 ) : group.map(({ floor: item }) => {
                                                     if (!item) return null;
                                                     const placedWards = wardsPlacedOnFloor(item, careUnits);
                                                     return (
-                                                    <tr key={item.id}>
+                                                    <Fragment key={item.id}>
+                                                    <tr>
                                                         <td style={TD}>
                                                             <button
                                                                 type="button"
@@ -931,6 +929,18 @@ export default function BedLayoutExplorer() {
                                                             )}
                                                         </td>
                                                     </tr>
+                                                    {placedWards.map(unit => (
+                                                        <tr key={unit.id}>
+                                                            <td style={{ ...TD, paddingLeft: 36 }}>
+                                                                <div style={{ fontSize: 13, fontWeight: 650, color: '#172033' }}>{unit.name}</div>
+                                                                <div style={{ fontSize: 11.5, color: '#A3AEBD', marginTop: 2 }}>
+                                                                    Unit{genderOf(unit, careUnits) !== '—' ? ` · ${genderOf(unit, careUnits)}` : ''}
+                                                                </div>
+                                                            </td>
+                                                            <td colSpan={4} style={TD} />
+                                                        </tr>
+                                                    ))}
+                                                    </Fragment>
                                                     );
                                                 })}
                                             </tbody>
@@ -961,6 +971,7 @@ export default function BedLayoutExplorer() {
                                     <thead>
                                         <tr>
                                             <th style={{ ...TH, textAlign: 'left' }}>Unit</th>
+                                            <th style={{ ...TH, textAlign: 'left' }}>Gender restriction</th>
                                             <th style={{ ...TH, textAlign: 'center' }}>Total beds</th>
                                             <th style={{ ...TH, textAlign: 'center' }}>Available</th>
                                             <th style={{ ...TH, textAlign: 'center' }}>Occupied</th>
@@ -979,11 +990,11 @@ export default function BedLayoutExplorer() {
                                                     group.name,
                                                     `${group.units.length} unit${group.units.length === 1 ? '' : 's'}`,
                                                     null,
-                                                    7,
+                                                    8,
                                                 )}
                                                 {rows.length === 0 ? (
                                                     <tr>
-                                                        <td colSpan={7} style={{ ...TD, color: '#A3AEBD', fontSize: 12.5 }}>
+                                                        <td colSpan={8} style={{ ...TD, color: '#A3AEBD', fontSize: 12.5 }}>
                                                             No units in this department yet.
                                                         </td>
                                                     </tr>
@@ -1001,6 +1012,7 @@ export default function BedLayoutExplorer() {
                                                                 {unit.name}
                                                             </button>
                                                         </td>
+                                                        <td style={{ ...TD, color: '#475467', fontSize: 13 }}>{genderOf(unit, careUnits)}</td>
                                                         {countCell(unit.bed_count)}
                                                         {countCell(unit.available_count, '#17803D')}
                                                         {countCell(unit.occupied_count, '#1D4ED8')}
@@ -1039,7 +1051,10 @@ export default function BedLayoutExplorer() {
                             selectedUnit ? selectedUnit.name : block.name,
                             <Layers size={13} strokeWidth={1.9} />,
                             selectedUnit
-                                ? (groups?.find(group => group.units.some(unit => unit.id === selectedUnit.id))?.name || `Floor ${floor.name}`)
+                                ? [
+                                    groups?.find(group => group.units.some(unit => unit.id === selectedUnit.id))?.name || `Floor ${floor.name}`,
+                                    genderOf(selectedUnit, careUnits) !== '—' ? genderOf(selectedUnit, careUnits) : '',
+                                ].filter(Boolean).join(' · ')
                                 : `Floor ${floor.name}`,
                             addMenu,
                             () => selectedUnit ? setUnitId('') : setFloorId(''),

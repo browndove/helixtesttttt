@@ -2,11 +2,15 @@
 
 import { useState, useEffect, useLayoutEffect, useCallback, useMemo, useRef } from 'react';
 import TopBar from '@/components/TopBar';
-import { DEPARTMENT_DESCRIPTION_MAX_LENGTH, DEPARTMENT_NAME_MAX_LENGTH } from '@/lib/departmentName';
-import { parseCareUnitFloors, parseCareUnits, type CareUnitFloor } from '@/lib/care-units';
+import { DEPARTMENT_DESCRIPTION_MAX_LENGTH, DEPARTMENT_NAME_MAX_LENGTH, UNIT_DESCRIPTION_MAX_LENGTH } from '@/lib/departmentName';
+import { parseCareUnit, parseCareUnitFloors, parseCareUnits, type CareUnitFloor } from '@/lib/care-units';
 import UnitFloorsEditor from '@/components/UnitFloorsEditor';
+import CustomSelect from '@/components/CustomSelect';
 import { MacVibrancyToast, MacVibrancyToastPortal } from '@/components/MacVibrancyToast';
 import { readCachedJson, writeCachedJson } from '@/lib/getJsonCache';
+import { API_ENDPOINTS } from '@/lib/config';
+import { appendFacilityIdForProxy } from '@/lib/facility-client';
+import { GENDER_RESTRICTIONS, WARD_TYPES, genderLabel, parseBlock, parseBlocks, parseFloor, wardTypeLabel, type Block } from '@/lib/bed-hierarchy';
 
 const DEPTS_PAGE_CACHE_TTL_MS = 120_000;
 const DEPTS_CACHE_HOSPITAL = '/api/proxy/hospital';
@@ -22,15 +26,24 @@ const departmentsAppMainStyle = {
 
 type FloorItem = { id: string; name: string };
 type WardItem = { id: string; name: string };
+const CUSTOM_VALUE = '__other';
+
 type UnitItem = {
     id: string;
     name: string;
     description?: string;
+    code?: string;
+    type?: string;
+    gender_restriction?: string;
     department_id?: string;
     department_name?: string;
     floor_count: number;
     floors: CareUnitFloor[];
 };
+
+function resolvedUnitType(choice: string, custom: string): string {
+    return (choice === CUSTOM_VALUE ? custom : choice).trim();
+}
 type PendingDelete =
     | { kind: 'department'; id: string; label: string }
     | { kind: 'unit'; id: string; label: string };
@@ -43,6 +56,25 @@ type Department = {
     floors: FloorItem[];
     wards: WardItem[];
 };
+
+function isHiddenFloor(name: string): boolean {
+    const key = name.trim().toLowerCase();
+    return key === 'unassigned' || key === 'attached units';
+}
+
+function apiError(raw: unknown, fallback: string): string {
+    if (!raw || typeof raw !== 'object') return fallback;
+    const rec = raw as Record<string, unknown>;
+    const message = rec.message || rec.error || rec.detail;
+    return typeof message === 'string' && message.trim() ? message : fallback;
+}
+
+function createdId(raw: unknown, kind: 'block' | 'floor'): string {
+    if (!raw || typeof raw !== 'object') return '';
+    const rec = raw as Record<string, unknown>;
+    const parse = kind === 'block' ? parseBlock : parseFloor;
+    return parse(raw)?.id || parse(rec[kind])?.id || parse(rec.data)?.id || '';
+}
 
 function normalizeDepartment(raw: Partial<Department> & Record<string, unknown>): Department {
     const desc = raw.description;
@@ -82,6 +114,14 @@ export default function DepartmentsManagement() {
     const [activeTab, setActiveTab] = useState<'departments' | 'units'>('departments');
     const [newUnitName, setNewUnitName] = useState('');
     const [newUnitDescription, setNewUnitDescription] = useState('');
+    const [newUnitCode, setNewUnitCode] = useState('');
+    const [newUnitType, setNewUnitType] = useState('');
+    const [newUnitTypeOther, setNewUnitTypeOther] = useState('');
+    const [newUnitGender, setNewUnitGender] = useState('');
+    const [newUnitDepartmentId, setNewUnitDepartmentId] = useState('');
+    const [newUnitBuilding, setNewUnitBuilding] = useState('');
+    const [newUnitFloor, setNewUnitFloor] = useState('');
+    const [layoutBlocks, setLayoutBlocks] = useState<Block[]>([]);
     const [showAddUnit, setShowAddUnit] = useState(false);
     const [units, setUnits] = useState<UnitItem[]>([]);
     const [unitsLoading, setUnitsLoading] = useState(false);
@@ -90,6 +130,11 @@ export default function DepartmentsManagement() {
     const [editingUnit, setEditingUnit] = useState<string | null>(null);
     const [unitDetailName, setUnitDetailName] = useState('');
     const [unitDetailDescription, setUnitDetailDescription] = useState('');
+    const [unitDetailCode, setUnitDetailCode] = useState('');
+    const [unitDetailType, setUnitDetailType] = useState('');
+    const [unitDetailTypeOther, setUnitDetailTypeOther] = useState('');
+    const [unitDetailGender, setUnitDetailGender] = useState('');
+    const [unitDetailDepartmentId, setUnitDetailDepartmentId] = useState('');
     const [unitDetailLoading, setUnitDetailLoading] = useState(false);
     const [savingUnitDetails, setSavingUnitDetails] = useState(false);
     const [deleteInProgress, setDeleteInProgress] = useState(false);
@@ -129,6 +174,24 @@ export default function DepartmentsManagement() {
         if (!editingDept) return [];
         return units.filter(u => String(u.department_id || '') === editingDept);
     }, [units, editingDept]);
+    const loadLayoutBlocks = useCallback(async (): Promise<Block[]> => {
+        try {
+            const url = await appendFacilityIdForProxy(`${API_ENDPOINTS.BLOCKS}?depth=full`);
+            const res = await fetch(url, { credentials: 'include' });
+            if (!res.ok) return [];
+            const next = parseBlocks(await res.json()).filter(block => block.name.trim().toLowerCase() !== 'unassigned');
+            setLayoutBlocks(next);
+            return next;
+        } catch {
+            return [];
+        }
+    }, []);
+
+    useEffect(() => {
+        if (activeTab !== 'units') return;
+        void loadLayoutBlocks();
+    }, [activeTab, loadLayoutBlocks]);
+
     const fetchUnits = useCallback(async () => {
         setUnitsLoading(true);
         try {
@@ -271,18 +334,26 @@ export default function DepartmentsManagement() {
         };
     }, [editingDept, showToast, fetchUnits]);
 
+    const applyUnitDetail = (unit: { name?: string; description?: string; code?: string; type?: string; gender_restriction?: string; department_id?: string }) => {
+        const type = unit.type || '';
+        const known = (WARD_TYPES as readonly string[]).includes(type);
+        setUnitDetailName(unit.name || '');
+        setUnitDetailDescription(unit.description || '');
+        setUnitDetailCode(unit.code || '');
+        setUnitDetailType(type ? (known ? type : CUSTOM_VALUE) : '');
+        setUnitDetailTypeOther(known ? '' : type);
+        setUnitDetailGender(unit.gender_restriction || '');
+        setUnitDetailDepartmentId(unit.department_id || '');
+    };
+
     useEffect(() => {
         if (!editingUnit) {
-            setUnitDetailName('');
-            setUnitDetailDescription('');
+            applyUnitDetail({});
             setUnitDetailLoading(false);
             return;
         }
         const local = unitsRef.current.find(u => u.id === editingUnit);
-        if (local) {
-            setUnitDetailName(local.name);
-            setUnitDetailDescription(local.description || '');
-        }
+        if (local) applyUnitDetail(local);
         const ac = new AbortController();
         let cancelled = false;
         setUnitDetailLoading(true);
@@ -294,8 +365,11 @@ export default function DepartmentsManagement() {
                 if (cancelled) return;
                 const name = String(raw.name || '').trim();
                 const description = typeof raw.description === 'string' ? raw.description : '';
-                setUnitDetailName(name);
-                setUnitDetailDescription(description);
+                const code = typeof raw.code === 'string' ? raw.code : '';
+                const type = typeof raw.type === 'string' ? raw.type : '';
+                const gender = typeof raw.gender_restriction === 'string' ? raw.gender_restriction : '';
+                const departmentId = typeof raw.department_id === 'string' ? raw.department_id : '';
+                applyUnitDetail({ name, description, code, type, gender_restriction: gender, department_id: departmentId });
                 const floors = parseCareUnitFloors(raw.floors);
                 setUnits(prev => prev.map(u => {
                     if (u.id !== editingUnit) return u;
@@ -303,7 +377,10 @@ export default function DepartmentsManagement() {
                         ...u,
                         name: name || u.name,
                         description,
-                        department_id: typeof raw.department_id === 'string' ? raw.department_id : u.department_id,
+                        code,
+                        type,
+                        gender_restriction: gender,
+                        department_id: departmentId || u.department_id,
                         department_name: typeof raw.department_name === 'string' ? raw.department_name : u.department_name,
                         floors,
                         floor_count: floors.length,
@@ -313,12 +390,9 @@ export default function DepartmentsManagement() {
                 const aborted = cancelled || (e instanceof Error && e.name === 'AbortError');
                 if (aborted) return;
                 const fallback = unitsRef.current.find(u => u.id === editingUnit);
-                if (fallback) {
-                    setUnitDetailName(fallback.name);
-                    setUnitDetailDescription(fallback.description || '');
-                } else {
-                    setUnitDetailName('');
-                    setUnitDetailDescription('');
+                if (fallback) applyUnitDetail(fallback);
+                else {
+                    applyUnitDetail({});
                     showToast('Could not load unit details');
                 }
             } finally {
@@ -339,7 +413,37 @@ export default function DepartmentsManagement() {
     const resetNewUnitForm = () => {
         setNewUnitName('');
         setNewUnitDescription('');
+        setNewUnitCode('');
+        setNewUnitType('');
+        setNewUnitTypeOther('');
+        setNewUnitGender('');
+        setNewUnitDepartmentId('');
+        setNewUnitBuilding('');
+        setNewUnitFloor('');
     };
+
+    const savedBuildings = useMemo(
+        () => layoutBlocks.filter(block => block.name.trim().toLowerCase() !== 'unassigned'),
+        [layoutBlocks],
+    );
+    const selectedBuilding = savedBuildings.find(block => block.id === newUnitBuilding) || null;
+    const buildingFloorOptions = useMemo(() => {
+        const existing = (selectedBuilding?.floors || [])
+            .filter(floor => !isHiddenFloor(floor.name))
+            .sort((a, b) => b.name.localeCompare(a.name, undefined, { numeric: true, sensitivity: 'base' }));
+        const used = new Set(existing.map(floor => floor.name.trim().toLowerCase()));
+        const numbers = Array.from({ length: 10 }, (_, i) => String(i + 1))
+            .filter(value => !used.has(value));
+        const options = [
+            ...existing.map(floor => ({ label: floor.name, value: floor.name })),
+            ...numbers.map(value => ({ label: value, value })),
+        ];
+        const typed = newUnitFloor.trim();
+        if (typed && !options.some(option => option.value.toLowerCase() === typed.toLowerCase())) {
+            return [{ label: typed, value: typed }, ...options];
+        }
+        return options;
+    }, [selectedBuilding, newUnitFloor]);
 
     const addDepartment = async () => {
         const trimmed = newDeptName.trim();
@@ -460,37 +564,89 @@ export default function DepartmentsManagement() {
             showToast(`Unit name must be ${DEPARTMENT_NAME_MAX_LENGTH} characters or fewer`);
             return;
         }
-        if (newUnitDescription.length > DEPARTMENT_DESCRIPTION_MAX_LENGTH) {
-            showToast(`Description must be ${DEPARTMENT_DESCRIPTION_MAX_LENGTH} characters or fewer`);
+        if (newUnitDescription.length > UNIT_DESCRIPTION_MAX_LENGTH) {
+            showToast(`Description must be ${UNIT_DESCRIPTION_MAX_LENGTH} characters or fewer`);
+            return;
+        }
+        if (!newUnitBuilding.trim()) {
+            showToast('Building / block is required');
+            return;
+        }
+        if (!newUnitFloor.trim()) {
+            showToast('Floor is required');
             return;
         }
         setAddingUnit(true);
         try {
-            const res = await fetch('/api/proxy/units', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    name,
-                    description: newUnitDescription.trim(),
-                    facility_id: hospitalId || '',
-                }),
-            });
-            if (res.ok) {
-                const created = parseCareUnits([await res.json()])[0];
-                if (created) {
-                    setUnits(prev => [...prev, created]);
-                    setEditingUnit(created.id);
-                    showToast(`Unit "${name}" added`);
-                    resetNewUnitForm();
-                    setShowAddUnit(false);
-                } else {
-                    showToast('Unit was created, but the response could not be read');
-                }
-            } else {
-                const err = await res.json().catch(() => ({} as { error?: string; detail?: string }));
-                showToast(String(err.error || err.detail || 'Failed to add unit'));
+            const postJson = async (path: string, body: Record<string, unknown>) => {
+                const url = await appendFacilityIdForProxy(path);
+                const res = await fetch(url, {
+                    method: 'POST',
+                    credentials: 'include',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body),
+                });
+                const raw = await res.json().catch(() => ({}));
+                return { res, raw };
+            };
+
+            let blockId = savedBuildings.find(block => block.id === newUnitBuilding)?.id || '';
+            if (!blockId) {
+                const named = savedBuildings.find(block => block.name.trim().toLowerCase() === newUnitBuilding.trim().toLowerCase());
+                blockId = named?.id || '';
             }
-        } catch { showToast('Failed to add unit'); }
+            if (!blockId) {
+                const { res, raw } = await postJson(API_ENDPOINTS.BLOCKS, { name: newUnitBuilding.trim() });
+                blockId = createdId(raw, 'block');
+                if (!blockId && (res.status === 409 || /already exists/i.test(apiError(raw, '')))) {
+                    const refreshed = await loadLayoutBlocks();
+                    blockId = refreshed.find(block => block.name.trim().toLowerCase() === newUnitBuilding.trim().toLowerCase())?.id || '';
+                }
+                if (!res.ok && !blockId) throw new Error(apiError(raw, 'Failed to add building'));
+                if (!blockId) throw new Error('Building was created, but its id could not be read');
+            }
+
+            const knownBlocks = layoutBlocks.some(block => block.id === blockId) ? layoutBlocks : await loadLayoutBlocks();
+            const parent = knownBlocks.find(block => block.id === blockId);
+            let floorId = (parent?.floors || []).find(floor => (
+                !isHiddenFloor(floor.name) && floor.name.trim().toLowerCase() === newUnitFloor.trim().toLowerCase()
+            ))?.id || '';
+            if (!floorId) {
+                const { res, raw } = await postJson(API_ENDPOINTS.BLOCK_FLOORS(blockId), { name: newUnitFloor.trim() });
+                floorId = createdId(raw, 'floor');
+                if (!floorId && (res.status === 409 || /already exists/i.test(apiError(raw, '')))) {
+                    const refreshed = await loadLayoutBlocks();
+                    floorId = refreshed
+                        .find(block => block.id === blockId)?.floors
+                        .find(floor => floor.name.trim().toLowerCase() === newUnitFloor.trim().toLowerCase())?.id || '';
+                }
+                if (!res.ok && !floorId) throw new Error(apiError(raw, 'Failed to add floor'));
+                if (!floorId) throw new Error('Floor was created, but its id could not be read');
+            }
+
+            const unitType = resolvedUnitType(newUnitType, newUnitTypeOther);
+            const { res, raw } = await postJson(API_ENDPOINTS.FLOOR_WARDS(floorId), {
+                name,
+                description: newUnitDescription.trim(),
+                floor_id: floorId,
+                facility_id: hospitalId || '',
+                ...(newUnitCode.trim() ? { code: newUnitCode.trim() } : {}),
+                ...(unitType ? { type: unitType } : {}),
+                ...(newUnitGender ? { gender_restriction: newUnitGender } : {}),
+                ...(newUnitDepartmentId ? { department_id: newUnitDepartmentId } : {}),
+            });
+            if (!res.ok) throw new Error(apiError(raw, 'Failed to add unit'));
+            const rec = raw && typeof raw === 'object' ? raw as Record<string, unknown> : {};
+            const created = parseCareUnit(raw) || parseCareUnit(rec.unit) || parseCareUnit(rec.ward) || parseCareUnit(rec.data);
+            await fetchUnits();
+            if (created) setEditingUnit(created.id);
+            showToast(`Unit "${name}" added`);
+            resetNewUnitForm();
+            setShowAddUnit(false);
+            void loadLayoutBlocks();
+        } catch (err) {
+            showToast(err instanceof Error ? err.message : 'Failed to add unit');
+        }
         setAddingUnit(false);
     };
 
@@ -524,8 +680,8 @@ export default function DepartmentsManagement() {
             showToast(`Unit name must be ${DEPARTMENT_NAME_MAX_LENGTH} characters or fewer`);
             return;
         }
-        if (unitDetailDescription.length > DEPARTMENT_DESCRIPTION_MAX_LENGTH) {
-            showToast(`Description must be ${DEPARTMENT_DESCRIPTION_MAX_LENGTH} characters or fewer`);
+        if (unitDetailDescription.length > UNIT_DESCRIPTION_MAX_LENGTH) {
+            showToast(`Description must be ${UNIT_DESCRIPTION_MAX_LENGTH} characters or fewer`);
             return;
         }
         const descTrimmed = unitDetailDescription.trim();
@@ -537,6 +693,10 @@ export default function DepartmentsManagement() {
                 body: JSON.stringify({
                     name: trimmedName,
                     description: descTrimmed,
+                    code: unitDetailCode.trim(),
+                    type: resolvedUnitType(unitDetailType, unitDetailTypeOther),
+                    gender_restriction: unitDetailGender,
+                    department_id: unitDetailDepartmentId,
                 }),
             });
             const rawText = await res.text();
@@ -559,12 +719,19 @@ export default function DepartmentsManagement() {
             const body = Object.keys(payload).length > 0 ? payload : { name: trimmedName, description: descTrimmed };
             const updatedName = String(body.name || trimmedName).trim();
             const updatedDesc = typeof body.description === 'string' ? body.description : descTrimmed;
+            const updatedCode = typeof body.code === 'string' ? body.code : unitDetailCode.trim();
+            const updatedType = typeof body.type === 'string' ? body.type : resolvedUnitType(unitDetailType, unitDetailTypeOther);
+            const updatedGender = typeof body.gender_restriction === 'string' ? body.gender_restriction : unitDetailGender;
+            const updatedDepartmentId = typeof body.department_id === 'string' ? body.department_id : unitDetailDepartmentId;
             setUnits(prev => prev.map(x => (x.id === u.id ? {
                 ...x,
                 name: updatedName,
                 description: updatedDesc,
-                department_id: typeof body.department_id === 'string' ? body.department_id : x.department_id,
-                department_name: typeof body.department_name === 'string' ? body.department_name : x.department_name,
+                code: updatedCode,
+                type: updatedType,
+                gender_restriction: updatedGender,
+                department_id: updatedDepartmentId,
+                department_name: typeof body.department_name === 'string' ? body.department_name : departments.find(dept => dept.id === updatedDepartmentId)?.name || x.department_name,
             } : x)));
             setUnitDetailName(updatedName);
             setUnitDetailDescription(updatedDesc);
@@ -688,7 +855,11 @@ export default function DepartmentsManagement() {
     const unitDetailsDirty = Boolean(
         editUnit
         && (unitDetailName.trim() !== editUnit.name
-            || unitDetailDescription.trim() !== (editUnit.description || '').trim()),
+            || unitDetailDescription.trim() !== (editUnit.description || '').trim()
+            || unitDetailCode.trim() !== (editUnit.code || '')
+            || resolvedUnitType(unitDetailType, unitDetailTypeOther) !== (editUnit.type || '')
+            || unitDetailGender !== (editUnit.gender_restriction || '')
+            || unitDetailDepartmentId !== (editUnit.department_id || '')),
     );
 
     if (loading) {
@@ -843,45 +1014,6 @@ export default function DepartmentsManagement() {
                                                 value={newDeptDescription}
                                                 maxLength={DEPARTMENT_DESCRIPTION_MAX_LENGTH}
                                                 onChange={e => setNewDeptDescription(e.target.value.slice(0, DEPARTMENT_DESCRIPTION_MAX_LENGTH))}
-                                                rows={2}
-                                                style={{ fontSize: 13, minHeight: 52, resize: 'vertical', boxSizing: 'border-box', width: '100%' }}
-                                            />
-                                        </div>
-                                    </div>
-                                )}
-
-                                {activeTab === 'units' && showAddUnit && (
-                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 12, alignSelf: 'stretch', maxWidth: 640 }}>
-                                        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                                            <input
-                                                className="input"
-                                                placeholder="Unit name"
-                                                value={newUnitName}
-                                                maxLength={DEPARTMENT_NAME_MAX_LENGTH}
-                                                onChange={e => setNewUnitName(e.target.value.slice(0, DEPARTMENT_NAME_MAX_LENGTH))}
-                                                onKeyDown={e => e.key === 'Enter' && !e.shiftKey && addUnit()}
-                                                style={{ fontSize: 13, flex: '1 1 220px', minWidth: 160, maxWidth: '100%', boxSizing: 'border-box' }}
-                                                aria-describedby="unit-name-limit-hint"
-                                            />
-                                            <span style={{ fontSize: 11, color: 'var(--text-muted)', flexShrink: 0, fontVariantNumeric: 'tabular-nums' }} id="unit-name-limit-hint">
-                                                {newUnitName.length}/{DEPARTMENT_NAME_MAX_LENGTH}
-                                            </span>
-                                            <button type="button" className="btn btn-primary btn-sm" onClick={addUnit} disabled={!newUnitName.trim() || addingUnit} style={{ flexShrink: 0 }}>
-                                                {addingUnit ? 'Adding…' : 'Add'}
-                                            </button>
-                                        </div>
-                                        <div>
-                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, marginBottom: 6 }}>
-                                                <span className="label" style={{ marginBottom: 0 }}>Description</span>
-                                                <span style={{ fontSize: 11, color: 'var(--text-muted)', fontVariantNumeric: 'tabular-nums' }}>
-                                                    {newUnitDescription.length}/{DEPARTMENT_DESCRIPTION_MAX_LENGTH}
-                                                </span>
-                                            </div>
-                                            <textarea
-                                                className="input"
-                                                value={newUnitDescription}
-                                                maxLength={DEPARTMENT_DESCRIPTION_MAX_LENGTH}
-                                                onChange={e => setNewUnitDescription(e.target.value.slice(0, DEPARTMENT_DESCRIPTION_MAX_LENGTH))}
                                                 rows={2}
                                                 style={{ fontSize: 13, minHeight: 52, resize: 'vertical', boxSizing: 'border-box', width: '100%' }}
                                             />
@@ -1158,7 +1290,7 @@ export default function DepartmentsManagement() {
                                             <button
                                                 key={u.id}
                                                 type="button"
-                                                onClick={() => { setEditingUnit(u.id); }}
+                                                onClick={() => { setShowAddUnit(false); setEditingUnit(u.id); }}
                                                 style={{
                                                     display: 'flex',
                                                     alignItems: 'center',
@@ -1199,8 +1331,169 @@ export default function DepartmentsManagement() {
                                 )}
                             </aside>
 
-                            <section style={{ minHeight: 0, overflowY: 'auto', padding: '20px 24px 28px', minWidth: 0, background: 'var(--surface-card)' }}>
-                                {editUnit ? (
+                            <section style={{ minHeight: 0, overflow: showAddUnit ? 'hidden' : 'auto', padding: '20px 24px 24px', minWidth: 0, background: 'var(--surface-card)', display: 'flex', flexDirection: 'column' }}>
+                                {showAddUnit ? (
+                                    <div className="fade-in" style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+                                        <h2 style={{ fontSize: 20, fontWeight: 700, margin: '0 0 16px', color: 'var(--text-primary)', letterSpacing: '-0.02em', flexShrink: 0 }}>Add unit</h2>
+                                        <div className="card" style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', padding: '18px 20px', margin: 0, width: '100%', background: 'var(--surface-2)', border: '1px solid var(--border-subtle)' }}>
+                                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 16, flexShrink: 0 }}>
+                                                <div>
+                                                    <span className="label" style={{ marginBottom: 6, display: 'block' }}>Building / block *</span>
+                                                    <CustomSelect
+                                                        value={newUnitBuilding}
+                                                        onChange={next => {
+                                                            const match = savedBuildings.find(block => block.id === next || block.name.trim().toLowerCase() === next.trim().toLowerCase());
+                                                            setNewUnitBuilding(match ? match.id : next);
+                                                            setNewUnitFloor('');
+                                                        }}
+                                                        options={(() => {
+                                                            const listed = savedBuildings.map(block => ({ label: block.name, value: block.id }));
+                                                            const typed = newUnitBuilding.trim();
+                                                            if (typed && !savedBuildings.some(block => block.id === typed || block.name.trim().toLowerCase() === typed.toLowerCase())) {
+                                                                return [{ label: typed, value: typed }, ...listed];
+                                                            }
+                                                            return listed;
+                                                        })()}
+                                                        placeholder="Select a building"
+                                                        allowCustom
+                                                        customEntryTitle="Custom building"
+                                                        customEntryHint="Not listed? Type here, then Enter."
+                                                        customPlaceholder="Type building — Enter"
+                                                        style={{ width: '100%', height: 40, fontSize: 13 }}
+                                                        maxH={280}
+                                                    />
+                                                </div>
+                                                <div>
+                                                    <span className="label" style={{ marginBottom: 6, display: 'block' }}>Floor *</span>
+                                                    <CustomSelect
+                                                        value={newUnitFloor}
+                                                        onChange={setNewUnitFloor}
+                                                        options={buildingFloorOptions}
+                                                        placeholder={newUnitBuilding.trim() ? 'Select a floor' : 'Select a building first'}
+                                                        disabled={!newUnitBuilding.trim()}
+                                                        allowCustom
+                                                        customEntryTitle="Custom floor"
+                                                        customEntryHint="Not listed? Type here, then Enter."
+                                                        customPlaceholder="Type floor — Enter"
+                                                        style={{ width: '100%', height: 40, fontSize: 13 }}
+                                                        maxH={280}
+                                                    />
+                                                </div>
+                                                <div>
+                                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, marginBottom: 6 }}>
+                                                        <label className="label" htmlFor="new-unit-name" style={{ marginBottom: 0 }}>Name *</label>
+                                                        <span style={{ fontSize: 11, color: 'var(--text-muted)', fontVariantNumeric: 'tabular-nums' }} id="unit-name-limit-hint">
+                                                            {newUnitName.length}/{DEPARTMENT_NAME_MAX_LENGTH}
+                                                        </span>
+                                                    </div>
+                                                    <input
+                                                        id="new-unit-name"
+                                                        className="input"
+                                                        placeholder="e.g. Labour & Delivery Unit"
+                                                        value={newUnitName}
+                                                        maxLength={DEPARTMENT_NAME_MAX_LENGTH}
+                                                        onChange={e => setNewUnitName(e.target.value.slice(0, DEPARTMENT_NAME_MAX_LENGTH))}
+                                                        onKeyDown={e => e.key === 'Enter' && !e.shiftKey && addUnit()}
+                                                        style={{ fontSize: 13, boxSizing: 'border-box', width: '100%' }}
+                                                        aria-describedby="unit-name-limit-hint"
+                                                    />
+                                                </div>
+                                                <div>
+                                                    <span className="label" style={{ marginBottom: 6, display: 'block' }}>Unit code</span>
+                                                    <input
+                                                        className="input"
+                                                        placeholder="Optional"
+                                                        value={newUnitCode}
+                                                        onChange={e => setNewUnitCode(e.target.value)}
+                                                        style={{ fontSize: 13, boxSizing: 'border-box', width: '100%' }}
+                                                    />
+                                                </div>
+                                                <div>
+                                                    <span className="label" style={{ marginBottom: 6, display: 'block' }}>Unit type</span>
+                                                    <CustomSelect
+                                                        value={newUnitType}
+                                                        onChange={setNewUnitType}
+                                                        searchable={false}
+                                                        options={[
+                                                            ...WARD_TYPES.map(type => ({ label: wardTypeLabel(type), value: type })),
+                                                            { label: 'Type a type…', value: CUSTOM_VALUE },
+                                                        ]}
+                                                        placeholder="Select a type"
+                                                        style={{ width: '100%', height: 40, fontSize: 13 }}
+                                                    />
+                                                </div>
+                                                {newUnitType === CUSTOM_VALUE && (
+                                                    <div>
+                                                        <span className="label" style={{ marginBottom: 6, display: 'block' }}>Custom type</span>
+                                                        <input
+                                                            className="input"
+                                                            placeholder="e.g. Day case"
+                                                            value={newUnitTypeOther}
+                                                            onChange={e => setNewUnitTypeOther(e.target.value)}
+                                                            style={{ fontSize: 13, boxSizing: 'border-box', width: '100%' }}
+                                                        />
+                                                    </div>
+                                                )}
+                                                <div>
+                                                    <span className="label" style={{ marginBottom: 6, display: 'block' }}>Gender restriction</span>
+                                                    <CustomSelect
+                                                        value={newUnitGender}
+                                                        onChange={setNewUnitGender}
+                                                        searchable={false}
+                                                        options={GENDER_RESTRICTIONS.map(value => ({ label: genderLabel(value), value }))}
+                                                        placeholder="Select"
+                                                        style={{ width: '100%', height: 40, fontSize: 13 }}
+                                                    />
+                                                </div>
+                                                <div>
+                                                    <span className="label" style={{ marginBottom: 6, display: 'block' }}>Department</span>
+                                                    <CustomSelect
+                                                        value={newUnitDepartmentId}
+                                                        onChange={setNewUnitDepartmentId}
+                                                        options={departments.map(dept => ({ label: dept.name, value: dept.id }))}
+                                                        placeholder="Select a department"
+                                                        style={{ width: '100%', height: 40, fontSize: 13 }}
+                                                        maxH={280}
+                                                    />
+                                                </div>
+                                            </div>
+                                            <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', marginTop: 16 }}>
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, marginBottom: 6, flexShrink: 0 }}>
+                                                    <label className="label" htmlFor="new-unit-desc" style={{ marginBottom: 0 }}>Description</label>
+                                                    <span style={{ fontSize: 11, color: 'var(--text-muted)', fontVariantNumeric: 'tabular-nums' }}>
+                                                        {newUnitDescription.length}/{UNIT_DESCRIPTION_MAX_LENGTH}
+                                                    </span>
+                                                </div>
+                                                <textarea
+                                                    id="new-unit-desc"
+                                                    className="input"
+                                                    value={newUnitDescription}
+                                                    maxLength={UNIT_DESCRIPTION_MAX_LENGTH}
+                                                    onChange={e => setNewUnitDescription(e.target.value.slice(0, UNIT_DESCRIPTION_MAX_LENGTH))}
+                                                    style={{ fontSize: 13, flex: 1, minHeight: 160, resize: 'none', boxSizing: 'border-box', width: '100%' }}
+                                                />
+                                            </div>
+                                            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 16, flexShrink: 0 }}>
+                                                <button
+                                                    type="button"
+                                                    className="btn btn-ghost btn-sm"
+                                                    onClick={() => { resetNewUnitForm(); setShowAddUnit(false); }}
+                                                    disabled={addingUnit}
+                                                >
+                                                    Cancel
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    className="btn btn-primary btn-sm"
+                                                    onClick={addUnit}
+                                                    disabled={!newUnitName.trim() || !newUnitBuilding.trim() || !newUnitFloor.trim() || addingUnit}
+                                                >
+                                                    {addingUnit ? 'Adding…' : 'Add unit'}
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                ) : editUnit ? (
                                     <div className="fade-in" key={editUnit.id}>
                                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, marginBottom: 20, flexWrap: 'wrap' }}>
                                             <div style={{ flex: 1, minWidth: 0 }}>
@@ -1242,20 +1535,85 @@ export default function DepartmentsManagement() {
                                                 onChange={e => setUnitDetailName(e.target.value.slice(0, DEPARTMENT_NAME_MAX_LENGTH))}
                                                 style={{ fontSize: 13, marginBottom: 12, boxSizing: 'border-box' }}
                                             />
+                                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12, marginBottom: 12 }}>
+                                                <div>
+                                                    <span className="label" style={{ marginBottom: 6, display: 'block' }}>Unit code</span>
+                                                    <input
+                                                        className="input"
+                                                        placeholder="Optional"
+                                                        value={unitDetailCode}
+                                                        disabled={unitDetailLoading || savingUnitDetails}
+                                                        onChange={e => setUnitDetailCode(e.target.value)}
+                                                        style={{ fontSize: 13, boxSizing: 'border-box' }}
+                                                    />
+                                                </div>
+                                                <div>
+                                                    <span className="label" style={{ marginBottom: 6, display: 'block' }}>Unit type</span>
+                                                    <CustomSelect
+                                                        value={unitDetailType}
+                                                        onChange={setUnitDetailType}
+                                                        disabled={unitDetailLoading || savingUnitDetails}
+                                                        searchable={false}
+                                                        options={[
+                                                            ...WARD_TYPES.map(type => ({ label: wardTypeLabel(type), value: type })),
+                                                            { label: 'Type a type…', value: CUSTOM_VALUE },
+                                                        ]}
+                                                        placeholder="Select a type"
+                                                        style={{ width: '100%', height: 40, fontSize: 13 }}
+                                                    />
+                                                </div>
+                                                {unitDetailType === CUSTOM_VALUE && (
+                                                    <div>
+                                                        <span className="label" style={{ marginBottom: 6, display: 'block' }}>Custom type</span>
+                                                        <input
+                                                            className="input"
+                                                            placeholder="e.g. Day case"
+                                                            value={unitDetailTypeOther}
+                                                            disabled={unitDetailLoading || savingUnitDetails}
+                                                            onChange={e => setUnitDetailTypeOther(e.target.value)}
+                                                            style={{ fontSize: 13, boxSizing: 'border-box' }}
+                                                        />
+                                                    </div>
+                                                )}
+                                                <div>
+                                                    <span className="label" style={{ marginBottom: 6, display: 'block' }}>Gender restriction</span>
+                                                    <CustomSelect
+                                                        value={unitDetailGender}
+                                                        onChange={setUnitDetailGender}
+                                                        disabled={unitDetailLoading || savingUnitDetails}
+                                                        searchable={false}
+                                                        options={GENDER_RESTRICTIONS.map(value => ({ label: genderLabel(value), value }))}
+                                                        placeholder="Select"
+                                                        style={{ width: '100%', height: 40, fontSize: 13 }}
+                                                    />
+                                                </div>
+                                                <div>
+                                                    <span className="label" style={{ marginBottom: 6, display: 'block' }}>Department</span>
+                                                    <CustomSelect
+                                                        value={unitDetailDepartmentId}
+                                                        onChange={setUnitDetailDepartmentId}
+                                                        disabled={unitDetailLoading || savingUnitDetails}
+                                                        options={departments.map(dept => ({ label: dept.name, value: dept.id }))}
+                                                        placeholder="Select a department"
+                                                        style={{ width: '100%', height: 40, fontSize: 13 }}
+                                                        maxH={280}
+                                                    />
+                                                </div>
+                                            </div>
                                             <label className="label" htmlFor="unit-detail-desc" style={{ marginBottom: 6 }}>Description</label>
                                             <textarea
                                                 id="unit-detail-desc"
                                                 className="input"
                                                 value={unitDetailDescription}
-                                                maxLength={DEPARTMENT_DESCRIPTION_MAX_LENGTH}
+                                                maxLength={UNIT_DESCRIPTION_MAX_LENGTH}
                                                 disabled={unitDetailLoading || savingUnitDetails}
-                                                onChange={e => setUnitDetailDescription(e.target.value.slice(0, DEPARTMENT_DESCRIPTION_MAX_LENGTH))}
+                                                onChange={e => setUnitDetailDescription(e.target.value.slice(0, UNIT_DESCRIPTION_MAX_LENGTH))}
                                                 rows={3}
                                                 style={{ fontSize: 13, marginBottom: 8, minHeight: 72, resize: 'vertical', boxSizing: 'border-box' }}
                                             />
                                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
                                                 <span style={{ fontSize: 11, color: 'var(--text-muted)', fontVariantNumeric: 'tabular-nums' }}>
-                                                    {unitDetailDescription.length}/{DEPARTMENT_DESCRIPTION_MAX_LENGTH}
+                                                    {unitDetailDescription.length}/{UNIT_DESCRIPTION_MAX_LENGTH}
                                                 </span>
                                                 <button
                                                     type="button"
@@ -1266,11 +1624,6 @@ export default function DepartmentsManagement() {
                                                     {savingUnitDetails ? 'Saving…' : 'Save details'}
                                                 </button>
                                             </div>
-                                            {editUnit.department_name ? (
-                                                <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '14px 0 0', lineHeight: 1.45 }}>
-                                                    Linked department: <strong style={{ color: 'var(--text-secondary)' }}>{editUnit.department_name}</strong>
-                                                </p>
-                                            ) : null}
                                         </div>
 
                                         <div className="card" style={{ padding: '16px 18px', marginTop: 14, background: 'var(--surface-2)', border: '1px solid var(--border-subtle)' }}>
