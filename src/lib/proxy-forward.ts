@@ -45,6 +45,9 @@ export async function forwardToApi(req: NextRequest, options: ForwardOptions): P
         if (res.status === 204) return new NextResponse(null, { status: 204 });
 
         const text = await res.text();
+        if (res.status >= 500) {
+            console.error(`[proxy] ${method} ${upstream.url} -> ${res.status} ${text.slice(0, 800)}`);
+        }
         if (!text) {
             return NextResponse.json({ message: 'OK' }, { status: res.status });
         }

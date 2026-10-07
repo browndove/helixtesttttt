@@ -4,7 +4,6 @@ import { useState, useEffect, useLayoutEffect, useCallback, useMemo, useRef } fr
 import TopBar from '@/components/TopBar';
 import { DEPARTMENT_DESCRIPTION_MAX_LENGTH, DEPARTMENT_NAME_MAX_LENGTH, UNIT_DESCRIPTION_MAX_LENGTH } from '@/lib/departmentName';
 import { parseCareUnit, parseCareUnitFloors, parseCareUnits, type CareUnitFloor } from '@/lib/care-units';
-import UnitFloorsEditor from '@/components/UnitFloorsEditor';
 import CustomSelect from '@/components/CustomSelect';
 import { MacVibrancyToast, MacVibrancyToastPortal } from '@/components/MacVibrancyToast';
 import { readCachedJson, writeCachedJson } from '@/lib/getJsonCache';
@@ -1624,21 +1623,6 @@ export default function DepartmentsManagement() {
                                                     {savingUnitDetails ? 'Saving…' : 'Save details'}
                                                 </button>
                                             </div>
-                                        </div>
-
-                                        <div className="card" style={{ padding: '16px 18px', marginTop: 14, background: 'var(--surface-2)', border: '1px solid var(--border-subtle)' }}>
-                                            <UnitFloorsEditor
-                                                unitId={editUnit.id}
-                                                floors={editUnit.floors || []}
-                                                canEdit
-                                                onChange={floors => {
-                                                    setUnits(prev => prev.map(unit => (
-                                                        unit.id === editUnit.id
-                                                            ? { ...unit, floors, floor_count: floors.length }
-                                                            : unit
-                                                    )));
-                                                }}
-                                            />
                                         </div>
                                     </div>
                                 ) : (

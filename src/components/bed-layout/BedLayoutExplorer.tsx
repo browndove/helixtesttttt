@@ -1,7 +1,8 @@
 'use client';
 
-import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
-import { Bed as BedIcon, Building2, ChevronDown, ChevronLeft, DoorOpen, Layers, Plus } from 'lucide-react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { Bed as BedIcon, Building2, ChevronDown, ChevronLeft, DoorOpen, Layers, MoreHorizontal, Plus } from 'lucide-react';
 import TopBar from '@/components/TopBar';
 import { MacVibrancyToast, MacVibrancyToastPortal } from '@/components/MacVibrancyToast';
 import { parseCareUnits, type CareUnit } from '@/lib/care-units';
@@ -28,7 +29,7 @@ import BedLayoutToolbar, { type StatusFilter } from './BedLayoutToolbar';
 import BedTile from './BedTile';
 import { SAMPLE_BLOCKS } from './bed-layout-sample';
 import { applyPreviewOp, type PreviewLevel, type PreviewOp } from './preview-store';
-import { BED_STATUS_META, card, dangerLinkButton, formatDate, linkButton, primaryButton, secondaryButton } from './bed-layout-ui';
+import { BED_STATUS_META, card, formatDate, linkButton, primaryButton, secondaryButton } from './bed-layout-ui';
 
 type Toast = { message: string; variant: 'success' | 'error' | 'info' };
 
@@ -37,6 +38,81 @@ type DeleteTarget = { label: string; level: PreviewLevel; id: string; endpoint: 
 type FloorRow = { block: Block; floor: Floor };
 
 type HomeRow = { block: Block; floor: Floor | null };
+
+function ActionMenu({ items }: { items: { label: string; onClick: () => void; danger?: boolean }[] }) {
+    const [open, setOpen] = useState(false);
+    const buttonRef = useRef<HTMLButtonElement>(null);
+    const menuRef = useRef<HTMLDivElement>(null);
+    const [pos, setPos] = useState({ top: 0, left: 0 });
+
+    useEffect(() => {
+        if (!open) return;
+        const place = () => {
+            const rect = buttonRef.current?.getBoundingClientRect();
+            if (!rect) return;
+            setPos({ top: rect.bottom + 4, left: Math.max(8, rect.right - 180) });
+        };
+        place();
+        const onPointer = (event: MouseEvent) => {
+            const target = event.target as Node;
+            if (buttonRef.current?.contains(target) || menuRef.current?.contains(target)) return;
+            setOpen(false);
+        };
+        document.addEventListener('mousedown', onPointer);
+        window.addEventListener('scroll', place, true);
+        window.addEventListener('resize', place);
+        return () => {
+            document.removeEventListener('mousedown', onPointer);
+            window.removeEventListener('scroll', place, true);
+            window.removeEventListener('resize', place);
+        };
+    }, [open]);
+
+    return (
+        <>
+            <button
+                ref={buttonRef}
+                type="button"
+                aria-label="Actions"
+                aria-expanded={open}
+                onClick={() => setOpen(current => !current)}
+                style={{
+                    width: 28, height: 28, borderRadius: 8, border: '1px solid #E6EBF1',
+                    background: open ? '#F4F7FB' : '#FFFFFF', color: '#475467',
+                    display: 'inline-flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
+                }}
+            >
+                <MoreHorizontal size={16} strokeWidth={2} />
+            </button>
+            {open && typeof document !== 'undefined' && createPortal(
+                <div
+                    ref={menuRef}
+                    style={{
+                        position: 'fixed', top: pos.top, left: pos.left, width: 180, zIndex: 99999,
+                        background: '#FFFFFF', border: '1px solid #E6EBF1', borderRadius: 10,
+                        boxShadow: '0 8px 24px rgba(16, 24, 40, 0.12)', padding: 4,
+                    }}
+                >
+                    {items.map(item => (
+                        <button
+                            key={item.label}
+                            type="button"
+                            onClick={() => { setOpen(false); item.onClick(); }}
+                            style={{
+                                width: '100%', textAlign: 'left', border: 'none', background: 'none',
+                                padding: '8px 10px', borderRadius: 7, cursor: 'pointer', fontSize: 13,
+                                fontWeight: 600, color: item.danger ? '#B42318' : '#172033',
+                            }}
+                        >
+                            {item.label}
+                        </button>
+                    ))}
+                </div>,
+                document.body,
+            )}
+        </>
+    );
+}
 
 type DeptRef = { id: string; name: string };
 
@@ -438,7 +514,9 @@ export default function BedLayoutExplorer() {
                 const lists = await Promise.all(ids.map(async id => {
                     const url = await appendFacilityIdForProxy(API_ENDPOINTS.WARD_ROOMS(id));
                     const res = await fetch(url, { credentials: 'include' });
-                    return res.ok ? parseRooms(await res.json()) : [];
+                    if (res.ok) return parseRooms(await res.json());
+                    const embedded = wards.find(item => item.id === id)?.rooms || [];
+                    return embedded;
                 }));
                 if (cancelled) return;
                 const flat = lists.flat();
@@ -759,12 +837,10 @@ export default function BedLayoutExplorer() {
 
     const rowActions = (editRequest: FormDialogRequest, target: DeleteTarget, label: string) => (
         isAdmin ? (
-            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 12, whiteSpace: 'nowrap' }}>
-                <button type="button" onClick={() => setDialog(editRequest)} style={{ ...linkButton, color: '#1D6FB8' }}>
-                    {label}
-                </button>
-                <button type="button" onClick={() => setDeleteTarget(target)} style={dangerLinkButton}>Delete</button>
-            </div>
+            <ActionMenu items={[
+                { label, onClick: () => setDialog(editRequest) },
+                { label: 'Delete', danger: true, onClick: () => setDeleteTarget(target) },
+            ]} />
         ) : <span style={{ fontSize: 12, color: '#A3AEBD' }}>View only</span>
     );
 
@@ -859,29 +935,19 @@ export default function BedLayoutExplorer() {
                                                     groupBlock.name,
                                                     `${attached.floors} floor${attached.floors === 1 ? '' : 's'}`,
                                                     isAdmin ? (
-                                                        <>
-                                                            <button
-                                                                type="button"
-                                                                onClick={() => setDialog({ kind: 'create', level: 'floor', context: { blockId: groupBlock.id } })}
-                                                                style={{ ...linkButton, display: 'inline-flex', alignItems: 'center', gap: 4 }}
-                                                            >
-                                                                <Plus size={12} strokeWidth={2.2} /> Floor
-                                                            </button>
-                                                            <button type="button" onClick={() => setDialog({ kind: 'edit', level: 'block', entity: groupBlock })} style={{ ...linkButton, color: '#7B8798' }}>
-                                                                Edit block info
-                                                            </button>
-                                                            <button
-                                                                type="button"
-                                                                onClick={() => setDeleteTarget({
+                                                        <ActionMenu items={[
+                                                            { label: 'Add floor', onClick: () => setDialog({ kind: 'create', level: 'floor', context: { blockId: groupBlock.id } }) },
+                                                            { label: 'Edit block info', onClick: () => setDialog({ kind: 'edit', level: 'block', entity: groupBlock }) },
+                                                            {
+                                                                label: 'Delete',
+                                                                danger: true,
+                                                                onClick: () => setDeleteTarget({
                                                                     label: groupBlock.name, level: 'block', id: groupBlock.id,
                                                                     endpoint: API_ENDPOINTS.BLOCK(groupBlock.id),
                                                                     warning: groupBlock.floor_count > 0 ? `This block has ${groupBlock.floor_count} floor(s).` : undefined,
-                                                                })}
-                                                                style={dangerLinkButton}
-                                                            >
-                                                                Delete
-                                                            </button>
-                                                        </>
+                                                                }),
+                                                            },
+                                                        ]} />
                                                     ) : null,
                                                     5,
                                                 )}
@@ -1121,32 +1187,25 @@ export default function BedLayoutExplorer() {
                                                             genderLabel(wardItem.gender_restriction),
                                                         ].filter(Boolean).join(' · ') || `${wardItem.room_count} rooms`,
                                                         isAdmin ? (
-                                                            <>
-                                                                <button
-                                                                    type="button"
-                                                                    onClick={() => setDialog({
+                                                            <ActionMenu items={[
+                                                                {
+                                                                    label: 'Add room',
+                                                                    onClick: () => setDialog({
                                                                         kind: 'create', level: 'room',
                                                                         context: { blockId: block.id, floorId: floor.id, wardId: wardItem.id },
-                                                                    })}
-                                                                    style={{ ...linkButton, display: 'inline-flex', alignItems: 'center', gap: 4 }}
-                                                                >
-                                                                    <Plus size={12} strokeWidth={2.2} /> Room
-                                                                </button>
-                                                                <button type="button" onClick={() => setDialog({ kind: 'edit', level: 'ward', entity: wardItem })} style={{ ...linkButton, color: '#7B8798' }}>
-                                                                    Edit ward info
-                                                                </button>
-                                                                <button
-                                                                    type="button"
-                                                                    onClick={() => setDeleteTarget({
+                                                                    }),
+                                                                },
+                                                                { label: 'Edit ward info', onClick: () => setDialog({ kind: 'edit', level: 'ward', entity: wardItem }) },
+                                                                {
+                                                                    label: 'Delete',
+                                                                    danger: true,
+                                                                    onClick: () => setDeleteTarget({
                                                                         label: wardItem.name, level: 'ward', id: wardItem.id,
                                                                         endpoint: API_ENDPOINTS.WARD(wardItem.id),
                                                                         warning: wardItem.room_count > 0 ? `This ward has ${wardItem.room_count} room(s).` : undefined,
-                                                                    })}
-                                                                    style={dangerLinkButton}
-                                                                >
-                                                                    Delete
-                                                                </button>
-                                                            </>
+                                                                    }),
+                                                                },
+                                                            ]} />
                                                         ) : null,
                                                         7,
                                                     )}

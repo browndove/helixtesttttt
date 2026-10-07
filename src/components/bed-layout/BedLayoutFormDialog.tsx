@@ -328,6 +328,25 @@ export default function BedLayoutFormDialog({
             })
             .sort((a, b) => b.name.localeCompare(a.name, undefined, { numeric: true, sensitivity: 'base' }));
     }, [blocks, floorBlockId]);
+    const targetFloorId = context.floorId || (floorChoice && floorChoice !== NEW ? floorChoice : '');
+    const targetBlockId = context.blockId || (blockChoice && blockChoice !== NEW ? blockChoice : '');
+    const unitsOnPlace = useMemo(() => {
+        const listed = (floors: Floor[]) => floors.filter(floor => {
+            const key = floor.name.trim().toLowerCase();
+            return key !== 'unassigned' && key !== 'attached units';
+        });
+        if (targetFloorId) {
+            for (const block of blocks) {
+                const floor = block.floors.find(item => item.id === targetFloorId);
+                if (floor) return floor.wards;
+            }
+        }
+        if (targetBlockId) {
+            const block = blocks.find(item => item.id === targetBlockId);
+            return block ? listed(block.floors).flatMap(floor => floor.wards) : [];
+        }
+        return [];
+    }, [blocks, targetFloorId, targetBlockId]);
     const takenFloorNames = useMemo(() => {
         const ignoreId = kind === 'edit' && level === 'floor' ? request.entity.id : '';
         return new Set(
@@ -485,6 +504,9 @@ export default function BedLayoutFormDialog({
 
             if (level === 'ward') {
                 if (!ward.name.trim()) throw new Error('Ward name is required.');
+                if (kind === 'create' && unitsOnPlace.some(unit => unit.name.trim().toLowerCase() === ward.name.trim().toLowerCase())) {
+                    throw new Error('That unit is already on this floor.');
+                }
                 const roomsPayload = childRooms.filter(item => item.number.trim()).map(item => roomPayload(item));
                 const wardBody = { ...wardPayload(ward), ...(roomsPayload.length ? { rooms: roomsPayload } : {}) };
                 if (floorId) {
@@ -547,7 +569,7 @@ export default function BedLayoutFormDialog({
         kind, level, request, context, blockChoice, floorChoice, wardChoice, roomChoice,
         name, resolvedFloorName, ward, room, bed, childFloors, childWards, childRooms, childBeds,
         newBlockName, newFloorName, send, onSaved, departmentForBeds, bedDepartmentId,
-        takenFloorNames, savedBuildings,
+        takenFloorNames, savedBuildings, unitsOnPlace,
     ]);
 
     /* ── field renderers ────────────────────────────────────────────── */
@@ -622,22 +644,41 @@ export default function BedLayoutFormDialog({
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
                 <div>
                     <label style={fieldLabel}>Ward / unit name *</label>
-                    <FieldSelect
-                        value={draft.nameChoice}
-                        searchable={existingWards.length > 8}
-                        onChange={value => {
-                            if (value === OTHER) {
-                                update({ ...draft, nameChoice: OTHER, name: '' });
-                                return;
-                            }
-                            const picked = existingWards.find(item => item.id === value);
-                            update({ ...draft, nameChoice: value, name: picked?.name || '' });
-                        }}
-                        options={[
-                            ...existingWards.map(item => ({ label: item.name, value: item.id })),
-                            { label: 'Type a name…', value: OTHER },
-                        ]}
-                    />
+                    {unitsOnPlace.length === 0 ? (
+                        <input
+                            value={draft.name}
+                            onChange={e => update({ ...draft, nameChoice: OTHER, name: e.target.value })}
+                            placeholder="e.g. Labour & Delivery Unit"
+                            style={input}
+                        />
+                    ) : (
+                        <CustomSelect
+                            value={draft.nameChoice && draft.nameChoice !== OTHER ? draft.nameChoice : draft.name}
+                            onChange={value => {
+                                const picked = unitsOnPlace.find(unit => unit.id === value || unit.name.trim().toLowerCase() === value.trim().toLowerCase());
+                                update({
+                                    ...draft,
+                                    nameChoice: picked ? picked.id : OTHER,
+                                    name: picked ? picked.name : value,
+                                });
+                            }}
+                            options={(() => {
+                                const listed = unitsOnPlace.map(unit => ({ label: unit.name, value: unit.id }));
+                                const typed = draft.name.trim();
+                                if (typed && !unitsOnPlace.some(unit => unit.name.trim().toLowerCase() === typed.toLowerCase())) {
+                                    return [{ label: typed, value: typed }, ...listed];
+                                }
+                                return listed;
+                            })()}
+                            placeholder="Select a unit"
+                            allowCustom
+                            customEntryTitle="New unit"
+                            customEntryHint="Not listed? Type here, then Enter."
+                            customPlaceholder="Type unit — Enter"
+                            style={fieldSelectStyle}
+                            maxH={240}
+                        />
+                    )}
                 </div>
                 <div>
                     <label style={fieldLabel}>Ward / unit code</label>
@@ -649,17 +690,6 @@ export default function BedLayoutFormDialog({
                     />
                 </div>
             </div>
-            {draft.nameChoice === OTHER && (
-                <div>
-                    <label style={fieldLabel}>New ward / unit name *</label>
-                    <input
-                        value={draft.name}
-                        onChange={e => update({ ...draft, name: e.target.value })}
-                        placeholder="e.g. Labour & Delivery Unit"
-                        style={input}
-                    />
-                </div>
-            )}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
                 <div>
                     <label style={fieldLabel}>Ward / unit type</label>
