@@ -25,8 +25,6 @@ const departmentsAppMainStyle = {
 
 type FloorItem = { id: string; name: string };
 type WardItem = { id: string; name: string };
-const CUSTOM_VALUE = '__other';
-
 type UnitItem = {
     id: string;
     name: string;
@@ -40,9 +38,28 @@ type UnitItem = {
     floors: CareUnitFloor[];
 };
 
-function resolvedUnitType(choice: string, custom: string): string {
-    return (choice === CUSTOM_VALUE ? custom : choice).trim();
+function withTypedOption(options: { label: string; value: string }[], current: string) {
+    const typed = current.trim();
+    if (!typed || options.some(option => option.value === typed || option.label.trim().toLowerCase() === typed.toLowerCase())) {
+        return options;
+    }
+    return [{ label: typed, value: typed }, ...options];
 }
+
+function matchedOption(value: string, options: { label: string; value: string }[]) {
+    const typed = value.trim().toLowerCase();
+    return options.find(option => option.value === value || option.value.toLowerCase() === typed || option.label.trim().toLowerCase() === typed);
+}
+
+function unitTypeOptions(current: string) {
+    const listed = WARD_TYPES.map(type => ({ label: wardTypeLabel(type), value: type }));
+    const typed = current.trim();
+    if (typed && !(WARD_TYPES as readonly string[]).includes(typed)) {
+        return [{ label: typed, value: typed }, ...listed];
+    }
+    return listed;
+}
+
 type PendingDelete =
     | { kind: 'department'; id: string; label: string }
     | { kind: 'unit'; id: string; label: string };
@@ -115,9 +132,7 @@ export default function DepartmentsManagement() {
     const [newUnitDescription, setNewUnitDescription] = useState('');
     const [newUnitCode, setNewUnitCode] = useState('');
     const [newUnitType, setNewUnitType] = useState('');
-    const [newUnitTypeOther, setNewUnitTypeOther] = useState('');
     const [newUnitGender, setNewUnitGender] = useState('');
-    const [newUnitDepartmentId, setNewUnitDepartmentId] = useState('');
     const [newUnitBuilding, setNewUnitBuilding] = useState('');
     const [newUnitFloor, setNewUnitFloor] = useState('');
     const [layoutBlocks, setLayoutBlocks] = useState<Block[]>([]);
@@ -131,7 +146,6 @@ export default function DepartmentsManagement() {
     const [unitDetailDescription, setUnitDetailDescription] = useState('');
     const [unitDetailCode, setUnitDetailCode] = useState('');
     const [unitDetailType, setUnitDetailType] = useState('');
-    const [unitDetailTypeOther, setUnitDetailTypeOther] = useState('');
     const [unitDetailGender, setUnitDetailGender] = useState('');
     const [unitDetailDepartmentId, setUnitDetailDepartmentId] = useState('');
     const [unitDetailLoading, setUnitDetailLoading] = useState(false);
@@ -334,13 +348,10 @@ export default function DepartmentsManagement() {
     }, [editingDept, showToast, fetchUnits]);
 
     const applyUnitDetail = (unit: { name?: string; description?: string; code?: string; type?: string; gender_restriction?: string; department_id?: string }) => {
-        const type = unit.type || '';
-        const known = (WARD_TYPES as readonly string[]).includes(type);
         setUnitDetailName(unit.name || '');
         setUnitDetailDescription(unit.description || '');
         setUnitDetailCode(unit.code || '');
-        setUnitDetailType(type ? (known ? type : CUSTOM_VALUE) : '');
-        setUnitDetailTypeOther(known ? '' : type);
+        setUnitDetailType(unit.type || '');
         setUnitDetailGender(unit.gender_restriction || '');
         setUnitDetailDepartmentId(unit.department_id || '');
     };
@@ -414,9 +425,7 @@ export default function DepartmentsManagement() {
         setNewUnitDescription('');
         setNewUnitCode('');
         setNewUnitType('');
-        setNewUnitTypeOther('');
         setNewUnitGender('');
-        setNewUnitDepartmentId('');
         setNewUnitBuilding('');
         setNewUnitFloor('');
     };
@@ -623,7 +632,7 @@ export default function DepartmentsManagement() {
                 if (!floorId) throw new Error('Floor was created, but its id could not be read');
             }
 
-            const unitType = resolvedUnitType(newUnitType, newUnitTypeOther);
+            const unitType = newUnitType.trim();
             const { res, raw } = await postJson(API_ENDPOINTS.FLOOR_WARDS(floorId), {
                 name,
                 description: newUnitDescription.trim(),
@@ -632,7 +641,6 @@ export default function DepartmentsManagement() {
                 ...(newUnitCode.trim() ? { code: newUnitCode.trim() } : {}),
                 ...(unitType ? { type: unitType } : {}),
                 ...(newUnitGender ? { gender_restriction: newUnitGender } : {}),
-                ...(newUnitDepartmentId ? { department_id: newUnitDepartmentId } : {}),
             });
             if (!res.ok) throw new Error(apiError(raw, 'Failed to add unit'));
             const rec = raw && typeof raw === 'object' ? raw as Record<string, unknown> : {};
@@ -684,6 +692,14 @@ export default function DepartmentsManagement() {
             return;
         }
         const descTrimmed = unitDetailDescription.trim();
+        const departmentId = matchedOption(
+            unitDetailDepartmentId,
+            departments.map(dept => ({ label: dept.name, value: dept.id })),
+        )?.value || '';
+        if (unitDetailDepartmentId.trim() && !departmentId) {
+            showToast('Choose a department from the list');
+            return;
+        }
         setSavingUnitDetails(true);
         try {
             const res = await fetch(`/api/proxy/units/${u.id}`, {
@@ -693,9 +709,9 @@ export default function DepartmentsManagement() {
                     name: trimmedName,
                     description: descTrimmed,
                     code: unitDetailCode.trim(),
-                    type: resolvedUnitType(unitDetailType, unitDetailTypeOther),
+                    type: unitDetailType.trim(),
                     gender_restriction: unitDetailGender,
-                    department_id: unitDetailDepartmentId,
+                    department_id: departmentId,
                 }),
             });
             const rawText = await res.text();
@@ -719,7 +735,7 @@ export default function DepartmentsManagement() {
             const updatedName = String(body.name || trimmedName).trim();
             const updatedDesc = typeof body.description === 'string' ? body.description : descTrimmed;
             const updatedCode = typeof body.code === 'string' ? body.code : unitDetailCode.trim();
-            const updatedType = typeof body.type === 'string' ? body.type : resolvedUnitType(unitDetailType, unitDetailTypeOther);
+            const updatedType = typeof body.type === 'string' ? body.type : unitDetailType.trim();
             const updatedGender = typeof body.gender_restriction === 'string' ? body.gender_restriction : unitDetailGender;
             const updatedDepartmentId = typeof body.department_id === 'string' ? body.department_id : unitDetailDepartmentId;
             setUnits(prev => prev.map(x => (x.id === u.id ? {
@@ -856,7 +872,7 @@ export default function DepartmentsManagement() {
         && (unitDetailName.trim() !== editUnit.name
             || unitDetailDescription.trim() !== (editUnit.description || '').trim()
             || unitDetailCode.trim() !== (editUnit.code || '')
-            || resolvedUnitType(unitDetailType, unitDetailTypeOther) !== (editUnit.type || '')
+            || unitDetailType.trim() !== (editUnit.type || '')
             || unitDetailGender !== (editUnit.gender_restriction || '')
             || unitDetailDepartmentId !== (editUnit.department_id || '')),
     );
@@ -1312,7 +1328,7 @@ export default function DepartmentsManagement() {
                                                         {(u.floors?.length ?? u.floor_count ?? 0) === 0
                                                             ? 'No floors'
                                                             : `${u.floors?.length ?? u.floor_count} floor${(u.floors?.length ?? u.floor_count) === 1 ? '' : 's'}`}
-                                                        {u.department_name ? ` · ${u.department_name}` : ''}
+                                                        {u.type ? ` · ${wardTypeLabel(u.type)}` : ''}
                                                     </div>
                                                 </div>
                                             </button>
@@ -1412,47 +1428,36 @@ export default function DepartmentsManagement() {
                                                     <CustomSelect
                                                         value={newUnitType}
                                                         onChange={setNewUnitType}
-                                                        searchable={false}
-                                                        options={[
-                                                            ...WARD_TYPES.map(type => ({ label: wardTypeLabel(type), value: type })),
-                                                            { label: 'Type a type…', value: CUSTOM_VALUE },
-                                                        ]}
+                                                        options={unitTypeOptions(newUnitType)}
                                                         placeholder="Select a type"
+                                                        allowCustom
+                                                        customEntryTitle="Custom type"
+                                                        customEntryHint="Not listed? Type here, then Enter."
+                                                        customPlaceholder="Type a type — Enter"
                                                         style={{ width: '100%', height: 40, fontSize: 13 }}
+                                                        maxH={280}
                                                     />
                                                 </div>
-                                                {newUnitType === CUSTOM_VALUE && (
-                                                    <div>
-                                                        <span className="label" style={{ marginBottom: 6, display: 'block' }}>Custom type</span>
-                                                        <input
-                                                            className="input"
-                                                            placeholder="e.g. Day case"
-                                                            value={newUnitTypeOther}
-                                                            onChange={e => setNewUnitTypeOther(e.target.value)}
-                                                            style={{ fontSize: 13, boxSizing: 'border-box', width: '100%' }}
-                                                        />
-                                                    </div>
-                                                )}
                                                 <div>
                                                     <span className="label" style={{ marginBottom: 6, display: 'block' }}>Gender restriction</span>
                                                     <CustomSelect
                                                         value={newUnitGender}
-                                                        onChange={setNewUnitGender}
-                                                        searchable={false}
-                                                        options={GENDER_RESTRICTIONS.map(value => ({ label: genderLabel(value), value }))}
+                                                        onChange={value => {
+                                                            const choices = GENDER_RESTRICTIONS.map(item => ({ label: genderLabel(item), value: item }));
+                                                            const match = matchedOption(value, choices);
+                                                            setNewUnitGender(match ? match.value : value);
+                                                        }}
+                                                        options={withTypedOption(
+                                                            GENDER_RESTRICTIONS.map(value => ({ label: genderLabel(value), value })),
+                                                            newUnitGender,
+                                                        )}
                                                         placeholder="Select"
+                                                        allowCustom
+                                                        customEntryTitle="Custom gender"
+                                                        customEntryHint="Not listed? Type here, then Enter."
+                                                        customPlaceholder="Type gender — Enter"
                                                         style={{ width: '100%', height: 40, fontSize: 13 }}
-                                                    />
-                                                </div>
-                                                <div>
-                                                    <span className="label" style={{ marginBottom: 6, display: 'block' }}>Department</span>
-                                                    <CustomSelect
-                                                        value={newUnitDepartmentId}
-                                                        onChange={setNewUnitDepartmentId}
-                                                        options={departments.map(dept => ({ label: dept.name, value: dept.id }))}
-                                                        placeholder="Select a department"
-                                                        style={{ width: '100%', height: 40, fontSize: 13 }}
-                                                        maxH={280}
+                                                        maxH={240}
                                                     />
                                                 </div>
                                             </div>
@@ -1552,48 +1557,58 @@ export default function DepartmentsManagement() {
                                                         value={unitDetailType}
                                                         onChange={setUnitDetailType}
                                                         disabled={unitDetailLoading || savingUnitDetails}
-                                                        searchable={false}
-                                                        options={[
-                                                            ...WARD_TYPES.map(type => ({ label: wardTypeLabel(type), value: type })),
-                                                            { label: 'Type a type…', value: CUSTOM_VALUE },
-                                                        ]}
+                                                        options={unitTypeOptions(unitDetailType)}
                                                         placeholder="Select a type"
+                                                        allowCustom
+                                                        customEntryTitle="Custom type"
+                                                        customEntryHint="Not listed? Type here, then Enter."
+                                                        customPlaceholder="Type a type — Enter"
                                                         style={{ width: '100%', height: 40, fontSize: 13 }}
+                                                        maxH={280}
                                                     />
                                                 </div>
-                                                {unitDetailType === CUSTOM_VALUE && (
-                                                    <div>
-                                                        <span className="label" style={{ marginBottom: 6, display: 'block' }}>Custom type</span>
-                                                        <input
-                                                            className="input"
-                                                            placeholder="e.g. Day case"
-                                                            value={unitDetailTypeOther}
-                                                            disabled={unitDetailLoading || savingUnitDetails}
-                                                            onChange={e => setUnitDetailTypeOther(e.target.value)}
-                                                            style={{ fontSize: 13, boxSizing: 'border-box' }}
-                                                        />
-                                                    </div>
-                                                )}
                                                 <div>
                                                     <span className="label" style={{ marginBottom: 6, display: 'block' }}>Gender restriction</span>
                                                     <CustomSelect
                                                         value={unitDetailGender}
-                                                        onChange={setUnitDetailGender}
+                                                        onChange={value => {
+                                                            const choices = GENDER_RESTRICTIONS.map(item => ({ label: genderLabel(item), value: item }));
+                                                            const match = matchedOption(value, choices);
+                                                            setUnitDetailGender(match ? match.value : value);
+                                                        }}
                                                         disabled={unitDetailLoading || savingUnitDetails}
-                                                        searchable={false}
-                                                        options={GENDER_RESTRICTIONS.map(value => ({ label: genderLabel(value), value }))}
+                                                        options={withTypedOption(
+                                                            GENDER_RESTRICTIONS.map(value => ({ label: genderLabel(value), value })),
+                                                            unitDetailGender,
+                                                        )}
                                                         placeholder="Select"
+                                                        allowCustom
+                                                        customEntryTitle="Custom gender"
+                                                        customEntryHint="Not listed? Type here, then Enter."
+                                                        customPlaceholder="Type gender — Enter"
                                                         style={{ width: '100%', height: 40, fontSize: 13 }}
+                                                        maxH={240}
                                                     />
                                                 </div>
                                                 <div>
                                                     <span className="label" style={{ marginBottom: 6, display: 'block' }}>Department</span>
                                                     <CustomSelect
                                                         value={unitDetailDepartmentId}
-                                                        onChange={setUnitDetailDepartmentId}
+                                                        onChange={value => {
+                                                            const choices = departments.map(dept => ({ label: dept.name, value: dept.id }));
+                                                            const match = matchedOption(value, choices);
+                                                            setUnitDetailDepartmentId(match ? match.value : value);
+                                                        }}
                                                         disabled={unitDetailLoading || savingUnitDetails}
-                                                        options={departments.map(dept => ({ label: dept.name, value: dept.id }))}
+                                                        options={withTypedOption(
+                                                            departments.map(dept => ({ label: dept.name, value: dept.id })),
+                                                            unitDetailDepartmentId,
+                                                        )}
                                                         placeholder="Select a department"
+                                                        allowCustom
+                                                        customEntryTitle="Custom department"
+                                                        customEntryHint="Not listed? Type here, then Enter."
+                                                        customPlaceholder="Type department — Enter"
                                                         style={{ width: '100%', height: 40, fontSize: 13 }}
                                                         maxH={280}
                                                     />

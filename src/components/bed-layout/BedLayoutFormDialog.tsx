@@ -53,7 +53,6 @@ type WardDraft = {
     nameChoice: string;
     code: string;
     type: string;
-    typeOther: string;
     gender: string;
     departmentId: string;
 };
@@ -71,32 +70,34 @@ const fieldSelectStyle = {
     fontSize: 13,
 };
 
-function FieldSelect({
-    value,
-    onChange,
-    options,
-    placeholder = 'Select…',
-    disabled = false,
-    searchable,
-}: {
-    value: string;
-    onChange: (value: string) => void;
-    options: { label: string; value: string }[];
-    placeholder?: string;
-    disabled?: boolean;
-    searchable?: boolean;
-}) {
-    return (
-        <CustomSelect
-            value={value}
-            onChange={onChange}
-            options={options}
-            placeholder={placeholder}
-            disabled={disabled}
-            searchable={searchable}
-            style={fieldSelectStyle}
-        />
-    );
+function readCreatedId(raw: unknown): string {
+    if (!raw || typeof raw !== 'object') return '';
+    const rec = raw as Record<string, unknown>;
+    if (typeof rec.id === 'string' && rec.id) return rec.id;
+    for (const key of ['room', 'data']) {
+        const nested = rec[key];
+        if (nested && typeof nested === 'object' && typeof (nested as Record<string, unknown>).id === 'string') {
+            return (nested as Record<string, unknown>).id as string;
+        }
+    }
+    const rooms = rec.rooms;
+    if (Array.isArray(rooms) && rooms[0] && typeof rooms[0] === 'object' && typeof (rooms[0] as Record<string, unknown>).id === 'string') {
+        return (rooms[0] as Record<string, unknown>).id as string;
+    }
+    return '';
+}
+
+function withTypedOption(options: { label: string; value: string }[], current: string) {
+    const typed = current.trim();
+    if (!typed || options.some(option => option.value === typed || option.label.trim().toLowerCase() === typed.toLowerCase())) {
+        return options;
+    }
+    return [{ label: typed, value: typed }, ...options];
+}
+
+function matchedOption(value: string, options: { label: string; value: string }[]) {
+    const typed = value.trim().toLowerCase();
+    return options.find(option => option.value === value || option.value.toLowerCase() === typed || option.label.trim().toLowerCase() === typed);
 }
 
 const LEVEL_TITLES: Record<LayoutLevel, { create: string; edit: string }> = {
@@ -108,7 +109,7 @@ const LEVEL_TITLES: Record<LayoutLevel, { create: string; edit: string }> = {
 };
 
 function emptyWard(): WardDraft {
-    return { name: '', nameChoice: '', code: '', type: '', typeOther: '', gender: '', departmentId: '' };
+    return { name: '', nameChoice: '', code: '', type: '', gender: '', departmentId: '' };
 }
 
 function readDepartments(raw: unknown): DeptOption[] {
@@ -138,7 +139,7 @@ function emptyBed(): BedDraft {
 }
 
 function wardPayload(draft: WardDraft): Record<string, unknown> {
-    const type = draft.type === OTHER ? draft.typeOther.trim() : draft.type;
+    const type = draft.type.trim();
     return {
         name: draft.name.trim(),
         ...(draft.code.trim() ? { code: draft.code.trim() } : {}),
@@ -235,14 +236,12 @@ export default function BedLayoutFormDialog({
             if (request.level === 'floor') setName(request.entity.name);
             if (request.level === 'ward') {
                 const entity = request.entity;
-                const known = entity.type && (WARD_TYPES as readonly string[]).includes(entity.type);
                 const matched = existingWards.find(item => item.id === entity.id || item.name === entity.name);
                 setWard({
                     name: entity.name,
                     nameChoice: matched ? matched.id : entity.name ? OTHER : '',
                     code: entity.code || '',
-                    type: entity.type ? (known ? entity.type : OTHER) : '',
-                    typeOther: known ? '' : entity.type || '',
+                    type: entity.type || '',
                     gender: entity.gender_restriction || '',
                     departmentId: entity.department_id || '',
                 });
@@ -411,8 +410,10 @@ export default function BedLayoutFormDialog({
 
         const blockId = context.blockId || (blockChoice && blockChoice !== NEW ? blockChoice : '');
         const floorId = context.floorId || (floorChoice && floorChoice !== NEW ? floorChoice : '');
-        const wardId = context.wardId || wardChoice;
+        const pickedWard = wardOptions.find(item => item.id === wardChoice || item.name.trim().toLowerCase() === wardChoice.trim().toLowerCase());
+        const wardId = context.wardId || pickedWard?.id || '';
         const roomId = context.roomId || roomChoice;
+        const knownDepartment = (value: string) => departments.some(item => item.id === value);
 
         setSaving(true);
         try {
@@ -431,6 +432,9 @@ export default function BedLayoutFormDialog({
                     await send(API_ENDPOINTS.FLOOR(id), 'PUT', body, { kind: 'edit', level, id, body });
                 } else if (level === 'ward') {
                     if (!ward.name.trim()) throw new Error('Ward name is required.');
+                    if (ward.departmentId.trim() && !knownDepartment(ward.departmentId)) {
+                        throw new Error('Choose a department from the list.');
+                    }
                     const body = wardPayload(ward);
                     await send(API_ENDPOINTS.WARD(id), 'PUT', body, { kind: 'edit', level, id, body });
                 } else if (level === 'room') {
@@ -504,6 +508,9 @@ export default function BedLayoutFormDialog({
 
             if (level === 'ward') {
                 if (!ward.name.trim()) throw new Error('Ward name is required.');
+                if ([ward, ...childWards].some(item => item.departmentId.trim() && !knownDepartment(item.departmentId))) {
+                    throw new Error('Choose a department from the list.');
+                }
                 if (kind === 'create' && unitsOnPlace.some(unit => unit.name.trim().toLowerCase() === ward.name.trim().toLowerCase())) {
                     throw new Error('That unit is already on this floor.');
                 }
@@ -532,7 +539,7 @@ export default function BedLayoutFormDialog({
             }
 
             if (level === 'room') {
-                if (!wardId) throw new Error('Pick the ward this room belongs to.');
+                if (!wardId) throw new Error(wardChoice.trim() ? 'Pick a unit on this floor.' : 'Pick the ward this room belongs to.');
                 if (!room.number.trim()) throw new Error('Room number is required.');
                 const addingBeds = childBeds.some(item => item.bed_number.trim());
                 if (addingBeds && childBeds.filter(item => item.bed_number.trim()).length > NESTED_LIMITS.bedsPerRoom) {
@@ -547,17 +554,37 @@ export default function BedLayoutFormDialog({
                 return;
             }
 
-            if (!roomId) throw new Error('Pick the room this bed belongs to.');
-            if (!wardId) throw new Error('Pick the ward this bed belongs to.');
+            if (!wardId) throw new Error(wardChoice.trim() ? 'Pick a unit on this floor.' : 'Pick the ward this bed belongs to.');
+            if (bedDepartmentId.trim() && !knownDepartment(bedDepartmentId)) {
+                throw new Error('Choose a department from the list.');
+            }
+            if ([bed, ...childBeds].some(item => item.bed_number.trim() && !BED_STATUS_META[item.status])) {
+                throw new Error('Choose a bed status.');
+            }
             const beds = [bed, ...childBeds].filter(item => item.bed_number.trim());
             if (!beds.length) throw new Error('Bed number is required.');
             if (beds.length > NESTED_LIMITS.bedsPerRoom) {
                 throw new Error(`A room can include up to ${NESTED_LIMITS.bedsPerRoom} beds.`);
             }
+            const roomNumber = roomChoice.trim() || beds[0].bed_number.trim();
+            const existingRoom = roomOptions.find(item => (
+                item.id === roomId
+                || item.id === roomChoice.trim()
+                || item.number.trim().toLowerCase() === roomNumber.toLowerCase()
+            ));
+            let resolvedRoomId = roomId || existingRoom?.id || '';
+            if (!resolvedRoomId) {
+                const body = { number: roomNumber };
+                const created = await send(API_ENDPOINTS.WARD_ROOMS(wardId), 'POST', body, {
+                    kind: 'create', level: 'room', parentId: wardId, body,
+                });
+                resolvedRoomId = readCreatedId(created) || (preview ? `preview-room-${roomNumber}` : '');
+                if (!resolvedRoomId) throw new Error('Room was created, but its id could not be read.');
+            }
             const departmentId = await departmentForBeds(wardId);
             const body = { beds: beds.map(item => bedPayload(item, departmentId)) };
-            await send(API_ENDPOINTS.ROOM_BEDS(roomId), 'POST', body, {
-                kind: 'create', level: 'bed', parentId: roomId, body,
+            await send(API_ENDPOINTS.ROOM_BEDS(resolvedRoomId), 'POST', body, {
+                kind: 'create', level: 'bed', parentId: resolvedRoomId, body,
             });
             onSaved(beds.length === 1 ? 'Bed added' : `${beds.length} beds added`);
         } catch (err) {
@@ -569,7 +596,7 @@ export default function BedLayoutFormDialog({
         kind, level, request, context, blockChoice, floorChoice, wardChoice, roomChoice,
         name, resolvedFloorName, ward, room, bed, childFloors, childWards, childRooms, childBeds,
         newBlockName, newFloorName, send, onSaved, departmentForBeds, bedDepartmentId,
-        takenFloorNames, savedBuildings, unitsOnPlace,
+        takenFloorNames, savedBuildings, unitsOnPlace, wardOptions, departments, roomOptions, preview,
     ]);
 
     /* ── field renderers ────────────────────────────────────────────── */
@@ -639,7 +666,7 @@ export default function BedLayoutFormDialog({
         </div>
     );
 
-    const wardFields = (draft: WardDraft, update: (next: WardDraft) => void) => (
+    const wardFields = (draft: WardDraft, update: (next: WardDraft) => void, showDepartment = false) => (
         <div style={{ display: 'grid', gap: 10 }}>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
                 <div>
@@ -693,47 +720,74 @@ export default function BedLayoutFormDialog({
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
                 <div>
                     <label style={fieldLabel}>Ward / unit type</label>
-                    <FieldSelect
+                    <CustomSelect
                         value={draft.type}
                         onChange={type => update({ ...draft, type })}
-                        searchable={false}
-                        options={[
-                            ...WARD_TYPES.map(type => ({ label: wardTypeLabel(type), value: type })),
-                            { label: 'Type a type…', value: OTHER },
-                        ]}
+                        options={(() => {
+                            const listed = WARD_TYPES.map(type => ({ label: wardTypeLabel(type), value: type }));
+                            const typed = draft.type.trim();
+                            if (typed && !(WARD_TYPES as readonly string[]).includes(typed)) {
+                                return [{ label: typed, value: typed }, ...listed];
+                            }
+                            return listed;
+                        })()}
+                        placeholder="Select a type"
+                        allowCustom
+                        customEntryTitle="Custom type"
+                        customEntryHint="Not listed? Type here, then Enter."
+                        customPlaceholder="Type a type — Enter"
+                        style={fieldSelectStyle}
+                        maxH={280}
                     />
                 </div>
                 <div>
                     <label style={fieldLabel}>Gender restriction</label>
-                    <FieldSelect
+                    <CustomSelect
                         value={draft.gender}
-                        onChange={gender => update({ ...draft, gender })}
-                        options={GENDER_RESTRICTIONS.map(value => ({ label: genderLabel(value), value }))}
+                        onChange={gender => {
+                            const match = matchedOption(gender, GENDER_RESTRICTIONS.map(value => ({ label: genderLabel(value), value })));
+                            update({ ...draft, gender: match ? match.value : gender });
+                        }}
+                        options={withTypedOption(
+                            GENDER_RESTRICTIONS.map(value => ({ label: genderLabel(value), value })),
+                            draft.gender,
+                        )}
+                        placeholder="Select"
+                        allowCustom
+                        customEntryTitle="Custom gender"
+                        customEntryHint="Not listed? Type here, then Enter."
+                        customPlaceholder="Type gender — Enter"
+                        style={fieldSelectStyle}
+                        maxH={240}
                     />
                 </div>
             </div>
-            {draft.type === OTHER && (
-                <div>
-                    <label style={fieldLabel}>Custom type</label>
-                    <input
-                        value={draft.typeOther}
-                        onChange={e => update({ ...draft, typeOther: e.target.value })}
-                        placeholder="e.g. Day case"
-                        style={input}
-                    />
-                </div>
-            )}
+            {showDepartment && (
             <div>
                 <label style={fieldLabel}>Department</label>
-                <FieldSelect
+                <CustomSelect
                     value={draft.departmentId}
-                    onChange={departmentId => update({ ...draft, departmentId })}
-                    options={departments.map(dept => ({ label: dept.name, value: dept.id }))}
+                    onChange={departmentId => {
+                        const match = matchedOption(departmentId, departments.map(dept => ({ label: dept.name, value: dept.id })));
+                        update({ ...draft, departmentId: match ? match.value : departmentId });
+                    }}
+                    options={withTypedOption(
+                        departments.map(dept => ({ label: dept.name, value: dept.id })),
+                        draft.departmentId,
+                    )}
+                    placeholder="Select a department"
+                    allowCustom
+                    customEntryTitle="Custom department"
+                    customEntryHint="Not listed? Type here, then Enter."
+                    customPlaceholder="Type department — Enter"
+                    style={fieldSelectStyle}
+                    maxH={280}
                 />
                 <div style={{ marginTop: 4, fontSize: 12, color: '#98A2B3' }}>
                     Set this before adding beds. The staff board still lists beds by department.
                 </div>
             </div>
+            )}
         </div>
     );
 
@@ -782,13 +836,27 @@ export default function BedLayoutFormDialog({
             </div>
             <div>
                 <label style={fieldLabel}>Bed status</label>
-                <FieldSelect
+                <CustomSelect
                     value={draft.status}
-                    onChange={status => update({ ...draft, status: status as BedStatus })}
+                    onChange={status => {
+                        const choices = (Object.keys(BED_STATUS_META) as BedStatus[]).map(item => ({
+                            label: BED_STATUS_META[item].label,
+                            value: item,
+                        }));
+                        const match = matchedOption(status, choices);
+                        if (match) update({ ...draft, status: match.value as BedStatus });
+                    }}
                     options={(Object.keys(BED_STATUS_META) as BedStatus[]).map(status => ({
                         label: BED_STATUS_META[status].label,
                         value: status,
                     }))}
+                    placeholder="Select a status"
+                    allowCustom
+                    customEntryTitle="Custom status"
+                    customEntryHint="Not listed? Type here, then Enter."
+                    customPlaceholder="Type status — Enter"
+                    style={fieldSelectStyle}
+                    maxH={240}
                 />
             </div>
         </div>
@@ -894,51 +962,95 @@ export default function BedLayoutFormDialog({
                     )}
 
                     {needs.floor && (
-                        <div style={{ display: 'grid', gridTemplateColumns: floorChoice === NEW || blockChoice === NEW ? '1fr 1fr' : '1fr', gap: 10 }}>
-                            <div>
-                                <label style={fieldLabel}>Floor *</label>
-                                <FieldSelect
-                                    value={blockChoice === NEW ? NEW : floorChoice}
-                                    disabled={blockChoice === NEW || !blockChoice}
-                                    onChange={value => { setFloorChoice(value); setWardChoice(''); setRoomChoice(''); }}
-                                    options={[
-                                        ...floorOptions.map(floor => ({ label: floor.name, value: floor.id })),
-                                        { label: 'Add a new floor…', value: NEW },
-                                    ]}
-                                />
-                            </div>
-                            {(floorChoice === NEW || blockChoice === NEW) && (
-                                <div>
-                                    <label style={fieldLabel}>New floor name / number *</label>
-                                    {floorNameSelect(newFloorName, setNewFloorName)}
-                                </div>
-                            )}
+                        <div>
+                            <label style={fieldLabel}>Floor *</label>
+                            <CustomSelect
+                                value={floorChoice === NEW ? newFloorName : floorChoice}
+                                disabled={!blockChoice}
+                                onChange={value => {
+                                    const match = floorOptions.find(floor => floor.id === value || floor.name.trim().toLowerCase() === value.trim().toLowerCase());
+                                    setFloorChoice(match ? match.id : value ? NEW : '');
+                                    setNewFloorName(match ? '' : value);
+                                    setWardChoice('');
+                                    setRoomChoice('');
+                                }}
+                                options={(() => {
+                                    const listed = floorOptions
+                                        .filter(floor => {
+                                            const key = floor.name.trim().toLowerCase();
+                                            return key !== 'unassigned' && key !== 'attached units';
+                                        })
+                                        .sort((a, b) => b.name.localeCompare(a.name, undefined, { numeric: true, sensitivity: 'base' }))
+                                        .map(floor => ({ label: floor.name, value: floor.id }));
+                                    const used = new Set(listed.map(option => option.label.toLowerCase()));
+                                    const numbers = Array.from({ length: 10 }, (_, index) => String(index + 1))
+                                        .filter(value => !used.has(value))
+                                        .map(value => ({ label: value, value }));
+                                    return withTypedOption([...listed, ...numbers], floorChoice === NEW ? newFloorName : '');
+                                })()}
+                                placeholder={blockChoice ? 'Select a floor' : 'Select a building first'}
+                                allowCustom
+                                customEntryTitle="Custom floor"
+                                customEntryHint="Not listed? Type here, then Enter."
+                                customPlaceholder="Type floor — Enter"
+                                style={fieldSelectStyle}
+                                maxH={280}
+                            />
                         </div>
                     )}
 
                     {needs.ward && (
                         <div>
                             <label style={fieldLabel}>Ward / unit *</label>
-                            <FieldSelect
+                            <CustomSelect
                                 value={wardChoice}
                                 disabled={!floorChoice || floorChoice === NEW}
-                                onChange={value => { setWardChoice(value); setRoomChoice(''); }}
-                                options={wardOptions.map(option => ({ label: option.name, value: option.id }))}
+                                onChange={value => {
+                                    const match = matchedOption(value, wardOptions.map(option => ({ label: option.name, value: option.id })));
+                                    setWardChoice(match ? match.value : value);
+                                    setRoomChoice('');
+                                }}
+                                options={withTypedOption(
+                                    wardOptions.map(option => ({ label: option.name, value: option.id })),
+                                    wardChoice,
+                                )}
+                                placeholder={floorChoice && floorChoice !== NEW ? 'Select a unit' : 'Select a floor first'}
+                                allowCustom
+                                customEntryTitle="New unit"
+                                customEntryHint="Not listed? Type here, then Enter."
+                                customPlaceholder="Type unit — Enter"
+                                style={fieldSelectStyle}
+                                maxH={280}
                             />
                         </div>
                     )}
 
                     {needs.room && (
                         <div>
-                            <label style={fieldLabel}>Room / cubicle *</label>
-                            <FieldSelect
+                            <label style={fieldLabel}>Room / cubicle</label>
+                            <CustomSelect
                                 value={roomChoice}
-                                disabled={!wardChoice}
-                                onChange={setRoomChoice}
-                                options={roomOptions.map(option => ({
-                                    label: option.name ? `${option.number} · ${option.name}` : option.number,
-                                    value: option.id,
-                                }))}
+                                disabled={!wardChoice && !context.wardId}
+                                onChange={value => {
+                                    const match = roomOptions.find(option => (
+                                        option.id === value || option.number.trim().toLowerCase() === value.trim().toLowerCase()
+                                    ));
+                                    setRoomChoice(match ? match.id : value);
+                                }}
+                                options={withTypedOption(
+                                    roomOptions.map(option => ({
+                                        label: option.name ? `${option.number} · ${option.name}` : option.number,
+                                        value: option.id,
+                                    })),
+                                    roomChoice,
+                                )}
+                                placeholder="Optional"
+                                allowCustom
+                                customEntryTitle="Room"
+                                customEntryHint="Not listed? Type here, then Enter."
+                                customPlaceholder="Type room — Enter"
+                                style={fieldSelectStyle}
+                                maxH={240}
                             />
                         </div>
                     )}
@@ -958,14 +1070,27 @@ export default function BedLayoutFormDialog({
                         </div>
                     )}
                     {level === 'floor' && floorNameField}
-                    {level === 'ward' && wardFields(ward, setWard)}
+                    {level === 'ward' && wardFields(ward, setWard, kind === 'edit')}
                     {kind === 'create' && (level === 'room' || level === 'bed') && (context.wardId || wardChoice) && !selectedWard?.department_id && (
                         <div>
                             <label style={fieldLabel}>Department *</label>
-                            <FieldSelect
+                            <CustomSelect
                                 value={bedDepartmentId}
-                                onChange={setBedDepartmentId}
-                                options={departments.map(dept => ({ label: dept.name, value: dept.id }))}
+                                onChange={value => {
+                                    const match = matchedOption(value, departments.map(dept => ({ label: dept.name, value: dept.id })));
+                                    setBedDepartmentId(match ? match.value : value);
+                                }}
+                                options={withTypedOption(
+                                    departments.map(dept => ({ label: dept.name, value: dept.id })),
+                                    bedDepartmentId,
+                                )}
+                                placeholder="Select a department"
+                                allowCustom
+                                customEntryTitle="Custom department"
+                                customEntryHint="Not listed? Type here, then Enter."
+                                customPlaceholder="Type department — Enter"
+                                style={fieldSelectStyle}
+                                maxH={280}
                             />
                             <div style={{ marginTop: 4, fontSize: 12, color: '#98A2B3' }}>
                                 This unit needs a department before beds can be added.

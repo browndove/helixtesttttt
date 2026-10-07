@@ -93,9 +93,20 @@ export default function BedLayoutToolbar({
                 <div style={{ width: 168, flexShrink: 0 }}>
                     <CustomSelect
                         value={status}
-                        onChange={value => { onStatus(value as StatusFilter); onPage(1); }}
+                        onChange={value => {
+                            const typed = value.trim().toLowerCase();
+                            const match = statusOptions.find(option => option.value === value || option.label.trim().toLowerCase() === typed);
+                            if (!match) return;
+                            onStatus(match.value);
+                            onPage(1);
+                        }}
                         options={statusOptions}
+                        allowCustom
+                        customEntryTitle="Status"
+                        customEntryHint="Not listed? Type here, then Enter."
+                        customPlaceholder="Type status — Enter"
                         style={{ height: 34, fontSize: 12.5, borderRadius: 8, border: '1px solid #E1E7EF' }}
+                        maxH={240}
                     />
                 </div>
 

@@ -1,8 +1,8 @@
 'use client';
 
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Bed as BedIcon, Building2, ChevronDown, ChevronLeft, DoorOpen, Layers, MoreHorizontal, Plus } from 'lucide-react';
+import { Activity, Bed as BedIcon, Building2, ChevronDown, ChevronLeft, CircleCheck, DoorOpen, Layers, Lock, MoreHorizontal, Plus, Users } from 'lucide-react';
 import TopBar from '@/components/TopBar';
 import { MacVibrancyToast, MacVibrancyToastPortal } from '@/components/MacVibrancyToast';
 import { parseCareUnits, type CareUnit } from '@/lib/care-units';
@@ -114,53 +114,28 @@ function ActionMenu({ items }: { items: { label: string; onClick: () => void; da
     );
 }
 
-type DeptRef = { id: string; name: string };
-
 type DirectoryGroup = { id: string; name: string; units: Ward[] };
 
-function readDepartments(raw: unknown): DeptRef[] {
-    const record = raw && typeof raw === 'object' ? raw as Record<string, unknown> : null;
-    const rows = Array.isArray(raw)
-        ? raw
-        : record
-            ? (['departments', 'items', 'data', 'results'] as const)
-                .map(key => record[key])
-                .find(Array.isArray) || []
-            : [];
-    return rows.flatMap(item => {
-        if (!item || typeof item !== 'object') return [];
-        const row = item as Record<string, unknown>;
-        const id = typeof row.id === 'string' ? row.id : '';
-        const name = typeof row.name === 'string' ? row.name.trim() : '';
-        return id && name ? [{ id, name }] : [];
-    });
-}
-
-/** The floor list is the facility's departments and care units, not a room table. */
-function directoryGroups(wards: Ward[], departments: DeptRef[], units: CareUnit[]): DirectoryGroup[] | null {
-    const deptName = new Map(departments.map(item => [item.id, item.name]));
+/** Units on a floor, grouped by unit type. */
+function directoryGroups(wards: Ward[], units: CareUnit[]): DirectoryGroup[] | null {
     const unitById = new Map(units.map(item => [item.id, item]));
-    if (!wards.some(item => deptName.has(item.id) || unitById.has(item.id))) return null;
+    if (!wards.some(item => unitById.has(item.id))) return null;
 
     const groups = new Map<string, DirectoryGroup>();
     const ensure = (id: string, name: string) => {
-        const key = id || name || 'unassigned';
-        const existing = groups.get(key);
+        const existing = groups.get(id);
         if (existing) return existing;
-        const created = { id: key, name: name || 'Unassigned', units: [] };
-        groups.set(key, created);
+        const created = { id, name, units: [] as Ward[] };
+        groups.set(id, created);
         return created;
     };
 
     for (const ward of wards) {
-        if (deptName.has(ward.id) && !unitById.has(ward.id)) {
-            ensure(ward.id, deptName.get(ward.id) || ward.name);
-            continue;
-        }
         const unit = unitById.get(ward.id);
-        const departmentId = unit?.department_id || ward.department_id || '';
-        const departmentName = unit?.department_name || ward.department_name || deptName.get(departmentId) || 'Unassigned';
-        ensure(departmentId || departmentName, departmentName).units.push(ward);
+        if (!unit) continue;
+        const type = (ward.type || unit.type || '').trim();
+        const label = type ? wardTypeLabel(type) : 'No type';
+        ensure(type.toLowerCase() || 'none', label).units.push(ward);
     }
 
     return [...groups.values()].sort((a, b) => a.name.localeCompare(b.name));
@@ -342,9 +317,161 @@ function TableSkeleton({ headers, groups = 2, rowsPerGroup = 3 }: {
 const FLOOR_HEADERS = ['Floor', 'Total beds', 'Available beds', 'Last modified', 'Action'];
 const ROOM_HEADERS = ['Room / cubicle', 'Total beds', 'Available', 'Occupied', 'Out of service', 'Last modified', 'Action'];
 
+type HomeKpis = {
+    total: number;
+    available: number;
+    occupied: number;
+    blocked: number;
+    occupancy: number;
+};
+
+function BedKpiRow({ kpis }: { kpis: HomeKpis }) {
+    const share = (count: number) => (kpis.total > 0 ? Math.round((count / kpis.total) * 100) : 0);
+    const band = kpis.total === 0
+        ? { label: 'No beds', fg: '#475467', bg: '#F2F4F7', border: '#E4E7EC', bar: '#D0D5DD' }
+        : kpis.occupancy >= 85
+            ? { label: 'High', fg: '#B42318', bg: '#FEF3F2', border: '#FECDCA', bar: '#F04438' }
+            : kpis.occupancy >= 60
+                ? { label: 'Moderate', fg: '#B54708', bg: '#FFFAEB', border: '#FEDF89', bar: '#F79009' }
+                : { label: 'Steady', fg: '#067647', bg: '#ECFDF3', border: '#ABEFC6', bar: '#17B26A' };
+
+    const cards: {
+        label: string;
+        value: string;
+        hint: string;
+        icon: React.ReactNode;
+        iconBg: string;
+        iconFg: string;
+        bar: string;
+        width: number;
+        badge?: { label: string; fg: string; bg: string; border: string };
+    }[] = [
+        {
+            label: 'Total beds',
+            value: kpis.total.toLocaleString(),
+            hint: 'Registered capacity',
+            icon: <BedIcon size={15} strokeWidth={1.8} />,
+            iconBg: '#F2F4F7',
+            iconFg: '#344054',
+            bar: '#98A2B3',
+            width: kpis.total > 0 ? 100 : 0,
+        },
+        {
+            label: 'Available',
+            value: kpis.available.toLocaleString(),
+            hint: kpis.total ? `${share(kpis.available)}% of capacity` : 'Ready for admission',
+            icon: <CircleCheck size={15} strokeWidth={1.8} />,
+            iconBg: '#E7F8EF',
+            iconFg: '#17803D',
+            bar: '#22A35A',
+            width: share(kpis.available),
+        },
+        {
+            label: 'Occupied',
+            value: kpis.occupied.toLocaleString(),
+            hint: kpis.total ? `${share(kpis.occupied)}% of capacity` : 'In use',
+            icon: <Users size={15} strokeWidth={1.8} />,
+            iconBg: '#E7F0FE',
+            iconFg: '#1D4ED8',
+            bar: '#3B82F6',
+            width: share(kpis.occupied),
+        },
+        {
+            label: 'Out of service',
+            value: kpis.blocked.toLocaleString(),
+            hint: kpis.total ? `${share(kpis.blocked)}% of capacity` : 'Blocked',
+            icon: <Lock size={15} strokeWidth={1.8} />,
+            iconBg: '#F3F4F6',
+            iconFg: '#4B5563',
+            bar: '#98A2B3',
+            width: share(kpis.blocked),
+        },
+        {
+            label: 'Occupancy',
+            value: `${kpis.occupancy.toFixed(1)}%`,
+            hint: kpis.total ? `${kpis.occupied.toLocaleString()} of ${kpis.total.toLocaleString()} beds` : 'No beds yet',
+            icon: <Activity size={15} strokeWidth={1.8} />,
+            iconBg: band.bg,
+            iconFg: band.fg,
+            bar: band.bar,
+            width: Math.min(100, kpis.occupancy),
+            badge: { label: band.label, fg: band.fg, bg: band.bg, border: band.border },
+        },
+    ];
+
+    return (
+        <section
+            aria-label="Bed capacity"
+            style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+                gap: 12,
+                marginBottom: 18,
+            }}
+        >
+            {cards.map(item => (
+                <article
+                    key={item.label}
+                    style={{
+                        background: '#FFFFFF',
+                        border: '1px solid #E6EBF1',
+                        borderRadius: 12,
+                        padding: '14px 16px 13px',
+                        boxShadow: '0 1px 2px rgba(16, 24, 40, 0.04)',
+                        minWidth: 0,
+                    }}
+                >
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                        <span style={{ fontSize: 12.5, fontWeight: 600, color: '#667085' }}>{item.label}</span>
+                        <span style={{
+                            width: 28, height: 28, borderRadius: 8, flexShrink: 0,
+                            background: item.iconBg, color: item.iconFg,
+                            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                        }}>
+                            {item.icon}
+                        </span>
+                    </div>
+                    <div style={{ marginTop: 12, display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+                        <span style={{
+                            fontSize: 28, fontWeight: 700, letterSpacing: '-0.03em', color: '#101828',
+                            fontVariantNumeric: 'tabular-nums', lineHeight: 1,
+                        }}>
+                            {item.value}
+                        </span>
+                        {item.badge && (
+                            <span style={{
+                                fontSize: 11, fontWeight: 700, color: item.badge.fg,
+                                background: item.badge.bg, border: `1px solid ${item.badge.border}`,
+                                borderRadius: 999, padding: '2px 8px',
+                            }}>
+                                {item.badge.label}
+                            </span>
+                        )}
+                    </div>
+                    <div style={{ marginTop: 12, height: 4, borderRadius: 99, background: '#F2F4F7', overflow: 'hidden' }}>
+                        <div style={{ width: `${item.width}%`, height: '100%', background: item.bar, borderRadius: 99 }} />
+                    </div>
+                    <div style={{ marginTop: 8, fontSize: 12, color: '#98A2B3', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {item.hint}
+                    </div>
+                </article>
+            ))}
+        </section>
+    );
+}
+
 function HomeSkeleton() {
     return (
         <div aria-busy="true" aria-label="Loading bed layout">
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginBottom: 18 }}>
+                {[0, 1, 2, 3, 4].map(key => (
+                    <div key={key} style={{ ...card, padding: '14px 16px', height: 112 }}>
+                        {bone('46%', 12)}
+                        <div style={{ marginTop: 16 }}>{bone(72, 26)}</div>
+                        <div style={{ marginTop: 16 }}>{bone('100%', 4)}</div>
+                    </div>
+                ))}
+            </div>
             <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 14, marginBottom: 16 }}>
                 <div>
                     {bone(168, 22)}
@@ -373,7 +500,6 @@ export default function BedLayoutExplorer() {
     const [floorId, setFloorId] = useState('');
     const [unitId, setUnitId] = useState('');
     const [roomId, setRoomId] = useState('');
-    const [departments, setDepartments] = useState<DeptRef[]>([]);
     const [careUnits, setCareUnits] = useState<CareUnit[]>([]);
 
     const [rooms, setRooms] = useState<Room[]>([]);
@@ -427,11 +553,7 @@ export default function BedLayoutExplorer() {
             } else {
                 setPreview(false);
                 setBlocks(parseBlocks(data));
-                const [deptRes, unitRes] = await Promise.all([
-                    fetch(await appendFacilityIdForProxy(API_ENDPOINTS.DEPARTMENTS), { credentials: 'include' }),
-                    fetch(await appendFacilityIdForProxy(API_ENDPOINTS.UNITS), { credentials: 'include' }),
-                ]);
-                setDepartments(deptRes.ok ? readDepartments(await deptRes.json()) : []);
+                const unitRes = await fetch(await appendFacilityIdForProxy(API_ENDPOINTS.UNITS), { credentials: 'include' });
                 setCareUnits(unitRes.ok ? parseCareUnits(await unitRes.json()) : []);
             }
         } catch {
@@ -453,14 +575,23 @@ export default function BedLayoutExplorer() {
         [blocks],
     );
     const buildings = useMemo(() => blocks.filter(block => !isBackfill(block.name)), [blocks]);
+    const homeKpis = useMemo(() => {
+        const floors = buildings.flatMap(block => block.floors.filter(floor => isListedFloor(floor.name)));
+        const total = floors.reduce((sum, floor) => sum + floor.bed_count, 0);
+        const available = floors.reduce((sum, floor) => sum + floor.available_count, 0);
+        const occupied = floors.reduce((sum, floor) => sum + floor.occupied_count, 0);
+        const blocked = floors.reduce((sum, floor) => sum + floor.blocked_count, 0);
+        const occupancy = total > 0 ? (occupied / total) * 100 : 0;
+        return { total, available, occupied, blocked, occupancy };
+    }, [buildings]);
 
     const current = useMemo(() => floorRows.find(row => row.floor.id === floorId) || null, [floorRows, floorId]);
     const block = current?.block || null;
     const floor = current?.floor || null;
     const wards = useMemo(() => (floor ? wardsPlacedOnFloor(floor, careUnits) : []), [floor, careUnits]);
     const groups = useMemo(
-        () => (preview ? null : directoryGroups(wards, departments, careUnits)),
-        [preview, wards, departments, careUnits],
+        () => (preview ? null : directoryGroups(wards, careUnits)),
+        [preview, wards, careUnits],
     );
     const selectedUnit = useMemo(() => wards.find(item => item.id === unitId) || null, [wards, unitId]);
     const room = useMemo(() => rooms.find(item => item.id === roomId) || null, [rooms, roomId]);
@@ -672,11 +803,11 @@ export default function BedLayoutExplorer() {
     const visibleUnits = useMemo(() => {
         const needle = search.trim().toLowerCase();
         return (groups || []).flatMap(group => {
-            const departmentMatches = group.name.toLowerCase().includes(needle);
+            const typeMatches = group.name.toLowerCase().includes(needle);
             return group.units
                 .filter(unit => {
                     if (!matchesStatus(unit, status)) return false;
-                    if (!needle || departmentMatches) return true;
+                    if (!needle || typeMatches) return true;
                     return unit.name.toLowerCase().includes(needle);
                 })
                 .map(unit => ({ group, unit }));
@@ -907,6 +1038,7 @@ export default function BedLayoutExplorer() {
                     )
                 ) : level === 'home' ? (
                     <>
+                        <BedKpiRow kpis={homeKpis} />
                         {pageHeader(
                             'Bed management',
                             <Building2 size={13} strokeWidth={1.9} />,
@@ -961,8 +1093,7 @@ export default function BedLayoutExplorer() {
                                                     if (!item) return null;
                                                     const placedWards = wardsPlacedOnFloor(item, careUnits);
                                                     return (
-                                                    <Fragment key={item.id}>
-                                                    <tr>
+                                                    <tr key={item.id}>
                                                         <td style={TD}>
                                                             <button
                                                                 type="button"
@@ -995,18 +1126,6 @@ export default function BedLayoutExplorer() {
                                                             )}
                                                         </td>
                                                     </tr>
-                                                    {placedWards.map(unit => (
-                                                        <tr key={unit.id}>
-                                                            <td style={{ ...TD, paddingLeft: 36 }}>
-                                                                <div style={{ fontSize: 13, fontWeight: 650, color: '#172033' }}>{unit.name}</div>
-                                                                <div style={{ fontSize: 11.5, color: '#A3AEBD', marginTop: 2 }}>
-                                                                    Unit{genderOf(unit, careUnits) !== '—' ? ` · ${genderOf(unit, careUnits)}` : ''}
-                                                                </div>
-                                                            </td>
-                                                            <td colSpan={4} style={TD} />
-                                                        </tr>
-                                                    ))}
-                                                    </Fragment>
                                                     );
                                                 })}
                                             </tbody>
@@ -1030,7 +1149,7 @@ export default function BedLayoutExplorer() {
                             addMenu,
                             () => setFloorId(''),
                         )}
-                        {toolbar('Search departments or units')}
+                        {toolbar('Search units')}
                         <div style={{ ...card, overflow: 'hidden' }}>
                             <div style={{ overflowX: 'auto' }}>
                                 <table style={{ width: '100%', minWidth: 760, borderCollapse: 'collapse' }}>
@@ -1061,7 +1180,7 @@ export default function BedLayoutExplorer() {
                                                 {rows.length === 0 ? (
                                                     <tr>
                                                         <td colSpan={8} style={{ ...TD, color: '#A3AEBD', fontSize: 12.5 }}>
-                                                            No units in this department yet.
+                                                            No units of this type yet.
                                                         </td>
                                                     </tr>
                                                 ) : rows.map(({ unit }) => (
@@ -1106,7 +1225,7 @@ export default function BedLayoutExplorer() {
                             </div>
                             {pagedUnits.length === 0 && (!!search.trim() || status !== 'all') && (
                                 <div style={{ padding: '36px 16px', textAlign: 'center', fontSize: 13, color: '#8290A5' }}>
-                                    No departments or units match this search.
+                                    No units match this search.
                                 </div>
                             )}
                         </div>
@@ -1132,12 +1251,33 @@ export default function BedLayoutExplorer() {
                                 <div style={{ width: 180 }}>
                                     <CustomSelect
                                         value={wardFilter}
-                                        onChange={value => { setWardFilter(value); setPage(1); }}
-                                        options={[
-                                            { label: 'All wards', value: 'all' },
-                                            ...wards.map(item => ({ label: item.name, value: item.id })),
-                                        ]}
+                                        onChange={value => {
+                                            const choices = [
+                                                { label: 'All wards', value: 'all' },
+                                                ...wards.map(item => ({ label: item.name, value: item.id })),
+                                            ];
+                                            const typed = value.trim().toLowerCase();
+                                            const match = choices.find(option => option.value === value || option.label.trim().toLowerCase() === typed);
+                                            setWardFilter(match ? match.value : value);
+                                            setPage(1);
+                                        }}
+                                        options={(() => {
+                                            const listed = [
+                                                { label: 'All wards', value: 'all' },
+                                                ...wards.map(item => ({ label: item.name, value: item.id })),
+                                            ];
+                                            const typed = wardFilter.trim();
+                                            if (typed && !listed.some(option => option.value === typed || option.label.trim().toLowerCase() === typed.toLowerCase())) {
+                                                return [{ label: typed, value: typed }, ...listed];
+                                            }
+                                            return listed;
+                                        })()}
+                                        allowCustom
+                                        customEntryTitle="Ward"
+                                        customEntryHint="Not listed? Type here, then Enter."
+                                        customPlaceholder="Type ward — Enter"
                                         style={{ height: 34, fontSize: 12.5, borderRadius: 8, border: '1px solid #E1E7EF' }}
+                                        maxH={240}
                                     />
                                 </div>
                             ) : undefined,
