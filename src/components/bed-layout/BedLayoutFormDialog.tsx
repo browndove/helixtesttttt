@@ -862,8 +862,8 @@ export default function BedLayoutFormDialog({
         </div>
     );
 
-    const sectionShell = (title: string, onRemove: (() => void) | null, children: React.ReactNode) => (
-        <div style={{ border: '1px solid #EDF1F6', borderRadius: 10, padding: 12, background: '#FBFCFE' }}>
+    const sectionShell = (key: string, title: string, onRemove: (() => void) | null, children: React.ReactNode) => (
+        <div key={key} style={{ border: '1px solid #EDF1F6', borderRadius: 10, padding: 12, background: '#FBFCFE' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
                 <span style={{ fontSize: 12, fontWeight: 700, color: '#344054' }}>{title}</span>
                 {onRemove && (
@@ -1104,6 +1104,7 @@ export default function BedLayoutFormDialog({
                     {kind === 'create' && level === 'block' && (
                         <div style={{ display: 'grid', gap: 10 }}>
                             {childFloors.map((floor, index) => sectionShell(
+                                `floor-${index}`,
                                 `Floor ${index + 1}`,
                                 () => setChildFloors(prev => prev.filter((_, i) => i !== index)),
                                 <div>
@@ -1131,6 +1132,7 @@ export default function BedLayoutFormDialog({
                     {kind === 'create' && level === 'floor' && (
                         <div style={{ display: 'grid', gap: 10 }}>
                             {childWards.map((draft, index) => sectionShell(
+                                `ward-${index}`,
                                 `Ward ${index + 1}`,
                                 () => setChildWards(prev => prev.filter((_, i) => i !== index)),
                                 wardFields(draft, next => setChildWards(prev => prev.map((item, i) => i === index ? next : item))),
@@ -1151,6 +1153,7 @@ export default function BedLayoutFormDialog({
                     {kind === 'create' && level === 'ward' && (
                         <div style={{ display: 'grid', gap: 10 }}>
                             {childRooms.map((draft, index) => sectionShell(
+                                `room-${index}`,
                                 `Room ${index + 1}`,
                                 () => setChildRooms(prev => prev.filter((_, i) => i !== index)),
                                 roomFields(draft, next => setChildRooms(prev => prev.map((item, i) => i === index ? next : item))),
@@ -1171,6 +1174,7 @@ export default function BedLayoutFormDialog({
                     {kind === 'create' && (level === 'room' || level === 'bed') && (
                         <div style={{ display: 'grid', gap: 10 }}>
                             {childBeds.map((draft, index) => sectionShell(
+                                `bed-${index}`,
                                 `Bed ${index + (level === 'bed' ? 2 : 1)}`,
                                 () => setChildBeds(prev => prev.filter((_, i) => i !== index)),
                                 bedFields(draft, next => setChildBeds(prev => prev.map((item, i) => i === index ? next : item))),

@@ -225,8 +225,11 @@ export function parseRoom(raw: unknown): Room | null {
     if (!raw || typeof raw !== 'object') return null;
     const rec = raw as Record<string, unknown>;
     const id = str(rec.id);
-    const number = str(rec.number ?? rec.room_number);
+    // The rooms table stores the cubicle number in `name`. The API returns that as `number`.
+    // Older payloads only have `name`. `label` is not a room field.
+    const number = str(rec.number ?? rec.room_number) || str(rec.name);
     if (!id || !number) return null;
+    const displayName = str(rec.name);
     const beds = parseBeds(rec.beds);
     return {
         id,
@@ -235,7 +238,7 @@ export function parseRoom(raw: unknown): Room | null {
         ...(optionalStr(rec.floor_name) ? { floor_name: str(rec.floor_name) } : {}),
         ...(optionalStr(rec.block_name) ? { block_name: str(rec.block_name) } : {}),
         number,
-        ...(optionalStr(rec.name) ? { name: str(rec.name) } : {}),
+        ...(displayName && displayName !== number ? { name: displayName } : {}),
         sort_order: int(rec.sort_order),
         ...(optionalStr(rec.updated_at) ? { updated_at: str(rec.updated_at) } : {}),
         beds,
