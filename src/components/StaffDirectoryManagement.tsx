@@ -2382,9 +2382,6 @@ export default function StaffDirectoryManagement() {
                                         autoComplete="tel"
                                         style={{ fontSize: 12 }}
                                     />
-                                    <div style={{ marginTop: 4, fontSize: 10.5, color: 'var(--text-muted)' }}>
-                                        They confirm this number by SMS when they set up their account.
-                                    </div>
                                 </div>
                                 <div>
                                     <label className="label">DOB</label>

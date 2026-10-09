@@ -1,12 +1,12 @@
 import SetupAccountStepper from '@/components/SetupAccountStepper';
 import { redirect } from 'next/navigation';
 
-type SetupStep = 'info' | 'phone' | 'security';
+type SetupStep = 'info' | 'security';
 
 function normalizeStepFromSearch(raw: string | string[] | undefined): SetupStep {
     const v = Array.isArray(raw) ? raw[0] : raw;
     const s = String(v || '').toLowerCase();
-    if (s === 'phone' || s === 'security') return s;
+    if (s === 'security' || s === 'phone') return 'security';
     return 'info';
 }
 
