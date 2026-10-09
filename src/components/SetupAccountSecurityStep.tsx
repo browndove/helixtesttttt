@@ -20,11 +20,10 @@ type SetupAccountSecurityStepProps = {
     loading: boolean;
     error: string;
     stepIndex: number;
+    stepCount?: number;
     onBack: () => void;
     onSubmit: () => void;
 };
-
-const STEP_COUNT = 2;
 
 export default function SetupAccountSecurityStep({
     password,
@@ -42,6 +41,7 @@ export default function SetupAccountSecurityStep({
     loading,
     error,
     stepIndex,
+    stepCount = 3,
     onBack,
     onSubmit,
 }: SetupAccountSecurityStepProps) {
@@ -153,7 +153,7 @@ export default function SetupAccountSecurityStep({
             ) : null}
 
             <div className="setup-dot-progress" aria-hidden>
-                {Array.from({ length: STEP_COUNT }, (_, idx) => (
+                {Array.from({ length: stepCount }, (_, idx) => (
                     <span
                         key={idx}
                         className={[

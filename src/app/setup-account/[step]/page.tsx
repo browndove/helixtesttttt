@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation';
 
-const VALID_STEPS = new Set(['info', 'security']);
+const VALID_STEPS = new Set(['info', 'phone', 'security']);
 
 /** Legacy `/setup-account/:step` URLs → `/setup-account?step=…` (omit step for info). */
 export default async function LegacySetupAccountStepRedirect({
@@ -17,7 +17,7 @@ export default async function LegacySetupAccountStepRedirect({
         else if (typeof value === 'string') sp.set(key, value);
     });
     sp.delete('step');
-    const normalizedStep = step === 'phone' ? 'security' : step;
+    const normalizedStep = step;
     if (VALID_STEPS.has(normalizedStep) && normalizedStep !== 'info') {
         sp.set('step', normalizedStep);
     }

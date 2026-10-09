@@ -1,15 +1,21 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useMemo, useState, type CSSProperties } from 'react';
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { useRouter } from 'next/navigation';
 import { API_ENDPOINTS } from '@/lib/config';
 import { SETUP_ACCOUNT_MOBILE_CSS } from '@/components/setupAccountMobileStyles';
+import SetupAccountPhoneStep from '@/components/SetupAccountPhoneStep';
 import SetupAccountSecurityStep from '@/components/SetupAccountSecurityStep';
+import {
+    PHONE_COUNTRIES,
+    formatPhoneByCountry,
+    getPhoneCountryByCode,
+    isValidPhoneByCountry,
+    splitPhoneForCountryInput,
+} from '@/lib/phone';
 
-type SetupStep = 'info' | 'security';
-
-const STEP_ORDER: SetupStep[] = ['info', 'security'];
+type SetupStep = 'info' | 'phone' | 'security';
 
 function setupApiMessage(data: Record<string, unknown>): string {
     return String(data.message || data.detail || data.error || '').trim() || 'Request failed';
@@ -100,23 +106,63 @@ export default function SetupAccountStepper({ token, step }: { token: string; st
     const [lastName, setLastName] = useState('');
     const [middleName, setMiddleName] = useState('');
     const [email, setEmail] = useState('');
+    const [phoneCountry, setPhoneCountry] = useState('GH');
+    const [phoneLocal, setPhoneLocal] = useState('');
+    const [phoneVerified, setPhoneVerified] = useState(false);
+    const [verifiedPhoneE164, setVerifiedPhoneE164] = useState('');
+    const [smsOtp, setSmsOtp] = useState('');
+    const [otpCooldownSeconds, setOtpCooldownSeconds] = useState(0);
+    const [requestingSmsOtp, setRequestingSmsOtp] = useState(false);
+    const [verifyingSmsOtp, setVerifyingSmsOtp] = useState(false);
+    const [otpCodeSent, setOtpCodeSent] = useState(false);
     const [password, setPassword] = useState('');
     const [confirmPassword, setConfirmPassword] = useState('');
     const [showPassword, setShowPassword] = useState(false);
     const [showConfirmPassword, setShowConfirmPassword] = useState(false);
     const [loading, setLoading] = useState(false);
-    const [prefillLoading, setPrefillLoading] = useState(false);
+    const [prefillLoading, setPrefillLoading] = useState(Boolean(token));
     const [error, setError] = useState('');
     const [success, setSuccess] = useState('');
     const [completed, setCompleted] = useState(false);
     const [facilityCode, setFacilityCode] = useState('');
     const [isAdminPasswordReset, setIsAdminPasswordReset] = useState(false);
     const [isRemoteWipeRecovery, setIsRemoteWipeRecovery] = useState(false);
+    const phoneLocalRef = useRef('');
+    phoneLocalRef.current = phoneLocal;
 
+    const countryOptions = useMemo(
+        () => PHONE_COUNTRIES.map(c => ({ label: c.label, value: c.code })),
+        [],
+    );
+    const countryDialOptions = useMemo(
+        () => PHONE_COUNTRIES.map(c => ({
+            label: c.label,
+            triggerLabel: c.dialCode,
+            value: c.code,
+        })),
+        [],
+    );
+    const accountCountryMeta = useMemo(() => getPhoneCountryByCode(phoneCountry), [phoneCountry]);
+    const formattedPhone = useMemo(
+        () => formatPhoneByCountry(phoneLocal, phoneCountry),
+        [phoneLocal, phoneCountry],
+    );
     const identityReady = useMemo(
         () => Boolean(firstName.trim()) && Boolean(lastName.trim()),
         [firstName, lastName]
     );
+    const phoneReady = useMemo(() => {
+        if (!phoneLocal.trim()) return false;
+        return isValidPhoneByCountry(formattedPhone, phoneCountry);
+    }, [phoneLocal, formattedPhone, phoneCountry]);
+    const phoneVerifiedForSubmit = useMemo(
+        () => phoneVerified && verifiedPhoneE164 !== '' && verifiedPhoneE164 === formattedPhone,
+        [phoneVerified, verifiedPhoneE164, formattedPhone],
+    );
+    const skipPhoneVerification = isAdminPasswordReset || isRemoteWipeRecovery;
+    const stepOrder: SetupStep[] = skipPhoneVerification
+        ? ['info', 'security']
+        : ['info', 'phone', 'security'];
     const passwordChecks = [
         { id: 'length', label: 'At least 8 characters', met: password.length >= 8 },
         { id: 'upper', label: 'At least one uppercase letter (A-Z)', met: /[A-Z]/.test(password) },
@@ -141,6 +187,11 @@ export default function SetupAccountStepper({ token, step }: { token: string; st
                 if (typeof data.last_name === 'string') setLastName(data.last_name);
                 if (typeof data.middle_name === 'string') setMiddleName(data.middle_name);
                 if (typeof data.email === 'string') setEmail(data.email.trim());
+                if (typeof data.phone === 'string' && data.phone.trim() && !phoneLocalRef.current.trim()) {
+                    const split = splitPhoneForCountryInput(data.phone);
+                    setPhoneCountry(split.countryCode);
+                    setPhoneLocal(split.local);
+                }
                 setIsRemoteWipeRecovery(inferRemoteWipeRecovery(rec, token));
                 setIsAdminPasswordReset(inferAdminPasswordReset(rec, token));
                 const codeFromApi = extractFacilityCode(data);
@@ -166,6 +217,10 @@ export default function SetupAccountStepper({ token, step }: { token: string; st
             if (typeof saved.lastName === 'string' && saved.lastName.trim()) setLastName(saved.lastName);
             if (typeof saved.middleName === 'string') setMiddleName(saved.middleName);
             if (typeof saved.email === 'string' && saved.email.trim()) setEmail(saved.email);
+            if (typeof saved.phoneCountry === 'string' && saved.phoneCountry.trim()) setPhoneCountry(saved.phoneCountry);
+            if (typeof saved.phoneLocal === 'string') setPhoneLocal(saved.phoneLocal);
+            if (saved.phoneVerified === true) setPhoneVerified(true);
+            if (typeof saved.verifiedPhoneE164 === 'string') setVerifiedPhoneE164(saved.verifiedPhoneE164);
         } catch {
             // Ignore invalid persisted data.
         }
@@ -175,12 +230,120 @@ export default function SetupAccountStepper({ token, step }: { token: string; st
         if (!token) return;
         window.sessionStorage.setItem(
             `setup-account:${token}`,
-            JSON.stringify({ firstName, lastName, middleName, email }),
+            JSON.stringify({
+                firstName,
+                lastName,
+                middleName,
+                email,
+                phoneCountry,
+                phoneLocal,
+                phoneVerified,
+                verifiedPhoneE164,
+            }),
         );
-    }, [token, firstName, lastName, middleName, email]);
+    }, [token, firstName, lastName, middleName, email, phoneCountry, phoneLocal, phoneVerified, verifiedPhoneE164]);
+
+    useEffect(() => {
+        if (otpCooldownSeconds <= 0) return;
+        const timer = window.setTimeout(() => setOtpCooldownSeconds(seconds => seconds - 1), 1000);
+        return () => window.clearTimeout(timer);
+    }, [otpCooldownSeconds]);
+
+    useEffect(() => {
+        if (verifiedPhoneE164 && formattedPhone !== verifiedPhoneE164) {
+            setPhoneVerified(false);
+            setVerifiedPhoneE164('');
+            setSmsOtp('');
+            setOtpCodeSent(false);
+        }
+    }, [formattedPhone, verifiedPhoneE164]);
 
     const moveStep = (next: SetupStep) => {
         router.push(buildStepHref(next, token));
+    };
+
+    useEffect(() => {
+        if (!token || prefillLoading) return;
+        if (skipPhoneVerification && step === 'phone') {
+            moveStep('security');
+            return;
+        }
+        if (!skipPhoneVerification && step === 'security' && !phoneVerifiedForSubmit) {
+            moveStep('phone');
+        }
+    }, [token, prefillLoading, skipPhoneVerification, step, phoneVerifiedForSubmit]);
+
+    const handleRequestSetupSmsOtp = async () => {
+        setError('');
+        if (!token) {
+            setError('Open this page from the setup link in your invitation email, then try again.');
+            return;
+        }
+        if (!phoneReady) {
+            setError(
+                !phoneLocal.trim()
+                    ? 'Enter your phone number before requesting a code.'
+                    : `Enter a valid number for ${accountCountryMeta.label} (${accountCountryMeta.dialCode} + ${accountCountryMeta.digits} digits).`,
+            );
+            return;
+        }
+        setRequestingSmsOtp(true);
+        try {
+            const res = await fetch(API_ENDPOINTS.SETUP_PHONE_REQUEST_OTP, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ token, phone: formattedPhone }),
+            });
+            const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+            if (res.status === 429 || res.ok) setOtpCooldownSeconds(60);
+            if (!res.ok) {
+                setError(setupApiMessage(data));
+                return;
+            }
+            setPhoneVerified(false);
+            setVerifiedPhoneE164('');
+            setSmsOtp('');
+            setOtpCodeSent(true);
+        } catch {
+            setError('Network error. Please try again.');
+        } finally {
+            setRequestingSmsOtp(false);
+        }
+    };
+
+    const handleVerifySetupSmsOtp = async () => {
+        setError('');
+        const code = smsOtp.replace(/\D/g, '').slice(0, 6);
+        if (code.length !== 6) {
+            setError('Enter the 6-digit code from your SMS.');
+            return;
+        }
+        if (!token || !phoneReady) return;
+        setVerifyingSmsOtp(true);
+        try {
+            const res = await fetch(API_ENDPOINTS.SETUP_PHONE_VERIFY, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ token, phone: formattedPhone, otp: code }),
+            });
+            const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+            if (!res.ok) {
+                setError(setupApiMessage(data));
+                return;
+            }
+            setPhoneVerified(true);
+            setVerifiedPhoneE164(formattedPhone);
+        } catch {
+            setError('Network error. Please try again.');
+        } finally {
+            setVerifyingSmsOtp(false);
+        }
+    };
+
+    const handleEditPhoneNumber = () => {
+        setOtpCodeSent(false);
+        setSmsOtp('');
+        setError('');
     };
 
     const handleSubmit = async () => {
@@ -193,6 +356,11 @@ export default function SetupAccountStepper({ token, step }: { token: string; st
         if (!identityReady) {
             setError('Your invitation details are still loading or missing. Reopen the link from your email, or go back to the profile step.');
             if (step === 'security' && !prefillLoading) moveStep('info');
+            return;
+        }
+        if (!skipPhoneVerification && (!phoneReady || !phoneVerifiedForSubmit)) {
+            setError('Verify your phone number first using the SMS code.');
+            if (!prefillLoading) moveStep('phone');
             return;
         }
         if (!password.trim()) {
@@ -216,6 +384,7 @@ export default function SetupAccountStepper({ token, step }: { token: string; st
                     first_name: firstName.trim(),
                     ...(middleName.trim() ? { middle_name: middleName.trim() } : {}),
                     last_name: lastName.trim(),
+                    ...(!skipPhoneVerification ? { phone: formattedPhone } : {}),
                     password,
                     token,
                 }),
@@ -237,8 +406,8 @@ export default function SetupAccountStepper({ token, step }: { token: string; st
         }
     };
 
-    const stepIndex = STEP_ORDER.indexOf(step);
-    const isCleanFlowStep = step === 'security';
+    const stepIndex = Math.max(stepOrder.indexOf(step), 0);
+    const isCleanFlowStep = step === 'phone' || step === 'security';
     const profileReady = Boolean(token) && identityReady;
     const alertBox: CSSProperties = { padding: '8px 10px', borderRadius: 8, fontSize: 12, marginBottom: 10 };
     const shellRootStyle: CSSProperties = {
@@ -392,11 +561,11 @@ export default function SetupAccountStepper({ token, step }: { token: string; st
                         <p style={{ marginTop: 22, fontSize: 13, lineHeight: 1.6, color: '#c5d0e3', maxWidth: 360 }}>
                             {isAdminPasswordReset
                                 ? 'Your administrator sent a secure link so you can set a new password and sign in again.'
-                                : 'Complete your account in two quick steps: confirm your profile and set a secure password.'}
+                                : 'Complete your account in three steps: confirm your profile, verify your phone, and set a secure password.'}
                         </p>
                         <ol className="setup-aside-steps" aria-label="Setup progress">
-                            {STEP_ORDER.map((item, idx) => {
-                                const labels = { info: 'Profile', security: 'Password' } as const;
+                            {stepOrder.map((item, idx) => {
+                                const labels = { info: 'Profile', phone: 'Phone', security: 'Password' } as const;
                                 return (
                                     <li
                                         key={item}
@@ -421,7 +590,9 @@ export default function SetupAccountStepper({ token, step }: { token: string; st
                     className={
                         step === 'security'
                             ? 'setup-step-right setup-step-right--security'
-                            : 'setup-step-right'
+                            : step === 'phone'
+                              ? 'setup-step-right setup-step-right--phone'
+                              : 'setup-step-right'
                     }
                     style={rightColumnStyle}
                 >
@@ -439,13 +610,13 @@ export default function SetupAccountStepper({ token, step }: { token: string; st
                         >
                             {isCleanFlowStep ? (
                                 <p className="setup-desktop-step-label">
-                                    Step {stepIndex + 1} of {STEP_ORDER.length}
+                                    Step {stepIndex + 1} of {stepOrder.length}
                                 </p>
                             ) : null}
                             {!isCleanFlowStep && (
                             <header style={{ textAlign: 'center', marginBottom: 22 }}>
                                 <p style={{ fontSize: 9, fontWeight: 600, letterSpacing: '0.14em', color: '#7A8A9E', margin: '0 0 4px' }}>
-                                    STEP {stepIndex + 1} OF {STEP_ORDER.length}
+                                    STEP {stepIndex + 1} OF {stepOrder.length}
                                 </p>
                                 <h2 style={{ fontSize: 'clamp(1.1rem, 2.8vw + 0.5rem, 1.5rem)', fontWeight: 800, color: '#0B1E3B', margin: 0, letterSpacing: '-0.03em', lineHeight: 1.2 }}>
                                     Set up account
@@ -457,13 +628,15 @@ export default function SetupAccountStepper({ token, step }: { token: string; st
                                 className={
                                     step === 'security'
                                         ? 'setup-step-card setup-step-card--security'
-                                        : 'setup-step-card'
+                                        : step === 'phone'
+                                          ? 'setup-step-card setup-step-card--phone'
+                                          : 'setup-step-card'
                                 }
                                 style={isCleanFlowStep ? undefined : cardSurface}
                             >
                                 {!isCleanFlowStep && (
-                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6, marginBottom: 14 }}>
-                                    {STEP_ORDER.map((item, idx) => (
+                                <div style={{ display: 'grid', gridTemplateColumns: `repeat(${stepOrder.length}, 1fr)`, gap: 6, marginBottom: 14 }}>
+                                    {stepOrder.map((item, idx) => (
                                         <div
                                             key={item}
                                             style={{
@@ -530,12 +703,40 @@ export default function SetupAccountStepper({ token, step }: { token: string; st
                             className="btn btn-primary"
                             type="button"
                             style={{ ...primaryButtonStyle, width: '100%', marginTop: 16 }}
-                            onClick={() => moveStep('security')}
+                            onClick={() => moveStep(skipPhoneVerification ? 'security' : 'phone')}
                             disabled={!identityReady || !token}
                         >
-                            Continue to password
+                            {skipPhoneVerification ? 'Continue to password' : 'Continue to phone verification'}
                         </button>
                     </>
+                )}
+
+                {!completed && step === 'phone' && !skipPhoneVerification && (
+                    <SetupAccountPhoneStep
+                        stepIndex={stepIndex}
+                        phoneCountry={phoneCountry}
+                        phoneLocal={phoneLocal}
+                        formattedPhone={formattedPhone}
+                        countryOptions={countryOptions}
+                        countryDialOptions={countryDialOptions}
+                        phoneDigits={accountCountryMeta.digits}
+                        onPhoneCountryChange={setPhoneCountry}
+                        onPhoneLocalChange={setPhoneLocal}
+                        smsOtp={smsOtp}
+                        onOtpChange={setSmsOtp}
+                        otpCodeSent={otpCodeSent}
+                        phoneVerifiedForSubmit={phoneVerifiedForSubmit}
+                        phoneReady={phoneReady}
+                        requestingSmsOtp={requestingSmsOtp}
+                        verifyingSmsOtp={verifyingSmsOtp}
+                        otpCooldownSeconds={otpCooldownSeconds}
+                        error={error || undefined}
+                        onBack={() => moveStep('info')}
+                        onSendCode={() => { void handleRequestSetupSmsOtp(); }}
+                        onVerifyOtp={() => { void handleVerifySetupSmsOtp(); }}
+                        onEditNumber={handleEditPhoneNumber}
+                        onContinue={() => moveStep('security')}
+                    />
                 )}
 
                 {!completed && step === 'security' && (
@@ -555,13 +756,14 @@ export default function SetupAccountStepper({ token, step }: { token: string; st
                         loading={loading}
                         error={error}
                         stepIndex={stepIndex}
-                        onBack={() => moveStep('info')}
+                        stepCount={stepOrder.length}
+                        onBack={() => moveStep(skipPhoneVerification ? 'info' : 'phone')}
                         onSubmit={() => { void handleSubmit(); }}
                     />
                 )}
 
 
-                {!completed && step !== 'security' && (
+                {!completed && step !== 'security' && step !== 'phone' && (
                     <p style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 8, marginBottom: 0, textAlign: 'center' }}>
                         Link expires in 48 hours.
                     </p>

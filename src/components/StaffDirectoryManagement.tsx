@@ -28,6 +28,7 @@ import {
     readHelixFacilityIdFromDocument,
     resolveClientFacilityId,
 } from '@/lib/facility-client';
+import { formatGhanaPhoneInput, isValidGhanaPhone } from '@/lib/phone';
 
 const STAFF_PAGE_CACHE_TTL_MS = 120_000;
 const STAFF_CACHE_LIST = STAFF_CACHE_LIST_KEY;
@@ -1077,6 +1078,7 @@ export default function StaffDirectoryManagement() {
     const [newMiddleName, setNewMiddleName] = useState('');
     const [newLastName, setNewLastName] = useState('');
     const [newEmail, setNewEmail] = useState('');
+    const [newPhone, setNewPhone] = useState('');
     const [newDob, setNewDob] = useState('');
     const [newGender, setNewGender] = useState('');
     /** Maps to API `additional_title` (e.g. Dr, Prof). */
@@ -1250,10 +1252,13 @@ export default function StaffDirectoryManagement() {
         return m;
     }, [deptIdToName]);
 
+    const phoneForCreate = formatGhanaPhoneInput(newPhone);
+    const phoneIsValid = isValidGhanaPhone(phoneForCreate);
     const isAddFormComplete = useMemo(() => (
         Boolean(newFirstName.trim())
         && Boolean(newLastName.trim())
         && Boolean(newEmail.trim())
+        && phoneIsValid
         && Boolean(newGender.trim())
         && Boolean(newHighestQualification.trim())
         && Boolean(newDept.trim())
@@ -1261,6 +1266,7 @@ export default function StaffDirectoryManagement() {
         newFirstName,
         newLastName,
         newEmail,
+        phoneIsValid,
         newDob,
         newGender,
         newHighestQualification,
@@ -1272,6 +1278,8 @@ export default function StaffDirectoryManagement() {
         if (!newFirstName.trim()) missing.push('First name');
         if (!newLastName.trim()) missing.push('Last name');
         if (!newEmail.trim()) missing.push('Email');
+        if (!newPhone.trim() || newPhone.trim() === '+233') missing.push('Phone number');
+        else if (!phoneIsValid) missing.push('a valid phone number (+233 and 9 digits)');
         if (!newGender.trim()) missing.push('Gender');
         if (!newHighestQualification.trim()) missing.push('Highest qualification');
         if (!newDept.trim()) missing.push('Department');
@@ -1280,6 +1288,8 @@ export default function StaffDirectoryManagement() {
         newFirstName,
         newLastName,
         newEmail,
+        newPhone,
+        phoneIsValid,
         newDob,
         newGender,
         newHighestQualification,
@@ -1718,6 +1728,7 @@ export default function StaffDirectoryManagement() {
                     middle_name: newMiddleName.trim() || undefined,
                     last_name: newLastName.trim(),
                     email: newEmail.trim(),
+                    phone: phoneForCreate,
                     dob: newDob.trim() || undefined,
                     gender: newGender.trim() || undefined,
                     title: newRole.trim() || undefined,
@@ -1759,7 +1770,7 @@ export default function StaffDirectoryManagement() {
                 patient_access: newPatientAccess,
                 is_scheduler: newIsScheduler,
                 role: 'staff',
-                phone: '',
+                phone: phoneForCreate,
                 dob: newDob.trim(),
                 gender: newGender.trim(),
             };
@@ -1774,6 +1785,7 @@ export default function StaffDirectoryManagement() {
                     additional_title: created.additional_title || newCreationTitle.trim() || undefined,
                     dob: created.dob || newDob.trim(),
                     gender: created.gender || newGender.trim(),
+                    phone: created.phone || phoneForCreate,
                     is_doctor: created.is_doctor ?? derivedIsDoctor,
                     patient_access: created.patient_access ?? newPatientAccess,
                     is_scheduler: created.is_scheduler ?? newIsScheduler,
@@ -1786,6 +1798,7 @@ export default function StaffDirectoryManagement() {
             setNewMiddleName('');
             setNewLastName('');
             setNewEmail('');
+            setNewPhone('');
             setNewDob('');
             setNewGender('');
             setNewCreationTitle('');
@@ -2358,6 +2371,21 @@ export default function StaffDirectoryManagement() {
                                 <div><label className="label">Middle Name (Optional)</label><input className="input" value={newMiddleName} onChange={e => setNewMiddleName(e.target.value)} placeholder="Middle name" style={{ fontSize: 12 }} /></div>
                                 <div><label className="label">Last Name *</label><input className="input" value={newLastName} onChange={e => setNewLastName(e.target.value)} placeholder="Last name" style={{ fontSize: 12 }} /></div>
                                 <div><label className="label">Email *</label><input className="input" value={newEmail} onChange={e => setNewEmail(e.target.value)} placeholder="Email address" style={{ fontSize: 12 }} /></div>
+                                <div>
+                                    <label className="label">Phone *</label>
+                                    <input
+                                        className="input"
+                                        value={newPhone}
+                                        onChange={e => setNewPhone(formatGhanaPhoneInput(e.target.value))}
+                                        placeholder="+233201234567"
+                                        inputMode="tel"
+                                        autoComplete="tel"
+                                        style={{ fontSize: 12 }}
+                                    />
+                                    <div style={{ marginTop: 4, fontSize: 10.5, color: 'var(--text-muted)' }}>
+                                        They confirm this number by SMS when they set up their account.
+                                    </div>
+                                </div>
                                 <div>
                                     <label className="label">DOB</label>
                                     <DatePicker value={newDob} onChange={setNewDob} placeholder="Select DOB" />
