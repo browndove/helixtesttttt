@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { API_BASE_URL } from '@/lib/config';
+import { isInternalAdminPayload, decodeJwtPayload } from '@/lib/session-token';
 
 const INTERNAL_SESSION_COOKIE = 'helix-internal-session';
 
@@ -26,14 +27,8 @@ function isInternalRole(payload: unknown): boolean {
 }
 
 function isInternalRoleFromToken(token: string): boolean {
-    try {
-        const parts = token.split('.');
-        if (parts.length !== 3) return false;
-        const payload = JSON.parse(atob(parts[1]!)) as Record<string, unknown>;
-        return isInternalRole(payload);
-    } catch {
-        return false;
-    }
+    const payload = decodeJwtPayload(token);
+    return payload ? isInternalAdminPayload(payload) : false;
 }
 
 function extractAccessToken(payload: unknown): string {

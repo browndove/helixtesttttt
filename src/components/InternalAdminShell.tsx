@@ -164,11 +164,55 @@ export default function InternalAdminShell({
     const [openNavGroup, setOpenNavGroup] = useState<string | null>(null);
     const navGroups = includeExternalLinks ? NAV_GROUPS : NAV_GROUPS.filter((group) => group.id === 'internal');
 
-    const logoutInternal = async () => {
-        await fetch(API_ENDPOINTS.INTERNAL_EXIT_ACT_AS, { method: 'POST', credentials: 'include' }).catch(() => null);
-        await fetch(API_ENDPOINTS.LOGOUT, { method: 'POST', credentials: 'include' }).catch(() => null);
+    const leaveInternalSession = () => {
         if (typeof window !== 'undefined') window.location.assign('/internal/login');
         else router.replace('/internal/login');
+    };
+
+    useEffect(() => {
+        let cancelled = false;
+        let timer = 0;
+
+        const checkInternalSession = async () => {
+            try {
+                const res = await fetch(API_ENDPOINTS.INTERNAL_SESSION, {
+                    credentials: 'include',
+                    cache: 'no-store',
+                });
+                if (cancelled) return;
+                if (!res.ok) {
+                    window.location.assign('/internal/login');
+                    return;
+                }
+                const data = await res.json().catch(() => ({})) as { expires_at?: unknown };
+                const expiresAt = typeof data.expires_at === 'number' ? data.expires_at : null;
+                const remaining = expiresAt == null ? 60_000 : expiresAt - Date.now();
+                if (remaining <= 0) {
+                    window.location.assign('/internal/login');
+                    return;
+                }
+                window.clearTimeout(timer);
+                timer = window.setTimeout(() => { void checkInternalSession(); }, Math.min(remaining, 60_000) + 250);
+            } catch {
+                // A network blip should not sign an internal admin out.
+            }
+        };
+
+        void checkInternalSession();
+        const onVisible = () => {
+            if (document.visibilityState === 'visible') void checkInternalSession();
+        };
+        document.addEventListener('visibilitychange', onVisible);
+        return () => {
+            cancelled = true;
+            window.clearTimeout(timer);
+            document.removeEventListener('visibilitychange', onVisible);
+        };
+    }, []);
+
+    const logoutInternal = async () => {
+        await fetch(API_ENDPOINTS.INTERNAL_SESSION, { method: 'POST', credentials: 'include' }).catch(() => null);
+        leaveInternalSession();
     };
 
     const sidebarLayout = !includeExternalLinks;

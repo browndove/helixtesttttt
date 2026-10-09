@@ -6,6 +6,7 @@ export const API_ENDPOINTS = {
   ADMIN_LOGIN: `/api/proxy/auth/admin/login`,
   INTERNAL_LOGIN: `/api/proxy/auth/internal/login`,
   INTERNAL_VERIFY_OTP: `/api/proxy/auth/internal/verify-otp`,
+  INTERNAL_SESSION: `/api/proxy/auth/internal/session`,
   LOGOUT: `/api/proxy/auth/logout`,
   CHANGE_PASSWORD: `/api/proxy/auth/change-password`,
   RENEW: `/api/proxy/auth/renew`,
