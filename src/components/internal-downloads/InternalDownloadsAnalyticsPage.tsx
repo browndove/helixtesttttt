@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, lazy, Suspense, useEffect, useMemo } from 'react';
+import { useState, lazy, Suspense, useEffect, useMemo, useRef } from 'react';
 import InternalAdminShell from '@/components/InternalAdminShell';
 import { filterDownloadAnalyticsByRange, downloadAnalyticsAllTimeRange, type DownloadAnalyticsData } from '@/lib/download-analytics-mock';
 import DownloadsComingSoon from '@/components/internal-downloads/DownloadsComingSoon';
@@ -52,37 +52,62 @@ function InternalDownloadsAnalyticsContent() {
     const [downloadData, setDownloadData] = useState<DownloadAnalyticsData | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+    const loadSeq = useRef(0);
 
     const fetchAnalytics = async () => {
+        const seq = ++loadSeq.current;
         setError(null);
         if (!downloadData) setLoading(true);
-        try {
-            const res = await fetch(`/api/proxy/internal/download-analytics?days=${FETCH_DAYS}`, { cache: 'no-store' });
-            const data = await res.json() as {
-                analytics?: DownloadAnalyticsData;
-                error?: string;
-                missing?: string[];
-                env?: Record<string, boolean>;
-            };
-            if (!res.ok || !data.analytics) {
-                const missing = Array.isArray(data.missing) && data.missing.length > 0
-                    ? `\n${data.missing.map((m) => `• ${m}`).join('\n')}`
-                    : '';
-                const envHint = data.env
-                    ? `\nEnv present: ${Object.entries(data.env).map(([k, v]) => `${k}=${v ? 'yes' : 'no'}`).join(', ')}`
-                    : '';
-                throw new Error(`${data.error || 'Failed to load live download analytics'}.${missing}${envHint}`);
+        let lastMessage = 'Failed to load live download analytics';
+        for (let attempt = 0; attempt < 4; attempt += 1) {
+            if (attempt > 0) await new Promise((resolve) => setTimeout(resolve, 2000));
+            if (seq !== loadSeq.current) return;
+            try {
+                const res = await fetch(`/api/proxy/internal/download-analytics?days=${FETCH_DAYS}`, { cache: 'no-store' });
+                if (seq !== loadSeq.current) return;
+                const raw = await res.text();
+                if (!raw.trim()) {
+                    throw new Error(res.status === 504
+                        ? 'The analytics request timed out before a response arrived. Retry.'
+                        : 'Unexpected end of JSON input');
+                }
+                let data: {
+                    analytics?: DownloadAnalyticsData;
+                    error?: string;
+                    missing?: string[];
+                    env?: Record<string, boolean>;
+                };
+                try {
+                    data = JSON.parse(raw) as typeof data;
+                } catch {
+                    throw new Error('Unexpected end of JSON input');
+                }
+                if (!res.ok || !data.analytics) {
+                    const missing = Array.isArray(data.missing) && data.missing.length > 0
+                        ? `\n${data.missing.map((m) => `• ${m}`).join('\n')}`
+                        : '';
+                    const envHint = data.env
+                        ? `\nEnv present: ${Object.entries(data.env).map(([k, v]) => `${k}=${v ? 'yes' : 'no'}`).join(', ')}`
+                        : '';
+                    throw new Error(`${data.error || 'Failed to load live download analytics'}.${missing}${envHint}`);
+                }
+                if (seq !== loadSeq.current) return;
+                const range = downloadAnalyticsAllTimeRange(data.analytics);
+                setDownloadData(data.analytics);
+                setDateFrom(range.from);
+                setDateTo(range.to);
+                setLoading(false);
+                return;
+            } catch (err) {
+                lastMessage = err instanceof Error ? err.message : 'Failed to load live download analytics';
+                const retryable = attempt < 3 && /unexpected end of json|empty|incomplete|timed out/i.test(lastMessage);
+                if (!retryable) break;
             }
-            const range = downloadAnalyticsAllTimeRange(data.analytics);
-            setDownloadData(data.analytics);
-            setDateFrom(range.from);
-            setDateTo(range.to);
-        } catch (err) {
-            setError(err instanceof Error ? err.message : 'Failed to load live download analytics');
-            setDownloadData(null);
-        } finally {
-            setLoading(false);
         }
+        if (seq !== loadSeq.current) return;
+        setError(lastMessage);
+        setDownloadData(null);
+        setLoading(false);
     };
 
     useEffect(() => {

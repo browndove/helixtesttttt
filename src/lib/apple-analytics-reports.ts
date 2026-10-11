@@ -15,7 +15,8 @@ const API = 'https://api.appstoreconnect.apple.com/v1';
 const CACHE_TTL_MS = 60 * 60 * 1000;
 const MAX_INSTANCES_PER_REPORT = 90;
 /** Cap parallel Apple GETs so a full-catalog sync does not trip rate limits. */
-const REPORT_DOWNLOAD_CONCURRENCY = 6;
+const REPORT_DOWNLOAD_CONCURRENCY = 8;
+const INSTANCE_DOWNLOAD_CONCURRENCY = 8;
 
 type ReportRow = Record<string, string>;
 type ReportKind = 'discovery' | 'downloads' | 'sessions' | 'crashes' | 'installs' | 'installs_detailed' | 'optin' | 'retention' | 'other';
@@ -198,7 +199,13 @@ function dayBucket(daily: Map<string, StoreDailyPoint>, day: string): StoreDaily
 async function jsonGet<T>(url: string, token: string): Promise<T | null> {
     const res = await fetch(url, { headers: authHeaders(token), cache: 'no-store' });
     if (!res.ok) return null;
-    return res.json() as Promise<T>;
+    const text = await res.text();
+    if (!text.trim()) return null;
+    try {
+        return JSON.parse(text) as T;
+    } catch {
+        return null;
+    }
 }
 
 type AnalyticsAccessType = 'ONGOING' | 'ONE_TIME_SNAPSHOT';
@@ -237,8 +244,14 @@ async function ensureReportRequest(
         console.warn(`[apple-analytics-reports] could not create ${accessType} request:`, res.status, details.slice(0, 200));
         return existing?.data?.[0]?.id || null;
     }
-    const created = await res.json() as { data?: { id?: string } };
-    return created.data?.id || null;
+    const text = await res.text();
+    if (!text.trim()) return existing?.data?.[0]?.id || null;
+    try {
+        const created = JSON.parse(text) as { data?: { id?: string } };
+        return created.data?.id || existing?.data?.[0]?.id || null;
+    } catch {
+        return existing?.data?.[0]?.id || null;
+    }
 }
 
 async function downloadSegmentRows(url: string): Promise<ReportRow[]> {
@@ -266,34 +279,27 @@ async function rowsForReport(
     const allInstances = instJson?.data || [];
     const instances = allInstances
         .filter((i) => !i.attributes?.granularity || i.attributes.granularity === 'DAILY')
+        .filter((i) => {
+            if (options?.ignoreProcessingCutoff) return true;
+            const proc = String(i.attributes?.processingDate || '');
+            return !proc || proc >= cutoff;
+        })
         .sort((a, b) => String(b.attributes?.processingDate || '').localeCompare(String(a.attributes?.processingDate || '')))
         .slice(0, MAX_INSTANCES_PER_REPORT);
 
-    const collected: ReportRow[] = [];
-    for (const instance of instances) {
-        const proc = String(instance.attributes?.processingDate || '');
-        if (!options?.ignoreProcessingCutoff && proc && proc < cutoff) continue;
+    const batches = await mapPool(instances, INSTANCE_DOWNLOAD_CONCURRENCY, async (instance) => {
         const segJson = await jsonGet<{ data?: Array<{ attributes?: { url?: string } }> }>(
             `${API}/analyticsReportInstances/${instance.id}/segments?limit=20`,
             token,
         );
         const segments = segJson?.data || [];
-        for (const segment of segments) {
+        const parts = await Promise.all(segments.map(async (segment) => {
             const url = segment.attributes?.url;
-            if (!url) continue;
-            const rows = await downloadSegmentRows(url);
-            collected.push(...rows);
-        }
-        const headers = collected[0] ? Object.keys(collected[0]) : [];
-        const dateHeader = firstHeader(headers, [/^date$/, /begin.?date/, /processing.?date/]);
-        if (dateHeader && !options?.ignoreProcessingCutoff && collected.length > 0) {
-            const dates = collected.map((r) => normalizeDay(r[dateHeader])).filter(Boolean).sort();
-            if (dates[0] && dates[0] <= cutoff && dates.at(-1)) {
-                break;
-            }
-        }
-    }
-    return { rows: collected, instanceCount: allInstances.length };
+            return url ? downloadSegmentRows(url) : [];
+        }));
+        return parts.flat();
+    });
+    return { rows: batches.flat(), instanceCount: allInstances.length };
 }
 
 function rowDay(row: ReportRow): string {
@@ -349,8 +355,13 @@ async function downloadAllReports(
         const category = String(report.attributes?.category || '');
         const kind = classifyReport(name);
         try {
+            // Framework and other unused reports stay in the inventory by name.
+            // Downloading their daily files pushes the request past the host timeout.
+            if (kind === 'other') {
+                return { name, category, kind, access, rows: [] as ReportRow[], instanceCount: 0 };
+            }
             const { rows, instanceCount } = await rowsForReport(token, report.id, cutoff, { ignoreProcessingCutoff });
-            await persistDownloadedReport(appAppleId, access, name, rows);
+            void persistDownloadedReport(appAppleId, access, name, rows);
             return { name, category, kind, access, rows, instanceCount };
         } catch (err) {
             console.warn('[apple-analytics-reports]', access, name, err instanceof Error ? err.message : err);

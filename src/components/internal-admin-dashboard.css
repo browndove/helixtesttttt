@@ -1831,6 +1831,26 @@
   box-shadow: 0 0 0 1px #0A4676;
 }
 
+.internal-dash__input--invalid {
+  border-color: #F04438;
+}
+
+.internal-dash__input--invalid:focus {
+  border-color: #F04438;
+  box-shadow: 0 0 0 1px #F04438;
+}
+
+.internal-edit-modal__input.internal-dash__input--invalid,
+.internal-edit-modal__input.internal-dash__input--invalid:focus {
+  border-bottom-color: #F04438;
+}
+
+.internal-dash__field-error {
+  font-size: 12px;
+  line-height: 1.35;
+  color: #B42318;
+}
+
 .internal-dash__search-wrap .internal-dash__input {
   padding-left: 2.25rem;
 }

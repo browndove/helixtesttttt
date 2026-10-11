@@ -1172,6 +1172,50 @@ export async function verifyGooglePlayAuth(): Promise<{ ok: true } | { ok: false
     }
 }
 
+type PlaySources = {
+    playByDay: Map<string, number>;
+    androidByRegion: Map<string, number>;
+    androidActive: number;
+    androidByVersion: Map<string, number>;
+    androidReviews: DownloadAnalyticsData['reviews'];
+    androidRating: number;
+    androidStore: StoreAnalytics | null;
+};
+
+let playSourcesInflight: { days: number; promise: Promise<PlaySources | null> } | null = null;
+
+function loadPlaySources(windowDays: number): Promise<PlaySources | null> {
+    if (!getGooglePlayConfig() && !hasLocalPlayReports()) return Promise.resolve(null);
+    if (playSourcesInflight?.days === windowDays) return playSourcesInflight.promise;
+    const promise = (async (): Promise<PlaySources | null> => {
+        try {
+            const [playByDay, androidByRegion, androidActive, androidByVersion, androidReviews, androidRating, androidStore] = await Promise.all([
+                fetchPlayDailyInstalls(windowDays),
+                fetchPlayRegionalInstalls(windowDays),
+                fetchPlayActiveDevices(windowDays).catch(() => 0),
+                fetchPlayVersionInstalls(windowDays).catch(() => new Map<string, number>()),
+                fetchPlayReviews().catch(() => [] as DownloadAnalyticsData['reviews']),
+                fetchPlayAverageRating(windowDays).catch(() => 0),
+                fetchPlayStoreAnalytics(windowDays).catch(() => null),
+            ]);
+            return { playByDay, androidByRegion, androidActive, androidByVersion, androidReviews, androidRating, androidStore };
+        } catch (err) {
+            console.error('[google-play-connect]', err instanceof Error ? err.message : err);
+            return null;
+        }
+    })();
+    playSourcesInflight = { days: windowDays, promise };
+    void promise.then((sources) => {
+        if (!sources && playSourcesInflight?.promise === promise) playSourcesInflight = null;
+    });
+    return promise;
+}
+
+/** Start Play report downloads so they overlap the App Store Connect fetch. */
+export function warmGooglePlayInstalls(windowDays: number) {
+    void loadPlaySources(windowDays);
+}
+
 export async function mergeGooglePlayInstalls(
     analytics: DownloadAnalyticsData,
     windowDays: number,
@@ -1181,15 +1225,9 @@ export async function mergeGooglePlayInstalls(
     }
 
     try {
-        const [playByDay, androidByRegion, androidActive, androidByVersion, androidReviews, androidRating, androidStore] = await Promise.all([
-            fetchPlayDailyInstalls(windowDays),
-            fetchPlayRegionalInstalls(windowDays),
-            fetchPlayActiveDevices(windowDays).catch(() => 0),
-            fetchPlayVersionInstalls(windowDays).catch(() => new Map<string, number>()),
-            fetchPlayReviews().catch(() => [] as DownloadAnalyticsData['reviews']),
-            fetchPlayAverageRating(windowDays).catch(() => 0),
-            fetchPlayStoreAnalytics(windowDays).catch(() => null),
-        ]);
+        const sources = await loadPlaySources(windowDays);
+        if (!sources) return analytics;
+        const { playByDay, androidByRegion, androidActive, androidByVersion, androidReviews, androidRating, androidStore } = sources;
 
         let merged = analytics;
         if (

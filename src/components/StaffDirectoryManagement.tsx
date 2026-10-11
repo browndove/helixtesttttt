@@ -1867,9 +1867,13 @@ export default function StaffDirectoryManagement() {
                 message?: string;
                 error?: string;
                 reason?: string;
+                status?: string;
+                code?: number;
             };
-            if (!res.ok) {
-                showToast(data.message || data.error || data.reason || 'Could not send password reset email.', 'error');
+            const apiMessage = data.message || data.error || data.reason || '';
+            const rejected = !res.ok || data.status === 'error' || (typeof data.code === 'number' && data.code >= 400);
+            if (rejected) {
+                showToast(apiMessage || 'Could not send password reset email.', 'error');
                 return;
             }
             showToast(

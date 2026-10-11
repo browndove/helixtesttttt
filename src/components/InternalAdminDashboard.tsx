@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { API_ENDPOINTS } from '@/lib/config';
+import { districtsInRegion, GHANA_REGIONS } from '@/lib/ghana-admin-areas';
 import { primeClientFacilityId } from '@/lib/facility-client';
 import { MacVibrancyToast, MacVibrancyToastPortal } from '@/components/MacVibrancyToast';
 import InternalAdminShell from '@/components/InternalAdminShell';
@@ -80,6 +81,107 @@ const EMPTY_FACILITY_FORM = {
 
 type FacilityForm = typeof EMPTY_FACILITY_FORM;
 
+const EMAIL_FIELDS: { key: keyof FacilityForm; label: string }[] = [
+    { key: 'email', label: 'Facility email' },
+    { key: 'admin_email', label: 'Admin email' },
+    { key: 'primary_contact_email', label: 'Primary contact email' },
+];
+
+const PHONE_FIELDS: { key: keyof FacilityForm; label: string }[] = [
+    { key: 'contact_phone', label: 'Contact phone' },
+    { key: 'emergency_contact', label: 'Emergency contact' },
+    { key: 'primary_contact_phone', label: 'Primary contact phone' },
+];
+
+const PHONE_KEYS = PHONE_FIELDS.map((field) => field.key);
+
+type FieldErrors = Partial<Record<keyof FacilityForm, string>>;
+type TouchedFields = Partial<Record<keyof FacilityForm, boolean>>;
+
+/** A phone number typed into an email field, with or without an @domain. */
+function phoneUsedAsEmail(value: string): boolean {
+    const trimmed = value.trim();
+    if (!trimmed) return false;
+    const compact = trimmed.replace(/[\s().-]/g, '');
+    if (/^\+?\d{8,15}$/.test(compact)) return true;
+    const local = trimmed.split('@')[0] || '';
+    const localDigits = local.replace(/[^\d]/g, '');
+    return localDigits.length >= 8 && localDigits.length <= 15 && /^[+\d\s().-]+$/.test(local);
+}
+
+function emailFieldError(label: string, value: string): string | null {
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    if (phoneUsedAsEmail(trimmed)) {
+        return `${label} has to be an email address. A phone number can't be used there.`;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) {
+        return `Enter a valid email for ${label.toLowerCase()}.`;
+    }
+    return null;
+}
+
+function phoneFieldError(label: string, value: string): string | null {
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    if (trimmed.includes('@') || /[a-z]/i.test(trimmed)) {
+        return `${label} has to be a phone number. An email address can't be used there.`;
+    }
+    const compact = trimmed.replace(/[\s().-]/g, '');
+    if (!/^\+?\d{8,15}$/.test(compact)) {
+        return `${label} must be 8–15 digits, like +233301234567.`;
+    }
+    return null;
+}
+
+function facilityFieldErrors(form: FacilityForm): FieldErrors {
+    const errors: FieldErrors = {};
+    for (const field of EMAIL_FIELDS) {
+        const message = emailFieldError(field.label, String(form[field.key] || ''));
+        if (message) errors[field.key] = message;
+    }
+    for (const field of PHONE_FIELDS) {
+        const message = phoneFieldError(field.label, String(form[field.key] || ''));
+        if (message) errors[field.key] = message;
+    }
+    return errors;
+}
+
+function firstFieldError(errors: FieldErrors): string | null {
+    for (const field of [...EMAIL_FIELDS, ...PHONE_FIELDS]) {
+        const message = errors[field.key];
+        if (message) return message;
+    }
+    return null;
+}
+
+/** Keep a stored value that is not in the catalog so an existing facility can still be edited. */
+function areaOptions(values: readonly string[], current: string, emptyLabel: string) {
+    const options = [{ label: emptyLabel, value: '' }, ...values.map((value) => ({ label: value, value }))];
+    const trimmed = current.trim();
+    if (trimmed && !values.includes(trimmed)) {
+        return [options[0], { label: trimmed, value: trimmed }, ...options.slice(1)];
+    }
+    return options;
+}
+
+function withRegion(prev: FacilityForm, region: string): FacilityForm {
+    if (region === prev.region) return prev;
+    const allowed = districtsInRegion(region);
+    return {
+        ...prev,
+        region,
+        district: allowed.includes(prev.district) ? prev.district : '',
+    };
+}
+
+/** Sanitise a phone string into E.164: strip non-digits, ensure leading +. */
+function toE164(raw: string): string {
+    const digits = raw.replace(/[^\d]/g, '');
+    if (!digits) return '';
+    return `+${digits}`;
+}
+
 function parseFacilityForm(raw: unknown, fallback?: FacilityRow | null): FacilityForm {
     const rec = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
     const source = (rec.data && typeof rec.data === 'object' ? rec.data : rec) as Record<string, unknown>;
@@ -109,13 +211,14 @@ function parseFacilityForm(raw: unknown, fallback?: FacilityRow | null): Facilit
 
 /* ── Shared field row ─────────────────────────────────────── */
 
-function Field({ label, required, children }: { label: string; required?: boolean; children: React.ReactNode }) {
+function Field({ label, required, error, children }: { label: string; required?: boolean; error?: string; children: React.ReactNode }) {
     return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             <label style={{ fontSize: 13, fontWeight: 500, color: '#333', margin: 0 }}>
                 {label}{required && <span style={{ color: '#e00', marginLeft: 2 }}>*</span>}
             </label>
             {children}
+            {error ? <span className="internal-dash__field-error" role="alert">{error}</span> : null}
         </div>
     );
 }
@@ -133,8 +236,10 @@ export default function InternalAdminDashboard() {
     const [showCreate, setShowCreate] = useState(false);
     const [creating, setCreating] = useState(false);
     const [form, setForm] = useState<FacilityForm>({ ...EMPTY_FACILITY_FORM });
+    const [createTouched, setCreateTouched] = useState<TouchedFields>({});
     const [editingFacility, setEditingFacility] = useState<FacilityRow | null>(null);
     const [editForm, setEditForm] = useState<FacilityForm>({ ...EMPTY_FACILITY_FORM });
+    const [editTouched, setEditTouched] = useState<TouchedFields>({});
     const [savingEdit, setSavingEdit] = useState(false);
     const [loadingEdit, setLoadingEdit] = useState(false);
     const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -218,26 +323,36 @@ export default function InternalAdminDashboard() {
 
     /* ── Create facility ──────────────────────────────────── */
 
-    /** Sanitise a phone string into E.164: strip non-digits, ensure leading +. */
-    const toE164 = (raw: string): string => {
-        const digits = raw.replace(/[^\d]/g, '');
-        if (!digits) return '';
-        return `+${digits}`;
-    };
-
-    const PHONE_KEYS: (keyof FacilityForm)[] = ['contact_phone', 'emergency_contact', 'primary_contact_phone'];
-
     const setField = <K extends keyof FacilityForm>(key: K, value: FacilityForm[K]) =>
         setForm((prev) => ({ ...prev, [key]: value }));
 
+    const markCreateTouched = (key: keyof FacilityForm) =>
+        setCreateTouched((prev) => ({ ...prev, [key]: true }));
+
+    const markEditTouched = (key: keyof FacilityForm) =>
+        setEditTouched((prev) => ({ ...prev, [key]: true }));
+
+    const revealFieldErrors = (
+        errors: FieldErrors,
+        setTouched: React.Dispatch<React.SetStateAction<TouchedFields>>,
+    ) => {
+        setTouched((prev) => {
+            const next = { ...prev };
+            for (const key of Object.keys(errors) as (keyof FacilityForm)[]) next[key] = true;
+            return next;
+        });
+    };
+
     const openCreateModal = () => {
         setForm({ ...EMPTY_FACILITY_FORM });
+        setCreateTouched({});
         setShowCreate(true);
     };
 
     const closeCreateModal = () => {
         if (creating) return;
         setShowCreate(false);
+        setCreateTouched({});
     };
 
     const setEditField = <K extends keyof FacilityForm>(key: K, value: FacilityForm[K]) =>
@@ -246,6 +361,7 @@ export default function InternalAdminDashboard() {
     const openEditModal = async (facility: FacilityRow) => {
         setEditingFacility(facility);
         setEditForm(parseFacilityForm(facility, facility));
+        setEditTouched({});
         setLoadingEdit(true);
         try {
             const res = await fetch(API_ENDPOINTS.INTERNAL_FACILITY(facility.id), {
@@ -266,6 +382,7 @@ export default function InternalAdminDashboard() {
         if (savingEdit) return;
         setEditingFacility(null);
         setEditForm({ ...EMPTY_FACILITY_FORM });
+        setEditTouched({});
         setLoadingEdit(false);
     };
 
@@ -274,19 +391,20 @@ export default function InternalAdminDashboard() {
             showToast('Facility name and code are required.', 'error');
             return;
         }
+        const fieldErrors = facilityFieldErrors(form);
+        const fieldError = firstFieldError(fieldErrors);
+        if (fieldError) {
+            revealFieldErrors(fieldErrors, setCreateTouched);
+            showToast(fieldError, 'error');
+            return;
+        }
         setCreating(true);
         try {
             const payload: Record<string, unknown> = {};
             for (const [k, v] of Object.entries(form)) {
                 if (typeof v === 'string' && !v.trim()) continue;
-                // Sanitise phone fields to E.164
                 if (PHONE_KEYS.includes(k as keyof FacilityForm) && typeof v === 'string') {
                     const cleaned = toE164(v);
-                    if (cleaned && (cleaned.length < 9 || cleaned.length > 16)) {
-                        showToast(`Phone number "${v}" must be 8–15 digits in E.164 format (e.g. +233301234567).`, 'error');
-                        setCreating(false);
-                        return;
-                    }
                     if (cleaned) payload[k] = cleaned;
                     continue;
                 }
@@ -322,6 +440,13 @@ export default function InternalAdminDashboard() {
             showToast('Facility name and code are required.', 'error');
             return;
         }
+        const fieldErrors = facilityFieldErrors(editForm);
+        const fieldError = firstFieldError(fieldErrors);
+        if (fieldError) {
+            revealFieldErrors(fieldErrors, setEditTouched);
+            showToast(fieldError, 'error');
+            return;
+        }
 
         setSavingEdit(true);
         try {
@@ -330,11 +455,6 @@ export default function InternalAdminDashboard() {
                 if (typeof v === 'string' && !v.trim()) continue;
                 if (PHONE_KEYS.includes(k as keyof FacilityForm) && typeof v === 'string') {
                     const cleaned = toE164(v);
-                    if (cleaned && (cleaned.length < 9 || cleaned.length > 16)) {
-                        showToast(`Phone number "${v}" must be 8–15 digits in E.164 format (e.g. +233301234567).`, 'error');
-                        setSavingEdit(false);
-                        return;
-                    }
                     if (cleaned) payload[k] = cleaned;
                     continue;
                 }
@@ -466,13 +586,26 @@ export default function InternalAdminDashboard() {
                                     <input className="internal-dash__input" placeholder="City" value={form.city} onChange={(e) => setField('city', e.target.value)} />
                                 </Field>
                                 <Field label="Region">
-                                    <input className="internal-dash__input" placeholder="Region" value={form.region} onChange={(e) => setField('region', e.target.value)} />
+                                    <CustomSelect
+                                        value={form.region}
+                                        onChange={(region) => setForm((prev) => withRegion(prev, region))}
+                                        options={areaOptions(GHANA_REGIONS, form.region, 'Select a region')}
+                                        placeholder="Select a region"
+                                        searchPlaceholder="Search regions"
+                                    />
                                 </Field>
                                 <Field label="Zone">
                                     <input className="internal-dash__input" placeholder="Zone (optional)" value={form.zone} onChange={(e) => setField('zone', e.target.value)} />
                                 </Field>
                                 <Field label="District">
-                                    <input className="internal-dash__input" placeholder="District (optional)" value={form.district} onChange={(e) => setField('district', e.target.value)} />
+                                    <CustomSelect
+                                        value={form.district}
+                                        onChange={(district) => setField('district', district)}
+                                        options={areaOptions(districtsInRegion(form.region), form.district, form.region ? 'Select a district' : 'Select a region first')}
+                                        placeholder={form.region ? 'Select a district' : 'Select a region first'}
+                                        searchPlaceholder="Search districts"
+                                        disabled={!form.region}
+                                    />
                                 </Field>
                                 <Field label="Facility Type">
                                     <CustomSelect
@@ -482,17 +615,17 @@ export default function InternalAdminDashboard() {
                                         placeholder="Select type (optional)"
                                     />
                                 </Field>
-                                <Field label="Facility Email">
-                                    <input className="internal-dash__input" type="email" placeholder="info@hospital.org" value={form.email} onChange={(e) => setField('email', e.target.value)} />
+                                <Field label="Facility Email" error={createTouched.email ? emailFieldError('Facility email', form.email) || undefined : undefined}>
+                                    <input className={`internal-dash__input${createTouched.email && emailFieldError('Facility email', form.email) ? ' internal-dash__input--invalid' : ''}`} type="email" inputMode="email" placeholder="info@hospital.org" value={form.email} onChange={(e) => setField('email', e.target.value)} onBlur={() => markCreateTouched('email')} />
                                 </Field>
-                                <Field label="Contact Phone">
-                                    <input className="internal-dash__input" type="tel" placeholder="+233301234567" value={form.contact_phone} onChange={(e) => setField('contact_phone', e.target.value)} onBlur={() => { const v = toE164(form.contact_phone); if (v) setField('contact_phone', v); }} />
+                                <Field label="Contact Phone" error={createTouched.contact_phone ? phoneFieldError('Contact phone', form.contact_phone) || undefined : undefined}>
+                                    <input className={`internal-dash__input${createTouched.contact_phone && phoneFieldError('Contact phone', form.contact_phone) ? ' internal-dash__input--invalid' : ''}`} type="tel" inputMode="tel" placeholder="+233301234567" value={form.contact_phone} onChange={(e) => setField('contact_phone', e.target.value)} onBlur={(e) => { markCreateTouched('contact_phone'); const raw = e.currentTarget.value; if (!phoneFieldError('Contact phone', raw)) { const next = toE164(raw); if (next) setField('contact_phone', next); } }} />
                                 </Field>
-                                <Field label="Emergency Contact">
-                                    <input className="internal-dash__input" type="tel" placeholder="+233244555911" value={form.emergency_contact} onChange={(e) => setField('emergency_contact', e.target.value)} onBlur={() => { const v = toE164(form.emergency_contact); if (v) setField('emergency_contact', v); }} />
+                                <Field label="Emergency Contact" error={createTouched.emergency_contact ? phoneFieldError('Emergency contact', form.emergency_contact) || undefined : undefined}>
+                                    <input className={`internal-dash__input${createTouched.emergency_contact && phoneFieldError('Emergency contact', form.emergency_contact) ? ' internal-dash__input--invalid' : ''}`} type="tel" inputMode="tel" placeholder="+233244555911" value={form.emergency_contact} onChange={(e) => setField('emergency_contact', e.target.value)} onBlur={(e) => { markCreateTouched('emergency_contact'); const raw = e.currentTarget.value; if (!phoneFieldError('Emergency contact', raw)) { const next = toE164(raw); if (next) setField('emergency_contact', next); } }} />
                                 </Field>
-                                <Field label="Admin Email">
-                                    <input className="internal-dash__input" type="email" placeholder="admin@hospital.org" value={form.admin_email} onChange={(e) => setField('admin_email', e.target.value)} />
+                                <Field label="Admin Email" error={createTouched.admin_email ? emailFieldError('Admin email', form.admin_email) || undefined : undefined}>
+                                    <input className={`internal-dash__input${createTouched.admin_email && emailFieldError('Admin email', form.admin_email) ? ' internal-dash__input--invalid' : ''}`} type="email" inputMode="email" placeholder="admin@hospital.org" value={form.admin_email} onChange={(e) => setField('admin_email', e.target.value)} onBlur={() => markCreateTouched('admin_email')} />
                                 </Field>
                             </div>
 
@@ -509,11 +642,11 @@ export default function InternalAdminDashboard() {
                                 <Field label="Last Name">
                                     <input className="internal-dash__input" placeholder="Last name" value={form.primary_contact_last_name} onChange={(e) => setField('primary_contact_last_name', e.target.value)} />
                                 </Field>
-                                <Field label="Email">
-                                    <input className="internal-dash__input" type="email" placeholder="contact@hospital.org" value={form.primary_contact_email} onChange={(e) => setField('primary_contact_email', e.target.value)} />
+                                <Field label="Email" error={createTouched.primary_contact_email ? emailFieldError('Primary contact email', form.primary_contact_email) || undefined : undefined}>
+                                    <input className={`internal-dash__input${createTouched.primary_contact_email && emailFieldError('Primary contact email', form.primary_contact_email) ? ' internal-dash__input--invalid' : ''}`} type="email" inputMode="email" placeholder="contact@hospital.org" value={form.primary_contact_email} onChange={(e) => setField('primary_contact_email', e.target.value)} onBlur={() => markCreateTouched('primary_contact_email')} />
                                 </Field>
-                                <Field label="Phone">
-                                    <input className="internal-dash__input" type="tel" placeholder="+233201234567" value={form.primary_contact_phone} onChange={(e) => setField('primary_contact_phone', e.target.value)} onBlur={() => { const v = toE164(form.primary_contact_phone); if (v) setField('primary_contact_phone', v); }} />
+                                <Field label="Phone" error={createTouched.primary_contact_phone ? phoneFieldError('Primary contact phone', form.primary_contact_phone) || undefined : undefined}>
+                                    <input className={`internal-dash__input${createTouched.primary_contact_phone && phoneFieldError('Primary contact phone', form.primary_contact_phone) ? ' internal-dash__input--invalid' : ''}`} type="tel" inputMode="tel" placeholder="+233201234567" value={form.primary_contact_phone} onChange={(e) => setField('primary_contact_phone', e.target.value)} onBlur={(e) => { markCreateTouched('primary_contact_phone'); const raw = e.currentTarget.value; if (!phoneFieldError('Primary contact phone', raw)) { const next = toE164(raw); if (next) setField('primary_contact_phone', next); } }} />
                                 </Field>
                             </div>
 
@@ -604,9 +737,28 @@ export default function InternalAdminDashboard() {
                                         <div className="internal-edit-modal__field"><label>Code *</label><input className="internal-edit-modal__input" value={editForm.code} onChange={(e) => setEditField('code', e.target.value.toUpperCase())} style={{ textTransform: 'uppercase' }} /></div>
                                         <div className="internal-edit-modal__field"><label>Address</label><input className="internal-edit-modal__input" value={editForm.address} onChange={(e) => setEditField('address', e.target.value)} /></div>
                                         <div className="internal-edit-modal__field"><label>City</label><input className="internal-edit-modal__input" value={editForm.city} onChange={(e) => setEditField('city', e.target.value)} /></div>
-                                        <div className="internal-edit-modal__field"><label>Region</label><input className="internal-edit-modal__input" value={editForm.region} onChange={(e) => setEditField('region', e.target.value)} /></div>
+                                        <div className="internal-edit-modal__field">
+                                            <label>Region</label>
+                                            <CustomSelect
+                                                value={editForm.region}
+                                                onChange={(region) => setEditForm((prev) => withRegion(prev, region))}
+                                                options={areaOptions(GHANA_REGIONS, editForm.region, 'Select a region')}
+                                                placeholder="Select a region"
+                                                searchPlaceholder="Search regions"
+                                            />
+                                        </div>
                                         <div className="internal-edit-modal__field"><label>Zone</label><input className="internal-edit-modal__input" placeholder="Optional" value={editForm.zone} onChange={(e) => setEditField('zone', e.target.value)} /></div>
-                                        <div className="internal-edit-modal__field"><label>District</label><input className="internal-edit-modal__input" placeholder="Optional" value={editForm.district} onChange={(e) => setEditField('district', e.target.value)} /></div>
+                                        <div className="internal-edit-modal__field">
+                                            <label>District</label>
+                                            <CustomSelect
+                                                value={editForm.district}
+                                                onChange={(district) => setEditField('district', district)}
+                                                options={areaOptions(districtsInRegion(editForm.region), editForm.district, editForm.region ? 'Select a district' : 'Select a region first')}
+                                                placeholder={editForm.region ? 'Select a district' : 'Select a region first'}
+                                                searchPlaceholder="Search districts"
+                                                disabled={!editForm.region}
+                                            />
+                                        </div>
                                         <div className="internal-edit-modal__field">
                                             <label>Facility Type</label>
                                             <CustomSelect
@@ -616,10 +768,26 @@ export default function InternalAdminDashboard() {
                                                 placeholder="Select type (optional)"
                                             />
                                         </div>
-                                        <div className="internal-edit-modal__field"><label>Facility Email</label><input className="internal-edit-modal__input" type="email" value={editForm.email} onChange={(e) => setEditField('email', e.target.value)} /></div>
-                                        <div className="internal-edit-modal__field"><label>Contact Phone</label><input className="internal-edit-modal__input" type="tel" value={editForm.contact_phone} onChange={(e) => setEditField('contact_phone', e.target.value)} onBlur={() => { const v = toE164(editForm.contact_phone); if (v) setEditField('contact_phone', v); }} /></div>
-                                        <div className="internal-edit-modal__field"><label>Emergency Contact</label><input className="internal-edit-modal__input" type="tel" value={editForm.emergency_contact} onChange={(e) => setEditField('emergency_contact', e.target.value)} onBlur={() => { const v = toE164(editForm.emergency_contact); if (v) setEditField('emergency_contact', v); }} /></div>
-                                        <div className="internal-edit-modal__field"><label>Admin Email</label><input className="internal-edit-modal__input" type="email" value={editForm.admin_email} onChange={(e) => setEditField('admin_email', e.target.value)} /></div>
+                                        <div className="internal-edit-modal__field">
+                                            <label>Facility Email</label>
+                                            <input className={`internal-edit-modal__input${editTouched.email && emailFieldError('Facility email', editForm.email) ? ' internal-dash__input--invalid' : ''}`} type="email" inputMode="email" value={editForm.email} onChange={(e) => setEditField('email', e.target.value)} onBlur={() => markEditTouched('email')} />
+                                            {editTouched.email && emailFieldError('Facility email', editForm.email) ? <span className="internal-dash__field-error" role="alert">{emailFieldError('Facility email', editForm.email)}</span> : null}
+                                        </div>
+                                        <div className="internal-edit-modal__field">
+                                            <label>Contact Phone</label>
+                                            <input className={`internal-edit-modal__input${editTouched.contact_phone && phoneFieldError('Contact phone', editForm.contact_phone) ? ' internal-dash__input--invalid' : ''}`} type="tel" inputMode="tel" value={editForm.contact_phone} onChange={(e) => setEditField('contact_phone', e.target.value)} onBlur={(e) => { markEditTouched('contact_phone'); const raw = e.currentTarget.value; if (!phoneFieldError('Contact phone', raw)) { const next = toE164(raw); if (next) setEditField('contact_phone', next); } }} />
+                                            {editTouched.contact_phone && phoneFieldError('Contact phone', editForm.contact_phone) ? <span className="internal-dash__field-error" role="alert">{phoneFieldError('Contact phone', editForm.contact_phone)}</span> : null}
+                                        </div>
+                                        <div className="internal-edit-modal__field">
+                                            <label>Emergency Contact</label>
+                                            <input className={`internal-edit-modal__input${editTouched.emergency_contact && phoneFieldError('Emergency contact', editForm.emergency_contact) ? ' internal-dash__input--invalid' : ''}`} type="tel" inputMode="tel" value={editForm.emergency_contact} onChange={(e) => setEditField('emergency_contact', e.target.value)} onBlur={(e) => { markEditTouched('emergency_contact'); const raw = e.currentTarget.value; if (!phoneFieldError('Emergency contact', raw)) { const next = toE164(raw); if (next) setEditField('emergency_contact', next); } }} />
+                                            {editTouched.emergency_contact && phoneFieldError('Emergency contact', editForm.emergency_contact) ? <span className="internal-dash__field-error" role="alert">{phoneFieldError('Emergency contact', editForm.emergency_contact)}</span> : null}
+                                        </div>
+                                        <div className="internal-edit-modal__field">
+                                            <label>Admin Email</label>
+                                            <input className={`internal-edit-modal__input${editTouched.admin_email && emailFieldError('Admin email', editForm.admin_email) ? ' internal-dash__input--invalid' : ''}`} type="email" inputMode="email" value={editForm.admin_email} onChange={(e) => setEditField('admin_email', e.target.value)} onBlur={() => markEditTouched('admin_email')} />
+                                            {editTouched.admin_email && emailFieldError('Admin email', editForm.admin_email) ? <span className="internal-dash__field-error" role="alert">{emailFieldError('Admin email', editForm.admin_email)}</span> : null}
+                                        </div>
                                     </div>
 
                                     <div style={{ height: 1, background: '#eaeaea', margin: '20px 0' }} />
@@ -627,8 +795,16 @@ export default function InternalAdminDashboard() {
                                     <div className="internal-edit-modal__grid">
                                         <div className="internal-edit-modal__field"><label>First Name</label><input className="internal-edit-modal__input" value={editForm.primary_contact_first_name} onChange={(e) => setEditField('primary_contact_first_name', e.target.value)} /></div>
                                         <div className="internal-edit-modal__field"><label>Last Name</label><input className="internal-edit-modal__input" value={editForm.primary_contact_last_name} onChange={(e) => setEditField('primary_contact_last_name', e.target.value)} /></div>
-                                        <div className="internal-edit-modal__field"><label>Email</label><input className="internal-edit-modal__input" type="email" value={editForm.primary_contact_email} onChange={(e) => setEditField('primary_contact_email', e.target.value)} /></div>
-                                        <div className="internal-edit-modal__field"><label>Phone</label><input className="internal-edit-modal__input" type="tel" value={editForm.primary_contact_phone} onChange={(e) => setEditField('primary_contact_phone', e.target.value)} onBlur={() => { const v = toE164(editForm.primary_contact_phone); if (v) setEditField('primary_contact_phone', v); }} /></div>
+                                        <div className="internal-edit-modal__field">
+                                            <label>Email</label>
+                                            <input className={`internal-edit-modal__input${editTouched.primary_contact_email && emailFieldError('Primary contact email', editForm.primary_contact_email) ? ' internal-dash__input--invalid' : ''}`} type="email" inputMode="email" value={editForm.primary_contact_email} onChange={(e) => setEditField('primary_contact_email', e.target.value)} onBlur={() => markEditTouched('primary_contact_email')} />
+                                            {editTouched.primary_contact_email && emailFieldError('Primary contact email', editForm.primary_contact_email) ? <span className="internal-dash__field-error" role="alert">{emailFieldError('Primary contact email', editForm.primary_contact_email)}</span> : null}
+                                        </div>
+                                        <div className="internal-edit-modal__field">
+                                            <label>Phone</label>
+                                            <input className={`internal-edit-modal__input${editTouched.primary_contact_phone && phoneFieldError('Primary contact phone', editForm.primary_contact_phone) ? ' internal-dash__input--invalid' : ''}`} type="tel" inputMode="tel" value={editForm.primary_contact_phone} onChange={(e) => setEditField('primary_contact_phone', e.target.value)} onBlur={(e) => { markEditTouched('primary_contact_phone'); const raw = e.currentTarget.value; if (!phoneFieldError('Primary contact phone', raw)) { const next = toE164(raw); if (next) setEditField('primary_contact_phone', next); } }} />
+                                            {editTouched.primary_contact_phone && phoneFieldError('Primary contact phone', editForm.primary_contact_phone) ? <span className="internal-dash__field-error" role="alert">{phoneFieldError('Primary contact phone', editForm.primary_contact_phone)}</span> : null}
+                                        </div>
                                     </div>
 
                                     <div style={{ height: 1, background: '#eaeaea', margin: '20px 0' }} />

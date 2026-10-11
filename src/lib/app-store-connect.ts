@@ -3,7 +3,7 @@ import { gunzipSync } from 'zlib';
 import { importPKCS8, SignJWT } from 'jose';
 import type { DownloadAnalyticsData } from '@/lib/download-analytics-mock';
 import { emptyDownloadAnalytics } from '@/lib/download-analytics-mock';
-import { mergeGooglePlayInstalls } from '@/lib/google-play-connect';
+import { mergeGooglePlayInstalls, warmGooglePlayInstalls } from '@/lib/google-play-connect';
 import { fetchIosStoreAnalytics } from '@/lib/apple-analytics-reports';
 import { normalizeCountryCode } from '@/lib/country-names';
 
@@ -251,13 +251,23 @@ function primaryAppleIdFromRows(rows: SalesRow[]): string | undefined {
     return [...counts.entries()].sort((a, b) => b[1] - a[1])[0][0];
 }
 
+async function readJson<T>(res: Response): Promise<T | null> {
+    const text = await res.text();
+    if (!text.trim()) return null;
+    try {
+        return JSON.parse(text) as T;
+    } catch {
+        return null;
+    }
+}
+
 async function fetchPublicStoreMeta(appAppleId: string): Promise<{ avgRating: number; reviewCount: number }> {
     const url = new URL('https://itunes.apple.com/lookup');
     url.searchParams.set('id', appAppleId);
     const res = await fetch(url.toString(), { cache: 'no-store' });
     if (!res.ok) throw new Error(`iTunes lookup failed (${res.status})`);
-    const data = await res.json() as { results?: Array<Record<string, unknown>> };
-    const app = Array.isArray(data.results) ? data.results[0] : undefined;
+    const data = await readJson<{ results?: Array<Record<string, unknown>> }>(res);
+    const app = Array.isArray(data?.results) ? data.results[0] : undefined;
     const avg = Number(app?.averageUserRating ?? app?.averageUserRatingForCurrentVersion ?? 0);
     const count = Number(app?.userRatingCount ?? app?.userRatingCountForCurrentVersion ?? 0);
     return {
@@ -271,8 +281,8 @@ async function lookupAppAppleIdByBundle(bundleId: string): Promise<string | unde
     url.searchParams.set('bundleId', bundleId);
     const res = await fetch(url.toString(), { cache: 'no-store' });
     if (!res.ok) return undefined;
-    const data = await res.json() as { results?: Array<Record<string, unknown>> };
-    const app = Array.isArray(data.results) ? data.results[0] : undefined;
+    const data = await readJson<{ results?: Array<Record<string, unknown>> }>(res);
+    const app = Array.isArray(data?.results) ? data?.results[0] : undefined;
     const trackId = String(app?.trackId || '').trim();
     return trackId || undefined;
 }
@@ -324,12 +334,12 @@ async function fetchPublicRecentReviews(appAppleId: string): Promise<PublicStore
             },
         });
         if (!res.ok) continue;
-        const data = await res.json() as {
+        const data = await readJson<{
             feed?: {
                 entry?: Array<Record<string, unknown>> | Record<string, unknown>;
             };
-        };
-        const reviews = parseRssReviewEntries(data.feed?.entry).slice(0, 5);
+        }>(res);
+        const reviews = parseRssReviewEntries(data?.feed?.entry).slice(0, 5);
         if (reviews.length > 0) return reviews;
     }
 
@@ -654,8 +664,8 @@ export async function verifyAppStoreConnectAuth(): Promise<{ ok: true; appCount:
             const details = await res.text();
             return { ok: false, error: `App Store Connect auth failed (${res.status}): ${details.slice(0, 300)}` };
         }
-        const payload = await res.json() as { data?: unknown[] };
-        return { ok: true, appCount: Array.isArray(payload.data) ? payload.data.length : 0 };
+        const payload = await readJson<{ data?: unknown[] }>(res);
+        return { ok: true, appCount: Array.isArray(payload?.data) ? payload.data.length : 0 };
     } catch (err) {
         return { ok: false, error: err instanceof Error ? err.message : 'Unknown auth error' };
     }
@@ -679,6 +689,7 @@ export async function fetchAppleDownloadAnalytics(windowDays = 90): Promise<Down
 }
 
 async function fetchAppleDownloadAnalyticsUncached(windowDays: number): Promise<DownloadAnalyticsData> {
+    warmGooglePlayInstalls(windowDays);
     const config = getAppStoreConnectConfig();
     if (!config) {
         throw new Error(getAppStoreConnectConfigErrors().join('; '));

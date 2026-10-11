@@ -160,6 +160,64 @@ function isListedFloor(name: string): boolean {
     return !isBackfill(name) && name.trim().toLowerCase() !== BUILDING_UNIT_FLOOR;
 }
 
+/**
+ * The blocks tree can leave a unit under Unassigned after its floor_id moves.
+ * Put each unit on the floor it actually belongs to, so a room on that unit
+ * shows up on that building and floor.
+ */
+function homeWardsOntoFloors(blocks: Block[], careUnits: CareUnit[]): Block[] {
+    const floorIds = new Set(blocks.flatMap(block => block.floors.map(floor => floor.id)));
+    const floorOfUnit = new Map(
+        careUnits.flatMap(unit => (
+            unit.floor_id && floorIds.has(unit.floor_id) ? [[unit.id, unit.floor_id] as const] : []
+        )),
+    );
+    const hiddenFloorIds = new Set(blocks.flatMap(block => block.floors
+        .filter(floor => !isListedFloor(floor.name))
+        .map(floor => floor.id)));
+    const wards = new Map<string, Ward>();
+    for (const block of blocks) {
+        for (const floor of block.floors) {
+            for (const ward of floor.wards) {
+                const fromUnit = floorOfUnit.get(ward.id) || '';
+                const fromWard = ward.floor_id && floorIds.has(ward.floor_id) ? ward.floor_id : '';
+                const listedExplicit = [fromUnit, fromWard].find(id => id && !hiddenFloorIds.has(id)) || '';
+                const nextFloor = listedExplicit || floor.id;
+                const current = wards.get(ward.id);
+                const nextIsHidden = hiddenFloorIds.has(nextFloor);
+                const currentIsHidden = current ? hiddenFloorIds.has(current.floor_id) : true;
+                if (!current || listedExplicit || (currentIsHidden && !nextIsHidden)) {
+                    wards.set(ward.id, { ...ward, floor_id: nextFloor });
+                }
+            }
+        }
+    }
+    for (const unit of careUnits) {
+        if (!unit.floor_id || !floorIds.has(unit.floor_id) || wards.has(unit.id)) continue;
+        wards.set(unit.id, {
+            id: unit.id,
+            floor_id: unit.floor_id,
+            name: unit.name,
+            ...(unit.department_id ? { department_id: unit.department_id } : {}),
+            ...(unit.type ? { type: unit.type } : {}),
+            room_count: 0,
+            sort_order: 0,
+            rooms: [],
+            bed_count: 0,
+            available_count: 0,
+            occupied_count: 0,
+            blocked_count: 0,
+        });
+    }
+    return blocks.map(block => ({
+        ...block,
+        floors: block.floors.map(floor => {
+            const onFloor = [...wards.values()].filter(ward => ward.floor_id === floor.id);
+            return { ...floor, wards: onFloor, ward_count: onFloor.length };
+        }),
+    }));
+}
+
 /** The Unassigned backfill floor comes back with every unit in the facility. Those are not its wards. */
 function wardsPlacedOnFloor(floor: Floor, careUnits: CareUnit[]): Ward[] {
     const placed = floor.wards.filter(ward => !ward.floor_id || ward.floor_id === floor.id);
@@ -552,9 +610,10 @@ export default function BedLayoutExplorer() {
                 setBlocks(SAMPLE_BLOCKS);
             } else {
                 setPreview(false);
-                setBlocks(parseBlocks(data));
                 const unitRes = await fetch(await appendFacilityIdForProxy(API_ENDPOINTS.UNITS), { credentials: 'include' });
-                setCareUnits(unitRes.ok ? parseCareUnits(await unitRes.json()) : []);
+                const units = unitRes.ok ? parseCareUnits(await unitRes.json()) : [];
+                setCareUnits(units);
+                setBlocks(homeWardsOntoFloors(parseBlocks(data), units));
             }
         } catch {
             setPreview(true);

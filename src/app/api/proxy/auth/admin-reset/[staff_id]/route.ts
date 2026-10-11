@@ -1,5 +1,5 @@
 import { getProxyHeaders } from '@/lib/proxy-auth';
-import { buildTenantUpstreamUrl } from '@/lib/proxy-upstream';
+import { buildTenantUpstreamUrl, mergeFacilityIntoBody } from '@/lib/proxy-upstream';
 import { NextRequest, NextResponse } from 'next/server';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3000';
@@ -19,11 +19,11 @@ export async function POST(
 
         if (upstream instanceof NextResponse) return upstream;
 
-        const { url } = upstream;
+        const { url, facilityId } = upstream;
         const res = await fetch(url, {
             method: 'POST',
             headers: getProxyHeaders(req),
-            body: JSON.stringify({}),
+            body: JSON.stringify(mergeFacilityIntoBody({}, facilityId)),
             signal: AbortSignal.timeout(20000),
         });
 

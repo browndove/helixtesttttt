@@ -13,6 +13,9 @@ import {
     verifyGooglePlayAuth,
 } from '@/lib/google-play-connect';
 
+export const dynamic = 'force-dynamic';
+export const maxDuration = 120;
+
 export async function GET(req: NextRequest) {
     try {
         const token = getInternalTokenFromCookie(req);
@@ -35,28 +38,39 @@ export async function GET(req: NextRequest) {
         }
 
         try {
-            const [auth, analytics, play] = await Promise.all([
-                verifyAppStoreConnectAuth(),
-                fetchAppleDownloadAnalytics(days),
-                getGooglePlayConfig()
-                    ? verifyGooglePlayAuth().then((authResult) => ({
-                        configured: true as const,
-                        missing: [] as string[],
-                        auth: authResult,
-                    }))
-                    : Promise.resolve({
-                        configured: false as const,
-                        missing: getGooglePlayConfigErrors(),
-                        auth: null as null,
-                    }),
-            ]);
-            return NextResponse.json({
-                source: analytics.total_downloads > 0 ? 'apple' : 'apple-empty',
-                configured: true,
-                auth,
-                play,
-                analytics,
-            });
+            let lastError: unknown;
+            for (let attempt = 0; attempt < 2; attempt += 1) {
+                try {
+                    const [auth, analytics, play] = await Promise.all([
+                        verifyAppStoreConnectAuth(),
+                        fetchAppleDownloadAnalytics(days),
+                        getGooglePlayConfig()
+                            ? verifyGooglePlayAuth().then((authResult) => ({
+                                configured: true as const,
+                                missing: [] as string[],
+                                auth: authResult,
+                            }))
+                            : Promise.resolve({
+                                configured: false as const,
+                                missing: getGooglePlayConfigErrors(),
+                                auth: null as null,
+                            }),
+                    ]);
+                    return NextResponse.json({
+                        source: analytics.total_downloads > 0 ? 'apple' : 'apple-empty',
+                        configured: true,
+                        auth,
+                        play,
+                        analytics,
+                    });
+                } catch (err) {
+                    lastError = err;
+                    const message = err instanceof Error ? err.message : '';
+                    if (attempt === 0 && /unexpected end of json input/i.test(message)) continue;
+                    throw err;
+                }
+            }
+            throw lastError instanceof Error ? lastError : new Error('Failed to load download analytics');
         } catch (err) {
             const message = err instanceof Error ? err.message : 'Unknown App Store Connect error';
             const auth = await verifyAppStoreConnectAuth().catch(() => null);

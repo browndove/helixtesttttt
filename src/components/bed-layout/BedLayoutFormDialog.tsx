@@ -12,7 +12,11 @@ import {
     WARD_TYPES,
     genderLabel,
     hierarchyApiMessage,
+    parseFloors,
+    parseRoom,
+    parseRooms,
     parseWard,
+    parseWards,
     wardTypeLabel,
     type Block,
     type Floor,
@@ -56,7 +60,6 @@ type WardDraft = {
     gender: string;
     departmentId: string;
 };
-type DeptOption = { id: string; name: string };
 type RoomDraft = { number: string; name: string };
 type BedDraft = { bed_number: string; bed_code: string; status: BedStatus };
 
@@ -74,7 +77,7 @@ function readCreatedId(raw: unknown): string {
     if (!raw || typeof raw !== 'object') return '';
     const rec = raw as Record<string, unknown>;
     if (typeof rec.id === 'string' && rec.id) return rec.id;
-    for (const key of ['room', 'data']) {
+    for (const key of ['room', 'data', 'unit', 'ward', 'department']) {
         const nested = rec[key];
         if (nested && typeof nested === 'object' && typeof (nested as Record<string, unknown>).id === 'string') {
             return (nested as Record<string, unknown>).id as string;
@@ -100,6 +103,24 @@ function matchedOption(value: string, options: { label: string; value: string }[
     return options.find(option => option.value === value || option.value.toLowerCase() === typed || option.label.trim().toLowerCase() === typed);
 }
 
+/** The facility keeps unit names unique, so a second floor stores the same label with a hidden mark. */
+function visibleUnitName(name: string): string {
+    return name.replace(/[\u200B\u200C\u200D\u2060\uFEFF]/g, '').trim();
+}
+
+function sameUnitName(a: string, b: string): boolean {
+    return visibleUnitName(a).toLowerCase() === visibleUnitName(b).toLowerCase();
+}
+
+function unitNameForFloor(name: string, floorId: string): string {
+    const visible = visibleUnitName(name);
+    let mark = '\u2060';
+    for (let i = 0; i < floorId.length; i += 1) {
+        mark += (floorId.charCodeAt(i) + i) % 2 === 0 ? '\u200B' : '\u200C';
+    }
+    return `${visible}${mark}`;
+}
+
 const LEVEL_TITLES: Record<LayoutLevel, { create: string; edit: string }> = {
     block: { create: 'Add building / block', edit: 'Edit block info' },
     floor: { create: 'Add floor', edit: 'Edit floor info' },
@@ -110,24 +131,6 @@ const LEVEL_TITLES: Record<LayoutLevel, { create: string; edit: string }> = {
 
 function emptyWard(): WardDraft {
     return { name: '', nameChoice: '', code: '', type: '', gender: '', departmentId: '' };
-}
-
-function readDepartments(raw: unknown): DeptOption[] {
-    const record = raw && typeof raw === 'object' ? raw as Record<string, unknown> : null;
-    const rows = Array.isArray(raw)
-        ? raw
-        : record
-            ? (['departments', 'items', 'data', 'results'] as const)
-                .map(key => record[key])
-                .find(Array.isArray) || []
-            : [];
-    return rows.flatMap(item => {
-        if (!item || typeof item !== 'object') return [];
-        const row = item as Record<string, unknown>;
-        const id = typeof row.id === 'string' ? row.id : '';
-        const name = typeof row.name === 'string' ? row.name.trim() : '';
-        return id && name ? [{ id, name }] : [];
-    });
 }
 
 function emptyRoom(): RoomDraft {
@@ -149,13 +152,64 @@ function wardPayload(draft: WardDraft): Record<string, unknown> {
     };
 }
 
+function departmentIds(raw: unknown): string[] {
+    const pools: unknown[] = [];
+    if (Array.isArray(raw)) pools.push(raw);
+    if (raw && typeof raw === 'object') {
+        const rec = raw as Record<string, unknown>;
+        for (const key of ['departments', 'items', 'data']) {
+            if (Array.isArray(rec[key])) pools.push(rec[key]);
+        }
+        const id = typeof rec.id === 'string' ? rec.id : typeof rec.department_id === 'string' ? rec.department_id : '';
+        if (id && (rec.name !== undefined || rec.department_name !== undefined || rec.department_id)) pools.push([rec]);
+    }
+    const ids: string[] = [];
+    for (const pool of pools) {
+        if (!Array.isArray(pool)) continue;
+        for (const item of pool) {
+            if (!item || typeof item !== 'object') continue;
+            const rec = item as Record<string, unknown>;
+            const id = String(rec.id || rec.department_id || '').trim();
+            if (id) ids.push(id);
+        }
+    }
+    return ids;
+}
+
 function bedPayload(draft: BedDraft, departmentId?: string): Record<string, unknown> {
     return {
         bed_number: draft.bed_number.trim(),
         ...(draft.bed_code.trim() ? { bed_code: draft.bed_code.trim() } : {}),
         status: draft.status,
-        ...(departmentId ? { department_id: departmentId } : {}),
+        department_id: departmentId || '',
     };
+}
+
+/** Finds a room id for this number anywhere in a list or error payload. */
+function roomIdForNumber(raw: unknown, number: string): string {
+    const want = number.trim().toLowerCase();
+    if (!want) return '';
+    const seen = new Set<unknown>();
+    const visit = (node: unknown): string => {
+        if (!node || typeof node !== 'object' || seen.has(node)) return '';
+        seen.add(node);
+        if (Array.isArray(node)) {
+            for (const item of node) {
+                const found = visit(item);
+                if (found) return found;
+            }
+            return '';
+        }
+        const parsed = parseRoom(node);
+        if (parsed && parsed.number.trim().toLowerCase() === want) return parsed.id;
+        for (const value of Object.values(node as Record<string, unknown>)) {
+            const found = visit(value);
+            if (found) return found;
+        }
+        return '';
+    };
+    const listed = parseRooms(raw).find(item => item.number.trim().toLowerCase() === want);
+    return listed?.id || visit(raw);
 }
 
 function roomPayload(draft: RoomDraft, beds?: BedDraft[], departmentId?: string): Record<string, unknown> {
@@ -200,6 +254,7 @@ export default function BedLayoutFormDialog({
     const [floorChoice, setFloorChoice] = useState('');
     const [newFloorName, setNewFloorName] = useState('');
     const [wardChoice, setWardChoice] = useState('');
+    const [bedUnitType, setBedUnitType] = useState('');
     const [roomChoice, setRoomChoice] = useState('');
 
     const [name, setName] = useState('');
@@ -214,8 +269,6 @@ export default function BedLayoutFormDialog({
 
     const [error, setError] = useState('');
     const [saving, setSaving] = useState(false);
-    const [departments, setDepartments] = useState<DeptOption[]>([]);
-    const [bedDepartmentId, setBedDepartmentId] = useState('');
 
     /* ── prefill ────────────────────────────────────────────────────── */
     useEffect(() => {
@@ -223,6 +276,7 @@ export default function BedLayoutFormDialog({
         setBlockChoice(context.blockId || '');
         setFloorChoice(context.floorId || '');
         setWardChoice(context.wardId || '');
+        setBedUnitType('');
         setRoomChoice(context.roomId || '');
         setNewBlockName('');
         setNewFloorName('');
@@ -261,25 +315,9 @@ export default function BedLayoutFormDialog({
         setWard(emptyWard());
         setRoom(emptyRoom());
         setBed(emptyBed());
-        setBedDepartmentId('');
         if (level === 'bed') setChildBeds([]);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [request]);
-
-    useEffect(() => {
-        if (preview) return;
-        let cancelled = false;
-        (async () => {
-            try {
-                const url = await appendFacilityIdForProxy(API_ENDPOINTS.DEPARTMENTS);
-                const res = await fetch(url, { credentials: 'include' });
-                if (!res.ok) return;
-                const data = await res.json().catch(() => []);
-                if (!cancelled) setDepartments(readDepartments(data));
-            } catch { /* beds stay blocked until a department can be chosen */ }
-        })();
-        return () => { cancelled = true; };
-    }, [preview]);
 
     /* ── cascading options ──────────────────────────────────────────── */
     const selectedBlock = useMemo(
@@ -328,24 +366,15 @@ export default function BedLayoutFormDialog({
             .sort((a, b) => b.name.localeCompare(a.name, undefined, { numeric: true, sensitivity: 'base' }));
     }, [blocks, floorBlockId]);
     const targetFloorId = context.floorId || (floorChoice && floorChoice !== NEW ? floorChoice : '');
-    const targetBlockId = context.blockId || (blockChoice && blockChoice !== NEW ? blockChoice : '');
+    /** Units already on the floor being edited. The same name may exist on other floors and in other buildings. */
     const unitsOnPlace = useMemo(() => {
-        const listed = (floors: Floor[]) => floors.filter(floor => {
-            const key = floor.name.trim().toLowerCase();
-            return key !== 'unassigned' && key !== 'attached units';
-        });
-        if (targetFloorId) {
-            for (const block of blocks) {
-                const floor = block.floors.find(item => item.id === targetFloorId);
-                if (floor) return floor.wards;
-            }
-        }
-        if (targetBlockId) {
-            const block = blocks.find(item => item.id === targetBlockId);
-            return block ? listed(block.floors).flatMap(floor => floor.wards) : [];
+        if (!targetFloorId) return [];
+        for (const block of blocks) {
+            const floor = block.floors.find(item => item.id === targetFloorId);
+            if (floor) return floor.wards;
         }
         return [];
-    }, [blocks, targetFloorId, targetBlockId]);
+    }, [blocks, targetFloorId]);
     const takenFloorNames = useMemo(() => {
         const ignoreId = kind === 'edit' && level === 'floor' ? request.entity.id : '';
         return new Set(
@@ -379,44 +408,49 @@ export default function BedLayoutFormDialog({
         return data;
     }, [preview, onPreviewOp]);
 
-    /** Staff board still keys beds by department, so the unit must carry one first. */
-    const departmentForBeds = useCallback(async (unitId: string): Promise<string> => {
+    const unitDepartmentId = useCallback(async (unitId: string): Promise<string | undefined> => {
         const fromTree = blocks.flatMap(block => block.floors.flatMap(floor => floor.wards)).find(item => item.id === unitId) || null;
         if (fromTree?.department_id) return fromTree.department_id;
-        let unit = fromTree;
-        if (!unit && !preview) {
-            const url = await appendFacilityIdForProxy(API_ENDPOINTS.WARD(unitId));
-            const res = await fetch(url, { credentials: 'include' });
-            const data = await res.json().catch(() => ({}));
-            unit = res.ok ? parseWard(data) : null;
-        }
-        if (unit?.department_id) return unit.department_id;
-        if (!bedDepartmentId) throw new Error('Choose a department for this unit before adding beds.');
-        if (!unit) throw new Error('Choose a department for this unit before adding beds.');
-        const body = {
-            name: unit.name,
-            ...(unit.code ? { code: unit.code } : {}),
-            ...(unit.type ? { type: unit.type } : {}),
-            ...(unit.gender_restriction ? { gender_restriction: unit.gender_restriction } : {}),
-            ...(unit.floor_id ? { floor_id: unit.floor_id } : {}),
-            department_id: bedDepartmentId,
-        };
-        await send(API_ENDPOINTS.WARD(unit.id), 'PUT', body, { kind: 'edit', level: 'ward', id: unit.id, body });
-        return bedDepartmentId;
-    }, [blocks, preview, bedDepartmentId, send]);
+        if (preview || fromTree) return undefined;
+        const url = await appendFacilityIdForProxy(API_ENDPOINTS.WARD(unitId));
+        const res = await fetch(url, { credentials: 'include' });
+        const data = await res.json().catch(() => ({}));
+        const unit = res.ok ? parseWard(data) : null;
+        return unit?.department_id || undefined;
+    }, [blocks, preview]);
 
     const submit = useCallback(async () => {
         setError('');
 
         const blockId = context.blockId || (blockChoice && blockChoice !== NEW ? blockChoice : '');
         const floorId = context.floorId || (floorChoice && floorChoice !== NEW ? floorChoice : '');
-        const pickedWard = wardOptions.find(item => item.id === wardChoice || item.name.trim().toLowerCase() === wardChoice.trim().toLowerCase());
+        const pickedWard = wardOptions.find(item => item.id === wardChoice || sameUnitName(item.name, wardChoice));
         const wardId = context.wardId || pickedWard?.id || '';
-        const roomId = context.roomId || roomChoice;
-        const knownDepartment = (value: string) => departments.some(item => item.id === value);
 
         setSaving(true);
         try {
+            const resolveNewFloor = async () => {
+                if (!blockId) throw new Error('Pick a block or enter a new block name.');
+                const floorName = newFloorName.trim();
+                const floorBody = { name: floorName };
+                try {
+                    const createdFloor = await send(API_ENDPOINTS.BLOCK_FLOORS(blockId), 'POST', floorBody, {
+                        kind: 'create', level: 'floor', parentId: blockId, body: floorBody,
+                    });
+                    const createdId = readCreatedId(createdFloor) || (preview ? `preview-floor-${floorName}` : '');
+                    if (!createdId) throw new Error('Floor was created, but its id could not be read.');
+                    return createdId;
+                } catch (err) {
+                    const message = err instanceof Error ? err.message : '';
+                    if (!/already exists/i.test(message) || preview) throw err;
+                    const url = await appendFacilityIdForProxy(API_ENDPOINTS.BLOCK_FLOORS(blockId));
+                    const res = await fetch(url, { credentials: 'include' });
+                    const data = await res.json().catch(() => ({}));
+                    const match = (res.ok ? parseFloors(data) : []).find(floor => floor.name.trim().toLowerCase() === floorName.toLowerCase());
+                    if (!match) throw err;
+                    return match.id;
+                }
+            };
             if (kind === 'edit') {
                 const id = request.entity.id;
                 if (level === 'block') {
@@ -432,9 +466,6 @@ export default function BedLayoutFormDialog({
                     await send(API_ENDPOINTS.FLOOR(id), 'PUT', body, { kind: 'edit', level, id, body });
                 } else if (level === 'ward') {
                     if (!ward.name.trim()) throw new Error('Ward name is required.');
-                    if (ward.departmentId.trim() && !knownDepartment(ward.departmentId)) {
-                        throw new Error('Choose a department from the list.');
-                    }
                     const body = wardPayload(ward);
                     await send(API_ENDPOINTS.WARD(id), 'PUT', body, { kind: 'edit', level, id, body });
                 } else if (level === 'room') {
@@ -508,18 +539,24 @@ export default function BedLayoutFormDialog({
 
             if (level === 'ward') {
                 if (!ward.name.trim()) throw new Error('Ward name is required.');
-                if ([ward, ...childWards].some(item => item.departmentId.trim() && !knownDepartment(item.departmentId))) {
-                    throw new Error('Choose a department from the list.');
-                }
-                if (kind === 'create' && unitsOnPlace.some(unit => unit.name.trim().toLowerCase() === ward.name.trim().toLowerCase())) {
+                if (kind === 'create' && unitsOnPlace.some(unit => sameUnitName(unit.name, ward.name))) {
                     throw new Error('That unit is already on this floor.');
                 }
                 const roomsPayload = childRooms.filter(item => item.number.trim()).map(item => roomPayload(item));
                 const wardBody = { ...wardPayload(ward), ...(roomsPayload.length ? { rooms: roomsPayload } : {}) };
                 if (floorId) {
-                    await send(API_ENDPOINTS.FLOOR_WARDS(floorId), 'POST', wardBody, {
-                        kind: 'create', level: 'ward', parentId: floorId, body: wardBody,
-                    });
+                    try {
+                        await send(API_ENDPOINTS.FLOOR_WARDS(floorId), 'POST', wardBody, {
+                            kind: 'create', level: 'ward', parentId: floorId, body: wardBody,
+                        });
+                    } catch (err) {
+                        const message = err instanceof Error ? err.message : '';
+                        if (!/already exists/i.test(message) || preview) throw err;
+                        const aliased = { ...wardBody, name: unitNameForFloor(ward.name, floorId) };
+                        await send(API_ENDPOINTS.FLOOR_WARDS(floorId), 'POST', aliased, {
+                            kind: 'create', level: 'ward', parentId: floorId, body: aliased,
+                        });
+                    }
                 } else if (blockId && newFloorName.trim()) {
                     const body = { name: newFloorName.trim(), wards: [wardBody] };
                     await send(API_ENDPOINTS.BLOCK_FLOORS(blockId), 'POST', body, {
@@ -539,25 +576,148 @@ export default function BedLayoutFormDialog({
             }
 
             if (level === 'room') {
-                if (!wardId) throw new Error(wardChoice.trim() ? 'Pick a unit on this floor.' : 'Pick the ward this room belongs to.');
                 if (!room.number.trim()) throw new Error('Room number is required.');
+                let resolvedFloorId = floorId;
+                if (!resolvedFloorId && newFloorName.trim()) {
+                    resolvedFloorId = await resolveNewFloor();
+                }
+                let resolvedWardId = wardId;
+                const typedUnit = wardChoice.trim();
+                if (!resolvedWardId && typedUnit) {
+                    if (!resolvedFloorId) throw new Error('Pick the floor this unit belongs to.');
+                    const createUnit = async (name: string) => {
+                        const wardBody = { name };
+                        const createdWard = await send(API_ENDPOINTS.FLOOR_WARDS(resolvedFloorId), 'POST', wardBody, {
+                            kind: 'create', level: 'ward', parentId: resolvedFloorId, body: wardBody,
+                        });
+                        return readCreatedId(createdWard) || (preview ? `preview-ward-${visibleUnitName(name)}` : '');
+                    };
+                    try {
+                        resolvedWardId = await createUnit(typedUnit);
+                    } catch (err) {
+                        const message = err instanceof Error ? err.message : '';
+                        if (!/already exists/i.test(message) || preview) throw err;
+                        resolvedWardId = await createUnit(unitNameForFloor(typedUnit, resolvedFloorId));
+                    }
+                    if (!resolvedWardId) throw new Error('Unit was created, but its id could not be read.');
+                }
+                if (!resolvedWardId) throw new Error(typedUnit ? 'Pick a unit on this floor.' : 'Pick the ward this room belongs to.');
                 const addingBeds = childBeds.some(item => item.bed_number.trim());
                 if (addingBeds && childBeds.filter(item => item.bed_number.trim()).length > NESTED_LIMITS.bedsPerRoom) {
                     throw new Error(`A room can include up to ${NESTED_LIMITS.bedsPerRoom} beds.`);
                 }
-                const departmentId = addingBeds ? await departmentForBeds(wardId) : undefined;
+                const departmentId = addingBeds ? await unitDepartmentId(resolvedWardId) : undefined;
                 const body = roomPayload(room, childBeds, departmentId);
-                await send(API_ENDPOINTS.WARD_ROOMS(wardId), 'POST', body, {
-                    kind: 'create', level: 'room', parentId: wardId, body,
+                await send(API_ENDPOINTS.WARD_ROOMS(resolvedWardId), 'POST', body, {
+                    kind: 'create', level: 'room', parentId: resolvedWardId, body,
                 });
                 onSaved('Room created');
                 return;
             }
 
-            if (!wardId) throw new Error(wardChoice.trim() ? 'Pick a unit on this floor.' : 'Pick the ward this bed belongs to.');
-            if (bedDepartmentId.trim() && !knownDepartment(bedDepartmentId)) {
-                throw new Error('Choose a department from the list.');
+            let resolvedFloorId = floorId;
+            if (!resolvedFloorId && newFloorName.trim()) {
+                resolvedFloorId = await resolveNewFloor();
             }
+            const unitName = wardChoice.trim();
+            const hiddenFloor = (name: string) => {
+                const key = name.trim().toLowerCase();
+                return key === 'unassigned' || key === 'attached units';
+            };
+            const placedUnit = blocks.flatMap(block => block.floors.flatMap(floor => floor.wards
+                .filter(item => sameUnitName(item.name, unitName))
+                .map(item => ({
+                    id: item.id,
+                    name: item.name,
+                    type: item.type || '',
+                    floorId: item.floor_id || floor.id,
+                    onListedFloor: !hiddenFloor(floor.name),
+                    departmentId: item.department_id || '',
+                }))));
+            const onThisFloor = placedUnit.find(item => item.floorId === resolvedFloorId);
+            const selectedUnit = blocks.flatMap(block => block.floors.flatMap(floor => floor.wards)).find(item => item.id === wardId || item.id === wardChoice);
+            const knownUnit = onThisFloor
+                || (selectedUnit && (selectedUnit.floor_id || '') === resolvedFloorId
+                    ? { id: selectedUnit.id, name: selectedUnit.name, type: selectedUnit.type || '', floorId: selectedUnit.floor_id || resolvedFloorId, onListedFloor: true, departmentId: selectedUnit.department_id || '' }
+                    : undefined);
+            const unitType = bedUnitType.trim() || knownUnit?.type || '';
+            if (!unitType) throw new Error('Choose a unit type.');
+            let departmentId = knownUnit?.departmentId || '';
+            if (!departmentId && !preview) {
+                const url = await appendFacilityIdForProxy(API_ENDPOINTS.DEPARTMENTS);
+                const res = await fetch(url, { credentials: 'include' });
+                const data = await res.json().catch(() => ({}));
+                departmentId = (res.ok ? departmentIds(data)[0] : '') || '';
+                if (!departmentId) {
+                    const created = await send(API_ENDPOINTS.DEPARTMENTS, 'POST', { name: 'Unassigned', description: '' }, {
+                        kind: 'create', level: 'ward', parentId: resolvedFloorId, body: { name: 'Unassigned' },
+                    });
+                    departmentId = readCreatedId(created) || departmentIds(created)[0] || '';
+                }
+            }
+            const unitBody = (name: string, floor: string) => ({
+                name,
+                ...(floor ? { floor_id: floor } : {}),
+                type: unitType,
+                department_id: departmentId,
+            });
+            let resolvedWardId = wardId || (knownUnit?.floorId === resolvedFloorId ? knownUnit.id : '') || '';
+            if (!resolvedWardId && unitName) {
+                if (!resolvedFloorId) throw new Error('Pick the floor this unit belongs to.');
+                if (knownUnit) {
+                    const body = unitBody(knownUnit.name, resolvedFloorId);
+                    await send(API_ENDPOINTS.WARD(knownUnit.id), 'PUT', body, {
+                        kind: 'edit', level: 'ward', id: knownUnit.id, body,
+                    });
+                    resolvedWardId = knownUnit.id;
+                } else {
+                    const wardBody = unitBody(unitName, resolvedFloorId);
+                    try {
+                        const createdWard = await send(API_ENDPOINTS.FLOOR_WARDS(resolvedFloorId), 'POST', wardBody, {
+                            kind: 'create', level: 'ward', parentId: resolvedFloorId, body: wardBody,
+                        });
+                        resolvedWardId = readCreatedId(createdWard) || (preview ? `preview-ward-${unitName}` : '');
+                    } catch (err) {
+                        const message = err instanceof Error ? err.message : '';
+                        if (!/already exists/i.test(message) || preview) throw err;
+                        const url = await appendFacilityIdForProxy(API_ENDPOINTS.FLOOR_WARDS(resolvedFloorId));
+                        const res = await fetch(url, { credentials: 'include' });
+                        const data = await res.json().catch(() => ({}));
+                        const here = (res.ok ? parseWards(data) : []).find(item => sameUnitName(item.name, unitName));
+                        if (here) {
+                            resolvedWardId = here.id;
+                        } else {
+                            const aliased = unitBody(unitNameForFloor(unitName, resolvedFloorId), resolvedFloorId);
+                            try {
+                                const createdWard = await send(API_ENDPOINTS.FLOOR_WARDS(resolvedFloorId), 'POST', aliased, {
+                                    kind: 'create', level: 'ward', parentId: resolvedFloorId, body: aliased,
+                                });
+                                resolvedWardId = readCreatedId(createdWard) || '';
+                            } catch (retryErr) {
+                                const retryMessage = retryErr instanceof Error ? retryErr.message : '';
+                                if (!/already exists/i.test(retryMessage)) throw retryErr;
+                                const again = await fetch(url, { credentials: 'include' });
+                                const againData = await again.json().catch(() => ({}));
+                                const placed = (again.ok ? parseWards(againData) : []).find(item => sameUnitName(item.name, unitName));
+                                if (!placed) throw err;
+                                resolvedWardId = placed.id;
+                            }
+                        }
+                    }
+                    if (!resolvedWardId) throw new Error('Unit was created, but its id could not be read.');
+                }
+            } else if (resolvedWardId && unitType) {
+                const named = knownUnit?.name
+                    || blocks.flatMap(block => block.floors.flatMap(floor => floor.wards)).find(item => item.id === resolvedWardId)?.name
+                    || unitName;
+                if (named) {
+                    const body = unitBody(named, resolvedFloorId);
+                    await send(API_ENDPOINTS.WARD(resolvedWardId), 'PUT', body, {
+                        kind: 'edit', level: 'ward', id: resolvedWardId, body,
+                    });
+                }
+            }
+            if (!resolvedWardId) throw new Error('Pick the ward this bed belongs to.');
             if ([bed, ...childBeds].some(item => item.bed_number.trim() && !BED_STATUS_META[item.status])) {
                 throw new Error('Choose a bed status.');
             }
@@ -566,22 +726,55 @@ export default function BedLayoutFormDialog({
             if (beds.length > NESTED_LIMITS.bedsPerRoom) {
                 throw new Error(`A room can include up to ${NESTED_LIMITS.bedsPerRoom} beds.`);
             }
-            const roomNumber = roomChoice.trim() || beds[0].bed_number.trim();
-            const existingRoom = roomOptions.find(item => (
-                item.id === roomId
-                || item.id === roomChoice.trim()
-                || item.number.trim().toLowerCase() === roomNumber.toLowerCase()
-            ));
-            let resolvedRoomId = roomId || existingRoom?.id || '';
+            const typedRoom = roomChoice.trim();
+            const unitOnThisFloor = blocks.flatMap(block => block.floors
+                .filter(floor => floor.id === resolvedFloorId)
+                .flatMap(floor => floor.wards))
+                .find(item => item.id === resolvedWardId);
+            const sameNumber = (item: { id: string; number: string }) => (
+                item.id === context.roomId
+                || item.number.trim().toLowerCase() === typedRoom.toLowerCase()
+            );
+            const existingRoom = unitOnThisFloor?.rooms.find(sameNumber)
+                || roomOptions.find(item => item.ward_id === resolvedWardId && sameNumber(item));
+            const roomNumber = (existingRoom?.number || typedRoom || beds[0].bed_number).trim();
+            let resolvedRoomId = existingRoom?.id || '';
             if (!resolvedRoomId) {
                 const body = { number: roomNumber };
-                const created = await send(API_ENDPOINTS.WARD_ROOMS(wardId), 'POST', body, {
-                    kind: 'create', level: 'room', parentId: wardId, body,
-                });
-                resolvedRoomId = readCreatedId(created) || (preview ? `preview-room-${roomNumber}` : '');
+                if (preview) {
+                    onPreviewOp?.({ kind: 'create', level: 'room', parentId: resolvedWardId, body });
+                    resolvedRoomId = `preview-room-${roomNumber}`;
+                } else {
+                    const url = await appendFacilityIdForProxy(API_ENDPOINTS.WARD_ROOMS(resolvedWardId));
+                    const res = await fetch(url, {
+                        method: 'POST',
+                        credentials: 'include',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(body),
+                    });
+                    const data = await res.json().catch(() => ({}));
+                    if (res.ok) {
+                        resolvedRoomId = readCreatedId(data);
+                    } else if (res.status === 409 || /already exists/i.test(hierarchyApiMessage(data, ''))) {
+                        resolvedRoomId = roomIdForNumber(data, roomNumber);
+                        if (!resolvedRoomId) {
+                            const listUrl = await appendFacilityIdForProxy(API_ENDPOINTS.WARD_ROOMS(resolvedWardId));
+                            const listed = await fetch(listUrl, { credentials: 'include' });
+                            const listedData = await listed.json().catch(() => ({}));
+                            resolvedRoomId = listed.ok ? roomIdForNumber(listedData, roomNumber) : '';
+                        }
+                        if (!resolvedRoomId) {
+                            const byWard = await appendFacilityIdForProxy(`${API_ENDPOINTS.ROOMS}?ward_id=${encodeURIComponent(resolvedWardId)}`);
+                            const listed = await fetch(byWard, { credentials: 'include' });
+                            const listedData = await listed.json().catch(() => ({}));
+                            resolvedRoomId = listed.ok ? roomIdForNumber(listedData, roomNumber) : '';
+                        }
+                    } else {
+                        throw new Error(hierarchyApiMessage(data, `Request failed (${res.status})`));
+                    }
+                }
                 if (!resolvedRoomId) throw new Error('Room was created, but its id could not be read.');
             }
-            const departmentId = await departmentForBeds(wardId);
             const body = { beds: beds.map(item => bedPayload(item, departmentId)) };
             await send(API_ENDPOINTS.ROOM_BEDS(resolvedRoomId), 'POST', body, {
                 kind: 'create', level: 'bed', parentId: resolvedRoomId, body,
@@ -595,8 +788,8 @@ export default function BedLayoutFormDialog({
     }, [
         kind, level, request, context, blockChoice, floorChoice, wardChoice, roomChoice,
         name, resolvedFloorName, ward, room, bed, childFloors, childWards, childRooms, childBeds,
-        newBlockName, newFloorName, send, onSaved, departmentForBeds, bedDepartmentId,
-        takenFloorNames, savedBuildings, unitsOnPlace, wardOptions, departments, roomOptions, preview,
+        newBlockName, newFloorName, send, onSaved, onPreviewOp, bedUnitType,
+        takenFloorNames, savedBuildings, unitsOnPlace, wardOptions, roomOptions, preview, blocks, existingWards,
     ]);
 
     /* ── field renderers ────────────────────────────────────────────── */
@@ -666,7 +859,7 @@ export default function BedLayoutFormDialog({
         </div>
     );
 
-    const wardFields = (draft: WardDraft, update: (next: WardDraft) => void, showDepartment = false) => (
+    const wardFields = (draft: WardDraft, update: (next: WardDraft) => void) => (
         <div style={{ display: 'grid', gap: 10 }}>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
                 <div>
@@ -682,17 +875,17 @@ export default function BedLayoutFormDialog({
                         <CustomSelect
                             value={draft.nameChoice && draft.nameChoice !== OTHER ? draft.nameChoice : draft.name}
                             onChange={value => {
-                                const picked = unitsOnPlace.find(unit => unit.id === value || unit.name.trim().toLowerCase() === value.trim().toLowerCase());
+                                const picked = unitsOnPlace.find(unit => unit.id === value || sameUnitName(unit.name, value));
                                 update({
                                     ...draft,
                                     nameChoice: picked ? picked.id : OTHER,
-                                    name: picked ? picked.name : value,
+                                    name: picked ? visibleUnitName(picked.name) : value,
                                 });
                             }}
                             options={(() => {
-                                const listed = unitsOnPlace.map(unit => ({ label: unit.name, value: unit.id }));
+                                const listed = unitsOnPlace.map(unit => ({ label: visibleUnitName(unit.name), value: unit.id }));
                                 const typed = draft.name.trim();
-                                if (typed && !unitsOnPlace.some(unit => unit.name.trim().toLowerCase() === typed.toLowerCase())) {
+                                if (typed && !unitsOnPlace.some(unit => sameUnitName(unit.name, typed))) {
                                     return [{ label: typed, value: typed }, ...listed];
                                 }
                                 return listed;
@@ -762,32 +955,6 @@ export default function BedLayoutFormDialog({
                     />
                 </div>
             </div>
-            {showDepartment && (
-            <div>
-                <label style={fieldLabel}>Department</label>
-                <CustomSelect
-                    value={draft.departmentId}
-                    onChange={departmentId => {
-                        const match = matchedOption(departmentId, departments.map(dept => ({ label: dept.name, value: dept.id })));
-                        update({ ...draft, departmentId: match ? match.value : departmentId });
-                    }}
-                    options={withTypedOption(
-                        departments.map(dept => ({ label: dept.name, value: dept.id })),
-                        draft.departmentId,
-                    )}
-                    placeholder="Select a department"
-                    allowCustom
-                    customEntryTitle="Custom department"
-                    customEntryHint="Not listed? Type here, then Enter."
-                    customPlaceholder="Type department — Enter"
-                    style={fieldSelectStyle}
-                    maxH={280}
-                />
-                <div style={{ marginTop: 4, fontSize: 12, color: '#98A2B3' }}>
-                    Set this before adding beds. The staff board still lists beds by department.
-                </div>
-            </div>
-            )}
         </div>
     );
 
@@ -1004,7 +1171,7 @@ export default function BedLayoutFormDialog({
                             <label style={fieldLabel}>Ward / unit *</label>
                             <CustomSelect
                                 value={wardChoice}
-                                disabled={!floorChoice || floorChoice === NEW}
+                                disabled={!floorChoice || (floorChoice === NEW && !newFloorName.trim())}
                                 onChange={value => {
                                     const match = matchedOption(value, wardOptions.map(option => ({ label: option.name, value: option.id })));
                                     setWardChoice(match ? match.value : value);
@@ -1014,11 +1181,36 @@ export default function BedLayoutFormDialog({
                                     wardOptions.map(option => ({ label: option.name, value: option.id })),
                                     wardChoice,
                                 )}
-                                placeholder={floorChoice && floorChoice !== NEW ? 'Select a unit' : 'Select a floor first'}
+                                placeholder={floorChoice && (floorChoice !== NEW || newFloorName.trim()) ? 'Select a unit' : 'Select a floor first'}
                                 allowCustom
                                 customEntryTitle="New unit"
                                 customEntryHint="Not listed? Type here, then Enter."
                                 customPlaceholder="Type unit — Enter"
+                                style={fieldSelectStyle}
+                                maxH={280}
+                            />
+                        </div>
+                    )}
+
+                    {kind === 'create' && level === 'bed' && (
+                        <div>
+                            <label style={fieldLabel}>Ward / unit type *</label>
+                            <CustomSelect
+                                value={bedUnitType}
+                                onChange={setBedUnitType}
+                                options={(() => {
+                                    const listed = WARD_TYPES.map(type => ({ label: wardTypeLabel(type), value: type }));
+                                    const typed = bedUnitType.trim();
+                                    if (typed && !(WARD_TYPES as readonly string[]).includes(typed)) {
+                                        return [{ label: typed, value: typed }, ...listed];
+                                    }
+                                    return listed;
+                                })()}
+                                placeholder="Select a type"
+                                allowCustom
+                                customEntryTitle="Custom type"
+                                customEntryHint="Not listed? Type here, then Enter."
+                                customPlaceholder="Type a type — Enter"
                                 style={fieldSelectStyle}
                                 maxH={280}
                             />
@@ -1070,33 +1262,7 @@ export default function BedLayoutFormDialog({
                         </div>
                     )}
                     {level === 'floor' && floorNameField}
-                    {level === 'ward' && wardFields(ward, setWard, kind === 'edit')}
-                    {kind === 'create' && (level === 'room' || level === 'bed') && (context.wardId || wardChoice) && !selectedWard?.department_id && (
-                        <div>
-                            <label style={fieldLabel}>Department *</label>
-                            <CustomSelect
-                                value={bedDepartmentId}
-                                onChange={value => {
-                                    const match = matchedOption(value, departments.map(dept => ({ label: dept.name, value: dept.id })));
-                                    setBedDepartmentId(match ? match.value : value);
-                                }}
-                                options={withTypedOption(
-                                    departments.map(dept => ({ label: dept.name, value: dept.id })),
-                                    bedDepartmentId,
-                                )}
-                                placeholder="Select a department"
-                                allowCustom
-                                customEntryTitle="Custom department"
-                                customEntryHint="Not listed? Type here, then Enter."
-                                customPlaceholder="Type department — Enter"
-                                style={fieldSelectStyle}
-                                maxH={280}
-                            />
-                            <div style={{ marginTop: 4, fontSize: 12, color: '#98A2B3' }}>
-                                This unit needs a department before beds can be added.
-                            </div>
-                        </div>
-                    )}
+                    {level === 'ward' && wardFields(ward, setWard)}
                     {level === 'room' && roomFields(room, setRoom)}
                     {level === 'bed' && bedFields(bed, setBed)}
 

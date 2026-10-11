@@ -147,7 +147,6 @@ export default function DepartmentsManagement() {
     const [unitDetailCode, setUnitDetailCode] = useState('');
     const [unitDetailType, setUnitDetailType] = useState('');
     const [unitDetailGender, setUnitDetailGender] = useState('');
-    const [unitDetailDepartmentId, setUnitDetailDepartmentId] = useState('');
     const [unitDetailLoading, setUnitDetailLoading] = useState(false);
     const [savingUnitDetails, setSavingUnitDetails] = useState(false);
     const [deleteInProgress, setDeleteInProgress] = useState(false);
@@ -353,7 +352,6 @@ export default function DepartmentsManagement() {
         setUnitDetailCode(unit.code || '');
         setUnitDetailType(unit.type || '');
         setUnitDetailGender(unit.gender_restriction || '');
-        setUnitDetailDepartmentId(unit.department_id || '');
     };
 
     useEffect(() => {
@@ -692,14 +690,6 @@ export default function DepartmentsManagement() {
             return;
         }
         const descTrimmed = unitDetailDescription.trim();
-        const departmentId = matchedOption(
-            unitDetailDepartmentId,
-            departments.map(dept => ({ label: dept.name, value: dept.id })),
-        )?.value || '';
-        if (unitDetailDepartmentId.trim() && !departmentId) {
-            showToast('Choose a department from the list');
-            return;
-        }
         setSavingUnitDetails(true);
         try {
             const res = await fetch(`/api/proxy/units/${u.id}`, {
@@ -711,7 +701,7 @@ export default function DepartmentsManagement() {
                     code: unitDetailCode.trim(),
                     type: unitDetailType.trim(),
                     gender_restriction: unitDetailGender,
-                    department_id: departmentId,
+                    ...(u.department_id ? { department_id: u.department_id } : {}),
                 }),
             });
             const rawText = await res.text();
@@ -737,7 +727,7 @@ export default function DepartmentsManagement() {
             const updatedCode = typeof body.code === 'string' ? body.code : unitDetailCode.trim();
             const updatedType = typeof body.type === 'string' ? body.type : unitDetailType.trim();
             const updatedGender = typeof body.gender_restriction === 'string' ? body.gender_restriction : unitDetailGender;
-            const updatedDepartmentId = typeof body.department_id === 'string' ? body.department_id : unitDetailDepartmentId;
+            const updatedDepartmentId = typeof body.department_id === 'string' ? body.department_id : (u.department_id || '');
             setUnits(prev => prev.map(x => (x.id === u.id ? {
                 ...x,
                 name: updatedName,
@@ -873,8 +863,7 @@ export default function DepartmentsManagement() {
             || unitDetailDescription.trim() !== (editUnit.description || '').trim()
             || unitDetailCode.trim() !== (editUnit.code || '')
             || unitDetailType.trim() !== (editUnit.type || '')
-            || unitDetailGender !== (editUnit.gender_restriction || '')
-            || unitDetailDepartmentId !== (editUnit.department_id || '')),
+            || unitDetailGender !== (editUnit.gender_restriction || '')),
     );
 
     if (loading) {
@@ -1588,29 +1577,6 @@ export default function DepartmentsManagement() {
                                                         customPlaceholder="Type gender — Enter"
                                                         style={{ width: '100%', height: 40, fontSize: 13 }}
                                                         maxH={240}
-                                                    />
-                                                </div>
-                                                <div>
-                                                    <span className="label" style={{ marginBottom: 6, display: 'block' }}>Department</span>
-                                                    <CustomSelect
-                                                        value={unitDetailDepartmentId}
-                                                        onChange={value => {
-                                                            const choices = departments.map(dept => ({ label: dept.name, value: dept.id }));
-                                                            const match = matchedOption(value, choices);
-                                                            setUnitDetailDepartmentId(match ? match.value : value);
-                                                        }}
-                                                        disabled={unitDetailLoading || savingUnitDetails}
-                                                        options={withTypedOption(
-                                                            departments.map(dept => ({ label: dept.name, value: dept.id })),
-                                                            unitDetailDepartmentId,
-                                                        )}
-                                                        placeholder="Select a department"
-                                                        allowCustom
-                                                        customEntryTitle="Custom department"
-                                                        customEntryHint="Not listed? Type here, then Enter."
-                                                        customPlaceholder="Type department — Enter"
-                                                        style={{ width: '100%', height: 40, fontSize: 13 }}
-                                                        maxH={280}
                                                     />
                                                 </div>
                                             </div>

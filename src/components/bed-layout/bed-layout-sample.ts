@@ -7,6 +7,13 @@ import { parseBlocks, type Block } from '@/lib/bed-hierarchy';
 
 type SampleBed = [number: string, status: 'available' | 'occupied' | 'blocked', code?: string];
 
+function recentStamp(daysAgo: number, hour: number, minute: number): string {
+    const when = new Date();
+    when.setUTCDate(when.getUTCDate() - daysAgo);
+    when.setUTCHours(hour, minute, 0, 0);
+    return when.toISOString();
+}
+
 function beds(roomId: string, rows: SampleBed[]) {
     return rows.map(([bed_number, status, bed_code], index) => ({
         id: `${roomId}-bed-${bed_number}`,
@@ -15,7 +22,7 @@ function beds(roomId: string, rows: SampleBed[]) {
         status,
         ...(bed_code ? { bed_code } : {}),
         sort_order: index,
-        updated_at: '2026-09-29T08:20:00Z',
+        updated_at: recentStamp(1, 8, 20),
     }));
 }
 
@@ -27,7 +34,7 @@ function room(wardId: string, number: string, name: string, order: number, rows:
         number,
         name,
         sort_order: order,
-        updated_at: '2026-09-30T09:05:00Z',
+        updated_at: recentStamp(0, 9, 5),
         beds: beds(id, rows),
     };
 }

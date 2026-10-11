@@ -15,6 +15,7 @@ export type CareUnit = {
     department_id?: string;
     department_name?: string;
     block_id?: string;
+    floor_id?: string;
     gender_restriction?: string;
     type?: string;
     facility_id?: string;
@@ -70,6 +71,7 @@ export function parseCareUnit(raw: unknown): CareUnit | null {
     const departmentId = String(rec.department_id || '').trim();
     const departmentName = String(rec.department_name || '').trim();
     const blockId = String(rec.block_id || '').trim();
+    const floorId = String(rec.floor_id || '').trim();
     const gender = String(rec.gender_restriction || '').trim().toLowerCase();
     const type = String(rec.type || '').trim();
     const description = typeof rec.description === 'string' ? rec.description : '';
@@ -83,6 +85,7 @@ export function parseCareUnit(raw: unknown): CareUnit | null {
         ...(departmentId ? { department_id: departmentId } : {}),
         ...(departmentName ? { department_name: departmentName } : {}),
         ...(blockId ? { block_id: blockId } : {}),
+        ...(floorId ? { floor_id: floorId } : {}),
         ...(gender === 'male' || gender === 'female' || gender === 'mixed' ? { gender_restriction: gender } : {}),
         ...(type ? { type } : {}),
         ...(facilityId ? { facility_id: facilityId } : {}),
