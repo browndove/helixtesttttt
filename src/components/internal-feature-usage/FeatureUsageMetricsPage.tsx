@@ -21,7 +21,39 @@ const Chart = dynamic(() => import('react-apexcharts'), { ssr: false });
 
 type FacilityOption = { id: string; name: string; code: string };
 
-const FEATURE_COLORS = ['#1A78C4', '#00B4A0', '#5560F2', '#E39200', '#EE4A42', '#6B7C8A', '#8B5CF6', '#0EA5E9'];
+/** Distinct enough that neighboring slices and bars stay easy to tell apart. */
+const FEATURE_COLORS = [
+    '#1A78C4',
+    '#E39200',
+    '#0F9F6E',
+    '#EE4A42',
+    '#7C3AED',
+    '#0891B2',
+    '#DB2777',
+    '#65A30D',
+    '#0369A1',
+    '#C2410C',
+    '#0D9488',
+    '#BE123C',
+    '#4F46E5',
+    '#CA8A04',
+    '#15803D',
+    '#9333EA',
+    '#0E7490',
+    '#B45309',
+    '#E11D48',
+    '#1D4ED8',
+    '#A16207',
+    '#6D28D9',
+    '#047857',
+    '#9F1239',
+];
+
+function colorAt(index: number): string {
+    if (index < FEATURE_COLORS.length) return FEATURE_COLORS[index];
+    const hue = (index * 137.508) % 360;
+    return `hsl(${hue.toFixed(1)} 62% 38%)`;
+}
 
 const DATE_PRESETS = [
     { id: '7', label: '7d', days: 7 },
@@ -29,12 +61,6 @@ const DATE_PRESETS = [
     { id: '90', label: '90d', days: 90 },
     { id: 'quarter', label: 'Quarter', days: 0 },
 ] as const;
-
-function colorForFeature(id: string): string {
-    let hash = 0;
-    for (let i = 0; i < id.length; i += 1) hash = (hash * 31 + id.charCodeAt(i)) >>> 0;
-    return FEATURE_COLORS[hash % FEATURE_COLORS.length];
-}
 
 function parseFacilities(raw: unknown): FacilityOption[] {
     const list = Array.isArray(raw) ? raw : [];
@@ -258,6 +284,18 @@ function FeatureUsageContent() {
 
     const allFeatures = metrics?.features ?? [];
     const featureOptions = allFeatures;
+    const colorForFeature = useMemo(() => {
+        const ids = new Set<string>();
+        for (const feature of allFeatures) {
+            if (feature.id) ids.add(feature.id);
+            for (const child of feature.children ?? []) {
+                if (child.id) ids.add(child.id);
+            }
+        }
+        const ordered = [...ids].sort((a, b) => a.localeCompare(b));
+        const map = new Map(ordered.map((id, index) => [id, colorAt(index)]));
+        return (id: string) => map.get(id) ?? colorAt(ordered.length);
+    }, [metrics]);
 
     const filteredFeatures = useMemo(() => {
         if (featureFilter.length === 0) return allFeatures;

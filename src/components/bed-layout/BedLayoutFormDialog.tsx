@@ -594,8 +594,12 @@ export default function BedLayoutFormDialog({
                 const typedUnit = wardChoice.trim();
                 if (!resolvedWardId && typedUnit) {
                     if (!resolvedFloorId) throw new Error('Pick the floor this unit belongs to.');
+                    const unitType = bedUnitType.trim();
+                    const unitGender = bedUnitGender.trim();
+                    if (!unitType) throw new Error('Choose a unit type.');
+                    if (!unitGender) throw new Error('Choose a gender restriction.');
                     const createUnit = async (name: string) => {
-                        const wardBody = { name };
+                        const wardBody = { name, type: unitType, gender_restriction: unitGender };
                         const createdWard = await send(API_ENDPOINTS.FLOOR_WARDS(resolvedFloorId), 'POST', wardBody, {
                             kind: 'create', level: 'ward', parentId: resolvedFloorId, body: wardBody,
                         });
@@ -1210,7 +1214,7 @@ export default function BedLayoutFormDialog({
                         </div>
                     )}
 
-                    {kind === 'create' && level === 'bed' && (
+                    {kind === 'create' && (level === 'bed' || (level === 'room' && needs.ward)) && (
                         <div>
                             <label style={fieldLabel}>Ward / unit type *</label>
                             <CustomSelect
@@ -1235,9 +1239,9 @@ export default function BedLayoutFormDialog({
                         </div>
                     )}
 
-                    {kind === 'create' && level === 'bed' && (
+                    {kind === 'create' && (level === 'bed' || (level === 'room' && needs.ward)) && (
                         <div>
-                            <label style={fieldLabel}>Gender restriction</label>
+                            <label style={fieldLabel}>Gender restriction{level === 'room' ? ' *' : ''}</label>
                             <CustomSelect
                                 value={bedUnitGender}
                                 onChange={gender => {
