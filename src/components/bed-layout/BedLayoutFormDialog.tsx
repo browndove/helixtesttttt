@@ -255,6 +255,7 @@ export default function BedLayoutFormDialog({
     const [newFloorName, setNewFloorName] = useState('');
     const [wardChoice, setWardChoice] = useState('');
     const [bedUnitType, setBedUnitType] = useState('');
+    const [bedUnitGender, setBedUnitGender] = useState('');
     const [roomChoice, setRoomChoice] = useState('');
 
     const [name, setName] = useState('');
@@ -277,6 +278,7 @@ export default function BedLayoutFormDialog({
         setFloorChoice(context.floorId || '');
         setWardChoice(context.wardId || '');
         setBedUnitType('');
+        setBedUnitGender('');
         setRoomChoice(context.roomId || '');
         setNewBlockName('');
         setNewFloorName('');
@@ -315,6 +317,13 @@ export default function BedLayoutFormDialog({
         setWard(emptyWard());
         setRoom(emptyRoom());
         setBed(emptyBed());
+        if (level === 'bed' && context.wardId) {
+            const existing = blocks.flatMap(block => block.floors.flatMap(floor => floor.wards)).find(item => item.id === context.wardId);
+            if (existing) {
+                setBedUnitType(existing.type || '');
+                setBedUnitGender(existing.gender_restriction || '');
+            }
+        }
         if (level === 'bed') setChildBeds([]);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [request]);
@@ -655,10 +664,12 @@ export default function BedLayoutFormDialog({
                     departmentId = readCreatedId(created) || departmentIds(created)[0] || '';
                 }
             }
+            const unitGender = bedUnitGender.trim();
             const unitBody = (name: string, floor: string) => ({
                 name,
                 ...(floor ? { floor_id: floor } : {}),
                 type: unitType,
+                ...(unitGender ? { gender_restriction: unitGender } : {}),
                 department_id: departmentId,
             });
             let resolvedWardId = wardId || (knownUnit?.floorId === resolvedFloorId ? knownUnit.id : '') || '';
@@ -788,7 +799,7 @@ export default function BedLayoutFormDialog({
     }, [
         kind, level, request, context, blockChoice, floorChoice, wardChoice, roomChoice,
         name, resolvedFloorName, ward, room, bed, childFloors, childWards, childRooms, childBeds,
-        newBlockName, newFloorName, send, onSaved, onPreviewOp, bedUnitType,
+        newBlockName, newFloorName, send, onSaved, onPreviewOp, bedUnitType, bedUnitGender,
         takenFloorNames, savedBuildings, unitsOnPlace, wardOptions, roomOptions, preview, blocks, existingWards,
     ]);
 
@@ -1174,8 +1185,15 @@ export default function BedLayoutFormDialog({
                                 disabled={!floorChoice || (floorChoice === NEW && !newFloorName.trim())}
                                 onChange={value => {
                                     const match = matchedOption(value, wardOptions.map(option => ({ label: option.name, value: option.id })));
+                                    const picked = match ? wardOptions.find(option => option.id === match.value) : undefined;
                                     setWardChoice(match ? match.value : value);
                                     setRoomChoice('');
+                                    if (picked) {
+                                        setBedUnitType(picked.type || '');
+                                        setBedUnitGender(picked.gender_restriction || '');
+                                    } else {
+                                        setBedUnitGender('');
+                                    }
                                 }}
                                 options={withTypedOption(
                                     wardOptions.map(option => ({ label: option.name, value: option.id })),
@@ -1213,6 +1231,30 @@ export default function BedLayoutFormDialog({
                                 customPlaceholder="Type a type — Enter"
                                 style={fieldSelectStyle}
                                 maxH={280}
+                            />
+                        </div>
+                    )}
+
+                    {kind === 'create' && level === 'bed' && (
+                        <div>
+                            <label style={fieldLabel}>Gender restriction</label>
+                            <CustomSelect
+                                value={bedUnitGender}
+                                onChange={gender => {
+                                    const match = matchedOption(gender, GENDER_RESTRICTIONS.map(value => ({ label: genderLabel(value), value })));
+                                    setBedUnitGender(match ? match.value : gender);
+                                }}
+                                options={withTypedOption(
+                                    GENDER_RESTRICTIONS.map(value => ({ label: genderLabel(value), value })),
+                                    bedUnitGender,
+                                )}
+                                placeholder="Select a gender"
+                                allowCustom
+                                customEntryTitle="Custom gender"
+                                customEntryHint="Not listed? Type here, then Enter."
+                                customPlaceholder="Type gender — Enter"
+                                style={fieldSelectStyle}
+                                maxH={240}
                             />
                         </div>
                     )}
