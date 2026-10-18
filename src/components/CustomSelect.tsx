@@ -30,6 +30,10 @@ interface Props {
     searchable?: boolean;
     /** Hide the option list until the user types, so a large catalog is not rendered up front. */
     requireQuery?: boolean;
+    /** Show a clear action so optional fields can be emptied after a value was chosen. */
+    allowClear?: boolean;
+    /** Label for the clear row when `allowClear` is on. */
+    clearLabel?: string;
 }
 export default function CustomSelect({
     value,
@@ -47,6 +51,8 @@ export default function CustomSelect({
     disabled = false,
     searchable,
     requireQuery = false,
+    allowClear = false,
+    clearLabel = 'None',
 }: Props) {
     const [open, setOpen] = useState(false);
     const [q, setQ] = useState('');
@@ -172,10 +178,28 @@ export default function CustomSelect({
                 </div>
             )}
             <div style={{ maxHeight: maxH, overflowY: 'auto' }}>
+                {allowClear && !!value && !waitingForQuery && !q.trim() && (
+                    <button
+                        type="button"
+                        onClick={() => { onChange(''); close(); }}
+                        style={{
+                            width: '100%', padding: '8px 12px', fontSize: 13, lineHeight: 1.35, textAlign: 'left',
+                            background: 'transparent', border: 'none', cursor: 'pointer',
+                            color: 'var(--text-secondary,#475569)', fontWeight: 500,
+                            borderBottom: '1px solid var(--border-subtle,#e5e7eb)',
+                        }}
+                        onMouseEnter={e => { e.currentTarget.style.background = 'var(--surface-2,#f3f4f6)'; }}
+                        onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
+                    >
+                        {clearLabel}
+                    </button>
+                )}
                 {waitingForQuery && <div style={{ padding: '10px 12px', fontSize: 12, color: 'var(--text-muted)', textAlign: 'center' }}>Type to search</div>}
-                {!waitingForQuery && list.length === 0 && <div style={{ padding: '10px 12px', fontSize: 12, color: 'var(--text-muted)', textAlign: 'center' }}>No results</div>}
+                {!waitingForQuery && list.length === 0 && !(allowClear && !!value && !q.trim()) && (
+                    <div style={{ padding: '10px 12px', fontSize: 12, color: 'var(--text-muted)', textAlign: 'center' }}>No results</div>
+                )}
                 {list.map(o => (
-                    <button key={o.value} type="button" onClick={() => { onChange(o.value); close(); }}
+                    <button key={o.value || o.label} type="button" onClick={() => { onChange(o.value); close(); }}
                         style={{ width: '100%', padding: '8px 12px', fontSize: 13, lineHeight: 1.35, textAlign: 'left', whiteSpace: 'normal', background: o.value === value ? 'rgba(99,102,241,0.08)' : 'transparent', border: 'none', cursor: 'pointer', color: o.value === value ? 'var(--helix-primary,#6366f1)' : 'var(--text-primary,#111)', fontWeight: o.value === value ? 600 : 400 }}
                         onMouseEnter={e => { if (o.value !== value) e.currentTarget.style.background = 'var(--surface-2,#f3f4f6)'; }}
                         onMouseLeave={e => { e.currentTarget.style.background = o.value === value ? 'rgba(99,102,241,0.08)' : 'transparent'; }}>
@@ -240,6 +264,35 @@ export default function CustomSelect({
                 <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
                     {triggerText}
                 </span>
+                {allowClear && !!value && !disabled && (
+                    <span
+                        role="button"
+                        tabIndex={0}
+                        aria-label="Clear selection"
+                        title="Clear"
+                        onClick={e => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            onChange('');
+                            close();
+                        }}
+                        onKeyDown={e => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                onChange('');
+                                close();
+                            }
+                        }}
+                        style={{
+                            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                            width: 20, height: 20, marginLeft: 4, borderRadius: 999,
+                            color: 'var(--text-muted,#98A2B3)', flexShrink: 0,
+                        }}
+                    >
+                        <span className="material-icons-round" style={{ fontSize: 16 }}>close</span>
+                    </span>
+                )}
                 <span className="material-icons-round" style={{ fontSize: 16, color: 'var(--text-muted)', marginLeft: 4, transform: open ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s' }}>expand_more</span>
             </button>
             {dropdown}

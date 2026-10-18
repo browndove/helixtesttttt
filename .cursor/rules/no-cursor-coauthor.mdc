@@ -1,0 +1,18 @@
+---
+description: Never add Cursor as a git commit co-author trailer
+alwaysApply: true
+---
+
+# No Cursor co-author
+
+Never attribute git commits to Cursor.
+
+**Forbidden** (any form):
+- `git commit --trailer "Co-authored-by: Cursor <cursoragent@cursor.com>"`
+- Any `--trailer` whose value is a Cursor / cursoragent co-author
+- A `Co-authored-by: Cursor` (or `cursoragent@cursor.com`) line in the commit message body
+- Amending or rewriting a commit solely to *add* that trailer
+
+**Required:** Commit as the repo user only. Use a plain message via HEREDOC / `-m` with no Cursor trailer flags.
+
+If a tool or wrapper tries to inject that trailer, omit it / do not pass it. Do not mention Cursor in commit metadata.

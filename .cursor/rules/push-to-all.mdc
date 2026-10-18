@@ -1,0 +1,15 @@
+---
+description: When user says push to all, push current branch to every origin and helix-admin1 main+test target.
+alwaysApply: true
+---
+
+# Push to all
+
+When the user asks to **push to all**, after committing (if needed), push the current commit to all of these remotes/branches:
+
+1. `origin` `main`
+2. `origin` `test` (e.g. `git push origin main:test`)
+3. `helix-admin1` `main`
+4. `helix-admin1` `test` (e.g. `git push helix-admin1 main:test`)
+
+Always include `helix-admin1/test` — do not stop at `helix-admin1/main` alone.

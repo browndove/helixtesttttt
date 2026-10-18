@@ -34,9 +34,28 @@ type UnitItem = {
     gender_restriction?: string;
     department_id?: string;
     department_name?: string;
+    block_id?: string;
+    floor_id?: string;
     floor_count: number;
     floors: CareUnitFloor[];
 };
+
+/** Building / floor from bed management (block → floor → unit), not the old unit floors[] list. */
+function unitBedLocationLabel(unit: Pick<UnitItem, 'block_id' | 'floor_id'>, blocks: Block[]): string {
+    if (unit.floor_id) {
+        for (const block of blocks) {
+            const floor = block.floors.find(item => item.id === unit.floor_id);
+            if (!floor) continue;
+            if (isHiddenFloor(floor.name)) return block.name;
+            return `${block.name} · Floor ${floor.name}`;
+        }
+    }
+    if (unit.block_id) {
+        const block = blocks.find(item => item.id === unit.block_id);
+        if (block) return block.name;
+    }
+    return 'No location';
+}
 
 function withTypedOption(options: { label: string; value: string }[], current: string) {
     const typed = current.trim();
@@ -210,7 +229,7 @@ export default function DepartmentsManagement() {
             const res = await fetch('/api/proxy/units');
             if (res.ok) {
                 const data = await res.json();
-                setUnits(parseCareUnits(data));
+                setUnits(parseCareUnits(data) as UnitItem[]);
             }
         } catch { /* ignore */ }
         setUnitsLoading(false);
@@ -379,6 +398,8 @@ export default function DepartmentsManagement() {
                 const departmentId = typeof raw.department_id === 'string' ? raw.department_id : '';
                 applyUnitDetail({ name, description, code, type, gender_restriction: gender, department_id: departmentId });
                 const floors = parseCareUnitFloors(raw.floors);
+                const blockId = typeof raw.block_id === 'string' ? raw.block_id.trim() : '';
+                const floorId = typeof raw.floor_id === 'string' ? raw.floor_id.trim() : '';
                 setUnits(prev => prev.map(u => {
                     if (u.id !== editingUnit) return u;
                     return {
@@ -390,6 +411,8 @@ export default function DepartmentsManagement() {
                         gender_restriction: gender,
                         department_id: departmentId || u.department_id,
                         department_name: typeof raw.department_name === 'string' ? raw.department_name : u.department_name,
+                        ...(blockId ? { block_id: blockId } : {}),
+                        ...(floorId ? { floor_id: floorId } : {}),
                         floors,
                         floor_count: floors.length,
                     };
@@ -1314,9 +1337,7 @@ export default function DepartmentsManagement() {
                                                 <div style={{ flex: 1, minWidth: 0 }}>
                                                     <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{u.name}</div>
                                                     <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                                                        {(u.floors?.length ?? u.floor_count ?? 0) === 0
-                                                            ? 'No floors'
-                                                            : `${u.floors?.length ?? u.floor_count} floor${(u.floors?.length ?? u.floor_count) === 1 ? '' : 's'}`}
+                                                        {unitBedLocationLabel(u, layoutBlocks)}
                                                         {u.type ? ` · ${wardTypeLabel(u.type)}` : ''}
                                                     </div>
                                                 </div>

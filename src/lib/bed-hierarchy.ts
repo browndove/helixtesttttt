@@ -195,7 +195,9 @@ export function parseBed(raw: unknown): HierarchyBed | null {
         room_id: str(rec.room_id),
         ...(optionalStr(rec.department_id) ? { department_id: str(rec.department_id) } : {}),
         bed_number: bedNumber,
-        ...(optionalStr(rec.bed_code ?? rec.code) ? { bed_code: str(rec.bed_code ?? rec.code) } : {}),
+        ...(!isClearedOptional(optionalStr(rec.bed_code ?? rec.code))
+            ? { bed_code: str(rec.bed_code ?? rec.code) }
+            : {}),
         status: bedStatus(rec.status),
         ...(rec.occupied_patient_id != null ? { occupied_patient_id: str(rec.occupied_patient_id) || null } : {}),
         sort_order: int(rec.sort_order),
@@ -273,8 +275,8 @@ export function parseWard(raw: unknown): Ward | null {
         ...(optionalStr(rec.department_id) ? { department_id: str(rec.department_id) } : {}),
         ...(optionalStr(rec.department_name) ? { department_name: str(rec.department_name) } : {}),
         name,
-        ...(optionalStr(rec.code) ? { code: str(rec.code) } : {}),
-        ...(optionalStr(rec.type) ? { type: str(rec.type) } : {}),
+        ...(!isClearedOptional(optionalStr(rec.code)) ? { code: str(rec.code) } : {}),
+        ...(!isClearedOptional(optionalStr(rec.type)) ? { type: str(rec.type) } : {}),
         ...(GENDER_RESTRICTIONS.includes(gender as GenderRestriction)
             ? { gender_restriction: gender as GenderRestriction }
             : {}),
@@ -379,19 +381,41 @@ export function hierarchyApiMessage(raw: unknown, fallback: string): string {
     return typeof message === 'string' && message.trim() ? message.trim() : fallback;
 }
 
+/**
+ * The units API ignores null/"" on PUT for optional strings, so a cleared value
+ * is stored as this sentinel and rendered as empty in the admin UI.
+ */
+export const CLEARED_OPTIONAL = '__none__';
+
+export function isClearedOptional(value?: string | null): boolean {
+    const trimmed = (value ?? '').trim().toLowerCase();
+    return !trimmed || trimmed === CLEARED_OPTIONAL || trimmed === 'none';
+}
+
+/** Form/display value for an optional string returned by the API. */
+export function optionalFromApi(value?: string | null): string {
+    return isClearedOptional(value) ? '' : String(value).trim();
+}
+
+/** Value to send on edit when an optional string may have been cleared. */
+export function optionalForApi(value: string): string {
+    const trimmed = value.trim();
+    return trimmed ? trimmed : CLEARED_OPTIONAL;
+}
+
 export function wardTypeLabel(type?: string): string {
-    if (!type) return '';
+    if (isClearedOptional(type)) return '';
     const known: Partial<Record<WardType, string>> = {
         icu: 'ICU',
         nicu: 'NICU',
     };
-    if ((WARD_TYPES as readonly string[]).includes(type)) {
-        return known[type as WardType] || type.charAt(0).toUpperCase() + type.slice(1);
+    if ((WARD_TYPES as readonly string[]).includes(type!)) {
+        return known[type as WardType] || type!.charAt(0).toUpperCase() + type!.slice(1);
     }
-    return type;
+    return type!;
 }
 
-export function genderLabel(value?: GenderRestriction): string {
-    if (!value) return '';
+export function genderLabel(value?: GenderRestriction | string): string {
+    if (!value || isClearedOptional(value)) return '';
     return value.charAt(0).toUpperCase() + value.slice(1);
 }

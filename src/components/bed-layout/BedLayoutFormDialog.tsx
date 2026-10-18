@@ -12,6 +12,8 @@ import {
     WARD_TYPES,
     genderLabel,
     hierarchyApiMessage,
+    optionalForApi,
+    optionalFromApi,
     parseFloors,
     parseRoom,
     parseRooms,
@@ -141,13 +143,26 @@ function emptyBed(): BedDraft {
     return { bed_number: '', bed_code: '', status: 'available' };
 }
 
-function wardPayload(draft: WardDraft): Record<string, unknown> {
+function wardPayload(draft: WardDraft, opts?: { clearOptional?: boolean }): Record<string, unknown> {
     const type = draft.type.trim();
+    const code = draft.code.trim();
+    const gender = draft.gender.trim();
+    // Backend ignores null/"" on PUT, so cleared strings use a sentinel shown as empty in the UI.
+    // gender_restriction is an enum and cannot be cleared by the API — omit when empty on edit.
+    if (opts?.clearOptional) {
+        return {
+            name: draft.name.trim(),
+            code: optionalForApi(code),
+            type: optionalForApi(type),
+            ...(gender ? { gender_restriction: gender } : {}),
+            ...(draft.departmentId ? { department_id: draft.departmentId } : {}),
+        };
+    }
     return {
         name: draft.name.trim(),
-        ...(draft.code.trim() ? { code: draft.code.trim() } : {}),
+        ...(code ? { code } : {}),
         ...(type ? { type } : {}),
-        ...(draft.gender ? { gender_restriction: draft.gender } : {}),
+        ...(gender ? { gender_restriction: gender } : {}),
         ...(draft.departmentId ? { department_id: draft.departmentId } : {}),
     };
 }
@@ -176,10 +191,13 @@ function departmentIds(raw: unknown): string[] {
     return ids;
 }
 
-function bedPayload(draft: BedDraft, departmentId?: string): Record<string, unknown> {
+function bedPayload(draft: BedDraft, departmentId?: string, opts?: { clearOptional?: boolean }): Record<string, unknown> {
+    const bedCode = draft.bed_code.trim();
     return {
         bed_number: draft.bed_number.trim(),
-        ...(draft.bed_code.trim() ? { bed_code: draft.bed_code.trim() } : {}),
+        ...(opts?.clearOptional
+            ? { bed_code: optionalForApi(bedCode) }
+            : (bedCode ? { bed_code: bedCode } : {})),
         status: draft.status,
         department_id: departmentId || '',
     };
@@ -212,11 +230,19 @@ function roomIdForNumber(raw: unknown, number: string): string {
     return listed?.id || visit(raw);
 }
 
-function roomPayload(draft: RoomDraft, beds?: BedDraft[], departmentId?: string): Record<string, unknown> {
+function roomPayload(
+    draft: RoomDraft,
+    beds?: BedDraft[],
+    departmentId?: string,
+    opts?: { clearOptional?: boolean },
+): Record<string, unknown> {
     const usable = (beds || []).filter(bed => bed.bed_number.trim());
+    const name = draft.name.trim();
     return {
         number: draft.number.trim(),
-        ...(draft.name.trim() ? { name: draft.name.trim() } : {}),
+        ...(opts?.clearOptional
+            ? { name: optionalForApi(name) }
+            : (name ? { name } : {})),
         ...(usable.length ? { beds: usable.map(item => bedPayload(item, departmentId)) } : {}),
     };
 }
@@ -296,17 +322,19 @@ export default function BedLayoutFormDialog({
                 setWard({
                     name: entity.name,
                     nameChoice: matched ? matched.id : entity.name ? OTHER : '',
-                    code: entity.code || '',
-                    type: entity.type || '',
-                    gender: entity.gender_restriction || '',
+                    code: optionalFromApi(entity.code),
+                    type: optionalFromApi(entity.type),
+                    gender: optionalFromApi(entity.gender_restriction),
                     departmentId: entity.department_id || '',
                 });
             }
-            if (request.level === 'room') setRoom({ number: request.entity.number, name: request.entity.name || '' });
+            if (request.level === 'room') {
+                setRoom({ number: request.entity.number, name: optionalFromApi(request.entity.name) });
+            }
             if (request.level === 'bed') {
                 setBed({
                     bed_number: request.entity.bed_number,
-                    bed_code: request.entity.bed_code || '',
+                    bed_code: optionalFromApi(request.entity.bed_code),
                     status: request.entity.status,
                 });
             }
@@ -475,15 +503,19 @@ export default function BedLayoutFormDialog({
                     await send(API_ENDPOINTS.FLOOR(id), 'PUT', body, { kind: 'edit', level, id, body });
                 } else if (level === 'ward') {
                     if (!ward.name.trim()) throw new Error('Ward name is required.');
-                    const body = wardPayload(ward);
+                    const body = wardPayload(ward, { clearOptional: true });
+                    // Keep the previous gender when the field is left empty — the API enum cannot be cleared.
+                    if (!ward.gender.trim() && request.entity.gender_restriction) {
+                        body.gender_restriction = request.entity.gender_restriction;
+                    }
                     await send(API_ENDPOINTS.WARD(id), 'PUT', body, { kind: 'edit', level, id, body });
                 } else if (level === 'room') {
                     if (!room.number.trim()) throw new Error('Room number is required.');
-                    const body = roomPayload(room);
+                    const body = roomPayload(room, undefined, undefined, { clearOptional: true });
                     await send(API_ENDPOINTS.ROOM(id), 'PUT', body, { kind: 'edit', level, id, body });
                 } else {
                     if (!bed.bed_number.trim()) throw new Error('Bed number is required.');
-                    const body = bedPayload(bed, request.entity.department_id);
+                    const body = bedPayload(bed, request.entity.department_id, { clearOptional: true });
                     await send(API_ENDPOINTS.BED(id), 'PATCH', body, { kind: 'edit', level, id, body });
                 }
                 onSaved(`${LEVEL_TITLES[level].edit.replace('Edit ', '').replace(' info', '')} updated`);
@@ -522,7 +554,7 @@ export default function BedLayoutFormDialog({
 
             if (level === 'floor') {
                 if (!resolvedFloorName) throw new Error('Floor name or number is required.');
-                const wards = childWards.filter(item => item.name.trim()).map(wardPayload);
+                const wards = childWards.filter(item => item.name.trim()).map(item => wardPayload(item));
                 const floorBody = { name: resolvedFloorName, ...(wards.length ? { wards } : {}) };
                 const alreadyThere = takenFloorNames.has(resolvedFloorName.trim().toLowerCase());
                 if (blockId) {
@@ -596,10 +628,13 @@ export default function BedLayoutFormDialog({
                     if (!resolvedFloorId) throw new Error('Pick the floor this unit belongs to.');
                     const unitType = bedUnitType.trim();
                     const unitGender = bedUnitGender.trim();
-                    if (!unitType) throw new Error('Choose a unit type.');
                     if (!unitGender) throw new Error('Choose a gender restriction.');
                     const createUnit = async (name: string) => {
-                        const wardBody = { name, type: unitType, gender_restriction: unitGender };
+                        const wardBody = {
+                            name,
+                            ...(unitType ? { type: unitType } : {}),
+                            gender_restriction: unitGender,
+                        };
                         const createdWard = await send(API_ENDPOINTS.FLOOR_WARDS(resolvedFloorId), 'POST', wardBody, {
                             kind: 'create', level: 'ward', parentId: resolvedFloorId, body: wardBody,
                         });
@@ -654,7 +689,6 @@ export default function BedLayoutFormDialog({
                     ? { id: selectedUnit.id, name: selectedUnit.name, type: selectedUnit.type || '', floorId: selectedUnit.floor_id || resolvedFloorId, onListedFloor: true, departmentId: selectedUnit.department_id || '' }
                     : undefined);
             const unitType = bedUnitType.trim() || knownUnit?.type || '';
-            if (!unitType) throw new Error('Choose a unit type.');
             let departmentId = knownUnit?.departmentId || '';
             if (!departmentId && !preview) {
                 const url = await appendFacilityIdForProxy(API_ENDPOINTS.DEPARTMENTS);
@@ -669,18 +703,25 @@ export default function BedLayoutFormDialog({
                 }
             }
             const unitGender = bedUnitGender.trim();
-            const unitBody = (name: string, floor: string) => ({
+            const unitBody = (name: string, floor: string, forEdit = false) => ({
                 name,
                 ...(floor ? { floor_id: floor } : {}),
-                type: unitType,
-                ...(unitGender ? { gender_restriction: unitGender } : {}),
+                ...(forEdit
+                    ? {
+                        type: optionalForApi(unitType),
+                        ...(unitGender ? { gender_restriction: unitGender } : {}),
+                    }
+                    : {
+                        ...(unitType ? { type: unitType } : {}),
+                        ...(unitGender ? { gender_restriction: unitGender } : {}),
+                    }),
                 department_id: departmentId,
             });
             let resolvedWardId = wardId || (knownUnit?.floorId === resolvedFloorId ? knownUnit.id : '') || '';
             if (!resolvedWardId && unitName) {
                 if (!resolvedFloorId) throw new Error('Pick the floor this unit belongs to.');
                 if (knownUnit) {
-                    const body = unitBody(knownUnit.name, resolvedFloorId);
+                    const body = unitBody(knownUnit.name, resolvedFloorId, true);
                     await send(API_ENDPOINTS.WARD(knownUnit.id), 'PUT', body, {
                         kind: 'edit', level: 'ward', id: knownUnit.id, body,
                     });
@@ -721,12 +762,12 @@ export default function BedLayoutFormDialog({
                     }
                     if (!resolvedWardId) throw new Error('Unit was created, but its id could not be read.');
                 }
-            } else if (resolvedWardId && unitType) {
+            } else if (resolvedWardId) {
                 const named = knownUnit?.name
                     || blocks.flatMap(block => block.floors.flatMap(floor => floor.wards)).find(item => item.id === resolvedWardId)?.name
                     || unitName;
                 if (named) {
-                    const body = unitBody(named, resolvedFloorId);
+                    const body = unitBody(named, resolvedFloorId, true);
                     await send(API_ENDPOINTS.WARD(resolvedWardId), 'PUT', body, {
                         kind: 'edit', level: 'ward', id: resolvedWardId, body,
                     });
@@ -939,8 +980,10 @@ export default function BedLayoutFormDialog({
                             }
                             return listed;
                         })()}
-                        placeholder="Select a type"
+                        placeholder="Optional"
                         allowCustom
+                        allowClear
+                        clearLabel="No type"
                         customEntryTitle="Custom type"
                         customEntryHint="Not listed? Type here, then Enter."
                         customPlaceholder="Type a type — Enter"
@@ -960,7 +1003,7 @@ export default function BedLayoutFormDialog({
                             GENDER_RESTRICTIONS.map(value => ({ label: genderLabel(value), value })),
                             draft.gender,
                         )}
-                        placeholder="Select"
+                        placeholder="Optional"
                         allowCustom
                         customEntryTitle="Custom gender"
                         customEntryHint="Not listed? Type here, then Enter."
@@ -1216,7 +1259,7 @@ export default function BedLayoutFormDialog({
 
                     {kind === 'create' && (level === 'bed' || (level === 'room' && needs.ward)) && (
                         <div>
-                            <label style={fieldLabel}>Ward / unit type *</label>
+                            <label style={fieldLabel}>Ward / unit type</label>
                             <CustomSelect
                                 value={bedUnitType}
                                 onChange={setBedUnitType}
@@ -1228,8 +1271,10 @@ export default function BedLayoutFormDialog({
                                     }
                                     return listed;
                                 })()}
-                                placeholder="Select a type"
+                                placeholder="Optional"
                                 allowCustom
+                                allowClear
+                                clearLabel="No type"
                                 customEntryTitle="Custom type"
                                 customEntryHint="Not listed? Type here, then Enter."
                                 customPlaceholder="Type a type — Enter"
@@ -1252,7 +1297,7 @@ export default function BedLayoutFormDialog({
                                     GENDER_RESTRICTIONS.map(value => ({ label: genderLabel(value), value })),
                                     bedUnitGender,
                                 )}
-                                placeholder="Select a gender"
+                                placeholder={level === 'room' ? 'Select a gender' : 'Optional'}
                                 allowCustom
                                 customEntryTitle="Custom gender"
                                 customEntryHint="Not listed? Type here, then Enter."

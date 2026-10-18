@@ -304,9 +304,11 @@ export function applyPreviewOp(blocks: Block[], op: PreviewOp): Block[] {
                 const next: Ward = {
                     ...current,
                     name: text(body.name) || current.name,
-                    code: text(body.code) || undefined,
-                    type: text(body.type) || undefined,
-                    gender_restriction: gender || undefined,
+                    ...('code' in body ? { code: text(body.code) || undefined } : {}),
+                    ...('type' in body ? { type: text(body.type) || undefined } : {}),
+                    ...('gender_restriction' in body
+                        ? { gender_restriction: gender || undefined }
+                        : {}),
                     department_id: text(body.department_id) || current.department_id,
                     floor_id: nextFloorId || current.floor_id,
                 };
@@ -328,7 +330,8 @@ export function applyPreviewOp(blocks: Block[], op: PreviewOp): Block[] {
                     ? {
                         ...room,
                         number: text(body.number) || room.number,
-                        name: text(body.name) || undefined,
+                        // Explicit null/'' clears optional name; omit keeps the old value.
+                        ...('name' in body ? { name: text(body.name) || undefined } : {}),
                         updated_at: new Date().toISOString(),
                     }
                     : room
@@ -345,7 +348,7 @@ export function applyPreviewOp(blocks: Block[], op: PreviewOp): Block[] {
                             return {
                                 ...bed,
                                 bed_number: text(body.bed_number) || bed.bed_number,
-                                bed_code: text(body.bed_code) || undefined,
+                                ...('bed_code' in body ? { bed_code: text(body.bed_code) || undefined } : {}),
                                 status: status || bed.status,
                                 department_id: text(body.department_id) || bed.department_id,
                             };
