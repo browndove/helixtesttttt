@@ -37,7 +37,7 @@ type DeleteTarget = { label: string; level: PreviewLevel; id: string; endpoint: 
 
 type FloorRow = { block: Block; floor: Floor };
 
-type HomeRow = { block: Block; floor: Floor | null };
+type HomeUnitRow = { block: Block; floor: Floor | null; unit: Ward };
 
 function ActionMenu({ items }: { items: { label: string; onClick: () => void; danger?: boolean }[] }) {
     const [open, setOpen] = useState(false);
@@ -229,30 +229,6 @@ function wardsPlacedOnFloor(floor: Floor, careUnits: CareUnit[]): Ward[] {
     return placed;
 }
 
-function unitsOnBlock(block: Block, careUnits: CareUnit[]): { id: string; name: string }[] {
-    const seen = new Set<string>();
-    const units: { id: string; name: string }[] = [];
-    const add = (id: string, name: string) => {
-        const label = name.trim();
-        if (!id || !label || seen.has(id)) return;
-        seen.add(id);
-        units.push({ id, name: label });
-    };
-    for (const floor of block.floors) {
-        for (const ward of wardsPlacedOnFloor(floor, careUnits)) add(ward.id, ward.name);
-    }
-    for (const unit of careUnits) {
-        if (unit.block_id === block.id) add(unit.id, unit.name);
-    }
-    return units.sort((a, b) => a.name.localeCompare(b.name));
-}
-
-function blockDirectory(block: Block, careUnits: CareUnit[]) {
-    const floors = block.floors.filter(floor => isListedFloor(floor.name));
-    const units = unitsOnBlock(block, careUnits);
-    return { floors: floors.length, units, unitNames: units.map(unit => unit.name) };
-}
-
 function existingWardChoices(blocks: Block[], careUnits: CareUnit[]): { id: string; name: string; departmentId?: string; blockId?: string }[] {
     const seen = new Set<string>();
     const options: { id: string; name: string; departmentId?: string; blockId?: string }[] = [];
@@ -294,6 +270,11 @@ function matchesStatus(counts: { available_count: number; occupied_count: number
     if (status === 'available') return counts.available_count > 0;
     if (status === 'occupied') return counts.occupied_count > 0;
     return counts.blocked_count > 0;
+}
+
+function homeLocationLabel(item: Block, entry: Floor | null): string {
+    const floorLabel = entry && isListedFloor(entry.name) ? `Floor ${entry.name}` : '';
+    return floorLabel ? `${item.name} · ${floorLabel}` : item.name;
 }
 
 const TH: React.CSSProperties = {
@@ -372,7 +353,7 @@ function TableSkeleton({ headers, groups = 2, rowsPerGroup = 3 }: {
     );
 }
 
-const FLOOR_HEADERS = ['Floor', 'Total beds', 'Available beds', 'Last modified', 'Action'];
+const HOME_UNIT_HEADERS = ['Unit / ward', 'Total beds', 'Available', 'Occupied', 'Out of service', 'Last modified', 'Action'];
 const ROOM_HEADERS = ['Room / cubicle', 'Total beds', 'Available', 'Occupied', 'Out of service', 'Last modified', 'Action'];
 
 type HomeKpis = {
@@ -542,7 +523,7 @@ function HomeSkeleton() {
                 {bone(72, 34)}
                 {bone(148, 34)}
             </div>
-            <TableSkeleton headers={FLOOR_HEADERS} />
+            <TableSkeleton headers={HOME_UNIT_HEADERS} groups={1} rowsPerGroup={5} />
         </div>
     );
 }
@@ -644,7 +625,15 @@ export default function BedLayoutExplorer() {
         return { total, available, occupied, blocked, occupancy };
     }, [buildings]);
 
-    const current = useMemo(() => floorRows.find(row => row.floor.id === floorId) || null, [floorRows, floorId]);
+    const current = useMemo(() => {
+        if (!floorId) return null;
+        for (const item of blocks) {
+            if (isBackfill(item.name)) continue;
+            const match = item.floors.find(entry => entry.id === floorId);
+            if (match) return { block: item, floor: match };
+        }
+        return floorRows.find(row => row.floor.id === floorId) || null;
+    }, [blocks, floorId, floorRows]);
     const block = current?.block || null;
     const floor = current?.floor || null;
     const wards = useMemo(() => (floor ? wardsPlacedOnFloor(floor, careUnits) : []), [floor, careUnits]);
@@ -661,12 +650,33 @@ export default function BedLayoutExplorer() {
 
     const level: 'home' | 'floor' | 'room' = room ? 'room' : floor ? 'floor' : 'home';
 
+    const goHome = useCallback(() => {
+        setFloorId('');
+        setUnitId('');
+        setRoomId('');
+        setSearch('');
+        setStatus('all');
+        setPage(1);
+        setWardFilter('all');
+        setOpenBedId(null);
+    }, []);
+
+    const openHomeUnit = useCallback((nextFloorId: string, nextUnitId: string) => {
+        setRoomId('');
+        setSearch('');
+        setStatus('all');
+        setPage(1);
+        setWardFilter('all');
+        setOpenBedId(null);
+        setUnitId(nextUnitId);
+        setFloorId(nextFloorId);
+    }, []);
+
     useEffect(() => {
         setSearch('');
         setStatus('all');
         setPage(1);
         setWardFilter('all');
-        setUnitId('');
         setOpenBedId(null);
     }, [floorId]);
 
@@ -844,20 +854,56 @@ export default function BedLayoutExplorer() {
     }, [quickInput, roomId, preview, applyLocally, afterMutation, showToast]);
 
     /* ── rows per page ──────────────────────────────────────────────── */
-    const visibleFloors = useMemo<HomeRow[]>(() => {
+    const homeUnitRows = useMemo<HomeUnitRow[]>(() => {
+        const rows: HomeUnitRow[] = [];
+        const seen = new Set<string>();
+        for (const item of buildings) {
+            for (const entry of item.floors) {
+                for (const unit of wardsPlacedOnFloor(entry, careUnits)) {
+                    if (seen.has(unit.id)) continue;
+                    seen.add(unit.id);
+                    rows.push({ block: item, floor: entry, unit });
+                }
+            }
+            for (const care of careUnits) {
+                if (care.block_id !== item.id || seen.has(care.id)) continue;
+                const entry = care.floor_id
+                    ? item.floors.find(floor => floor.id === care.floor_id) || null
+                    : null;
+                seen.add(care.id);
+                rows.push({
+                    block: item,
+                    floor: entry,
+                    unit: {
+                        id: care.id,
+                        floor_id: entry?.id || '',
+                        name: care.name,
+                        ...(care.department_id ? { department_id: care.department_id } : {}),
+                        ...(care.type ? { type: care.type } : {}),
+                        room_count: 0,
+                        sort_order: 0,
+                        rooms: [],
+                        bed_count: 0,
+                        available_count: 0,
+                        occupied_count: 0,
+                        blocked_count: 0,
+                    },
+                });
+            }
+        }
+        return rows.sort((a, b) => a.unit.name.localeCompare(b.unit.name, undefined, { sensitivity: 'base' }));
+    }, [buildings, careUnits]);
+
+    const visibleHomeUnits = useMemo(() => {
         const needle = search.trim().toLowerCase();
-        return buildings.flatMap((block): HomeRow[] => {
-            const floors = block.floors.filter(floor => isListedFloor(floor.name));
-            const matched = floors.filter(floor => {
-                const haystack = `${block.name} ${floor.name}`.toLowerCase();
-                return (!needle || haystack.includes(needle)) && matchesStatus(floor, status);
-            }).sort((a, b) => b.name.localeCompare(a.name, undefined, { numeric: true, sensitivity: 'base' }));
-            if (matched.length) return matched.map(floor => ({ block, floor }));
-            const nameMatches = !needle || block.name.toLowerCase().includes(needle);
-            if (!floors.length && nameMatches) return [{ block, floor: null }];
-            return [];
+        return homeUnitRows.filter(({ block: item, floor: entry, unit }) => {
+            if (!matchesStatus(unit, status)) return false;
+            if (!needle) return true;
+            const floorLabel = entry && isListedFloor(entry.name) ? `Floor ${entry.name}` : '';
+            const haystack = `${unit.name} ${item.name} ${floorLabel} ${unit.type || ''}`.toLowerCase();
+            return haystack.includes(needle);
         });
-    }, [buildings, search, status]);
+    }, [homeUnitRows, search, status]);
 
     const visibleUnits = useMemo(() => {
         const needle = search.trim().toLowerCase();
@@ -897,12 +943,12 @@ export default function BedLayoutExplorer() {
     }, [roomBeds, search, status]);
 
     const showingDirectory = level === 'floor' && !!groups && !selectedUnit;
-    const activeList = level === 'home' ? visibleFloors : showingDirectory ? visibleUnits : level === 'room' ? visibleBeds : visibleRooms;
+    const activeList = level === 'home' ? visibleHomeUnits : showingDirectory ? visibleUnits : level === 'room' ? visibleBeds : visibleRooms;
     const pageCount = Math.max(1, Math.ceil(activeList.length / pageSize));
     const safePage = Math.min(page, pageCount);
     const from = (safePage - 1) * pageSize;
 
-    const pagedFloors = useMemo(() => visibleFloors.slice(from, from + pageSize), [visibleFloors, from, pageSize]);
+    const pagedHomeUnits = useMemo(() => visibleHomeUnits.slice(from, from + pageSize), [visibleHomeUnits, from, pageSize]);
     const pagedRooms = useMemo(() => visibleRooms.slice(from, from + pageSize), [visibleRooms, from, pageSize]);
     const pagedUnits = useMemo(() => visibleUnits.slice(from, from + pageSize), [visibleUnits, from, pageSize]);
     const pagedBeds = useMemo(() => visibleBeds.slice(from, from + pageSize), [visibleBeds, from, pageSize]);
@@ -1079,7 +1125,7 @@ export default function BedLayoutExplorer() {
                 </MacVibrancyToastPortal>
             )}
 
-            <TopBar title="Bed management" subtitle="Buildings, floors, wards, rooms and beds" />
+            <TopBar title="Bed management" subtitle="Units, rooms and beds by building and floor" />
 
             <main style={{ flex: 1, overflowY: 'auto', padding: '20px 26px 44px' }}>
                 {loading ? (
@@ -1100,104 +1146,104 @@ export default function BedLayoutExplorer() {
                         <BedKpiRow kpis={homeKpis} />
                         {pageHeader(
                             'Bed management',
-                            <Building2 size={13} strokeWidth={1.9} />,
-                            `${buildings.length} block${buildings.length === 1 ? '' : 's'} · ${floorRows.length} floor${floorRows.length === 1 ? '' : 's'}`,
+                            <Users size={13} strokeWidth={1.9} />,
+                            `${homeUnitRows.length} unit${homeUnitRows.length === 1 ? '' : 's'} · ${buildings.length} building${buildings.length === 1 ? '' : 's'}`,
                             addMenu,
                         )}
-                        {toolbar('Search floors or blocks')}
-                        <div style={{ ...card, overflow: 'hidden' }}>
-                            <div style={{ overflowX: 'auto' }}>
-                                <table style={{ width: '100%', minWidth: 760, borderCollapse: 'collapse' }}>
-                                    <thead>
-                                        <tr>
-                                            <th style={{ ...TH, textAlign: 'left' }}>Floor</th>
-                                            <th style={{ ...TH, textAlign: 'center' }}>Total beds</th>
-                                            <th style={{ ...TH, textAlign: 'center' }}>Available beds</th>
-                                            <th style={{ ...TH, textAlign: 'center' }}>Last modified</th>
-                                            <th style={{ ...TH, textAlign: 'right' }}>Action</th>
-                                        </tr>
-                                    </thead>
-                                    {groupBy(pagedFloors, row => row.block.id).map(([blockId, group]) => {
-                                        const groupBlock = group[0].block;
-                                        const attached = blockDirectory(groupBlock, careUnits);
-                                        return (
-                                            <tbody key={blockId}>
-                                                {groupRow(
-                                                    groupBlock.name,
-                                                    `${attached.floors} floor${attached.floors === 1 ? '' : 's'}`,
-                                                    isAdmin ? (
-                                                        <ActionMenu items={[
-                                                            { label: 'Add floor', onClick: () => setDialog({ kind: 'create', level: 'floor', context: { blockId: groupBlock.id } }) },
-                                                            { label: 'Edit block info', onClick: () => setDialog({ kind: 'edit', level: 'block', entity: groupBlock }) },
-                                                            {
-                                                                label: 'Delete',
-                                                                danger: true,
-                                                                onClick: () => setDeleteTarget({
-                                                                    label: groupBlock.name, level: 'block', id: groupBlock.id,
-                                                                    endpoint: API_ENDPOINTS.BLOCK(groupBlock.id),
-                                                                    warning: groupBlock.floor_count > 0 ? `This block has ${groupBlock.floor_count} floor(s).` : undefined,
-                                                                }),
-                                                            },
-                                                        ]} />
-                                                    ) : null,
-                                                    5,
-                                                )}
-                                                {group.every(row => !row.floor) ? (
-                                                    <tr>
-                                                        <td colSpan={5} style={{ ...TD, color: '#A3AEBD', fontSize: 12.5 }}>
-                                                            No floors in this building yet.
-                                                        </td>
-                                                    </tr>
-                                                ) : group.map(({ floor: item }) => {
-                                                    if (!item) return null;
-                                                    const placedWards = wardsPlacedOnFloor(item, careUnits);
-                                                    return (
-                                                    <tr key={item.id}>
+                        {toolbar('Search units, buildings or floors')}
+                        {homeUnitRows.length === 0 ? emptyPanel(
+                            <Users size={34} strokeWidth={1.6} color="#CBD5E1" />,
+                            'No units yet',
+                            'Add a ward or unit to a floor, then open it here to manage rooms and beds.',
+                            isAdmin ? (
+                                <button
+                                    type="button"
+                                    onClick={() => setDialog({ kind: 'create', level: 'ward', context: {} })}
+                                    style={primaryButton}
+                                >
+                                    <Plus size={14} strokeWidth={2} /> Add ward / unit
+                                </button>
+                            ) : undefined,
+                        ) : (
+                            <div style={{ ...card, overflow: 'hidden' }}>
+                                <div style={{ overflowX: 'auto' }}>
+                                    <table style={{ width: '100%', minWidth: 860, borderCollapse: 'collapse' }}>
+                                        <thead>
+                                            <tr>
+                                                <th style={{ ...TH, textAlign: 'left' }}>Unit / ward</th>
+                                                <th style={{ ...TH, textAlign: 'center' }}>Total beds</th>
+                                                <th style={{ ...TH, textAlign: 'center' }}>Available</th>
+                                                <th style={{ ...TH, textAlign: 'center' }}>Occupied</th>
+                                                <th style={{ ...TH, textAlign: 'center' }}>Out of service</th>
+                                                <th style={{ ...TH, textAlign: 'center' }}>Last modified</th>
+                                                <th style={{ ...TH, textAlign: 'right' }}>Action</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {pagedHomeUnits.map(({ block: item, floor: entry, unit }) => {
+                                                const canOpen = !!entry?.id;
+                                                return (
+                                                    <tr key={unit.id}>
                                                         <td style={TD}>
-                                                            <button
-                                                                type="button"
-                                                                onClick={() => { setFloorId(item.id); setRoomId(''); }}
-                                                                style={{
-                                                                    border: 'none', background: 'none', padding: 0, cursor: 'pointer',
-                                                                    fontSize: 13.5, fontWeight: 700, color: '#1D6FB8', textAlign: 'left',
-                                                                }}
-                                                            >
-                                                                Floor {item.name}
-                                                            </button>
-                                                            <div style={{ fontSize: 11.5, color: '#A3AEBD', marginTop: 2 }}>
-                                                                {placedWards.length} unit{placedWards.length === 1 ? '' : 's'}
+                                                            <div style={{ display: 'grid', gap: 3, justifyItems: 'start' }}>
+                                                                <button
+                                                                    type="button"
+                                                                    disabled={!canOpen}
+                                                                    onClick={() => {
+                                                                        if (!entry) return;
+                                                                        openHomeUnit(entry.id, unit.id);
+                                                                    }}
+                                                                    style={{
+                                                                        display: 'block', border: 'none', background: 'none', padding: 0,
+                                                                        cursor: canOpen ? 'pointer' : 'default',
+                                                                        fontSize: 13.5, fontWeight: 700,
+                                                                        color: canOpen ? '#1D6FB8' : '#101828',
+                                                                        textAlign: 'left', lineHeight: 1.25,
+                                                                    }}
+                                                                >
+                                                                    {unit.name}
+                                                                </button>
+                                                                <div style={{
+                                                                    display: 'flex', alignItems: 'center', gap: 5,
+                                                                    fontSize: 11.5, color: '#98A2B3', fontWeight: 550,
+                                                                    lineHeight: 1.2,
+                                                                }}>
+                                                                    <Building2 size={11} strokeWidth={2} color="#B0B8C5" />
+                                                                    <span>{homeLocationLabel(item, entry)}</span>
+                                                                </div>
                                                             </div>
                                                         </td>
-                                                        {countCell(item.bed_count)}
-                                                        {countCell(item.available_count, '#17803D')}
+                                                        {countCell(unit.bed_count)}
+                                                        {countCell(unit.available_count, '#17803D')}
+                                                        {countCell(unit.occupied_count, '#1D4ED8')}
+                                                        {countCell(unit.blocked_count, '#6B7280')}
                                                         <td style={{ ...TD, textAlign: 'center', color: '#8290A5', whiteSpace: 'nowrap' }}>
-                                                            {formatDate(lastModified(item))}
+                                                            {formatDate(unit.updated_at || lastModified(entry || item))}
                                                         </td>
                                                         <td style={{ ...TD, textAlign: 'right' }}>
                                                             {rowActions(
-                                                                { kind: 'edit', level: 'floor', entity: item },
+                                                                { kind: 'edit', level: 'ward', entity: unit },
                                                                 {
-                                                                    label: `Floor ${item.name}`, level: 'floor', id: item.id,
-                                                                    endpoint: API_ENDPOINTS.FLOOR(item.id),
-                                                                    warning: placedWards.length > 0 ? `This floor has ${placedWards.length} ward(s).` : undefined,
+                                                                    label: unit.name, level: 'ward', id: unit.id,
+                                                                    endpoint: API_ENDPOINTS.WARD(unit.id),
+                                                                    warning: unit.room_count > 0 ? `This unit has ${unit.room_count} room(s).` : undefined,
                                                                 },
-                                                                'Edit floor info',
+                                                                'Edit unit info',
                                                             )}
                                                         </td>
                                                     </tr>
-                                                    );
-                                                })}
-                                            </tbody>
-                                        );
-                                    })}
-                                </table>
-                            </div>
-                            {pagedFloors.length === 0 && (
-                                <div style={{ padding: '36px 16px', textAlign: 'center', fontSize: 13, color: '#8290A5' }}>
-                                    No floors match this search.
+                                                );
+                                            })}
+                                        </tbody>
+                                    </table>
                                 </div>
-                            )}
-                        </div>
+                                {pagedHomeUnits.length === 0 && (
+                                    <div style={{ padding: '36px 16px', textAlign: 'center', fontSize: 13, color: '#8290A5' }}>
+                                        No units match this search.
+                                    </div>
+                                )}
+                            </div>
+                        )}
                     </>
                 ) : level === 'floor' && floor && block && showingDirectory ? (
                     <>
@@ -1206,7 +1252,7 @@ export default function BedLayoutExplorer() {
                             <Layers size={13} strokeWidth={1.9} />,
                             `Floor ${floor.name}`,
                             addMenu,
-                            () => setFloorId(''),
+                            goHome,
                         )}
                         {toolbar('Search units')}
                         <div style={{ ...card, overflow: 'hidden' }}>
@@ -1293,15 +1339,15 @@ export default function BedLayoutExplorer() {
                     <>
                         {pageHeader(
                             selectedUnit ? selectedUnit.name : block.name,
-                            <Layers size={13} strokeWidth={1.9} />,
+                            selectedUnit ? <Building2 size={13} strokeWidth={1.9} /> : <Layers size={13} strokeWidth={1.9} />,
                             selectedUnit
                                 ? [
-                                    groups?.find(group => group.units.some(unit => unit.id === selectedUnit.id))?.name || `Floor ${floor.name}`,
+                                    homeLocationLabel(block, floor),
                                     genderOf(selectedUnit, careUnits) !== '—' ? genderOf(selectedUnit, careUnits) : '',
                                 ].filter(Boolean).join(' · ')
                                 : `Floor ${floor.name}`,
                             addMenu,
-                            () => selectedUnit ? setUnitId('') : setFloorId(''),
+                            goHome,
                         )}
                         {toolbar(
                             selectedUnit ? 'Search rooms' : 'Search rooms or wards',
@@ -1572,8 +1618,8 @@ export default function BedLayoutExplorer() {
                         <Building2 size={34} strokeWidth={1.6} color="#CBD5E1" />,
                         'Nothing to show',
                         'That location no longer exists.',
-                        <button type="button" onClick={() => { setFloorId(''); setRoomId(''); }} style={primaryButton}>
-                            Back to all floors
+                        <button type="button" onClick={goHome} style={primaryButton}>
+                            Back to units
                         </button>,
                     )
                 )}
