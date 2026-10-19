@@ -9,7 +9,18 @@ import { MacVibrancyToast, MacVibrancyToastPortal } from '@/components/MacVibran
 import { readCachedJson, writeCachedJson } from '@/lib/getJsonCache';
 import { API_ENDPOINTS } from '@/lib/config';
 import { appendFacilityIdForProxy } from '@/lib/facility-client';
-import { GENDER_RESTRICTIONS, WARD_TYPES, genderLabel, parseBlock, parseBlocks, parseFloor, wardTypeLabel, type Block } from '@/lib/bed-hierarchy';
+import {
+    GENDER_RESTRICTIONS,
+    WARD_TYPES,
+    genderLabel,
+    optionalForApi,
+    optionalFromApi,
+    parseBlock,
+    parseBlocks,
+    parseFloor,
+    wardTypeLabel,
+    type Block,
+} from '@/lib/bed-hierarchy';
 
 const DEPTS_PAGE_CACHE_TTL_MS = 120_000;
 const DEPTS_CACHE_HOSPITAL = '/api/proxy/hospital';
@@ -368,8 +379,8 @@ export default function DepartmentsManagement() {
     const applyUnitDetail = (unit: { name?: string; description?: string; code?: string; type?: string; gender_restriction?: string; department_id?: string }) => {
         setUnitDetailName(unit.name || '');
         setUnitDetailDescription(unit.description || '');
-        setUnitDetailCode(unit.code || '');
-        setUnitDetailType(unit.type || '');
+        setUnitDetailCode(optionalFromApi(unit.code));
+        setUnitDetailType(optionalFromApi(unit.type));
         setUnitDetailGender(unit.gender_restriction || '');
     };
 
@@ -392,8 +403,8 @@ export default function DepartmentsManagement() {
                 if (cancelled) return;
                 const name = String(raw.name || '').trim();
                 const description = typeof raw.description === 'string' ? raw.description : '';
-                const code = typeof raw.code === 'string' ? raw.code : '';
-                const type = typeof raw.type === 'string' ? raw.type : '';
+                const code = optionalFromApi(typeof raw.code === 'string' ? raw.code : '');
+                const type = optionalFromApi(typeof raw.type === 'string' ? raw.type : '');
                 const gender = typeof raw.gender_restriction === 'string' ? raw.gender_restriction : '';
                 const departmentId = typeof raw.department_id === 'string' ? raw.department_id : '';
                 applyUnitDetail({ name, description, code, type, gender_restriction: gender, department_id: departmentId });
@@ -721,8 +732,8 @@ export default function DepartmentsManagement() {
                 body: JSON.stringify({
                     name: trimmedName,
                     description: descTrimmed,
-                    code: unitDetailCode.trim(),
-                    type: unitDetailType.trim(),
+                    code: optionalForApi(unitDetailCode),
+                    type: optionalForApi(unitDetailType),
                     gender_restriction: unitDetailGender,
                     ...(u.department_id ? { department_id: u.department_id } : {}),
                 }),
@@ -747,8 +758,8 @@ export default function DepartmentsManagement() {
             const body = Object.keys(payload).length > 0 ? payload : { name: trimmedName, description: descTrimmed };
             const updatedName = String(body.name || trimmedName).trim();
             const updatedDesc = typeof body.description === 'string' ? body.description : descTrimmed;
-            const updatedCode = typeof body.code === 'string' ? body.code : unitDetailCode.trim();
-            const updatedType = typeof body.type === 'string' ? body.type : unitDetailType.trim();
+            const updatedCode = optionalFromApi(typeof body.code === 'string' ? body.code : unitDetailCode);
+            const updatedType = optionalFromApi(typeof body.type === 'string' ? body.type : unitDetailType);
             const updatedGender = typeof body.gender_restriction === 'string' ? body.gender_restriction : unitDetailGender;
             const updatedDepartmentId = typeof body.department_id === 'string' ? body.department_id : (u.department_id || '');
             setUnits(prev => prev.map(x => (x.id === u.id ? {
@@ -763,6 +774,9 @@ export default function DepartmentsManagement() {
             } : x)));
             setUnitDetailName(updatedName);
             setUnitDetailDescription(updatedDesc);
+            setUnitDetailCode(updatedCode);
+            setUnitDetailType(updatedType);
+            setUnitDetailGender(updatedGender);
             showToast('Unit updated');
         } catch {
             showToast('Failed to update unit');
@@ -884,8 +898,8 @@ export default function DepartmentsManagement() {
         editUnit
         && (unitDetailName.trim() !== editUnit.name
             || unitDetailDescription.trim() !== (editUnit.description || '').trim()
-            || unitDetailCode.trim() !== (editUnit.code || '')
-            || unitDetailType.trim() !== (editUnit.type || '')
+            || unitDetailCode.trim() !== optionalFromApi(editUnit.code)
+            || unitDetailType.trim() !== optionalFromApi(editUnit.type)
             || unitDetailGender !== (editUnit.gender_restriction || '')),
     );
 
@@ -1042,7 +1056,17 @@ export default function DepartmentsManagement() {
                                                 maxLength={DEPARTMENT_DESCRIPTION_MAX_LENGTH}
                                                 onChange={e => setNewDeptDescription(e.target.value.slice(0, DEPARTMENT_DESCRIPTION_MAX_LENGTH))}
                                                 rows={2}
-                                                style={{ fontSize: 13, minHeight: 52, resize: 'vertical', boxSizing: 'border-box', width: '100%' }}
+                                                style={{
+                                                    fontSize: 13,
+                                                    minHeight: 52,
+                                                    resize: 'vertical',
+                                                    boxSizing: 'border-box',
+                                                    width: '100%',
+                                                    maxWidth: '100%',
+                                                    minWidth: 0,
+                                                    overflowWrap: 'anywhere',
+                                                    wordBreak: 'break-word',
+                                                }}
                                             />
                                         </div>
                                     </div>
@@ -1165,7 +1189,7 @@ export default function DepartmentsManagement() {
 
                             <section style={{ minHeight: 0, overflowY: 'auto', padding: '20px 24px 28px', minWidth: 0, background: 'var(--surface-card)' }}>
                                 {editDept ? (
-                                    <div className="fade-in" key={editDept.id}>
+                                    <div className="fade-in" key={editDept.id} style={{ minWidth: 0, maxWidth: '100%' }}>
                                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, marginBottom: 20, flexWrap: 'wrap' }}>
                                             <div style={{ flex: 1, minWidth: 0 }}>
                                                 <h2 style={{ fontSize: 20, fontWeight: 700, margin: 0, color: 'var(--text-primary)', letterSpacing: '-0.02em' }}>{editDept.name}</h2>
@@ -1181,7 +1205,7 @@ export default function DepartmentsManagement() {
                                             </button>
                                         </div>
 
-                                        <div className="card" style={{ padding: '16px 18px', margin: '0 0 24px', background: 'var(--surface-2)', border: '1px solid var(--border-subtle)', opacity: detailLoading ? 0.88 : 1, transition: 'opacity 0.15s' }}>
+                                        <div className="card" style={{ padding: '16px 18px', margin: '0 0 24px', background: 'var(--surface-2)', border: '1px solid var(--border-subtle)', opacity: detailLoading ? 0.88 : 1, transition: 'opacity 0.15s', minWidth: 0, maxWidth: '100%', overflow: 'hidden' }}>
                                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 12 }}>
                                                 <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Department details</div>
                                                 {detailLoading ? (
@@ -1215,7 +1239,18 @@ export default function DepartmentsManagement() {
                                                 disabled={detailLoading || savingDeptDetails}
                                                 onChange={e => setDetailDescription(e.target.value.slice(0, DEPARTMENT_DESCRIPTION_MAX_LENGTH))}
                                                 rows={3}
-                                                style={{ fontSize: 13, marginBottom: 8, minHeight: 72, resize: 'vertical', boxSizing: 'border-box' }}
+                                                style={{
+                                                    fontSize: 13,
+                                                    marginBottom: 8,
+                                                    minHeight: 72,
+                                                    resize: 'vertical',
+                                                    boxSizing: 'border-box',
+                                                    width: '100%',
+                                                    maxWidth: '100%',
+                                                    minWidth: 0,
+                                                    overflowWrap: 'anywhere',
+                                                    wordBreak: 'break-word',
+                                                }}
                                             />
                                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
                                                 <span style={{ fontSize: 11, color: 'var(--text-muted)', fontVariantNumeric: 'tabular-nums' }}>
@@ -1484,7 +1519,18 @@ export default function DepartmentsManagement() {
                                                     value={newUnitDescription}
                                                     maxLength={UNIT_DESCRIPTION_MAX_LENGTH}
                                                     onChange={e => setNewUnitDescription(e.target.value.slice(0, UNIT_DESCRIPTION_MAX_LENGTH))}
-                                                    style={{ fontSize: 13, flex: 1, minHeight: 160, resize: 'none', boxSizing: 'border-box', width: '100%' }}
+                                                    style={{
+                                                        fontSize: 13,
+                                                        flex: 1,
+                                                        minHeight: 160,
+                                                        resize: 'none',
+                                                        boxSizing: 'border-box',
+                                                        width: '100%',
+                                                        maxWidth: '100%',
+                                                        minWidth: 0,
+                                                        overflowWrap: 'anywhere',
+                                                        wordBreak: 'break-word',
+                                                    }}
                                                 />
                                             </div>
                                             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 16, flexShrink: 0 }}>
@@ -1508,7 +1554,7 @@ export default function DepartmentsManagement() {
                                         </div>
                                     </div>
                                 ) : editUnit ? (
-                                    <div className="fade-in" key={editUnit.id}>
+                                    <div className="fade-in" key={editUnit.id} style={{ minWidth: 0, maxWidth: '100%' }}>
                                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, marginBottom: 20, flexWrap: 'wrap' }}>
                                             <div style={{ flex: 1, minWidth: 0 }}>
                                                 <h2 style={{ fontSize: 20, fontWeight: 700, margin: 0, color: 'var(--text-primary)', letterSpacing: '-0.02em' }}>{editUnit.name}</h2>
@@ -1524,7 +1570,7 @@ export default function DepartmentsManagement() {
                                             </button>
                                         </div>
 
-                                        <div className="card" style={{ padding: '16px 18px', margin: 0, background: 'var(--surface-2)', border: '1px solid var(--border-subtle)', opacity: unitDetailLoading ? 0.88 : 1, transition: 'opacity 0.15s' }}>
+                                        <div className="card" style={{ padding: '16px 18px', margin: 0, background: 'var(--surface-2)', border: '1px solid var(--border-subtle)', opacity: unitDetailLoading ? 0.88 : 1, transition: 'opacity 0.15s', minWidth: 0, maxWidth: '100%', overflow: 'hidden' }}>
                                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 12 }}>
                                                 <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Unit details</div>
                                                 {unitDetailLoading ? (
@@ -1558,7 +1604,7 @@ export default function DepartmentsManagement() {
                                                         value={unitDetailCode}
                                                         disabled={unitDetailLoading || savingUnitDetails}
                                                         onChange={e => setUnitDetailCode(e.target.value)}
-                                                        style={{ fontSize: 13, boxSizing: 'border-box' }}
+                                                        style={{ fontSize: 13, boxSizing: 'border-box', width: '100%' }}
                                                     />
                                                 </div>
                                                 <div>
@@ -1568,8 +1614,10 @@ export default function DepartmentsManagement() {
                                                         onChange={setUnitDetailType}
                                                         disabled={unitDetailLoading || savingUnitDetails}
                                                         options={unitTypeOptions(unitDetailType)}
-                                                        placeholder="Select a type"
+                                                        placeholder="Optional"
                                                         allowCustom
+                                                        allowClear
+                                                        clearLabel="No type"
                                                         customEntryTitle="Custom type"
                                                         customEntryHint="Not listed? Type here, then Enter."
                                                         customPlaceholder="Type a type — Enter"
@@ -1610,7 +1658,18 @@ export default function DepartmentsManagement() {
                                                 disabled={unitDetailLoading || savingUnitDetails}
                                                 onChange={e => setUnitDetailDescription(e.target.value.slice(0, UNIT_DESCRIPTION_MAX_LENGTH))}
                                                 rows={3}
-                                                style={{ fontSize: 13, marginBottom: 8, minHeight: 72, resize: 'vertical', boxSizing: 'border-box' }}
+                                                style={{
+                                                    fontSize: 13,
+                                                    marginBottom: 8,
+                                                    minHeight: 72,
+                                                    resize: 'vertical',
+                                                    boxSizing: 'border-box',
+                                                    width: '100%',
+                                                    maxWidth: '100%',
+                                                    minWidth: 0,
+                                                    overflowWrap: 'anywhere',
+                                                    wordBreak: 'break-word',
+                                                }}
                                             />
                                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
                                                 <span style={{ fontSize: 11, color: 'var(--text-muted)', fontVariantNumeric: 'tabular-nums' }}>

@@ -1936,20 +1936,24 @@ export default function StaffDirectoryManagement() {
         setStaff(prev => prev.map(s => (s.id === id ? { ...s, status: newStatus } : s)));
         setSelected(prev => (prev && prev.id === id ? { ...prev, status: newStatus } : prev));
         const label = statusBadgeStyle(newStatus).label;
-        showToast(`${member.first_name} ${member.last_name} set to ${label}`, 'success');
         try {
-            const res = await fetch(staffUrl(`/api/proxy/staff/${id}`), {
-                method: 'PUT',
+            const res = await fetch(staffUrl(`/api/proxy/staff/${id}/status`), {
+                method: 'PATCH',
                 credentials: 'include',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ status: newStatus }),
             });
-            if (!res.ok) throw new Error('status update failed');
+            const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+            if (!res.ok) {
+                throw new Error(String(data.message || data.error || data.detail || 'status update failed'));
+            }
+            showToast(`${member.first_name} ${member.last_name} set to ${label}`, 'success');
             void fetchInvites();
-        } catch {
+            void fetchStaff();
+        } catch (err) {
             setStaff(prev => prev.map(s => (s.id === id ? { ...s, status: prevStatus } : s)));
             setSelected(prev => (prev && prev.id === id ? { ...prev, status: prevStatus } : prev));
-            showToast('Failed to update status', 'error');
+            showToast(err instanceof Error ? err.message : 'Failed to update status', 'error');
         }
     };
 

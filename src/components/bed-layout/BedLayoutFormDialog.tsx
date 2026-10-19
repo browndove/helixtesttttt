@@ -700,7 +700,8 @@ export default function BedLayoutFormDialog({
                     }
                     if (!resolvedWardId) throw new Error('Unit was created, but its id could not be read.');
                 }
-            } else if (resolvedWardId) {
+            } else if (resolvedWardId && !context.wardId) {
+                // Only update unit metadata when the unit was chosen in this form — not when adding a bed inside a known room.
                 const named = knownUnit?.name
                     || blocks.flatMap(block => block.floors.flatMap(floor => floor.wards)).find(item => item.id === resolvedWardId)?.name
                     || unitName;
@@ -1207,7 +1208,8 @@ export default function BedLayoutFormDialog({
                         </div>
                     )}
 
-                    {kind === 'create' && (level === 'bed' || (level === 'room' && needs.ward)) && (
+                    {/* Type/gender only when the unit is still being chosen or created — not when adding a bed inside a known room. */}
+                    {kind === 'create' && needs.ward && (level === 'bed' || level === 'room') && (
                         <div>
                             <label style={fieldLabel}>Ward / unit type</label>
                             <CustomSelect
@@ -1234,7 +1236,7 @@ export default function BedLayoutFormDialog({
                         </div>
                     )}
 
-                    {kind === 'create' && (level === 'bed' || (level === 'room' && needs.ward)) && (
+                    {kind === 'create' && needs.ward && (level === 'bed' || level === 'room') && (
                         <div>
                             <label style={fieldLabel}>Gender restriction{level === 'room' ? ' *' : ''}</label>
                             <CustomSelect
