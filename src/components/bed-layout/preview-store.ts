@@ -43,7 +43,6 @@ function makeBed(roomId: string, body: Payload, order: number): HierarchyBed {
     return {
         id: newId('bed'),
         room_id: roomId,
-        ...(text(body.department_id) ? { department_id: text(body.department_id) } : {}),
         bed_number: text(body.bed_number) || String(order + 1),
         ...(text(body.bed_code) ? { bed_code: text(body.bed_code) } : {}),
         status: status === 'occupied' || status === 'blocked' ? status : 'available',
@@ -76,7 +75,6 @@ function makeWard(floorId: string, body: Payload, order: number): Ward {
         id,
         floor_id: floorId,
         name: text(body.name) || 'New ward',
-        ...(text(body.department_id) ? { department_id: text(body.department_id) } : {}),
         ...(text(body.code) ? { code: text(body.code) } : {}),
         ...(text(body.type) ? { type: text(body.type) } : {}),
         ...(gender ? { gender_restriction: gender } : {}),
@@ -309,7 +307,6 @@ export function applyPreviewOp(blocks: Block[], op: PreviewOp): Block[] {
                     ...('gender_restriction' in body
                         ? { gender_restriction: gender || undefined }
                         : {}),
-                    department_id: text(body.department_id) || current.department_id,
                     floor_id: nextFloorId || current.floor_id,
                 };
                 if (nextFloorId && nextFloorId !== floor.id) {
@@ -350,7 +347,6 @@ export function applyPreviewOp(blocks: Block[], op: PreviewOp): Block[] {
                                 bed_number: text(body.bed_number) || bed.bed_number,
                                 ...('bed_code' in body ? { bed_code: text(body.bed_code) || undefined } : {}),
                                 status: status || bed.status,
-                                department_id: text(body.department_id) || bed.department_id,
                             };
                         }),
                     }

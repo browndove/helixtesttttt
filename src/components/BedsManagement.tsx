@@ -1131,11 +1131,6 @@ export default function BedsManagement() {
                                     }}
                                     onChange={floors => setUnits(prev => replaceUnitFloors(prev, selectedUnit.id, floors))}
                                 />
-                                {unitHasFloors && !selectedDeptId && (
-                                    <p style={{ fontSize: 12, color: '#64748B', margin: '8px 0 0', display: 'flex', alignItems: 'center', gap: 6 }}>
-                                        ⚠️ Link this unit to a department before mapping beds.
-                                    </p>
-                                )}
                             </div>
                         )}
 

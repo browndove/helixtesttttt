@@ -198,7 +198,6 @@ function homeWardsOntoFloors(blocks: Block[], careUnits: CareUnit[]): Block[] {
             id: unit.id,
             floor_id: unit.floor_id,
             name: unit.name,
-            ...(unit.department_id ? { department_id: unit.department_id } : {}),
             ...(unit.type ? { type: unit.type } : {}),
             room_count: 0,
             sort_order: 0,
@@ -227,25 +226,6 @@ function wardsPlacedOnFloor(floor: Floor, careUnits: CareUnit[]): Ward[] {
         && placed.every(ward => unitIds.has(ward.id));
     if (/unassigned/i.test(floor.name) && holdsEveryUnit) return [];
     return placed;
-}
-
-function existingWardChoices(blocks: Block[], careUnits: CareUnit[]): { id: string; name: string; departmentId?: string; blockId?: string }[] {
-    const seen = new Set<string>();
-    const options: { id: string; name: string; departmentId?: string; blockId?: string }[] = [];
-    const add = (id: string, name: string, departmentId?: string, blockId?: string) => {
-        const label = name.trim();
-        const key = label.toLowerCase();
-        if (!id || !key || seen.has(key)) return;
-        seen.add(key);
-        options.push({ id, name: label, ...(departmentId ? { departmentId } : {}), ...(blockId ? { blockId } : {}) });
-    };
-    for (const unit of careUnits) add(unit.id, unit.name, unit.department_id, unit.block_id);
-    for (const block of blocks) {
-        for (const floor of block.floors) {
-            for (const ward of floor.wards) add(ward.id, ward.name, ward.department_id);
-        }
-    }
-    return options.sort((a, b) => a.name.localeCompare(b.name));
 }
 
 /** Expands "1-20" into individual labels; anything else passes through. */
@@ -878,7 +858,6 @@ export default function BedLayoutExplorer() {
                         id: care.id,
                         floor_id: entry?.id || '',
                         name: care.name,
-                        ...(care.department_id ? { department_id: care.department_id } : {}),
                         ...(care.type ? { type: care.type } : {}),
                         room_count: 0,
                         sort_order: 0,
@@ -1228,7 +1207,7 @@ export default function BedLayoutExplorer() {
                                                                     endpoint: API_ENDPOINTS.WARD(unit.id),
                                                                     warning: unit.room_count > 0 ? `This unit has ${unit.room_count} room(s).` : undefined,
                                                                 },
-                                                                'Edit unit info',
+                                                                'Edit unit Information',
                                                             )}
                                                         </td>
                                                     </tr>
@@ -1318,7 +1297,7 @@ export default function BedLayoutExplorer() {
                                                                     endpoint: API_ENDPOINTS.WARD(unit.id),
                                                                     warning: unit.room_count > 0 ? `This unit has ${unit.room_count} room(s).` : undefined,
                                                                 },
-                                                                'Edit unit info',
+                                                                'Edit unit Information',
                                                             )}
                                                         </td>
                                                     </tr>
@@ -1630,7 +1609,6 @@ export default function BedLayoutExplorer() {
                     request={dialog}
                     blocks={blocks}
                     rooms={rooms}
-                    existingWards={existingWardChoices(blocks, careUnits)}
                     preview={preview}
                     onClose={() => setDialog(null)}
                     onSaved={afterMutation}
@@ -1657,8 +1635,8 @@ export default function BedLayoutExplorer() {
                         </div>
                         <div style={{ fontSize: 12.5, color: '#667085', marginBottom: 18 }}>
                             {deleteTarget.warning
-                                ? `${deleteTarget.warning} Delete stays blocked while children or occupied beds are still attached.`
-                                : 'This cannot be undone. An occupied bed stays until it is free.'}
+                                ? `${deleteTarget.warning} Remove those first, then you can delete this.`
+                                : 'This cannot be undone. Free any occupied bed or and rooms first.'}
                         </div>
                         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
                             <button type="button" onClick={() => setDeleteTarget(null)} disabled={deleting} style={secondaryButton}>Cancel</button>

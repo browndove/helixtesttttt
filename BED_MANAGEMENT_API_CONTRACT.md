@@ -27,9 +27,9 @@ page lists beds.
 Listing and creating wards on a floor uses the alias `GET/POST /floors/{id}/wards`.
 Rooms hang off the unit: `GET/POST /units/{id}/rooms`.
 
-**Beds keep `department_id`.** Placement is `room_id`, and the staff board
-`GET /departments/{id}/beds` still works. Put `department_id` on the unit before adding
-beds. The admin sends that on the unit, then includes the same `department_id` on each bed.
+**Department is not part of this hierarchy.** Placement is only
+block → floor → unit → room → bed. Do not require or send `department_id` when creating
+units, rooms, or beds.
 
 **Bed status stays** `available` | `occupied` | `blocked`.
 
@@ -107,7 +107,6 @@ Extends the existing care unit. New fields are `floor_id`, `code`, `type`, and
 | `floor_name`, `block_id`, `block_name` | string | read-only, for breadcrumbs |
 | `name` | string | **required** |
 | `code` | string | optional |
-| `department_id` | string | required before beds are added |
 | `type` | string | open string; common values are suggestions only |
 | `gender_restriction` | enum | `male` \| `female` \| `mixed` |
 | `rooms` | Room[] | embedded on GET |
@@ -162,7 +161,6 @@ to fetch every room's beds to render one table.
 |---|---|---|
 | `id` | string | |
 | `room_id` | string | where the bed sits in the hierarchy |
-| `department_id` | string | kept so `GET /departments/{id}/beds` still works |
 | `bed_number` | string | **required**, unique per room |
 | `bed_code` | string | optional, new ("Bed Code/Name" in the spec) |
 | `status` | enum | `available` \| `occupied` \| `blocked` |
@@ -180,11 +178,10 @@ DELETE /beds/{id}
 rows at once:
 
 ```json
-{ "beds": [{ "bed_number": "01", "bed_code": "Telemetry", "status": "available", "department_id": "…" }] }
+{ "beds": [{ "bed_number": "01", "bed_code": "Telemetry", "status": "available" }] }
 ```
 
-Status is only `available`, `occupied`, or `blocked`. The unit's `department_id` is set
-before this call, and each bed keeps that same `department_id`.
+Status is only `available`, `occupied`, or `blocked`. No department is required.
 
 ## 5. Nested create
 
@@ -244,8 +241,8 @@ The bed management homepage needs a facility rollup without walking the tree:
 GET /beds/summary
 ```
 
-It returns facility totals plus `blocks[]` (each block by floor, each floor by ward) and the
-existing `departments[]` rollup. The staff board keeps reading `departments[]`.
+It returns facility totals plus `blocks[]` (each block by floor, each floor by ward).
+A legacy `departments[]` rollup may still appear for older clients.
 
 `GET /blocks` returns floors. `GET /blocks?depth=full` adds `wards[]` and `rooms[]`, plus
 room number, list counts, and breadcrumb names (`block_name`, `floor_name`, `ward_name`).
@@ -261,7 +258,7 @@ Per-level fallbacks are `GET /blocks/{id}/floors`, `GET /floors/{id}/wards`, and
 
 ## 8. Settled
 
-1. The unit carries `department_id`. Set it before adding beds. Beds keep `department_id` too.
+1. Department is not required for bed management create/edit.
 2. `type` is an open string.
 3. Nested bed cap is 50.
 4. The admin always sends a floor name. A missing name is shown as "Unnamed floor".

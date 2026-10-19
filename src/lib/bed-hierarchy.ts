@@ -4,7 +4,7 @@ import type { BedStatus } from '@/lib/beds';
  * Block → floor → unit (ward) → room → bed.
  * Hierarchy wards are /units. /floors/{id}/wards is the list/create alias.
  * /wards/{id} is the old department-ward API and is not used here.
- * Beds keep department_id; set it on the unit before adding beds.
+ * Department is not part of this hierarchy — do not send department_id on create/edit.
  * Unit type is an open string. Bed status is available | occupied | blocked.
  */
 

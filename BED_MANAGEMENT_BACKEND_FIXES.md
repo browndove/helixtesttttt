@@ -84,7 +84,7 @@ POST /rooms?facility_id=5c3a047f-132d-4cdc-b6d3-02d98e77275e
   "number": "1",
   "name": "Room 1",
   "beds": [
-    { "bed_number": "1", "status": "available", "department_id": "<unit department>" }
+    { "bed_number": "1", "status": "available" }
   ],
   "facility_id": "5c3a047f-132d-4cdc-b6d3-02d98e77275e"
 }
