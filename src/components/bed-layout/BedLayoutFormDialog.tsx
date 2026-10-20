@@ -125,7 +125,7 @@ const LEVEL_TITLES: Record<LayoutLevel, { create: string; edit: string }> = {
     block: { create: 'Add building / block', edit: 'Edit block info' },
     floor: { create: 'Add floor', edit: 'Edit floor info' },
     ward: { create: 'Add ward / unit', edit: 'Edit ward info' },
-    room: { create: 'Add room / cubicle', edit: 'Edit room info' },
+    room: { create: 'Add room', edit: 'Edit room info' },
     bed: { create: 'Add bed', edit: 'Edit bed info' },
 };
 
@@ -970,7 +970,7 @@ export default function BedLayoutFormDialog({
     const roomFields = (draft: RoomDraft, update: (next: RoomDraft) => void) => (
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
             <div>
-                <label style={fieldLabel}>Room / cubicle number *</label>
+                <label style={fieldLabel}>Room number *</label>
                 <input
                     value={draft.number}
                     onChange={e => update({ ...draft, number: e.target.value })}
@@ -979,7 +979,7 @@ export default function BedLayoutFormDialog({
                 />
             </div>
             <div>
-                <label style={fieldLabel}>Room / cubicle name</label>
+                <label style={fieldLabel}>Room name</label>
                 <input
                     value={draft.name}
                     onChange={e => update({ ...draft, name: e.target.value })}
@@ -1262,7 +1262,7 @@ export default function BedLayoutFormDialog({
 
                     {needs.room && (
                         <div>
-                            <label style={fieldLabel}>Room / cubicle</label>
+                            <label style={fieldLabel}>Room</label>
                             <CustomSelect
                                 value={roomChoice}
                                 disabled={!wardChoice && !context.wardId}

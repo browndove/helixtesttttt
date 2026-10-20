@@ -53,6 +53,8 @@ export const API_ENDPOINTS = {
   // Care units
   UNITS: `/api/proxy/units`,
   UNIT: (id: string) => `/api/proxy/units/${id}`,
+  /** Deletes the unit together with its rooms and beds (admin-only). */
+  UNIT_CONTENTS: (id: string) => `/api/proxy/units/${id}/contents`,
   UNIT_FLOORS: (id: string) => `/api/proxy/units/${id}/floors`,
   UNIT_FLOOR: (unitId: string, floorId: string) => `/api/proxy/units/${unitId}/floors/${floorId}`,
 

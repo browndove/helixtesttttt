@@ -251,10 +251,11 @@ Per-level fallbacks are `GET /blocks/{id}/floors`, `GET /floors/{id}/wards`, and
 
 ## 7. Delete semantics
 
-- Success is `200` with `{ "message": "… deleted" }`.
-- `409` when the resource still has children, or when a bed is occupied.
-- There is no cascade flag. The admin shows the `message` from a `409` and leaves the tree
-  in place.
+- Success is `200` with `{ "message": "… deleted" }` (or `204`).
+- Units with rooms/beds delete via `DELETE /units/{id}/contents` (admin-only). Confirmation
+  is required in the admin UI. Occupied beds return `409` with `reason: occupied_beds`.
+- There is no move/reassign flow in the admin UI.
+- Other levels still `409` when children remain, or when a bed is occupied.
 
 ## 8. Settled
 

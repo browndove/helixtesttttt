@@ -3,7 +3,12 @@
 import { useState, useEffect, useLayoutEffect, useCallback, useMemo, useRef } from 'react';
 import TopBar from '@/components/TopBar';
 import { DEPARTMENT_DESCRIPTION_MAX_LENGTH, DEPARTMENT_NAME_MAX_LENGTH, UNIT_DESCRIPTION_MAX_LENGTH } from '@/lib/departmentName';
-import { parseCareUnit, parseCareUnitFloors, parseCareUnits, type CareUnitFloor } from '@/lib/care-units';
+import {
+    parseCareUnit,
+    parseCareUnits,
+    unitIsUnmapped,
+    type CareUnit,
+} from '@/lib/care-units';
 import CustomSelect from '@/components/CustomSelect';
 import { MacVibrancyToast, MacVibrancyToastPortal } from '@/components/MacVibrancyToast';
 import { readCachedJson, writeCachedJson } from '@/lib/getJsonCache';
@@ -20,7 +25,9 @@ import {
     parseFloor,
     wardTypeLabel,
     type Block,
+    type HierarchyBed,
 } from '@/lib/bed-hierarchy';
+import { BED_STATUS_META } from '@/components/bed-layout/bed-layout-ui';
 
 const DEPTS_PAGE_CACHE_TTL_MS = 120_000;
 const DEPTS_CACHE_HOSPITAL = '/api/proxy/hospital';
@@ -36,23 +43,13 @@ const departmentsAppMainStyle = {
 
 type FloorItem = { id: string; name: string };
 type WardItem = { id: string; name: string };
-type UnitItem = {
-    id: string;
-    name: string;
-    description?: string;
-    code?: string;
-    type?: string;
-    gender_restriction?: string;
-    department_id?: string;
-    department_name?: string;
-    block_id?: string;
-    floor_id?: string;
-    floor_count: number;
-    floors: CareUnitFloor[];
-};
+type UnitItem = CareUnit;
 
 /** Building / floor from bed management (block → floor → unit), not the old unit floors[] list. */
-function unitBedLocationLabel(unit: Pick<UnitItem, 'block_id' | 'floor_id'>, blocks: Block[]): string {
+function unitBedLocationLabel(
+    unit: Pick<UnitItem, 'block_id' | 'block_name' | 'floor_id' | 'floor_name'>,
+    blocks: Block[],
+): string {
     if (unit.floor_id) {
         for (const block of blocks) {
             const floor = block.floors.find(item => item.id === unit.floor_id);
@@ -61,11 +58,29 @@ function unitBedLocationLabel(unit: Pick<UnitItem, 'block_id' | 'floor_id'>, blo
             return `${block.name} · Floor ${floor.name}`;
         }
     }
+    const blockName = (unit.block_name || '').trim();
+    const floorName = (unit.floor_name || '').trim();
+    if (blockName && floorName && !isHiddenFloor(floorName)) return `${blockName} · Floor ${floorName}`;
+    if (blockName) return blockName;
     if (unit.block_id) {
         const block = blocks.find(item => item.id === unit.block_id);
         if (block) return block.name;
     }
     return 'No location';
+}
+
+function unitBedsSummary(unit: UnitItem): string {
+    if (unitIsUnmapped(unit)) return 'Unmapped';
+    const total = unit.bed_count || 0;
+    const available = unit.available_count || 0;
+    const rooms = unit.room_count || unit.rooms?.length || 0;
+    const roomBit = rooms > 0 ? `${rooms} room${rooms === 1 ? '' : 's'} · ` : '';
+    return `${roomBit}${total} bed${total === 1 ? '' : 's'} · ${available} free`;
+}
+
+function bedStatusLabel(bed: HierarchyBed): string {
+    if (bed.status === 'blocked') return 'Out of service';
+    return BED_STATUS_META[bed.status]?.label || bed.status;
 }
 
 function withTypedOption(options: { label: string; value: string }[], current: string) {
@@ -240,7 +255,7 @@ export default function DepartmentsManagement() {
             const res = await fetch('/api/proxy/units');
             if (res.ok) {
                 const data = await res.json();
-                setUnits(parseCareUnits(data) as UnitItem[]);
+                setUnits(parseCareUnits(data));
             }
         } catch { /* ignore */ }
         setUnitsLoading(false);
@@ -399,35 +414,10 @@ export default function DepartmentsManagement() {
             try {
                 const res = await fetch(`/api/proxy/units/${editingUnit}`, { signal: ac.signal });
                 if (!res.ok) throw new Error('bad status');
-                const raw = (await res.json()) as Record<string, unknown>;
-                if (cancelled) return;
-                const name = String(raw.name || '').trim();
-                const description = typeof raw.description === 'string' ? raw.description : '';
-                const code = optionalFromApi(typeof raw.code === 'string' ? raw.code : '');
-                const type = optionalFromApi(typeof raw.type === 'string' ? raw.type : '');
-                const gender = typeof raw.gender_restriction === 'string' ? raw.gender_restriction : '';
-                const departmentId = typeof raw.department_id === 'string' ? raw.department_id : '';
-                applyUnitDetail({ name, description, code, type, gender_restriction: gender, department_id: departmentId });
-                const floors = parseCareUnitFloors(raw.floors);
-                const blockId = typeof raw.block_id === 'string' ? raw.block_id.trim() : '';
-                const floorId = typeof raw.floor_id === 'string' ? raw.floor_id.trim() : '';
-                setUnits(prev => prev.map(u => {
-                    if (u.id !== editingUnit) return u;
-                    return {
-                        ...u,
-                        name: name || u.name,
-                        description,
-                        code,
-                        type,
-                        gender_restriction: gender,
-                        department_id: departmentId || u.department_id,
-                        department_name: typeof raw.department_name === 'string' ? raw.department_name : u.department_name,
-                        ...(blockId ? { block_id: blockId } : {}),
-                        ...(floorId ? { floor_id: floorId } : {}),
-                        floors,
-                        floor_count: floors.length,
-                    };
-                }));
+                const parsed = parseCareUnit(await res.json());
+                if (cancelled || !parsed) return;
+                applyUnitDetail(parsed);
+                setUnits(prev => prev.map(u => (u.id === editingUnit ? { ...u, ...parsed, name: parsed.name || u.name } : u)));
             } catch (e) {
                 const aborted = cancelled || (e instanceof Error && e.name === 'AbortError');
                 if (aborted) return;
@@ -756,22 +746,45 @@ export default function DepartmentsManagement() {
                 return;
             }
             const body = Object.keys(payload).length > 0 ? payload : { name: trimmedName, description: descTrimmed };
-            const updatedName = String(body.name || trimmedName).trim();
-            const updatedDesc = typeof body.description === 'string' ? body.description : descTrimmed;
-            const updatedCode = optionalFromApi(typeof body.code === 'string' ? body.code : unitDetailCode);
-            const updatedType = optionalFromApi(typeof body.type === 'string' ? body.type : unitDetailType);
-            const updatedGender = typeof body.gender_restriction === 'string' ? body.gender_restriction : unitDetailGender;
-            const updatedDepartmentId = typeof body.department_id === 'string' ? body.department_id : (u.department_id || '');
-            setUnits(prev => prev.map(x => (x.id === u.id ? {
-                ...x,
-                name: updatedName,
-                description: updatedDesc,
-                code: updatedCode,
-                type: updatedType,
-                gender_restriction: updatedGender,
-                department_id: updatedDepartmentId,
-                department_name: typeof body.department_name === 'string' ? body.department_name : departments.find(dept => dept.id === updatedDepartmentId)?.name || x.department_name,
-            } : x)));
+            const parsed = parseCareUnit(body);
+            const updatedName = (parsed?.name || String(body.name || trimmedName)).trim();
+            const updatedDesc = parsed?.description ?? (typeof body.description === 'string' ? body.description : descTrimmed);
+            const updatedCode = optionalFromApi(parsed?.code ?? (typeof body.code === 'string' ? body.code : unitDetailCode));
+            const updatedType = optionalFromApi(parsed?.type ?? (typeof body.type === 'string' ? body.type : unitDetailType));
+            const updatedGender = parsed?.gender_restriction
+                ?? (typeof body.gender_restriction === 'string' ? body.gender_restriction : unitDetailGender);
+            setUnits(prev => prev.map(x => {
+                if (x.id !== u.id) return x;
+                if (parsed) {
+                    const responseHasRooms = Array.isArray(body.rooms);
+                    return {
+                        ...x,
+                        ...parsed,
+                        name: updatedName || x.name,
+                        description: updatedDesc,
+                        code: updatedCode,
+                        type: updatedType,
+                        gender_restriction: updatedGender,
+                        department_name: parsed.department_name
+                            || departments.find(dept => dept.id === (parsed.department_id || x.department_id))?.name
+                            || x.department_name,
+                        rooms: responseHasRooms ? parsed.rooms : x.rooms,
+                        room_count: responseHasRooms ? parsed.room_count : x.room_count,
+                        bed_count: responseHasRooms || 'total' in body || 'bed_count' in body ? parsed.bed_count : x.bed_count,
+                        available_count: responseHasRooms || 'available' in body || 'available_count' in body ? parsed.available_count : x.available_count,
+                        occupied_count: responseHasRooms || 'occupied' in body || 'occupied_count' in body ? parsed.occupied_count : x.occupied_count,
+                        blocked_count: responseHasRooms || 'blocked' in body || 'blocked_count' in body ? parsed.blocked_count : x.blocked_count,
+                    };
+                }
+                return {
+                    ...x,
+                    name: updatedName,
+                    description: updatedDesc,
+                    code: updatedCode,
+                    type: updatedType,
+                    gender_restriction: updatedGender,
+                };
+            }));
             setUnitDetailName(updatedName);
             setUnitDetailDescription(updatedDesc);
             setUnitDetailCode(updatedCode);
@@ -1375,6 +1388,18 @@ export default function DepartmentsManagement() {
                                                         {unitBedLocationLabel(u, layoutBlocks)}
                                                         {u.type ? ` · ${wardTypeLabel(u.type)}` : ''}
                                                     </div>
+                                                    <div style={{
+                                                        fontSize: 11,
+                                                        marginTop: 3,
+                                                        fontWeight: 600,
+                                                        color: unitIsUnmapped(u) ? 'var(--text-muted)' : (u.capacity_color || 'var(--text-secondary)'),
+                                                        whiteSpace: 'nowrap',
+                                                        overflow: 'hidden',
+                                                        textOverflow: 'ellipsis',
+                                                    }}>
+                                                        {unitBedsSummary(u)}
+                                                        {u.capacity_label && !unitIsUnmapped(u) ? ` · ${u.capacity_label}` : ''}
+                                                    </div>
                                                 </div>
                                             </button>
                                         ))}
@@ -1684,6 +1709,119 @@ export default function DepartmentsManagement() {
                                                     {savingUnitDetails ? 'Saving…' : 'Save details'}
                                                 </button>
                                             </div>
+                                        </div>
+
+                                        <div className="card" style={{ padding: '16px 18px', margin: '16px 0 0', background: 'var(--surface-2)', border: '1px solid var(--border-subtle)', minWidth: 0, maxWidth: '100%' }}>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
+                                                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Beds & rooms</div>
+                                                <span style={{
+                                                    fontSize: 11,
+                                                    fontWeight: 650,
+                                                    color: unitIsUnmapped(editUnit) ? 'var(--text-muted)' : (editUnit.capacity_color || 'var(--text-secondary)'),
+                                                }}>
+                                                    {unitIsUnmapped(editUnit)
+                                                        ? 'Unmapped'
+                                                        : [
+                                                            editUnit.capacity_label,
+                                                            typeof editUnit.occupancy_percent === 'number' ? `${Math.round(editUnit.occupancy_percent)}% occupied` : '',
+                                                        ].filter(Boolean).join(' · ') || unitBedsSummary(editUnit)}
+                                                </span>
+                                            </div>
+                                            {unitIsUnmapped(editUnit) ? (
+                                                <div style={{ fontSize: 13, color: 'var(--text-muted)', lineHeight: 1.45 }}>
+                                                    No rooms or beds mapped yet. Add them in Bed management.
+                                                </div>
+                                            ) : (
+                                                <>
+                                                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(96px, 1fr))', gap: 8, marginBottom: (editUnit.rooms?.length || 0) ? 14 : 0 }}>
+                                                        {[
+                                                            { label: 'Total', value: String(editUnit.bed_count || 0), color: 'var(--text-primary)' },
+                                                            { label: 'Available', value: String(editUnit.available_count || 0), color: '#17803D' },
+                                                            { label: 'Occupied', value: String(editUnit.occupied_count || 0), color: '#1D4ED8' },
+                                                            { label: 'Out of service', value: String(editUnit.blocked_count || 0), color: '#6B7280' },
+                                                            ...(typeof editUnit.patient_count === 'number'
+                                                                ? [{ label: 'Patients', value: String(editUnit.patient_count), color: 'var(--text-primary)' }]
+                                                                : []),
+                                                        ].map(stat => (
+                                                            <div key={stat.label} style={{ background: 'var(--surface-card)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)', padding: '10px 12px', minWidth: 0 }}>
+                                                                <div style={{ fontSize: 10.5, fontWeight: 650, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{stat.label}</div>
+                                                                <div style={{ fontSize: 18, fontWeight: 700, color: stat.color, marginTop: 4, fontVariantNumeric: 'tabular-nums' }}>{stat.value}</div>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                    {(editUnit.rooms?.length || 0) > 0 ? (
+                                                        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                                                            {editUnit.rooms.map(room => (
+                                                                <div
+                                                                    key={room.id}
+                                                                    style={{
+                                                                        padding: '12px 12px 10px',
+                                                                        background: 'var(--surface-card)',
+                                                                        border: '1px solid var(--border-subtle)',
+                                                                        borderRadius: 'var(--radius-md)',
+                                                                        minWidth: 0,
+                                                                    }}
+                                                                >
+                                                                    <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, marginBottom: room.beds.length ? 10 : 0 }}>
+                                                                        <div style={{ minWidth: 0 }}>
+                                                                            <div style={{ fontSize: 13, fontWeight: 650, color: 'var(--text-primary)' }}>
+                                                                                Room {room.number}{room.name ? ` · ${room.name}` : ''}
+                                                                            </div>
+                                                                            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
+                                                                                {room.bed_count} bed{room.bed_count === 1 ? '' : 's'}
+                                                                            </div>
+                                                                        </div>
+                                                                        <div style={{ display: 'flex', gap: 10, flexShrink: 0, fontSize: 11.5, fontWeight: 650, fontVariantNumeric: 'tabular-nums' }}>
+                                                                            <span style={{ color: '#17803D' }}>{room.available_count} free</span>
+                                                                            <span style={{ color: '#1D4ED8' }}>{room.occupied_count} occ</span>
+                                                                            <span style={{ color: '#6B7280' }}>{room.blocked_count} out</span>
+                                                                        </div>
+                                                                    </div>
+                                                                    {room.beds.length > 0 ? (
+                                                                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                                                                            {room.beds.map(bed => {
+                                                                                const meta = BED_STATUS_META[bed.status] || BED_STATUS_META.available;
+                                                                                return (
+                                                                                    <div
+                                                                                        key={bed.id}
+                                                                                        title={bedStatusLabel(bed)}
+                                                                                        style={{
+                                                                                            display: 'inline-flex',
+                                                                                            alignItems: 'center',
+                                                                                            gap: 6,
+                                                                                            padding: '5px 8px',
+                                                                                            borderRadius: 8,
+                                                                                            border: `1px solid ${meta.border}`,
+                                                                                            background: meta.bg,
+                                                                                            minWidth: 0,
+                                                                                        }}
+                                                                                    >
+                                                                                        <span style={{ width: 6, height: 6, borderRadius: '50%', background: meta.dot, flexShrink: 0 }} />
+                                                                                        <span style={{ fontSize: 12, fontWeight: 700, color: '#101828', fontVariantNumeric: 'tabular-nums' }}>
+                                                                                            {bed.bed_number}
+                                                                                        </span>
+                                                                                        {bed.bed_code ? (
+                                                                                            <span style={{ fontSize: 10.5, fontWeight: 600, color: meta.fg, maxWidth: 88, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                                                                                {bed.bed_code}
+                                                                                            </span>
+                                                                                        ) : (
+                                                                                            <span style={{ fontSize: 10.5, fontWeight: 600, color: meta.fg }}>
+                                                                                                {bedStatusLabel(bed)}
+                                                                                            </span>
+                                                                                        )}
+                                                                                    </div>
+                                                                                );
+                                                                            })}
+                                                                        </div>
+                                                                    ) : (
+                                                                        <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>No beds listed for this room.</div>
+                                                                    )}
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    ) : null}
+                                                </>
+                                            )}
                                         </div>
                                     </div>
                                 ) : (

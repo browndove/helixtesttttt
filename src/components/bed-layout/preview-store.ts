@@ -265,7 +265,8 @@ export function applyPreviewOp(blocks: Block[], op: PreviewOp): Block[] {
             }
             case 'ward': {
                 const ward = blocks.flatMap(block => block.floors.flatMap(floor => floor.wards)).find(item => item.id === op.id);
-                if (ward?.rooms.length) throw new Error(`${ward.name} still has rooms.`);
+                const occupied = ward?.rooms.flatMap(room => room.beds).filter(bed => bed.status === 'occupied').length || 0;
+                if (occupied > 0) throw new Error('Some beds are still occupied. Free them first, then delete.');
                 return mapBlocks(blocks, block => mapFloors(block, floor => ({
                     ...floor,
                     wards: floor.wards.filter(item => item.id !== op.id),

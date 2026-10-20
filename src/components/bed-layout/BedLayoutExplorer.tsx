@@ -33,7 +33,46 @@ import { BED_STATUS_META, card, formatDate, linkButton, primaryButton, secondary
 
 type Toast = { message: string; variant: 'success' | 'error' | 'info' };
 
-type DeleteTarget = { label: string; level: PreviewLevel; id: string; endpoint: string; warning?: string };
+type DeleteTarget = {
+    label: string;
+    level: PreviewLevel;
+    id: string;
+    endpoint: string;
+    warning?: string;
+    /** Unit contents delete: rooms/beds go with it after confirm; only occupied beds block. */
+    cascade?: boolean;
+};
+
+function unitDeleteTarget(unit: {
+    id: string;
+    name: string;
+    room_count: number;
+    bed_count: number;
+    occupied_count: number;
+}): DeleteTarget {
+    const rooms = unit.room_count || 0;
+    const beds = unit.bed_count || 0;
+    const occupied = unit.occupied_count || 0;
+    let warning: string | undefined;
+    if (rooms > 0 || beds > 0) {
+        const parts = [
+            rooms > 0 ? `${rooms} room${rooms === 1 ? '' : 's'}` : '',
+            beds > 0 ? `${beds} bed${beds === 1 ? '' : 's'}` : '',
+        ].filter(Boolean);
+        warning = `This also deletes ${parts.join(' and ')}.`;
+        if (occupied > 0) {
+            warning += ` Free ${occupied} occupied bed${occupied === 1 ? '' : 's'} first or delete will fail.`;
+        }
+    }
+    return {
+        label: unit.name,
+        level: 'ward',
+        id: unit.id,
+        endpoint: API_ENDPOINTS.UNIT_CONTENTS(unit.id),
+        cascade: true,
+        ...(warning ? { warning } : {}),
+    };
+}
 
 type FloorRow = { block: Block; floor: Floor };
 
@@ -334,7 +373,7 @@ function TableSkeleton({ headers, groups = 2, rowsPerGroup = 3 }: {
 }
 
 const HOME_UNIT_HEADERS = ['Unit / ward', 'Total beds', 'Available', 'Occupied', 'Out of service', 'Last modified', 'Action'];
-const ROOM_HEADERS = ['Room / cubicle', 'Total beds', 'Available', 'Occupied', 'Out of service', 'Last modified', 'Action'];
+const ROOM_HEADERS = ['Room', 'Total beds', 'Available', 'Occupied', 'Out of service', 'Last modified', 'Action'];
 
 type HomeKpis = {
     total: number;
@@ -748,7 +787,8 @@ export default function BedLayoutExplorer() {
             try {
                 applyLocally({ kind: 'delete', level: deleteTarget.level, id: deleteTarget.id });
                 if (deleteTarget.level === 'room' && deleteTarget.id === roomId) setRoomId('');
-                if (deleteTarget.level === 'floor' && deleteTarget.id === floorId) { setFloorId(''); setRoomId(''); }
+                if (deleteTarget.level === 'ward' && deleteTarget.id === unitId) { setUnitId(''); setRoomId(''); }
+                if (deleteTarget.level === 'floor' && deleteTarget.id === floorId) { setFloorId(''); setUnitId(''); setRoomId(''); }
                 showToast(`${deleteTarget.label} deleted`);
             } catch (err) {
                 showToast(err instanceof Error ? err.message : 'Delete failed', 'error');
@@ -765,14 +805,15 @@ export default function BedLayoutExplorer() {
                 throw new Error(hierarchyApiMessage(data, `Could not delete (${res.status}).`));
             }
             if (deleteTarget.level === 'room' && deleteTarget.id === roomId) setRoomId('');
-            if (deleteTarget.level === 'floor' && deleteTarget.id === floorId) { setFloorId(''); setRoomId(''); }
+            if (deleteTarget.level === 'ward' && deleteTarget.id === unitId) { setUnitId(''); setRoomId(''); }
+            if (deleteTarget.level === 'floor' && deleteTarget.id === floorId) { setFloorId(''); setUnitId(''); setRoomId(''); }
             await afterMutation(`${deleteTarget.label} deleted`);
         } catch (err) {
             showToast(err instanceof Error ? err.message : 'Delete failed', 'error');
         }
         setDeleting(false);
         setDeleteTarget(null);
-    }, [deleteTarget, preview, applyLocally, afterMutation, showToast, roomId, floorId]);
+    }, [deleteTarget, preview, applyLocally, afterMutation, showToast, roomId, floorId, unitId]);
 
     const patchBedStatus = useCallback(async (bed: HierarchyBed, next: BedStatus) => {
         setOpenBedId(null);
@@ -932,28 +973,18 @@ export default function BedLayoutExplorer() {
     const pagedUnits = useMemo(() => visibleUnits.slice(from, from + pageSize), [visibleUnits, from, pageSize]);
     const pagedBeds = useMemo(() => visibleBeds.slice(from, from + pageSize), [visibleBeds, from, pageSize]);
 
-    /** Groups paginated rows under their parent, as in the spec sheet. */
-    function groupBy<T>(items: T[], key: (item: T) => string): [string, T[]][] {
-        const map = new Map<string, T[]>();
-        for (const item of items) {
-            const id = key(item);
-            map.set(id, [...(map.get(id) || []), item]);
-        }
-        return [...map.entries()];
-    }
-
     /* ── shared bits ────────────────────────────────────────────────── */
     const addMenuItems: { level: LayoutLevel; label: string }[] = level === 'home'
         ? [
             { level: 'block', label: 'Building / block' },
             { level: 'floor', label: 'Floor' },
             { level: 'ward', label: 'Ward / unit' },
-            { level: 'room', label: 'Room / cubicle' },
+            { level: 'room', label: 'Room' },
             { level: 'bed', label: 'Bed' },
         ]
         : [
             { level: 'ward', label: 'Ward / unit' },
-            { level: 'room', label: 'Room / cubicle' },
+            { level: 'room', label: 'Room' },
             { level: 'bed', label: 'Bed' },
         ];
 
@@ -1202,11 +1233,7 @@ export default function BedLayoutExplorer() {
                                                         <td style={{ ...TD, textAlign: 'right' }}>
                                                             {rowActions(
                                                                 { kind: 'edit', level: 'ward', entity: unit },
-                                                                {
-                                                                    label: unit.name, level: 'ward', id: unit.id,
-                                                                    endpoint: API_ENDPOINTS.WARD(unit.id),
-                                                                    warning: unit.room_count > 0 ? `This unit has ${unit.room_count} room(s).` : undefined,
-                                                                },
+                                                                unitDeleteTarget(unit),
                                                                 'Edit unit Information',
                                                             )}
                                                         </td>
@@ -1292,11 +1319,7 @@ export default function BedLayoutExplorer() {
                                                         <td style={{ ...TD, textAlign: 'right' }}>
                                                             {rowActions(
                                                                 { kind: 'edit', level: 'ward', entity: unit },
-                                                                {
-                                                                    label: unit.name, level: 'ward', id: unit.id,
-                                                                    endpoint: API_ENDPOINTS.WARD(unit.id),
-                                                                    warning: unit.room_count > 0 ? `This unit has ${unit.room_count} room(s).` : undefined,
-                                                                },
+                                                                unitDeleteTarget(unit),
                                                                 'Edit unit Information',
                                                             )}
                                                         </td>
@@ -1389,7 +1412,7 @@ export default function BedLayoutExplorer() {
                                     <table style={{ width: '100%', minWidth: 940, borderCollapse: 'collapse' }}>
                                         <thead>
                                             <tr>
-                                                <th style={{ ...TH, textAlign: 'left' }}>Room / cubicle</th>
+                                                <th style={{ ...TH, textAlign: 'left' }}>Room</th>
                                                 <th style={{ ...TH, textAlign: 'center' }}>Total beds</th>
                                                 <th style={{ ...TH, textAlign: 'center' }}>Available</th>
                                                 <th style={{ ...TH, textAlign: 'center' }}>Occupied</th>
@@ -1423,11 +1446,7 @@ export default function BedLayoutExplorer() {
                                                                 {
                                                                     label: 'Delete',
                                                                     danger: true,
-                                                                    onClick: () => setDeleteTarget({
-                                                                        label: wardItem.name, level: 'ward', id: wardItem.id,
-                                                                        endpoint: API_ENDPOINTS.WARD(wardItem.id),
-                                                                        warning: wardItem.room_count > 0 ? `This ward has ${wardItem.room_count} room(s).` : undefined,
-                                                                    }),
+                                                                    onClick: () => setDeleteTarget(unitDeleteTarget(wardItem)),
                                                                 },
                                                             ]} />
                                                         ) : null,
@@ -1634,9 +1653,13 @@ export default function BedLayoutExplorer() {
                             Delete {deleteTarget.label}?
                         </div>
                         <div style={{ fontSize: 12.5, color: '#667085', marginBottom: 18 }}>
-                            {deleteTarget.warning
-                                ? `${deleteTarget.warning} Remove those first, then you can delete this.`
-                                : 'This cannot be undone. Free any occupied bed or and rooms first.'}
+                            {deleteTarget.cascade
+                                ? (deleteTarget.warning
+                                    ? `${deleteTarget.warning} This cannot be undone.`
+                                    : 'This cannot be undone.')
+                                : deleteTarget.warning
+                                    ? `${deleteTarget.warning} Remove those first, then you can delete this.`
+                                    : 'This cannot be undone. Free any occupied bed first.'}
                         </div>
                         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
                             <button type="button" onClick={() => setDeleteTarget(null)} disabled={deleting} style={secondaryButton}>Cancel</button>

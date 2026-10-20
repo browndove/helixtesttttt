@@ -377,6 +377,10 @@ export function parseBlocks(raw: unknown): Block[] {
 export function hierarchyApiMessage(raw: unknown, fallback: string): string {
     if (!raw || typeof raw !== 'object') return fallback;
     const rec = raw as Record<string, unknown>;
+    const reason = String(rec.reason || '').trim().toLowerCase();
+    if (reason === 'occupied_beds') {
+        return 'Some beds are still occupied. Free them first, then delete.';
+    }
     const message = rec.message ?? rec.error ?? rec.detail ?? rec.details;
     return typeof message === 'string' && message.trim() ? message.trim() : fallback;
 }

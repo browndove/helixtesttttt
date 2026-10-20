@@ -1,3 +1,5 @@
+import { optionalFromApi, parseRooms, type Room } from '@/lib/bed-hierarchy';
+
 export type CareUnitFloor = {
     id: string;
     unit_id: string;
@@ -12,14 +14,28 @@ export type CareUnit = {
     id: string;
     name: string;
     description?: string;
+    code?: string;
     department_id?: string;
     department_name?: string;
     block_id?: string;
+    block_name?: string;
     floor_id?: string;
+    floor_name?: string;
     gender_restriction?: string;
     type?: string;
     facility_id?: string;
     patient_count?: number;
+    room_count: number;
+    /** Total mapped beds (API `total`). */
+    bed_count: number;
+    available_count: number;
+    occupied_count: number;
+    blocked_count: number;
+    occupancy_percent?: number;
+    capacity_level?: string;
+    capacity_color?: string;
+    capacity_label?: string;
+    rooms: Room[];
     floor_count: number;
     floors: CareUnitFloor[];
     created_at?: string;
@@ -27,6 +43,11 @@ export type CareUnit = {
 
 function sortFloors(floors: CareUnitFloor[]): CareUnitFloor[] {
     return [...floors].sort((a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name));
+}
+
+function int(value: unknown): number {
+    const n = Number(value);
+    return Number.isFinite(n) ? n : 0;
 }
 
 export function parseCareUnitFloor(raw: unknown): CareUnitFloor | null {
@@ -68,28 +89,56 @@ export function parseCareUnit(raw: unknown): CareUnit | null {
     const name = String(rec.name || '').trim();
     if (!id || !name) return null;
     const floors = parseCareUnitFloors(rec.floors);
+    const rooms = parseRooms(rec.rooms);
     const departmentId = String(rec.department_id || '').trim();
     const departmentName = String(rec.department_name || '').trim();
     const blockId = String(rec.block_id || '').trim();
+    const blockName = String(rec.block_name || '').trim();
     const floorId = String(rec.floor_id || '').trim();
+    const floorName = String(rec.floor_name || '').trim();
     const gender = String(rec.gender_restriction || '').trim().toLowerCase();
-    const type = String(rec.type || '').trim();
+    const type = optionalFromApi(typeof rec.type === 'string' ? rec.type : '');
+    const code = optionalFromApi(typeof rec.code === 'string' ? rec.code : '');
     const description = typeof rec.description === 'string' ? rec.description : '';
     const facilityId = String(rec.facility_id || '').trim();
-    const createdAt = String(rec.created_at || '').trim();
+    const createdAt = String(rec.created_at || '');
     const patientCount = Number(rec.patient_count);
+    const capacityLevel = String(rec.capacity_level || '').trim();
+    const capacityColor = String(rec.capacity_color || '').trim();
+    const capacityLabel = String(rec.capacity_label || '').trim();
+    const occupancyPercent = Number(rec.occupancy_percent);
+
+    const bedCount = int(rec.total ?? rec.bed_count ?? rec.total_beds);
+    const availableCount = int(rec.available ?? rec.available_count);
+    const occupiedCount = int(rec.occupied ?? rec.occupied_count);
+    const blockedCount = int(rec.blocked ?? rec.blocked_count);
+    const roomCount = rooms.length || int(rec.room_count);
+
     return {
         id,
         name,
         ...(description ? { description } : {}),
+        ...(code ? { code } : {}),
         ...(departmentId ? { department_id: departmentId } : {}),
         ...(departmentName ? { department_name: departmentName } : {}),
         ...(blockId ? { block_id: blockId } : {}),
+        ...(blockName ? { block_name: blockName } : {}),
         ...(floorId ? { floor_id: floorId } : {}),
+        ...(floorName ? { floor_name: floorName } : {}),
         ...(gender === 'male' || gender === 'female' || gender === 'mixed' ? { gender_restriction: gender } : {}),
         ...(type ? { type } : {}),
         ...(facilityId ? { facility_id: facilityId } : {}),
         ...(Number.isFinite(patientCount) ? { patient_count: patientCount } : {}),
+        room_count: roomCount,
+        bed_count: bedCount || rooms.reduce((sum, room) => sum + room.bed_count, 0),
+        available_count: availableCount || rooms.reduce((sum, room) => sum + room.available_count, 0),
+        occupied_count: occupiedCount || rooms.reduce((sum, room) => sum + room.occupied_count, 0),
+        blocked_count: blockedCount || rooms.reduce((sum, room) => sum + room.blocked_count, 0),
+        ...(Number.isFinite(occupancyPercent) ? { occupancy_percent: occupancyPercent } : {}),
+        ...(capacityLevel ? { capacity_level: capacityLevel } : {}),
+        ...(capacityColor ? { capacity_color: capacityColor } : {}),
+        ...(capacityLabel ? { capacity_label: capacityLabel } : {}),
+        rooms,
         floor_count: floors.length,
         floors,
         ...(createdAt ? { created_at: createdAt } : {}),
@@ -113,4 +162,9 @@ export function careUnitApiMessage(raw: unknown, fallback: string): string {
     const rec = raw as Record<string, unknown>;
     const message = rec.message || rec.error || rec.detail;
     return typeof message === 'string' && message.trim() ? message : fallback;
+}
+
+export function unitIsUnmapped(unit: Pick<CareUnit, 'capacity_level' | 'rooms' | 'bed_count'>): boolean {
+    if (String(unit.capacity_level || '').toLowerCase() === 'unmapped') return true;
+    return (unit.rooms?.length || 0) === 0 && (unit.bed_count || 0) === 0;
 }
