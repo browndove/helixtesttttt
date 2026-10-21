@@ -18,6 +18,7 @@ import {
     GENDER_RESTRICTIONS,
     WARD_TYPES,
     genderLabel,
+    hierarchyApiMessage,
     optionalForApi,
     optionalFromApi,
     parseBlock,
@@ -682,15 +683,16 @@ export default function DepartmentsManagement() {
     const removeUnit = useCallback(async (unitId: string): Promise<boolean> => {
         const unit = unitsRef.current.find(u => u.id === unitId);
         try {
-            const res = await fetch(`/api/proxy/units/${unitId}`, { method: 'DELETE' });
+            // Cascade rooms/beds; plain DELETE /units/{id} rejects when rooms remain.
+            const res = await fetch(API_ENDPOINTS.UNIT_CONTENTS(unitId), { method: 'DELETE' });
             if (res.ok || res.status === 204) {
                 setUnits(prev => prev.filter(u => u.id !== unitId));
                 showToast(`${unit?.name || 'Unit'} deleted`);
                 setEditingUnit(prev => (prev === unitId ? null : prev));
                 return true;
             }
-            const err = await res.json().catch(() => ({} as { error?: string; detail?: string; message?: string }));
-            showToast(String(err.error || err.detail || err.message || 'Failed to delete unit'));
+            const err = await res.json().catch(() => ({}));
+            showToast(hierarchyApiMessage(err, 'Failed to delete unit'));
         } catch {
             showToast('Failed to delete unit');
         }
@@ -1882,9 +1884,27 @@ export default function DepartmentsManagement() {
                             Confirm deletion
                         </div>
                         <p style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.5, margin: 0 }}>
-                            {pendingDelete.kind === 'department'
-                                ? <>Delete department <strong>{pendingDelete.label}</strong>? This cannot be undone.</>
-                                : <>Delete unit <strong>{pendingDelete.label}</strong>? This cannot be undone.</>}
+                            {pendingDelete.kind === 'department' ? (
+                                <>Delete department <strong>{pendingDelete.label}</strong>? This cannot be undone.</>
+                            ) : (() => {
+                                const unit = units.find(u => u.id === pendingDelete.id);
+                                const rooms = unit?.room_count || unit?.rooms?.length || 0;
+                                const beds = unit?.bed_count || 0;
+                                const occupied = unit?.occupied_count || 0;
+                                const parts = [
+                                    rooms > 0 ? `${rooms} room${rooms === 1 ? '' : 's'}` : '',
+                                    beds > 0 ? `${beds} bed${beds === 1 ? '' : 's'}` : '',
+                                ].filter(Boolean);
+                                return (
+                                    <>
+                                        Delete unit <strong>{pendingDelete.label}</strong>?
+                                        {parts.length > 0 ? <> This also deletes {parts.join(' and ')}.</> : null}
+                                        {occupied > 0
+                                            ? <> Free {occupied} occupied bed{occupied === 1 ? '' : 's'} first or delete will fail.</>
+                                            : <> This cannot be undone.</>}
+                                    </>
+                                );
+                            })()}
                         </p>
                         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 14 }}>
                             <button type="button" className="btn btn-ghost btn-sm" onClick={() => setPendingDelete(null)}>

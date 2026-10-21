@@ -382,7 +382,18 @@ export function hierarchyApiMessage(raw: unknown, fallback: string): string {
         return 'Some beds are still occupied. Free them first, then delete.';
     }
     const message = rec.message ?? rec.error ?? rec.detail ?? rec.details;
-    return typeof message === 'string' && message.trim() ? message.trim() : fallback;
+    if (typeof message === 'string' && message.trim()) {
+        const text = message.trim();
+        // Never surface raw endpoint paths from the units API.
+        if (/still has rooms|\/units\/\{?id\}?\/(reassign|contents)/i.test(text)) {
+            return 'This unit still has rooms or beds. Free any occupied beds, then try deleting again.';
+        }
+        if (/occupied/i.test(text) && /bed/i.test(text)) {
+            return 'Some beds are still occupied. Free them first, then delete.';
+        }
+        return text;
+    }
+    return fallback;
 }
 
 /**
