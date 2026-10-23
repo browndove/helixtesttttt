@@ -15,8 +15,6 @@ import {
     type FeatureUsageDay,
     type FeatureUsageMetrics,
 } from '@/lib/feature-usage-metrics';
-import { downloadAnalyticsPresetRange } from '@/lib/download-analytics-mock';
-
 const Chart = dynamic(() => import('react-apexcharts'), { ssr: false });
 
 type FacilityOption = { id: string; name: string; code: string };
@@ -86,6 +84,26 @@ function toRfc3339ExclusiveEnd(day: string): string {
     const date = new Date(`${day}T00:00:00Z`);
     date.setUTCDate(date.getUTCDate() + 1);
     return date.toISOString().replace(/\.\d{3}Z$/, 'Z');
+}
+
+/** Inclusive last-N-days window (7d → today back through today−6). */
+function featureUsagePresetRange(days: number): { from: string; to: string } {
+    const span = Math.max(1, days);
+    const toDate = new Date();
+    const fromDate = new Date();
+    fromDate.setUTCDate(fromDate.getUTCDate() - (span - 1));
+    return {
+        from: fromDate.toISOString().slice(0, 10),
+        to: toDate.toISOString().slice(0, 10),
+    };
+}
+
+function inclusiveDayCount(from: string, to: string): number {
+    const start = parseDayDate(from);
+    const end = parseDayDate(to);
+    if (!start || !end) return 0;
+    const ms = end.getTime() - start.getTime();
+    return Math.max(1, Math.round(ms / 86_400_000) + 1);
 }
 
 function parseDayDate(day: string): Date | null {
@@ -248,7 +266,7 @@ function EmptyState({ title, body }: { title: string; body: string }) {
 function FeatureUsageContent() {
     const { resolvedTheme } = useTheme();
     const isDark = resolvedTheme === 'dark' || resolvedTheme === 'blue';
-    const preset30 = downloadAnalyticsPresetRange(30);
+    const preset30 = featureUsagePresetRange(30);
 
     const [facilityId, setFacilityId] = useState('');
     const [facilities, setFacilities] = useState<FacilityOption[]>([]);
@@ -297,6 +315,10 @@ function FeatureUsageContent() {
             if (dateFrom && dateTo) {
                 params.set('from', toRfc3339DayStart(dateFrom));
                 params.set('to', toRfc3339ExclusiveEnd(dateTo));
+                // Some backends key ask_helix off `days` rather than from/to.
+                const presetDays = DATE_PRESETS.find((p) => p.id === activePreset)?.days;
+                if (presetDays && presetDays > 0) params.set('days', String(presetDays));
+                else params.set('days', String(inclusiveDayCount(dateFrom, dateTo)));
             } else {
                 params.set('days', '30');
             }
@@ -322,7 +344,7 @@ function FeatureUsageContent() {
         } finally {
             setLoading(false);
         }
-    }, [facilityId, dateFrom, dateTo]);
+    }, [facilityId, dateFrom, dateTo, activePreset]);
 
     useEffect(() => {
         void fetchMetrics();
@@ -479,10 +501,15 @@ function FeatureUsageContent() {
         }
         const preset = DATE_PRESETS.find((p) => p.id === id);
         if (!preset || preset.days <= 0) return;
-        const range = downloadAnalyticsPresetRange(preset.days);
+        const range = featureUsagePresetRange(preset.days);
         setDateFrom(range.from);
         setDateTo(range.to);
     };
+
+    const selectedWindowDays = dateFrom && dateTo ? inclusiveDayCount(dateFrom, dateTo) : 0;
+    const selectedWindowLabel = dateFrom && dateTo
+        ? `${formatDayLabel(dateFrom)} – ${formatDayLabel(dateTo)}`
+        : '';
 
     const resetFilters = () => {
         const helix = facilities.find((f) => f.id === '5c3a047f-132d-4cdc-b6d3-02d98e77275e');
@@ -834,46 +861,20 @@ function FeatureUsageContent() {
                                 <section className="fu-helix-ai" aria-label="Helix AI Clinical Assistant">
                                     <div className="fu-helix-ai__top">
                                         <div className="fu-helix-ai__intro">
-                                            <div className="fu-helix-ai__heading">
-                                                <span className="fu-helix-ai__icon" aria-hidden>
-                                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-                                                        <path d="M13 2L4 14h7l-1 8 10-14h-7l1-6z" fill="currentColor" />
-                                                    </svg>
-                                                </span>
-                                                <div className="fu-helix-ai__titles">
-                                                    <h3 className="fu-helix-ai__title">Helix AI Clinical Assistant</h3>
-                                                    <p className="fu-helix-ai__meta">
-                                                        {[
-                                                            metrics.scope === 'facility' ? 'Facility' : metrics.scope === 'global' ? 'Global' : (metrics.scope || 'Scope'),
-                                                            metrics.window_days > 0
+                                            <div className="fu-helix-ai__titles">
+                                                <h3 className="fu-helix-ai__title">Helix AI Clinical Assistant</h3>
+                                                <p className="fu-helix-ai__meta">
+                                                    {[
+                                                        metrics.scope === 'facility' ? 'Facility' : metrics.scope === 'global' ? 'Global' : (metrics.scope || 'Scope'),
+                                                        selectedWindowDays > 0
+                                                            ? `${selectedWindowDays} day${selectedWindowDays === 1 ? '' : 's'} period`
+                                                            : metrics.window_days > 0
                                                                 ? `${metrics.window_days} day${metrics.window_days === 1 ? '' : 's'} period`
                                                                 : '',
-                                                            formatWindowRange(metrics.from, metrics.to),
-                                                        ].filter(Boolean).join(' · ')}
-                                                    </p>
-                                                </div>
+                                                        selectedWindowLabel || formatWindowRange(metrics.from, metrics.to),
+                                                    ].filter(Boolean).join(' · ')}
+                                                </p>
                                             </div>
-                                        </div>
-                                        <div className="fu-helix-ai__aside">
-                                            <div className="fu-helix-ai__avatars" aria-hidden>
-                                                {(['#3B82F6', '#10B981', '#8B5CF6', '#F59E0B'] as const)
-                                                    .slice(0, Math.min(Math.max(metrics.ask_helix.unique_users, 0), 4))
-                                                    .map((color, index) => (
-                                                        <span
-                                                            key={color}
-                                                            className="fu-helix-ai__avatar"
-                                                            style={{ zIndex: 4 - index, background: color }}
-                                                        >
-                                                            {String.fromCharCode(65 + index)}
-                                                            {String.fromCharCode(72 + index)}
-                                                        </span>
-                                                    ))}
-                                            </div>
-                                            <p className="fu-helix-ai__aside-copy">
-                                                <strong>{fmtCount(metrics.ask_helix.unique_users)}</strong>
-                                                {' / '}
-                                                {fmtCount(metrics.ask_helix.unique_users)} Active Clinicians
-                                            </p>
                                         </div>
                                     </div>
                                     <div className="fu-helix-ai__metrics" role="list">
