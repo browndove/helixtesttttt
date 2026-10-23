@@ -3,7 +3,7 @@ import { getInternalTokenFromCookie } from '@/lib/proxy-auth';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3000';
 
-/** GET /api/v1/feature-usage-metrics — ranked feature opens + daily active users. */
+/** GET /api/v1/feature-usage-metrics — ranked feature opens, DAU, and ask_helix AI metrics. */
 export async function GET(req: NextRequest) {
     try {
         const token = getInternalTokenFromCookie(req);

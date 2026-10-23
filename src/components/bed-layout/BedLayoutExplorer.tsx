@@ -39,8 +39,11 @@ type DeleteTarget = {
     id: string;
     endpoint: string;
     warning?: string;
-    /** Unit contents delete: rooms/beds go with it after confirm; only occupied beds block. */
+    /** Contents delete: children go with it after confirm; occupied beds block. */
     cascade?: boolean;
+    /** Exact name the user must type before Delete is enabled (floors & buildings). */
+    confirmName?: string;
+    occupiedCount?: number;
 };
 
 function unitDeleteTarget(unit: {
@@ -70,7 +73,52 @@ function unitDeleteTarget(unit: {
         id: unit.id,
         endpoint: API_ENDPOINTS.UNIT_CONTENTS(unit.id),
         cascade: true,
+        occupiedCount: occupied,
         ...(warning ? { warning } : {}),
+    };
+}
+
+function floorDeleteTarget(floor: Floor): DeleteTarget {
+    const occupied = floor.occupied_count || 0;
+    const wards = floor.ward_count || 0;
+    const beds = floor.bed_count || 0;
+    let warning = 'This deletes the floor, every unit on it, every room on those units, and every bed. Patients on those units have their unit cleared.';
+    if (occupied > 0) {
+        warning += ` An occupied bed blocks delete — free ${occupied} occupied bed${occupied === 1 ? '' : 's'}, or move this floor’s units to another floor first.`;
+    } else if (wards > 0 || beds > 0) {
+        warning += ` Currently ${wards} unit${wards === 1 ? '' : 's'} and ${beds} bed${beds === 1 ? '' : 's'}.`;
+    }
+    return {
+        label: floor.name,
+        level: 'floor',
+        id: floor.id,
+        endpoint: API_ENDPOINTS.FLOOR_CONTENTS(floor.id),
+        cascade: true,
+        confirmName: floor.name,
+        occupiedCount: occupied,
+        warning,
+    };
+}
+
+function blockDeleteTarget(block: Block): DeleteTarget {
+    const occupied = block.occupied_count || 0;
+    const floors = block.floor_count || 0;
+    const beds = block.bed_count || 0;
+    let warning = 'This deletes the building, every floor on it, and every unit, room, and bed under those floors. Patients on those units have their unit cleared.';
+    if (occupied > 0) {
+        warning += ` An occupied bed blocks delete — free ${occupied} occupied bed${occupied === 1 ? '' : 's'}, or move this building’s floors to another building first.`;
+    } else if (floors > 0 || beds > 0) {
+        warning += ` Currently ${floors} floor${floors === 1 ? '' : 's'} and ${beds} bed${beds === 1 ? '' : 's'}.`;
+    }
+    return {
+        label: block.name,
+        level: 'block',
+        id: block.id,
+        endpoint: API_ENDPOINTS.BLOCK_CONTENTS(block.id),
+        cascade: true,
+        confirmName: block.name,
+        occupiedCount: occupied,
+        warning,
     };
 }
 
@@ -576,13 +624,26 @@ export default function BedLayoutExplorer() {
 
     const [dialog, setDialog] = useState<FormDialogRequest | null>(null);
     const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null);
+    const [deleteConfirmText, setDeleteConfirmText] = useState('');
+    const [reassignTargetId, setReassignTargetId] = useState('');
     const [deleting, setDeleting] = useState(false);
+    const [reassigning, setReassigning] = useState(false);
     const [openBedId, setOpenBedId] = useState<string | null>(null);
     const [toast, setToast] = useState<Toast | null>(null);
 
-    const showToast = useCallback((message: string, variant: Toast['variant'] = 'success') => {
+    const openDeleteTarget = useCallback((target: DeleteTarget) => {
+        setDeleteConfirmText('');
+        setReassignTargetId('');
+        setDeleteTarget(target);
+    }, []);
+
+    const showToast = useCallback((message: string, variant: Toast['variant'] = 'success', durationMs?: number) => {
         setToast({ message, variant });
-        setTimeout(() => setToast(null), 2600);
+        const occupiedDetail = /can’t delete|can't delete/i.test(message)
+            && /occupied/i.test(message);
+        const ms = durationMs
+            ?? (occupiedDetail ? 8000 : variant === 'error' ? 4500 : 2600);
+        setTimeout(() => setToast(null), ms);
     }, []);
 
     useEffect(() => {
@@ -781,19 +842,29 @@ export default function BedLayoutExplorer() {
     }, [bedsByRoom]);
 
     /* ── mutations ──────────────────────────────────────────────────── */
+    const clearSelectionAfterDelete = useCallback((target: DeleteTarget) => {
+        if (target.level === 'room' && target.id === roomId) setRoomId('');
+        if (target.level === 'ward' && target.id === unitId) { setUnitId(''); setRoomId(''); }
+        if (target.level === 'floor' && target.id === floorId) { setFloorId(''); setUnitId(''); setRoomId(''); }
+        if (target.level === 'block') {
+            const stillOnBlock = block?.id === target.id;
+            if (stillOnBlock) { setFloorId(''); setUnitId(''); setRoomId(''); }
+        }
+    }, [roomId, unitId, floorId, block?.id]);
+
     const runDelete = useCallback(async () => {
         if (!deleteTarget) return;
+        if (deleteTarget.confirmName && deleteConfirmText !== deleteTarget.confirmName) return;
         if (preview) {
             try {
                 applyLocally({ kind: 'delete', level: deleteTarget.level, id: deleteTarget.id });
-                if (deleteTarget.level === 'room' && deleteTarget.id === roomId) setRoomId('');
-                if (deleteTarget.level === 'ward' && deleteTarget.id === unitId) { setUnitId(''); setRoomId(''); }
-                if (deleteTarget.level === 'floor' && deleteTarget.id === floorId) { setFloorId(''); setUnitId(''); setRoomId(''); }
+                clearSelectionAfterDelete(deleteTarget);
                 showToast(`${deleteTarget.label} deleted`);
             } catch (err) {
                 showToast(err instanceof Error ? err.message : 'Delete failed', 'error');
             }
             setDeleteTarget(null);
+            setDeleteConfirmText('');
             return;
         }
         setDeleting(true);
@@ -802,18 +873,60 @@ export default function BedLayoutExplorer() {
             const res = await fetch(url, { method: 'DELETE', credentials: 'include' });
             if (!res.ok && res.status !== 204) {
                 const data = await res.json().catch(() => ({}));
-                throw new Error(hierarchyApiMessage(data, `Could not delete (${res.status}).`));
+                throw new Error(hierarchyApiMessage(
+                    data,
+                    `Could not delete (${res.status}).`,
+                    { level: deleteTarget.level, label: deleteTarget.label },
+                ));
             }
-            if (deleteTarget.level === 'room' && deleteTarget.id === roomId) setRoomId('');
-            if (deleteTarget.level === 'ward' && deleteTarget.id === unitId) { setUnitId(''); setRoomId(''); }
-            if (deleteTarget.level === 'floor' && deleteTarget.id === floorId) { setFloorId(''); setUnitId(''); setRoomId(''); }
+            clearSelectionAfterDelete(deleteTarget);
             await afterMutation(`${deleteTarget.label} deleted`);
+            setDeleteTarget(null);
+            setDeleteConfirmText('');
         } catch (err) {
             showToast(err instanceof Error ? err.message : 'Delete failed', 'error');
         }
         setDeleting(false);
-        setDeleteTarget(null);
-    }, [deleteTarget, preview, applyLocally, afterMutation, showToast, roomId, floorId, unitId]);
+    }, [deleteTarget, deleteConfirmText, preview, applyLocally, afterMutation, showToast, clearSelectionAfterDelete]);
+
+    const runReassign = useCallback(async () => {
+        if (!deleteTarget || !reassignTargetId) return;
+        if (deleteTarget.level !== 'floor' && deleteTarget.level !== 'block') return;
+        if (preview) {
+            showToast('Move is not available in preview mode.', 'info');
+            return;
+        }
+        setReassigning(true);
+        try {
+            const endpoint = deleteTarget.level === 'floor'
+                ? API_ENDPOINTS.FLOOR_REASSIGN(deleteTarget.id)
+                : API_ENDPOINTS.BLOCK_REASSIGN(deleteTarget.id);
+            const body = deleteTarget.level === 'floor'
+                ? { floor_id: reassignTargetId }
+                : { block_id: reassignTargetId };
+            const url = await appendFacilityIdForProxy(endpoint);
+            const res = await fetch(url, {
+                method: 'POST',
+                credentials: 'include',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body),
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                throw new Error(hierarchyApiMessage(data, `Could not move (${res.status}).`));
+            }
+            const moved = deleteTarget.level === 'floor'
+                ? `${Number(data.units_moved) || 0} unit${Number(data.units_moved) === 1 ? '' : 's'}`
+                : `${Number(data.floors_moved) || 0} floor${Number(data.floors_moved) === 1 ? '' : 's'}`;
+            await afterMutation(`Moved ${moved} off ${deleteTarget.label}`);
+            setDeleteTarget(null);
+            setDeleteConfirmText('');
+            setReassignTargetId('');
+        } catch (err) {
+            showToast(err instanceof Error ? err.message : 'Move failed', 'error');
+        }
+        setReassigning(false);
+    }, [deleteTarget, reassignTargetId, preview, afterMutation, showToast]);
 
     const patchBedStatus = useCallback(async (bed: HierarchyBed, next: BedStatus) => {
         setOpenBedId(null);
@@ -1085,10 +1198,46 @@ export default function BedLayoutExplorer() {
         isAdmin ? (
             <ActionMenu items={[
                 { label, onClick: () => setDialog(editRequest) },
-                { label: 'Delete', danger: true, onClick: () => setDeleteTarget(target) },
+                { label: 'Delete', danger: true, onClick: () => openDeleteTarget(target) },
             ]} />
         ) : <span style={{ fontSize: 12, color: '#A3AEBD' }}>View only</span>
     );
+
+    const locationManageMenu = isAdmin && floor && block ? (
+        <ActionMenu items={[
+            { label: 'Edit floor info', onClick: () => setDialog({ kind: 'edit', level: 'floor', entity: floor }) },
+            { label: 'Delete floor', danger: true, onClick: () => openDeleteTarget(floorDeleteTarget(floor)) },
+            { label: 'Edit building info', onClick: () => setDialog({ kind: 'edit', level: 'block', entity: block }) },
+            { label: 'Delete building', danger: true, onClick: () => openDeleteTarget(blockDeleteTarget(block)) },
+        ]} />
+    ) : null;
+
+    const floorHeaderActions = (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            {locationManageMenu}
+            {addMenu}
+        </div>
+    );
+
+    const reassignOptions = useMemo(() => {
+        if (!deleteTarget) return [] as { label: string; value: string }[];
+        if (deleteTarget.level === 'floor') {
+            return floorRows
+                .filter(row => row.floor.id !== deleteTarget.id)
+                .map(row => ({
+                    label: `${row.block.name} · Floor ${row.floor.name}`,
+                    value: row.floor.id,
+                }));
+        }
+        if (deleteTarget.level === 'block') {
+            return buildings
+                .filter(item => item.id !== deleteTarget.id)
+                .map(item => ({ label: item.name, value: item.id }));
+        }
+        return [];
+    }, [deleteTarget, floorRows, buildings]);
+
+    const deleteNameMatched = !deleteTarget?.confirmName || deleteConfirmText === deleteTarget.confirmName;
 
     const countCell = (value: number, color = '#172033') => (
         <td style={{ ...TD, textAlign: 'center', fontWeight: 700, color: value === 0 ? '#A3AEBD' : color }}>{value}</td>
@@ -1257,7 +1406,7 @@ export default function BedLayoutExplorer() {
                             block.name,
                             <Layers size={13} strokeWidth={1.9} />,
                             `Floor ${floor.name}`,
-                            addMenu,
+                            floorHeaderActions,
                             goHome,
                         )}
                         {toolbar('Search units')}
@@ -1348,7 +1497,7 @@ export default function BedLayoutExplorer() {
                                     genderOf(selectedUnit, careUnits) !== '—' ? genderOf(selectedUnit, careUnits) : '',
                                 ].filter(Boolean).join(' · ')
                                 : `Floor ${floor.name}`,
-                            addMenu,
+                            floorHeaderActions,
                             goHome,
                         )}
                         {toolbar(
@@ -1446,7 +1595,7 @@ export default function BedLayoutExplorer() {
                                                                 {
                                                                     label: 'Delete',
                                                                     danger: true,
-                                                                    onClick: () => setDeleteTarget(unitDeleteTarget(wardItem)),
+                                                                    onClick: () => openDeleteTarget(unitDeleteTarget(wardItem)),
                                                                 },
                                                             ]} />
                                                         ) : null,
@@ -1583,7 +1732,7 @@ export default function BedLayoutExplorer() {
                                             onEdit={() => { setOpenBedId(null); setDialog({ kind: 'edit', level: 'bed', entity: bed }); }}
                                             onDelete={() => {
                                                 setOpenBedId(null);
-                                                setDeleteTarget({
+                                                openDeleteTarget({
                                                     label: `Bed ${bed.bed_number}`, level: 'bed', id: bed.id,
                                                     endpoint: API_ENDPOINTS.BED(bed.id),
                                                     warning: bed.status === 'occupied' ? 'This bed is occupied.' : undefined,
@@ -1643,16 +1792,21 @@ export default function BedLayoutExplorer() {
                         position: 'fixed', inset: 0, zIndex: 130, background: 'rgba(15, 23, 42, 0.45)',
                         display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20,
                     }}
-                    onClick={() => !deleting && setDeleteTarget(null)}
+                    onClick={() => {
+                        if (deleting || reassigning) return;
+                        setDeleteTarget(null);
+                        setDeleteConfirmText('');
+                        setReassignTargetId('');
+                    }}
                 >
                     <div
                         onClick={e => e.stopPropagation()}
-                        style={{ width: 'min(420px, 100%)', background: '#FFFFFF', borderRadius: 14, padding: 20, boxShadow: '0 24px 60px rgba(15, 23, 42, 0.26)' }}
+                        style={{ width: 'min(460px, 100%)', background: '#FFFFFF', borderRadius: 14, padding: 20, boxShadow: '0 24px 60px rgba(15, 23, 42, 0.26)' }}
                     >
                         <div style={{ fontSize: 15, fontWeight: 700, color: '#101828', marginBottom: 6 }}>
-                            Delete {deleteTarget.label}?
+                            Delete {deleteTarget.level === 'block' ? 'building' : deleteTarget.level === 'floor' ? 'floor' : ''}{deleteTarget.level === 'block' || deleteTarget.level === 'floor' ? ' ' : ''}{deleteTarget.label}?
                         </div>
-                        <div style={{ fontSize: 12.5, color: '#667085', marginBottom: 18 }}>
+                        <div style={{ fontSize: 12.5, color: '#667085', marginBottom: deleteTarget.confirmName ? 14 : 18 }}>
                             {deleteTarget.cascade
                                 ? (deleteTarget.warning
                                     ? `${deleteTarget.warning} This cannot be undone.`
@@ -1661,13 +1815,89 @@ export default function BedLayoutExplorer() {
                                     ? `${deleteTarget.warning} Remove those first, then you can delete this.`
                                     : 'This cannot be undone. Free any occupied bed first.'}
                         </div>
+
+                        {deleteTarget.confirmName && (
+                            <label style={{ display: 'grid', gap: 6, marginBottom: 16 }}>
+                                <span style={{ fontSize: 12, fontWeight: 650, color: '#344054' }}>
+                                    Type <span style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>{deleteTarget.confirmName}</span> to confirm
+                                </span>
+                                <input
+                                    type="text"
+                                    value={deleteConfirmText}
+                                    onChange={e => setDeleteConfirmText(e.target.value)}
+                                    autoComplete="off"
+                                    spellCheck={false}
+                                    placeholder={deleteTarget.confirmName}
+                                    disabled={deleting || reassigning}
+                                    style={{
+                                        height: 38, borderRadius: 9, border: '1px solid #D0D5DD',
+                                        padding: '0 12px', fontSize: 13, color: '#101828', outline: 'none',
+                                    }}
+                                />
+                            </label>
+                        )}
+
+                        {(deleteTarget.level === 'floor' || deleteTarget.level === 'block') && reassignOptions.length > 0 && (
+                            <div style={{
+                                marginBottom: 16, padding: 12, borderRadius: 10,
+                                background: '#F8FAFC', border: '1px solid #E6EBF1',
+                            }}>
+                                <div style={{ fontSize: 12.5, fontWeight: 700, color: '#101828', marginBottom: 4 }}>
+                                    Move instead of delete
+                                </div>
+                                <div style={{ fontSize: 12, color: '#667085', marginBottom: 10 }}>
+                                    {deleteTarget.level === 'floor'
+                                        ? 'Move this floor’s units onto another floor. Patients stay on the same units. The source floor stays empty.'
+                                        : 'Move this building’s floors onto another building. Patients stay on the same units. The source building keeps only its placeholder floor.'}
+                                </div>
+                                <div style={{ display: 'grid', gap: 8 }}>
+                                    <CustomSelect
+                                        value={reassignTargetId}
+                                        onChange={setReassignTargetId}
+                                        placeholder={deleteTarget.level === 'floor' ? 'Choose destination floor' : 'Choose destination building'}
+                                        options={reassignOptions}
+                                        style={{ height: 36, fontSize: 12.5, borderRadius: 8, border: '1px solid #E1E7EF' }}
+                                        maxH={220}
+                                    />
+                                    <button
+                                        type="button"
+                                        onClick={runReassign}
+                                        disabled={reassigning || deleting || !reassignTargetId}
+                                        style={{
+                                            ...secondaryButton,
+                                            opacity: reassigning || deleting || !reassignTargetId ? 0.55 : 1,
+                                            justifyContent: 'center',
+                                        }}
+                                    >
+                                        {reassigning ? 'Moving…' : deleteTarget.level === 'floor' ? 'Move units' : 'Move floors'}
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+
                         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
-                            <button type="button" onClick={() => setDeleteTarget(null)} disabled={deleting} style={secondaryButton}>Cancel</button>
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setDeleteTarget(null);
+                                    setDeleteConfirmText('');
+                                    setReassignTargetId('');
+                                }}
+                                disabled={deleting || reassigning}
+                                style={secondaryButton}
+                            >
+                                Cancel
+                            </button>
                             <button
                                 type="button"
                                 onClick={runDelete}
-                                disabled={deleting}
-                                style={{ ...primaryButton, background: '#B42318', opacity: deleting ? 0.6 : 1 }}
+                                disabled={deleting || reassigning || !deleteNameMatched}
+                                style={{
+                                    ...primaryButton,
+                                    background: '#B42318',
+                                    opacity: deleting || reassigning || !deleteNameMatched ? 0.45 : 1,
+                                    cursor: deleting || reassigning || !deleteNameMatched ? 'not-allowed' : 'pointer',
+                                }}
                             >
                                 {deleting ? 'Deleting…' : 'Delete'}
                             </button>

@@ -19,6 +19,14 @@ export type FeatureUsageRow = {
     children?: FeatureUsageChild[];
 };
 
+/** Top-level Helix AI (Ask Helix) question metrics — not screen opens. */
+export type AskHelixMetrics = {
+    question_count: number;
+    unique_users: number;
+    avg_questions_per_user: number;
+    avg_questions_per_day: number;
+};
+
 export type FeatureUsageMetrics = {
     scope: string;
     filter_facility_id: string | null;
@@ -33,8 +41,19 @@ export type FeatureUsageMetrics = {
     time_in_app: {
         avg_minutes_per_user_day: number;
     };
+    ask_helix: AskHelixMetrics;
     features: FeatureUsageRow[];
 };
+
+function parseAskHelix(raw: unknown): AskHelixMetrics {
+    const rec = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
+    return {
+        question_count: Number(rec.question_count) || 0,
+        unique_users: Number(rec.unique_users) || 0,
+        avg_questions_per_user: Number(rec.avg_questions_per_user) || 0,
+        avg_questions_per_day: Number(rec.avg_questions_per_day) || 0,
+    };
+}
 
 export function parseFeatureUsageMetrics(raw: unknown): FeatureUsageMetrics | null {
     if (!raw || typeof raw !== 'object') return null;
@@ -110,6 +129,7 @@ export function parseFeatureUsageMetrics(raw: unknown): FeatureUsageMetrics | nu
         time_in_app: {
             avg_minutes_per_user_day: Number(timeRaw.avg_minutes_per_user_day) || 0,
         },
+        ask_helix: parseAskHelix(rec.ask_helix),
         features,
     };
 }

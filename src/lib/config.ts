@@ -63,8 +63,16 @@ export const API_ENDPOINTS = {
   // Listing and creating wards on a floor uses the /floors/{id}/wards alias.
   BLOCKS: `/api/proxy/blocks`,
   BLOCK: (id: string) => `/api/proxy/blocks/${id}`,
+  /** Deletes the building with its floors, units, rooms, and beds (admin-only). */
+  BLOCK_CONTENTS: (id: string) => `/api/proxy/blocks/${id}/contents`,
+  /** Moves this building's floors onto another building. */
+  BLOCK_REASSIGN: (id: string) => `/api/proxy/blocks/${id}/reassign`,
   BLOCK_FLOORS: (id: string) => `/api/proxy/blocks/${id}/floors`,
   FLOOR: (id: string) => `/api/proxy/floors/${id}`,
+  /** Deletes the floor with its units, rooms, and beds (admin-only). */
+  FLOOR_CONTENTS: (id: string) => `/api/proxy/floors/${id}/contents`,
+  /** Moves this floor's units onto another floor. */
+  FLOOR_REASSIGN: (id: string) => `/api/proxy/floors/${id}/reassign`,
   FLOOR_WARDS: (id: string) => `/api/proxy/floors/${id}/wards`,
   WARD: (id: string) => `/api/proxy/units/${id}`,
   WARD_ROOMS: (id: string) => `/api/proxy/units/${id}/rooms`,

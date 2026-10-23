@@ -88,13 +88,49 @@ function toRfc3339ExclusiveEnd(day: string): string {
     return date.toISOString().replace(/\.\d{3}Z$/, 'Z');
 }
 
-function formatDayLabel(day: string): string {
+function parseDayDate(day: string): Date | null {
     const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(day);
     const date = match
         ? new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]))
         : new Date(day);
-    if (Number.isNaN(date.getTime())) return day;
+    if (Number.isNaN(date.getTime())) return null;
+    return date;
+}
+
+function formatDayLabel(day: string): string {
+    const date = parseDayDate(day);
+    if (!date) return day;
     return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
+function formatWeekdayLabel(day: string): string {
+    const date = parseDayDate(day);
+    if (!date) return day;
+    return date.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
+}
+
+/** Inclusive display end for an exclusive API `to` timestamp. */
+function formatWindowRange(from: string, to: string): string {
+    const fromDay = from.slice(0, 10);
+    const toExclusive = to.slice(0, 10);
+    if (!fromDay) return '';
+    let toLabel = toExclusive;
+    if (toExclusive) {
+        const end = new Date(`${toExclusive}T00:00:00Z`);
+        if (!Number.isNaN(end.getTime())) {
+            end.setUTCDate(end.getUTCDate() - 1);
+            toLabel = end.toISOString().slice(0, 10);
+        }
+    }
+    const startLabel = formatDayLabel(fromDay);
+    const endLabel = toLabel ? formatDayLabel(toLabel) : '';
+    if (startLabel && endLabel && startLabel !== endLabel) return `${startLabel} – ${endLabel}`;
+    return startLabel || endLabel;
+}
+
+function formatOneDecimal(n: number): string {
+    if (!Number.isFinite(n)) return '0.0';
+    return (Math.round(n * 10) / 10).toFixed(1);
 }
 
 function formatAxisNumber(val: number): string {
@@ -144,17 +180,27 @@ function Sparkline({ values, color }: { values: number[]; color: string }) {
     const max = Math.max(...values, 1);
     const min = Math.min(...values, 0);
     const span = Math.max(max - min, 1);
-    const points = values
-        .map((v, i) => {
-            const x = (i / (values.length - 1)) * 100;
-            const y = 100 - ((v - min) / span) * 100;
-            return `${x},${y}`;
-        })
-        .join(' ');
+    const coords = values.map((v, i) => {
+        const x = (i / (values.length - 1)) * 100;
+        const y = 100 - ((v - min) / span) * 100;
+        return { x, y };
+    });
+    const line = coords.map((p) => `${p.x},${p.y}`).join(' ');
+    const area = `0,100 ${line} 100,100`;
     return (
         <svg className="fu-sparkline" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden>
-            <polyline fill="none" stroke={color} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" points={points} />
+            <polygon fill={color} fillOpacity="0.12" points={area} />
+            <polyline fill="none" stroke={color} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" points={line} />
         </svg>
+    );
+}
+
+function KpiProgress({ value, color }: { value: number; color: string }) {
+    const width = Math.max(0, Math.min(100, value));
+    return (
+        <div className="fu-kpi__progress" aria-hidden>
+            <i style={{ width: `${width}%`, background: color }} />
+        </div>
     );
 }
 
@@ -482,9 +528,30 @@ function FeatureUsageContent() {
         <div className="internal-downloads-layout">
             <div className="usage-dashboard-shell internal-downloads-shell">
                 <div className="usage-inner">
-                    <div className="fu-dashboard" aria-label="Feature usage analytics dashboard">
+                    <div className="fu-dashboard fu-dashboard--compact" aria-label="Feature usage analytics dashboard">
                         <header className="fu-toolbar" role="banner">
-                            <h1 className="fu-toolbar__title">Feature usage</h1>
+                            <div className="fu-toolbar__brand">
+                                <p className="fu-toolbar__eyebrow">Clinical suite / Analytics</p>
+                                <div className="fu-toolbar__title-row">
+                                    <h1 className="fu-toolbar__title">Feature usage</h1>
+                                    {chipItems.length > 0 && (
+                                        <div className="fu-chips" aria-label="Active filters">
+                                            {chipItems.map((chip) => (
+                                                <button
+                                                    key={chip.key}
+                                                    type="button"
+                                                    className="fu-chip"
+                                                    onClick={chip.onRemove}
+                                                    aria-label={`Remove filter ${chip.label}`}
+                                                >
+                                                    <span>{chip.label}</span>
+                                                    <span aria-hidden>×</span>
+                                                </button>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
 
                             <div className="fu-toolbar__controls" role="region" aria-label="Global filters">
                                 <div className="fu-facility-select">
@@ -554,7 +621,9 @@ function FeatureUsageContent() {
                                         aria-haspopup="listbox"
                                         aria-label="Feature filter"
                                     >
-                                        {featureFilter.length === 0 ? 'All features' : `${featureFilter.length} selected`}
+                                        {featureFilter.length === 0
+                                            ? `All features (${featureOptions.length})`
+                                            : `${featureFilter.length} selected`}
                                     </button>
                                     {featureMenuOpen && (
                                         <div className="fu-menu" role="listbox" aria-label="Feature filter">
@@ -584,62 +653,48 @@ function FeatureUsageContent() {
                                     )}
                                 </div>
 
-                                <button
-                                    type="button"
-                                    className="fu-control fu-control--icon"
-                                    onClick={exportCsv}
-                                    aria-label="Export feature table CSV"
-                                    title="Export CSV"
-                                    disabled={!metrics}
-                                >
-                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden>
-                                        <path d="M12 3v12m0 0l-4-4m4 4l4-4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                                        <path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-                                    </svg>
-                                </button>
+                                <div className="fu-toolbar__actions">
+                                    <button
+                                        type="button"
+                                        className="fu-control fu-control--icon"
+                                        onClick={exportCsv}
+                                        aria-label="Export feature table CSV"
+                                        title="Export CSV"
+                                        disabled={!metrics}
+                                    >
+                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden>
+                                            <path d="M12 3v12m0 0l-4-4m4 4l4-4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                                            <path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                                        </svg>
+                                    </button>
 
-                                <button
-                                    type="button"
-                                    className="fu-control fu-control--icon"
-                                    onClick={resetFilters}
-                                    aria-label="Reset filters"
-                                    title="Reset filters"
-                                >
-                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden>
-                                        <path
-                                            d="M4 4v6h6M20 20v-6h-6"
-                                            stroke="currentColor"
-                                            strokeWidth="2"
-                                            strokeLinecap="round"
-                                            strokeLinejoin="round"
-                                        />
-                                        <path
-                                            d="M20 9A8 8 0 0 0 6.5 6.5L4 10M4 15a8 8 0 0 0 13.5 2.5L20 14"
-                                            stroke="currentColor"
-                                            strokeWidth="2"
-                                            strokeLinecap="round"
-                                            strokeLinejoin="round"
-                                        />
-                                    </svg>
-                                </button>
+                                    <button
+                                        type="button"
+                                        className="fu-control fu-control--icon"
+                                        onClick={resetFilters}
+                                        aria-label="Reset filters"
+                                        title="Reset filters"
+                                    >
+                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden>
+                                            <path
+                                                d="M4 4v6h6M20 20v-6h-6"
+                                                stroke="currentColor"
+                                                strokeWidth="2"
+                                                strokeLinecap="round"
+                                                strokeLinejoin="round"
+                                            />
+                                            <path
+                                                d="M20 9A8 8 0 0 0 6.5 6.5L4 10M4 15a8 8 0 0 0 13.5 2.5L20 14"
+                                                stroke="currentColor"
+                                                strokeWidth="2"
+                                                strokeLinecap="round"
+                                                strokeLinejoin="round"
+                                            />
+                                        </svg>
+                                    </button>
+                                </div>
                             </div>
                         </header>
-                        {chipItems.length > 0 && (
-                            <div className="fu-chips" aria-label="Active filters">
-                                {chipItems.map((chip) => (
-                                    <button
-                                        key={chip.key}
-                                        type="button"
-                                        className="fu-chip"
-                                        onClick={chip.onRemove}
-                                        aria-label={`Remove filter ${chip.label}`}
-                                    >
-                                        <span>{chip.label}</span>
-                                        <span aria-hidden>×</span>
-                                    </button>
-                                ))}
-                            </div>
-                        )}
 
                         {loading && !metrics && (
                             <div className="fu-skeleton-grid" aria-busy="true" aria-label="Loading feature usage">
@@ -673,15 +728,19 @@ function FeatureUsageContent() {
                                             spark: byDay.map((d) => d.users),
                                             color: '#1A78C4',
                                             info: 'Distinct people who used the product at all, in the selected date range',
+                                            badge: null as string | null,
+                                            progress: null as number | null,
                                         },
                                         {
                                             key: 'dau',
-                                            label: 'Avg DAU/day',
+                                            label: 'Avg DAU / day',
                                             value: avgDau.toFixed(1),
                                             trend: usersTrend,
                                             spark: byDay.map((d) => d.users),
                                             color: '#0EA5E9',
                                             info: 'Average number of people active on a typical day in this period',
+                                            badge: null as string | null,
+                                            progress: null as number | null,
                                         },
                                         {
                                             key: 'opens',
@@ -691,35 +750,41 @@ function FeatureUsageContent() {
                                             spark: ranked.map((f) => f.event_count).slice(0, 12).reverse(),
                                             color: '#00B4A0',
                                             info: 'Total number of times the selected feature(s) were opened in this period',
+                                            badge: null as string | null,
+                                            progress: null as number | null,
                                         },
                                         {
                                             key: 'per-user',
                                             label: 'Opens / user',
                                             value: formatAxisNumber(interactionsPerUser),
-                                            trend: null as number | null,
+                                            trend: 0 as number | null,
                                             spark: byDay.map((d) => d.users),
                                             color: '#5560F2',
                                             info: 'Average number of times each active user opened this feature',
+                                            badge: null as string | null,
+                                            progress: null as number | null,
                                         },
-                                        ...(scopedFeatures.length > 1
-                                            ? [{
-                                                key: 'adoption',
-                                                label: 'Feature adoption',
-                                                value: `${adoptionRate.toFixed(0)}%`,
-                                                trend: null as number | null,
-                                                spark: ranked.map((f) => (f.event_count > 0 ? 1 : 0)),
-                                                color: '#E39200',
-                                                info: 'Share of your features that were used at least once in this period',
-                                            }]
-                                            : []),
+                                        {
+                                            key: 'adoption',
+                                            label: 'Feature adoption',
+                                            value: `${adoptionRate.toFixed(0)}%`,
+                                            trend: null as number | null,
+                                            spark: [] as number[],
+                                            color: '#E39200',
+                                            info: 'Share of your features that were used at least once in this period',
+                                            badge: adoptionRate >= 100 ? 'Target met' : null,
+                                            progress: adoptionRate,
+                                        },
                                         {
                                             key: 'stickiness',
-                                            label: 'Stickiness',
+                                            label: 'Stickiness (DAU/MAU)',
                                             value: `${stickiness.toFixed(0)}%`,
                                             trend: usersTrend,
                                             spark: byDay.map((d) => d.users),
                                             color: '#8B5CF6',
                                             info: 'Share of active users who return on a typical day',
+                                            badge: null as string | null,
+                                            progress: null as number | null,
                                         },
                                         {
                                             key: 'minutes',
@@ -729,6 +794,8 @@ function FeatureUsageContent() {
                                             spark: byDay.map((d) => d.avg_active_minutes),
                                             color: '#EE4A42',
                                             info: 'Average minutes each active user spends per day',
+                                            badge: null as string | null,
+                                            progress: null as number | null,
                                         },
                                     ] as const).map((kpi) => (
                                         <article key={kpi.key} className="fu-kpi" role="listitem">
@@ -738,22 +805,104 @@ function FeatureUsageContent() {
                                             </div>
                                             <div className="fu-kpi__value-row">
                                                 <strong className="fu-kpi__value">{kpi.value}</strong>
-                                                {kpi.trend != null && (
+                                                {kpi.badge ? (
+                                                    <span className="fu-kpi__badge">{kpi.badge}</span>
+                                                ) : kpi.trend != null ? (
                                                     <span
-                                                        className={clsx('fu-kpi__trend', kpi.trend >= 0 ? 'is-up' : 'is-down')}
-                                                        title="Whether activity increased or decreased between the first and second half of the selected period. Based on comparing the first and second half of the selected date range, not day-over-day."
+                                                        className={clsx(
+                                                            'fu-kpi__trend',
+                                                            kpi.trend > 0 && 'is-up',
+                                                            kpi.trend < 0 && 'is-down',
+                                                            kpi.trend === 0 && 'is-flat',
+                                                        )}
+                                                        title="First half of the selected window vs the second half."
                                                     >
-                                                        {kpi.trend >= 0 ? '▲' : '▼'} {Math.abs(kpi.trend).toFixed(0)}%
+                                                        {kpi.trend > 0 ? '▲ ' : kpi.trend < 0 ? '▼ ' : ''}
+                                                        {Math.abs(kpi.trend).toFixed(0)}%
                                                     </span>
-                                                )}
+                                                ) : null}
                                             </div>
-                                            <Sparkline values={[...kpi.spark]} color={kpi.color} />
+                                            {kpi.progress != null ? (
+                                                <KpiProgress value={kpi.progress} color={kpi.color} />
+                                            ) : (
+                                                <Sparkline values={[...kpi.spark]} color={kpi.color} />
+                                            )}
                                         </article>
                                     ))}
                                 </div>
 
+                                <section className="fu-helix-ai" aria-label="Helix AI Clinical Assistant">
+                                    <div className="fu-helix-ai__top">
+                                        <div className="fu-helix-ai__intro">
+                                            <div className="fu-helix-ai__heading">
+                                                <span className="fu-helix-ai__icon" aria-hidden>
+                                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                                                        <path d="M13 2L4 14h7l-1 8 10-14h-7l1-6z" fill="currentColor" />
+                                                    </svg>
+                                                </span>
+                                                <div className="fu-helix-ai__titles">
+                                                    <h3 className="fu-helix-ai__title">Helix AI Clinical Assistant</h3>
+                                                    <p className="fu-helix-ai__meta">
+                                                        {[
+                                                            metrics.scope === 'facility' ? 'Facility' : metrics.scope === 'global' ? 'Global' : (metrics.scope || 'Scope'),
+                                                            metrics.window_days > 0
+                                                                ? `${metrics.window_days} day${metrics.window_days === 1 ? '' : 's'} period`
+                                                                : '',
+                                                            formatWindowRange(metrics.from, metrics.to),
+                                                        ].filter(Boolean).join(' · ')}
+                                                    </p>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div className="fu-helix-ai__aside">
+                                            <div className="fu-helix-ai__avatars" aria-hidden>
+                                                {(['#3B82F6', '#10B981', '#8B5CF6', '#F59E0B'] as const)
+                                                    .slice(0, Math.min(Math.max(metrics.ask_helix.unique_users, 0), 4))
+                                                    .map((color, index) => (
+                                                        <span
+                                                            key={color}
+                                                            className="fu-helix-ai__avatar"
+                                                            style={{ zIndex: 4 - index, background: color }}
+                                                        >
+                                                            {String.fromCharCode(65 + index)}
+                                                            {String.fromCharCode(72 + index)}
+                                                        </span>
+                                                    ))}
+                                            </div>
+                                            <p className="fu-helix-ai__aside-copy">
+                                                <strong>{fmtCount(metrics.ask_helix.unique_users)}</strong>
+                                                {' / '}
+                                                {fmtCount(metrics.ask_helix.unique_users)} Active Clinicians
+                                            </p>
+                                        </div>
+                                    </div>
+                                    <div className="fu-helix-ai__metrics" role="list">
+                                        <article className="fu-helix-ai__metric" role="listitem">
+                                            <span className="fu-helix-ai__metric-label">Total questions</span>
+                                            <strong className="fu-helix-ai__metric-value">{fmtCount(metrics.ask_helix.question_count)}</strong>
+                                            <span className="fu-helix-ai__metric-hint">Finished asks in window</span>
+                                        </article>
+                                        <article className="fu-helix-ai__metric" role="listitem">
+                                            <span className="fu-helix-ai__metric-label">Unique providers</span>
+                                            <strong className="fu-helix-ai__metric-value">{fmtCount(metrics.ask_helix.unique_users)}</strong>
+                                            <span className="fu-helix-ai__metric-hint">Staff who asked at least once</span>
+                                        </article>
+                                        <article className="fu-helix-ai__metric" role="listitem">
+                                            <span className="fu-helix-ai__metric-label">Avg per person</span>
+                                            <strong className="fu-helix-ai__metric-value is-gold">{formatOneDecimal(metrics.ask_helix.avg_questions_per_user)}</strong>
+                                            <span className="fu-helix-ai__metric-hint">queries / clinician</span>
+                                        </article>
+                                        <article className="fu-helix-ai__metric" role="listitem">
+                                            <span className="fu-helix-ai__metric-label">Avg per day</span>
+                                            <strong className="fu-helix-ai__metric-value is-sky">{formatOneDecimal(metrics.ask_helix.avg_questions_per_day)}</strong>
+                                            <span className="fu-helix-ai__metric-hint">Across the full window</span>
+                                        </article>
+                                    </div>
+                                </section>
+
                                 <div className="fu-chart-grid">
                                     <Panel
+                                        className="fu-panel--engagement"
                                         title="Engagement over time"
                                         subtitle="Daily active users and avg active minutes (dual axis)"
                                         info={[
@@ -764,39 +913,74 @@ function FeatureUsageContent() {
                                         {byDay.length === 0 ? (
                                             <EmptyState title="No daily series" body="The API returned no by_day rows for this window." />
                                         ) : (
-                                            <div className="fu-chart-host" role="img" aria-label="Engagement dual-axis chart">
+                                            <div className="fu-chart-host fu-chart-host--engagement" role="img" aria-label="Engagement dual-axis chart">
                                                 <Chart
-                                                    type="line"
+                                                    key={`engagement-${dateFrom}-${dateTo}-${byDay.length}`}
+                                                    type="area"
                                                     width="100%"
-                                                    height={300}
+                                                    height={330}
                                                     series={[
-                                                        { name: 'Active users', type: 'area', data: byDay.map((d) => d.users) },
-                                                        { name: 'Avg minutes', type: 'line', data: byDay.map((d) => d.avg_active_minutes) },
+                                                        { name: 'Active users', data: byDay.map((d) => d.users) },
+                                                        { name: 'Avg minutes', data: byDay.map((d) => d.avg_active_minutes) },
                                                     ]}
                                                     options={{
                                                         ...chartCommon,
-                                                        colors: ['#1A78C4', '#E39200'],
-                                                        stroke: { curve: 'smooth', width: [0, 3] },
+                                                        chart: {
+                                                            ...chartCommon.chart,
+                                                            type: 'area',
+                                                            background: 'transparent',
+                                                            // Gradual dual-axis area animations can stall at opacity 0
+                                                            // after a bad options update — keep draw instant.
+                                                            animations: { enabled: false },
+                                                        },
+                                                        colors: ['#4285F4', '#F4B400'],
+                                                        stroke: {
+                                                            curve: 'smooth',
+                                                            width: 3.5,
+                                                            lineCap: 'round',
+                                                        },
                                                         fill: {
-                                                            type: ['gradient', 'solid'],
+                                                            type: 'gradient',
                                                             gradient: {
-                                                                shadeIntensity: 0.35,
+                                                                shadeIntensity: 1,
+                                                                type: 'vertical',
                                                                 opacityFrom: 0.4,
                                                                 opacityTo: 0.05,
-                                                                stops: [0, 100],
+                                                                stops: [0, 90, 100],
                                                             },
                                                         },
-                                                        markers: { size: byDay.length <= 14 ? 3 : 0, strokeWidth: 0 },
+                                                        markers: {
+                                                            size: 0,
+                                                            strokeWidth: 3,
+                                                            strokeColors: '#FFFFFF',
+                                                            colors: ['#4285F4', '#F4B400'],
+                                                            hover: {
+                                                                size: 8,
+                                                                sizeOffset: 0,
+                                                            },
+                                                        },
                                                         legend: {
                                                             show: true,
                                                             position: 'top',
                                                             horizontalAlign: 'right',
                                                             fontSize: '12px',
-                                                            fontWeight: 600,
+                                                            fontWeight: 650,
+                                                            markers: {
+                                                                size: 5.5,
+                                                                strokeWidth: 0,
+                                                                offsetX: -2,
+                                                            },
                                                             labels: { colors: labelColor },
+                                                            itemMargin: { horizontal: 14, vertical: 0 },
+                                                        },
+                                                        grid: {
+                                                            borderColor: 'rgba(148, 163, 184, 0.2)',
+                                                            strokeDashArray: 4,
+                                                            padding: { left: 4, right: 8, top: 8, bottom: 0 },
                                                         },
                                                         xaxis: {
                                                             categories: dauCategories,
+                                                            tickAmount: Math.min(7, Math.max(byDay.length - 1, 1)),
                                                             labels: {
                                                                 rotate: 0,
                                                                 hideOverlappingLabels: true,
@@ -808,10 +992,22 @@ function FeatureUsageContent() {
                                                                     }
                                                                     return '';
                                                                 },
-                                                                style: { colors: labelColor, fontSize: '11px', fontWeight: 500 },
+                                                                style: { colors: '#94A3B8', fontSize: '11px', fontWeight: 500 },
                                                             },
                                                             axisBorder: { show: false },
                                                             axisTicks: { show: false },
+                                                            tooltip: { enabled: false },
+                                                            crosshairs: {
+                                                                show: true,
+                                                                width: 1,
+                                                                position: 'back',
+                                                                opacity: 0.9,
+                                                                stroke: {
+                                                                    color: '#CBD5E1',
+                                                                    width: 1,
+                                                                    dashArray: 4,
+                                                                },
+                                                            },
                                                         },
                                                         yaxis: [
                                                             {
@@ -820,11 +1016,7 @@ function FeatureUsageContent() {
                                                                 forceNiceScale: true,
                                                                 labels: {
                                                                     formatter: (val: number) => formatAxisNumber(val),
-                                                                    style: { colors: '#1A78C4', fontSize: '11px', fontWeight: 500 },
-                                                                },
-                                                                title: {
-                                                                    text: 'Users',
-                                                                    style: { color: '#1A78C4', fontSize: '11px', fontWeight: 600 },
+                                                                    style: { colors: '#4285F4', fontSize: '11px', fontWeight: 700 },
                                                                 },
                                                             },
                                                             {
@@ -833,28 +1025,33 @@ function FeatureUsageContent() {
                                                                 min: 0,
                                                                 forceNiceScale: true,
                                                                 labels: {
-                                                                    formatter: (val: number) => formatAxisNumber(val),
-                                                                    style: { colors: '#E39200', fontSize: '11px', fontWeight: 500 },
-                                                                },
-                                                                title: {
-                                                                    text: 'Minutes',
-                                                                    style: { color: '#E39200', fontSize: '11px', fontWeight: 600 },
+                                                                    formatter: (val: number) => `${formatAxisNumber(val)}m`,
+                                                                    style: { colors: '#F4B400', fontSize: '11px', fontWeight: 700 },
                                                                 },
                                                             },
                                                         ],
                                                         tooltip: {
                                                             shared: true,
                                                             intersect: false,
-                                                            theme: isDark ? 'dark' : 'light',
+                                                            followCursor: false,
+                                                            theme: 'light',
+                                                            style: { fontSize: '12px', fontFamily: 'Montserrat, sans-serif' },
+                                                            x: {
+                                                                formatter: (_val, opts) => {
+                                                                    const day = byDay[opts?.dataPointIndex ?? -1]?.day;
+                                                                    return day ? formatWeekdayLabel(day) : '';
+                                                                },
+                                                            },
                                                             y: {
                                                                 formatter: (val: number, opts) => {
                                                                     const seriesName = opts?.w?.globals?.seriesNames?.[opts.seriesIndex ?? 0] || '';
                                                                     if (String(seriesName).toLowerCase().includes('minute')) {
                                                                         return `${formatAxisNumber(val)} min`;
                                                                     }
-                                                                    return `${formatAxisNumber(val)} users`;
+                                                                    return formatAxisNumber(val);
                                                                 },
                                                             },
+                                                            marker: { show: true },
                                                         },
                                                     }}
                                                 />
@@ -941,7 +1138,9 @@ function FeatureUsageContent() {
                                             </div>
                                         )}
                                     </Panel>
+                                </div>
 
+                                <div className="fu-chart-grid fu-chart-grid--secondary">
                                     <Panel
                                         title="Feature ranking"
                                         subtitle="Click a bar to drill · toggle metric"
@@ -1111,7 +1310,9 @@ function FeatureUsageContent() {
                                                     className="fu-detail__cta"
                                                     onClick={() => setDrillFeatureId(topFeature.id)}
                                                 >
-                                                    Inspect {topFeature.label}
+                                                    {topFeature.id === 'ask_helix'
+                                                        ? 'Inspect Helix AI detail'
+                                                        : `Inspect ${topFeature.label}`}
                                                 </button>
                                             </div>
                                         ) : drilledFeature ? (
@@ -1148,80 +1349,6 @@ function FeatureUsageContent() {
                                                 )}
                                             </div>
                                         ) : null}
-                                    </Panel>
-
-                                    <Panel
-                                        title="Opens vs unique users"
-                                        subtitle="Top features · grouped compare"
-                                        info="Same API fields side by side for the current filter."
-                                    >
-                                        {rankedPreview.length === 0 ? (
-                                            <EmptyState title="No features" body="Nothing to compare in this filter." />
-                                        ) : (
-                                            <div className="fu-chart-host" role="img" aria-label="Opens versus unique users">
-                                                <Chart
-                                                    type="bar"
-                                                    width="100%"
-                                                    height={Math.max(260, Math.min(rankedPreview.length, 8) * 44)}
-                                                    series={[
-                                                        {
-                                                            name: 'Opens',
-                                                            data: rankedPreview.slice(0, 8).map((f) => f.event_count),
-                                                        },
-                                                        {
-                                                            name: 'Unique users',
-                                                            data: rankedPreview.slice(0, 8).map((f) => f.unique_users),
-                                                        },
-                                                    ]}
-                                                    options={{
-                                                        ...chartCommon,
-                                                        colors: ['#1A78C4', '#00B4A0'],
-                                                        plotOptions: {
-                                                            bar: {
-                                                                horizontal: true,
-                                                                borderRadius: 4,
-                                                                barHeight: '70%',
-                                                            },
-                                                        },
-                                                        legend: {
-                                                            show: true,
-                                                            position: 'top',
-                                                            horizontalAlign: 'right',
-                                                            fontSize: '11px',
-                                                            fontWeight: 600,
-                                                            labels: { colors: labelColor },
-                                                        },
-                                                        xaxis: {
-                                                            categories: rankedPreview.slice(0, 8).map((f) => f.label),
-                                                            labels: {
-                                                                formatter: (val: string) => formatAxisNumber(Number(val) || 0),
-                                                                style: { colors: labelColor, fontSize: '11px' },
-                                                            },
-                                                            axisBorder: { show: false },
-                                                            axisTicks: { show: false },
-                                                        },
-                                                        yaxis: {
-                                                            labels: {
-                                                                maxWidth: 110,
-                                                                style: { colors: 'var(--text-primary)', fontSize: '11px', fontWeight: 650 },
-                                                            },
-                                                        },
-                                                        chart: {
-                                                            ...chartCommon.chart,
-                                                            events: {
-                                                                dataPointSelection: (_e, _ctx, config) => {
-                                                                    const index = config?.dataPointIndex;
-                                                                    if (index == null) return;
-                                                                    const feature = rankedPreview[index];
-                                                                    if (!feature) return;
-                                                                    setDrillFeatureId((prev) => (prev === feature.id ? null : feature.id));
-                                                                },
-                                                            },
-                                                        },
-                                                    }}
-                                                />
-                                            </div>
-                                        )}
                                     </Panel>
 
                                     <Panel
@@ -1299,9 +1426,86 @@ function FeatureUsageContent() {
                                             </div>
                                         )}
                                     </Panel>
+                                </div>
 
+                                <div className="fu-chart-grid fu-chart-grid--full">
                                     <Panel
-                                        className="fu-panel--wide"
+                                        title="Opens vs unique users"
+                                        subtitle="Top features · grouped compare"
+                                        info="Same API fields side by side for the current filter."
+                                    >
+                                        {rankedPreview.length === 0 ? (
+                                            <EmptyState title="No features" body="Nothing to compare in this filter." />
+                                        ) : (
+                                            <div className="fu-chart-host" role="img" aria-label="Opens versus unique users">
+                                                <Chart
+                                                    type="bar"
+                                                    width="100%"
+                                                    height={Math.max(260, Math.min(rankedPreview.length, 8) * 44)}
+                                                    series={[
+                                                        {
+                                                            name: 'Opens',
+                                                            data: rankedPreview.slice(0, 8).map((f) => f.event_count),
+                                                        },
+                                                        {
+                                                            name: 'Unique users',
+                                                            data: rankedPreview.slice(0, 8).map((f) => f.unique_users),
+                                                        },
+                                                    ]}
+                                                    options={{
+                                                        ...chartCommon,
+                                                        colors: ['#1A78C4', '#00B4A0'],
+                                                        plotOptions: {
+                                                            bar: {
+                                                                horizontal: true,
+                                                                borderRadius: 4,
+                                                                barHeight: '70%',
+                                                            },
+                                                        },
+                                                        legend: {
+                                                            show: true,
+                                                            position: 'top',
+                                                            horizontalAlign: 'right',
+                                                            fontSize: '11px',
+                                                            fontWeight: 600,
+                                                            labels: { colors: labelColor },
+                                                        },
+                                                        xaxis: {
+                                                            categories: rankedPreview.slice(0, 8).map((f) => f.label),
+                                                            labels: {
+                                                                formatter: (val: string) => formatAxisNumber(Number(val) || 0),
+                                                                style: { colors: labelColor, fontSize: '11px' },
+                                                            },
+                                                            axisBorder: { show: false },
+                                                            axisTicks: { show: false },
+                                                        },
+                                                        yaxis: {
+                                                            labels: {
+                                                                maxWidth: 110,
+                                                                style: { colors: 'var(--text-primary)', fontSize: '11px', fontWeight: 650 },
+                                                            },
+                                                        },
+                                                        chart: {
+                                                            ...chartCommon.chart,
+                                                            events: {
+                                                                dataPointSelection: (_e, _ctx, config) => {
+                                                                    const index = config?.dataPointIndex;
+                                                                    if (index == null) return;
+                                                                    const feature = rankedPreview[index];
+                                                                    if (!feature) return;
+                                                                    setDrillFeatureId((prev) => (prev === feature.id ? null : feature.id));
+                                                                },
+                                                            },
+                                                        },
+                                                    }}
+                                                />
+                                            </div>
+                                        )}
+                                    </Panel>
+                                </div>
+
+                                <div className="fu-chart-grid fu-chart-grid--full">
+                                    <Panel
                                         title="Feature table"
                                         subtitle="Sortable crosstab of the loaded metrics payload"
                                         info="Direct features[] fields — not event-level rows."

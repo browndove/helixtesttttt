@@ -373,23 +373,158 @@ export function parseBlocks(raw: unknown): Block[] {
     );
 }
 
+const OCCUPIED_BEDS_FALLBACK =
+    'Can’t delete this location. A bed is still occupied. Free the bed first.';
+
+export type HierarchyDeleteContext = {
+    level?: 'block' | 'floor' | 'ward' | 'room' | 'bed';
+    label?: string;
+};
+
+type OccupiedPlace = {
+    building?: string;
+    floor?: string;
+    unit?: string;
+    room?: string;
+    bed?: string;
+};
+
+/** Drop a duplicated type word the API prefixes onto a name that already includes it. */
+function stripTypePrefix(value: string, typeWord: string): string {
+    const trimmed = value.trim();
+    const re = new RegExp(`^${typeWord}\\s+`, 'i');
+    return trimmed.replace(re, '').trim() || trimmed;
+}
+
+function formatDeleteTarget(level: HierarchyDeleteContext['level'], label: string): string {
+    const name = label.trim();
+    if (!name) return 'this location';
+    switch (level) {
+        case 'bed': {
+            const num = stripTypePrefix(name.replace(/^Bed\s+/i, ''), 'Bed');
+            return `Bed ${num}`;
+        }
+        case 'room': {
+            const room = stripTypePrefix(name, 'Room');
+            return /^Room\b/i.test(name) ? name : `Room ${room}`;
+        }
+        case 'ward':
+            // Use the unit name as stored — do not prefix "Unit".
+            return stripTypePrefix(name, 'Unit');
+        case 'floor': {
+            const floor = stripTypePrefix(name, 'Floor');
+            return /^Floor\b/i.test(name) ? name : `Floor ${floor}`;
+        }
+        case 'block': {
+            const building = stripTypePrefix(name, 'Building');
+            return /^Building\b/i.test(name) ? name : `Building ${building}`;
+        }
+        default:
+            return name;
+    }
+}
+
+/** Parse backend occupied_beds copy into structured place parts. */
+export function parseOccupiedBedsMessage(text: string): OccupiedPlace | null {
+    const head = text
+        .replace(/\s*Free it before deleting\.?\s*$/i, '')
+        .replace(/\s*is occupied\.?\s*$/i, '')
+        .trim();
+    if (!head) return null;
+
+    const place: OccupiedPlace = {};
+    const bedMatch = head.match(/,\s*bed\s+(.+)$/i) || head.match(/\s+bed\s+(.+)$/i);
+    if (!bedMatch || bedMatch.index == null) return null;
+    place.bed = bedMatch[1].trim();
+    const before = head.slice(0, bedMatch.index).trim();
+
+    if (/^Room\s+/i.test(before) && !before.includes(',')) {
+        place.room = stripTypePrefix(before, 'Room');
+        return place;
+    }
+
+    for (const part of before.split(',').map(item => item.trim()).filter(Boolean)) {
+        if (/^Building\s+/i.test(part)) place.building = stripTypePrefix(part, 'Building');
+        else if (/^Floor\s+/i.test(part)) place.floor = stripTypePrefix(part, 'Floor');
+        else if (/^Unit\s+/i.test(part)) place.unit = stripTypePrefix(part, 'Unit');
+        else if (/^Room\s+/i.test(part)) place.room = stripTypePrefix(part, 'Room');
+    }
+    return place.bed ? place : null;
+}
+
+function occupiedLocationPhrase(place: OccupiedPlace): string {
+    const bed = place.bed ? `Bed ${place.bed}` : 'A bed';
+    if (place.room) {
+        const nest = [
+            place.unit,
+            place.floor ? `Floor ${place.floor}` : '',
+            place.building ? `Building ${place.building}` : '',
+        ].filter(Boolean);
+        return nest.length
+            ? `${bed} in Room ${place.room} (${nest.join(', ')})`
+            : `${bed} in Room ${place.room}`;
+    }
+    const nest = [
+        place.unit,
+        place.floor ? `Floor ${place.floor}` : '',
+        place.building ? `Building ${place.building}` : '',
+    ].filter(Boolean);
+    return nest.length ? `${bed} in ${nest.join(', ')}` : bed;
+}
+
+/** Rewrite occupied_beds copy: outcome first, Bed capitalized, clear next action. */
+export function formatOccupiedBedsMessage(
+    text: string,
+    context?: HierarchyDeleteContext,
+): string {
+    const place = parseOccupiedBedsMessage(text);
+    const target = formatDeleteTarget(context?.level, context?.label || '');
+    const action = place?.bed ? `Free Bed ${place.bed} first.` : 'Free the bed first.';
+    if (!place) {
+        return `Can’t delete ${target}. A bed is still occupied. ${action}`;
+    }
+    return `Can’t delete ${target}. ${occupiedLocationPhrase(place)} is occupied. ${action}`;
+}
+
 /** Reads the `{ status, message, code }` envelope, falling back to older shapes. */
-export function hierarchyApiMessage(raw: unknown, fallback: string): string {
+export function hierarchyApiMessage(
+    raw: unknown,
+    fallback: string,
+    context?: HierarchyDeleteContext,
+): string {
     if (!raw || typeof raw !== 'object') return fallback;
     const rec = raw as Record<string, unknown>;
     const reason = String(rec.reason || '').trim().toLowerCase();
-    if (reason === 'occupied_beds') {
-        return 'Some beds are still occupied. Free them first, then delete.';
-    }
     const message = rec.message ?? rec.error ?? rec.detail ?? rec.details;
-    if (typeof message === 'string' && message.trim()) {
-        const text = message.trim();
-        // Never surface raw endpoint paths from the units API.
+    const text = typeof message === 'string' ? message.trim() : '';
+
+    if (reason === 'occupied_beds') {
+        return text ? formatOccupiedBedsMessage(text, context) : OCCUPIED_BEDS_FALLBACK;
+    }
+    if (reason === 'has_children') {
+        return text || 'This still has child locations. Delete with contents, or remove the children first.';
+    }
+    if (text) {
+        // Never surface raw endpoint paths from the hierarchy APIs.
         if (/still has rooms|\/units\/\{?id\}?\/(reassign|contents)/i.test(text)) {
-            return 'This unit still has rooms or beds. Free any occupied beds, then try deleting again.';
+            return 'This unit still has rooms or beds. Free any occupied beds first, then try deleting again.';
+        }
+        if (/\/floors\/\{?id\}?\/(reassign|contents)|\/blocks\/\{?id\}?\/(reassign|contents)/i.test(text)) {
+            return OCCUPIED_BEDS_FALLBACK;
         }
         if (/occupied/i.test(text) && /bed/i.test(text)) {
-            return 'Some beds are still occupied. Free them first, then delete.';
+            return formatOccupiedBedsMessage(text, context);
+        }
+        // Gateway/HTML bodies used to surface as "Backend returned invalid response".
+        if (/backend returned invalid response/i.test(text)) {
+            const details = typeof rec.details === 'string' ? rec.details.trim() : '';
+            if (details && !/backend returned invalid response/i.test(details)) {
+                if (/occupied/i.test(details) && /bed/i.test(details)) {
+                    return formatOccupiedBedsMessage(details, context);
+                }
+                return details;
+            }
+            return 'Delete failed. Free any occupied beds first, then try again.';
         }
         return text;
     }

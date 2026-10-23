@@ -54,8 +54,14 @@ export async function forwardToApi(req: NextRequest, options: ForwardOptions): P
         try {
             return NextResponse.json(JSON.parse(text), { status: res.status });
         } catch {
+            // Prefer the upstream text when the body isn't JSON (HTML/plain errors),
+            // so the UI can show the real reason instead of a generic proxy message.
+            const snippet = text.replace(/\s+/g, ' ').trim().slice(0, 280);
             return NextResponse.json(
-                { error: 'Backend returned invalid response', details: text.substring(0, 200) },
+                {
+                    error: snippet || 'Backend returned invalid response',
+                    details: snippet,
+                },
                 { status: res.status >= 400 ? res.status : 502 },
             );
         }
