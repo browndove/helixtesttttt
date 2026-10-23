@@ -39,9 +39,9 @@ type DeleteTarget = {
     id: string;
     endpoint: string;
     warning?: string;
-    /** Contents delete: children go with it after confirm; occupied beds block. */
+    /** Contents delete: children go with it after confirm. */
     cascade?: boolean;
-    /** Exact name the user must type before Delete is enabled (floors & buildings). */
+    /** Exact name the user must type before Delete is enabled. */
     confirmName?: string;
     occupiedCount?: number;
 };
@@ -56,16 +56,15 @@ function unitDeleteTarget(unit: {
     const rooms = unit.room_count || 0;
     const beds = unit.bed_count || 0;
     const occupied = unit.occupied_count || 0;
-    let warning: string | undefined;
-    if (rooms > 0 || beds > 0) {
-        const parts = [
-            rooms > 0 ? `${rooms} room${rooms === 1 ? '' : 's'}` : '',
-            beds > 0 ? `${beds} bed${beds === 1 ? '' : 's'}` : '',
-        ].filter(Boolean);
-        warning = `This also deletes ${parts.join(' and ')}.`;
-        if (occupied > 0) {
-            warning += ` Free ${occupied} occupied bed${occupied === 1 ? '' : 's'} first or delete will fail.`;
-        }
+    const parts = [
+        rooms > 0 ? `${rooms} room${rooms === 1 ? '' : 's'}` : '',
+        beds > 0 ? `${beds} bed${beds === 1 ? '' : 's'}` : '',
+    ].filter(Boolean);
+    let warning = parts.length
+        ? `This also deletes ${parts.join(' and ')}.`
+        : 'This deletes the unit and any rooms or beds under it.';
+    if (occupied > 0) {
+        warning += ` ${occupied} occupied bed${occupied === 1 ? '' : 's'} will be deleted too. Patients on those beds will no longer be assigned to this unit.`;
     }
     return {
         label: unit.name,
@@ -73,8 +72,9 @@ function unitDeleteTarget(unit: {
         id: unit.id,
         endpoint: API_ENDPOINTS.UNIT_CONTENTS(unit.id),
         cascade: true,
+        confirmName: unit.name,
         occupiedCount: occupied,
-        ...(warning ? { warning } : {}),
+        warning,
     };
 }
 
@@ -84,7 +84,7 @@ function floorDeleteTarget(floor: Floor): DeleteTarget {
     const beds = floor.bed_count || 0;
     let warning = 'This deletes the floor, every unit on it, every room on those units, and every bed. Patients on those units have their unit cleared.';
     if (occupied > 0) {
-        warning += ` An occupied bed blocks delete — free ${occupied} occupied bed${occupied === 1 ? '' : 's'}, or move this floor’s units to another floor first.`;
+        warning += ` ${occupied} occupied bed${occupied === 1 ? '' : 's'} will be deleted too.`;
     } else if (wards > 0 || beds > 0) {
         warning += ` Currently ${wards} unit${wards === 1 ? '' : 's'} and ${beds} bed${beds === 1 ? '' : 's'}.`;
     }
@@ -106,7 +106,7 @@ function blockDeleteTarget(block: Block): DeleteTarget {
     const beds = block.bed_count || 0;
     let warning = 'This deletes the building, every floor on it, and every unit, room, and bed under those floors. Patients on those units have their unit cleared.';
     if (occupied > 0) {
-        warning += ` An occupied bed blocks delete — free ${occupied} occupied bed${occupied === 1 ? '' : 's'}, or move this building’s floors to another building first.`;
+        warning += ` ${occupied} occupied bed${occupied === 1 ? '' : 's'} will be deleted too.`;
     } else if (floors > 0 || beds > 0) {
         warning += ` Currently ${floors} floor${floors === 1 ? '' : 's'} and ${beds} bed${beds === 1 ? '' : 's'}.`;
     }
@@ -1804,7 +1804,7 @@ export default function BedLayoutExplorer() {
                         style={{ width: 'min(460px, 100%)', background: '#FFFFFF', borderRadius: 14, padding: 20, boxShadow: '0 24px 60px rgba(15, 23, 42, 0.26)' }}
                     >
                         <div style={{ fontSize: 15, fontWeight: 700, color: '#101828', marginBottom: 6 }}>
-                            Delete {deleteTarget.level === 'block' ? 'building' : deleteTarget.level === 'floor' ? 'floor' : ''}{deleteTarget.level === 'block' || deleteTarget.level === 'floor' ? ' ' : ''}{deleteTarget.label}?
+                            Delete {deleteTarget.level === 'block' ? 'building' : deleteTarget.level === 'floor' ? 'floor' : deleteTarget.level === 'ward' ? 'unit' : ''}{(deleteTarget.level === 'block' || deleteTarget.level === 'floor' || deleteTarget.level === 'ward') ? ' ' : ''}{deleteTarget.label}?
                         </div>
                         <div style={{ fontSize: 12.5, color: '#667085', marginBottom: deleteTarget.confirmName ? 14 : 18 }}>
                             {deleteTarget.cascade
@@ -1813,8 +1813,20 @@ export default function BedLayoutExplorer() {
                                     : 'This cannot be undone.')
                                 : deleteTarget.warning
                                     ? `${deleteTarget.warning} Remove those first, then you can delete this.`
-                                    : 'This cannot be undone. Free any occupied bed first.'}
+                                    : 'This cannot be undone.'}
                         </div>
+
+                        {(deleteTarget.occupiedCount || 0) > 0 && (
+                            <div style={{
+                                marginBottom: 14, padding: '10px 12px', borderRadius: 10,
+                                background: '#FEF3F2', border: '1px solid #FECDCA',
+                                fontSize: 12.5, color: '#B42318', fontWeight: 600, lineHeight: 1.4,
+                            }}>
+                                {deleteTarget.occupiedCount === 1
+                                    ? 'Warning: 1 occupied bed will be deleted with this.'
+                                    : `Warning: ${deleteTarget.occupiedCount} occupied beds will be deleted with this.`}
+                            </div>
+                        )}
 
                         {deleteTarget.confirmName && (
                             <label style={{ display: 'grid', gap: 6, marginBottom: 16 }}>

@@ -374,11 +374,13 @@ export function parseBlocks(raw: unknown): Block[] {
 }
 
 const OCCUPIED_BEDS_FALLBACK =
-    'Can’t delete this location. A bed is still occupied. Free the bed first.';
+    'Can’t delete this location. Some beds are occupied. Free those beds first.';
 
 export type HierarchyDeleteContext = {
     level?: 'block' | 'floor' | 'ward' | 'room' | 'bed';
     label?: string;
+    /** Known occupied count from the tree (helps when the API only names the first bed). */
+    occupiedCount?: number;
 };
 
 type OccupiedPlace = {
@@ -424,11 +426,46 @@ function formatDeleteTarget(level: HierarchyDeleteContext['level'], label: strin
     }
 }
 
-/** Parse backend occupied_beds copy into structured place parts. */
+/** Tidy the "in …" scope from the new multi-bed occupied_beds copy. */
+function polishOccupiedScope(scope: string): string {
+    return scope
+        // Drop API "Unit " prefixes without touching names that end in Unit.
+        .replace(/(^|,\s*|;?\s*\([a-z]\)\s*)Unit\s+/gi, '$1')
+        .replace(/\bbuilding\b/gi, 'Building')
+        .replace(/\bfloor\b/gi, 'Floor')
+        .replace(/\broom\b/gi, 'Room')
+        .replace(/\s*-\s*/g, ' — ')
+        // Letter groups: ", (b)" or "C (c)" → "; (b)" / "C; (c)"
+        .replace(/,\s*\(([a-z])\)/gi, '; ($1)')
+        .replace(/([^;—\s])\s+\(([a-z])\)/gi, '$1; ($2)')
+        .replace(/\)\s*(?=[A-Za-z])/g, ') ')
+        .replace(/;\s*;+/g, ';')
+        .replace(/^[\s;—]+/, '')
+        .replace(/,\s*/g, ', ')
+        .replace(/;\s*/g, '; ')
+        .replace(/\s+/g, ' ')
+        .trim();
+}
+
+/**
+ * New API shape:
+ * "Some beds in Room A are occupied. Please free up all beds before deleting."
+ * "Some beds in Male Ward, Room A & B are occupied…"
+ * "Some bed(s) in Floor 1 - (a) Male Ward Room A, Room B; (b)Female ward Room D are occupied…"
+ */
+function parseMultiOccupiedScope(text: string): string | null {
+    const match = text.match(/Some beds?(?:\(s\))? in (.+?)\s+are occupied/i);
+    if (!match?.[1]) return null;
+    return polishOccupiedScope(match[1]);
+}
+
+/** Legacy single-bed copy: "… Room A, bed 02 is occupied. Free it before deleting." */
 export function parseOccupiedBedsMessage(text: string): OccupiedPlace | null {
     const head = text
+        .replace(/\s*Please\s+free(?:\s+up)?\s+all\s+beds?\s+before\s+deleting\.?\s*$/i, '')
         .replace(/\s*Free it before deleting\.?\s*$/i, '')
         .replace(/\s*is occupied\.?\s*$/i, '')
+        .replace(/\s*are occupied\.?\s*$/i, '')
         .trim();
     if (!head) return null;
 
@@ -472,17 +509,49 @@ function occupiedLocationPhrase(place: OccupiedPlace): string {
     return nest.length ? `${bed} in ${nest.join(', ')}` : bed;
 }
 
-/** Rewrite occupied_beds copy: outcome first, Bed capitalized, clear next action. */
+/** Rewrite occupied_beds copy: outcome first, clear place, bed-focused next step. */
 export function formatOccupiedBedsMessage(
     text: string,
     context?: HierarchyDeleteContext,
 ): string {
-    const place = parseOccupiedBedsMessage(text);
     const target = formatDeleteTarget(context?.level, context?.label || '');
-    const action = place?.bed ? `Free Bed ${place.bed} first.` : 'Free the bed first.';
-    if (!place) {
-        return `Can’t delete ${target}. A bed is still occupied. ${action}`;
+    const freeBeds = 'Free those beds first.';
+
+    const multiScope = parseMultiOccupiedScope(text);
+    if (multiScope) {
+        // Deleting a room: scope is usually just that room — don't repeat it.
+        if (context?.level === 'room') {
+            return `Can’t delete ${target}. Some beds are occupied. ${freeBeds}`;
+        }
+        // Drop a leading copy of the delete target ("Male Ward, Room A" → "Room A").
+        const escape = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const label = (context?.label || '').trim();
+        const patterns = [
+            target,
+            label,
+            label ? `Building ${label}` : '',
+            label ? `${label} Building` : '',
+            label ? `Floor ${label}` : '',
+        ].filter(Boolean);
+        let scope = multiScope;
+        for (const pattern of patterns) {
+            const next = scope
+                .replace(new RegExp(`^${escape(pattern)}\\s*[,—-]\\s*`, 'i'), '')
+                .replace(new RegExp(`^${escape(pattern)}$`, 'i'), '')
+                .trim();
+            if (next && next !== scope) {
+                scope = next;
+                break;
+            }
+        }
+        return `Can’t delete ${target}. Some beds in ${scope || multiScope} are occupied. ${freeBeds}`;
     }
+
+    const place = parseOccupiedBedsMessage(text);
+    if (!place) {
+        return `Can’t delete ${target}. Some beds are occupied. ${freeBeds}`;
+    }
+    const action = place.bed ? `Free Bed ${place.bed} first.` : freeBeds;
     return `Can’t delete ${target}. ${occupiedLocationPhrase(place)} is occupied. ${action}`;
 }
 
