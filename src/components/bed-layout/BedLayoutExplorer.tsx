@@ -24,12 +24,18 @@ import {
     type Ward,
 } from '@/lib/bed-hierarchy';
 import CustomSelect from '@/components/CustomSelect';
-import BedLayoutFormDialog, { type FormDialogRequest, type LayoutLevel } from './BedLayoutFormDialog';
+import BedLayoutFormDialog, {
+    type FormDialogRequest,
+    type LayoutContext,
+    type LayoutLevel,
+} from './BedLayoutFormDialog';
 import BedLayoutToolbar, { type StatusFilter } from './BedLayoutToolbar';
 import BedTile from './BedTile';
 import { SAMPLE_BLOCKS } from './bed-layout-sample';
 import { applyPreviewOp, type PreviewLevel, type PreviewOp } from './preview-store';
 import { BED_STATUS_META, card, formatDate, linkButton, primaryButton, secondaryButton } from './bed-layout-ui';
+import KpiRow from './kpi/KpiRow';
+import { buildBedKpiItems } from './kpi/kpiConfig';
 
 type Toast = { message: string; variant: 'success' | 'error' | 'info' };
 
@@ -344,6 +350,66 @@ function homeLocationLabel(item: Block, entry: Floor | null): string {
     return floorLabel ? `${item.name} · ${floorLabel}` : item.name;
 }
 
+/** Build create-dialog context from the current navigation, resolving missing parents from the tree. */
+function buildCreateContext(
+    blocks: Block[],
+    opts: {
+        block?: Block | null;
+        floor?: Floor | null;
+        unit?: Ward | null;
+        room?: Room | null;
+    },
+): LayoutContext {
+    let block = opts.block || null;
+    let floor = opts.floor || null;
+    const unit = opts.unit || null;
+    const room = opts.room || null;
+
+    if ((!block || !floor) && (floor?.id || unit || room)) {
+        const floorId = floor?.id || '';
+        const wardId = room?.ward_id || unit?.id || '';
+        outer: for (const item of blocks) {
+            for (const entry of item.floors) {
+                const floorMatch = floorId ? entry.id === floorId : false;
+                const wardMatch = wardId
+                    ? entry.wards.some(ward => ward.id === wardId)
+                    : false;
+                if (floorMatch || wardMatch) {
+                    block = block || item;
+                    floor = floor || entry;
+                    break outer;
+                }
+            }
+        }
+    }
+
+    const wardId = room?.ward_id || unit?.id || '';
+    let wardName = unit?.name || '';
+    if (!wardName && wardId) {
+        for (const item of blocks) {
+            for (const entry of item.floors) {
+                const found = entry.wards.find(ward => ward.id === wardId);
+                if (found) {
+                    wardName = found.name;
+                    break;
+                }
+            }
+            if (wardName) break;
+        }
+    }
+
+    const roomLabel = room
+        ? (room.name ? `${room.name} · No. ${room.number}` : `Room ${room.number}`)
+        : '';
+
+    return {
+        ...(block?.id ? { blockId: block.id, blockName: block.name } : {}),
+        ...(floor?.id ? { floorId: floor.id, floorName: floor.name } : {}),
+        ...(wardId ? { wardId, wardName: wardName.replace(/[\u200B\u200C\u200D\u2060\uFEFF]/g, '').trim() } : {}),
+        ...(room?.id ? { roomId: room.id, roomLabel } : {}),
+    };
+}
+
 const TH: React.CSSProperties = {
     padding: '10px 14px', fontSize: 10, fontWeight: 750, letterSpacing: '0.07em',
     textTransform: 'uppercase', color: '#A3AEBD', borderBottom: '1px solid #EDF1F6',
@@ -423,161 +489,10 @@ function TableSkeleton({ headers, groups = 2, rowsPerGroup = 3 }: {
 const HOME_UNIT_HEADERS = ['Unit / ward', 'Total beds', 'Available', 'Occupied', 'Out of service', 'Last modified', 'Action'];
 const ROOM_HEADERS = ['Room', 'Total beds', 'Available', 'Occupied', 'Out of service', 'Last modified', 'Action'];
 
-type HomeKpis = {
-    total: number;
-    available: number;
-    occupied: number;
-    blocked: number;
-    occupancy: number;
-};
-
-function BedKpiRow({ kpis }: { kpis: HomeKpis }) {
-    const share = (count: number) => (kpis.total > 0 ? Math.round((count / kpis.total) * 100) : 0);
-    const band = kpis.total === 0
-        ? { label: 'No beds', fg: '#475467', bg: '#F2F4F7', border: '#E4E7EC', bar: '#D0D5DD' }
-        : kpis.occupancy >= 85
-            ? { label: 'High', fg: '#B42318', bg: '#FEF3F2', border: '#FECDCA', bar: '#F04438' }
-            : kpis.occupancy >= 60
-                ? { label: 'Moderate', fg: '#B54708', bg: '#FFFAEB', border: '#FEDF89', bar: '#F79009' }
-                : { label: 'Steady', fg: '#067647', bg: '#ECFDF3', border: '#ABEFC6', bar: '#17B26A' };
-
-    const cards: {
-        label: string;
-        value: string;
-        hint: string;
-        icon: React.ReactNode;
-        iconBg: string;
-        iconFg: string;
-        bar: string;
-        width: number;
-        badge?: { label: string; fg: string; bg: string; border: string };
-    }[] = [
-        {
-            label: 'Total beds',
-            value: kpis.total.toLocaleString(),
-            hint: 'Registered capacity',
-            icon: <BedIcon size={15} strokeWidth={1.8} />,
-            iconBg: '#F2F4F7',
-            iconFg: '#344054',
-            bar: '#98A2B3',
-            width: kpis.total > 0 ? 100 : 0,
-        },
-        {
-            label: 'Available',
-            value: kpis.available.toLocaleString(),
-            hint: kpis.total ? `${share(kpis.available)}% of capacity` : 'Ready for admission',
-            icon: <CircleCheck size={15} strokeWidth={1.8} />,
-            iconBg: '#E7F8EF',
-            iconFg: '#17803D',
-            bar: '#22A35A',
-            width: share(kpis.available),
-        },
-        {
-            label: 'Occupied',
-            value: kpis.occupied.toLocaleString(),
-            hint: kpis.total ? `${share(kpis.occupied)}% of capacity` : 'In use',
-            icon: <Users size={15} strokeWidth={1.8} />,
-            iconBg: '#E7F0FE',
-            iconFg: '#1D4ED8',
-            bar: '#3B82F6',
-            width: share(kpis.occupied),
-        },
-        {
-            label: 'Out of service',
-            value: kpis.blocked.toLocaleString(),
-            hint: kpis.total ? `${share(kpis.blocked)}% of capacity` : 'Blocked',
-            icon: <Lock size={15} strokeWidth={1.8} />,
-            iconBg: '#F3F4F6',
-            iconFg: '#4B5563',
-            bar: '#98A2B3',
-            width: share(kpis.blocked),
-        },
-        {
-            label: 'Occupancy',
-            value: `${kpis.occupancy.toFixed(1)}%`,
-            hint: kpis.total ? `${kpis.occupied.toLocaleString()} of ${kpis.total.toLocaleString()} beds` : 'No beds yet',
-            icon: <Activity size={15} strokeWidth={1.8} />,
-            iconBg: band.bg,
-            iconFg: band.fg,
-            bar: band.bar,
-            width: Math.min(100, kpis.occupancy),
-            badge: { label: band.label, fg: band.fg, bg: band.bg, border: band.border },
-        },
-    ];
-
-    return (
-        <section
-            aria-label="Bed capacity"
-            style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
-                gap: 12,
-                marginBottom: 18,
-            }}
-        >
-            {cards.map(item => (
-                <article
-                    key={item.label}
-                    style={{
-                        background: '#FFFFFF',
-                        border: '1px solid #E6EBF1',
-                        borderRadius: 12,
-                        padding: '14px 16px 13px',
-                        boxShadow: '0 1px 2px rgba(16, 24, 40, 0.04)',
-                        minWidth: 0,
-                    }}
-                >
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-                        <span style={{ fontSize: 12.5, fontWeight: 600, color: '#667085' }}>{item.label}</span>
-                        <span style={{
-                            width: 28, height: 28, borderRadius: 8, flexShrink: 0,
-                            background: item.iconBg, color: item.iconFg,
-                            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                        }}>
-                            {item.icon}
-                        </span>
-                    </div>
-                    <div style={{ marginTop: 12, display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
-                        <span style={{
-                            fontSize: 28, fontWeight: 700, letterSpacing: '-0.03em', color: '#101828',
-                            fontVariantNumeric: 'tabular-nums', lineHeight: 1,
-                        }}>
-                            {item.value}
-                        </span>
-                        {item.badge && (
-                            <span style={{
-                                fontSize: 11, fontWeight: 700, color: item.badge.fg,
-                                background: item.badge.bg, border: `1px solid ${item.badge.border}`,
-                                borderRadius: 999, padding: '2px 8px',
-                            }}>
-                                {item.badge.label}
-                            </span>
-                        )}
-                    </div>
-                    <div style={{ marginTop: 12, height: 4, borderRadius: 99, background: '#F2F4F7', overflow: 'hidden' }}>
-                        <div style={{ width: `${item.width}%`, height: '100%', background: item.bar, borderRadius: 99 }} />
-                    </div>
-                    <div style={{ marginTop: 8, fontSize: 12, color: '#98A2B3', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                        {item.hint}
-                    </div>
-                </article>
-            ))}
-        </section>
-    );
-}
-
 function HomeSkeleton() {
     return (
         <div aria-busy="true" aria-label="Loading bed layout">
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginBottom: 18 }}>
-                {[0, 1, 2, 3, 4].map(key => (
-                    <div key={key} style={{ ...card, padding: '14px 16px', height: 112 }}>
-                        {bone('46%', 12)}
-                        <div style={{ marginTop: 16 }}>{bone(72, 26)}</div>
-                        <div style={{ marginTop: 16 }}>{bone('100%', 4)}</div>
-                    </div>
-                ))}
-            </div>
+            <KpiRow loading className="mb-[18px]" />
             <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 14, marginBottom: 16 }}>
                 <div>
                     {bone(168, 22)}
@@ -1089,17 +1004,27 @@ export default function BedLayoutExplorer() {
     /* ── shared bits ────────────────────────────────────────────────── */
     const addMenuItems: { level: LayoutLevel; label: string }[] = level === 'home'
         ? [
-            { level: 'block', label: 'Building / block' },
+            { level: 'block', label: 'Building' },
             { level: 'floor', label: 'Floor' },
-            { level: 'ward', label: 'Ward / unit' },
+            { level: 'ward', label: 'Unit' },
             { level: 'room', label: 'Room' },
             { level: 'bed', label: 'Bed' },
         ]
-        : [
-            { level: 'ward', label: 'Ward / unit' },
-            { level: 'room', label: 'Room' },
-            { level: 'bed', label: 'Bed' },
-        ];
+        : level === 'room'
+            ? [
+                { level: 'bed', label: 'Bed' },
+            ]
+            : selectedUnit
+                ? [
+                    // Already inside a unit — only add rooms/beds here.
+                    { level: 'room', label: 'Room' },
+                    { level: 'bed', label: 'Bed' },
+                ]
+                : [
+                    { level: 'ward', label: 'Unit' },
+                    { level: 'room', label: 'Room' },
+                    { level: 'bed', label: 'Bed' },
+                ];
 
     const addMenu = isAdmin ? (
         <div style={{ position: 'relative', flexShrink: 0 }}>
@@ -1124,11 +1049,12 @@ export default function BedLayoutExplorer() {
                                     setDialog({
                                         kind: 'create',
                                         level: item.level,
-                                        context: {
-                                            ...(block ? { blockId: block.id } : {}),
-                                            ...(floor ? { floorId: floor.id } : {}),
-                                            ...(room ? { wardId: room.ward_id, roomId: room.id } : {}),
-                                        },
+                                        context: buildCreateContext(blocks, {
+                                            block,
+                                            floor,
+                                            unit: selectedUnit,
+                                            room,
+                                        }),
                                     });
                                 }}
                                 style={{
@@ -1302,7 +1228,10 @@ export default function BedLayoutExplorer() {
                     )
                 ) : level === 'home' ? (
                     <>
-                        <BedKpiRow kpis={homeKpis} />
+                        <KpiRow
+                            items={buildBedKpiItems({ ...homeKpis, buildings: buildings.length, units: homeUnitRows.length })}
+                            className="mb-[18px]"
+                        />
                         {pageHeader(
                             'Bed management',
                             <Users size={13} strokeWidth={1.9} />,
@@ -1549,7 +1478,11 @@ export default function BedLayoutExplorer() {
                             isAdmin ? (
                                 <button
                                     type="button"
-                                    onClick={() => setDialog({ kind: 'create', level: 'ward', context: { blockId: block.id, floorId: floor.id } })}
+                                    onClick={() => setDialog({
+                                        kind: 'create',
+                                        level: 'ward',
+                                        context: buildCreateContext(blocks, { block, floor }),
+                                    })}
                                     style={primaryButton}
                                 >
                                     <Plus size={14} strokeWidth={2} /> Add ward
@@ -1588,7 +1521,11 @@ export default function BedLayoutExplorer() {
                                                                     label: 'Add room',
                                                                     onClick: () => setDialog({
                                                                         kind: 'create', level: 'room',
-                                                                        context: { blockId: block.id, floorId: floor.id, wardId: wardItem.id },
+                                                                        context: buildCreateContext(blocks, {
+                                                                            block,
+                                                                            floor,
+                                                                            unit: wardItem,
+                                                                        }),
                                                                     }),
                                                                 },
                                                                 { label: 'Edit ward info', onClick: () => setDialog({ kind: 'edit', level: 'ward', entity: wardItem }) },
@@ -1666,7 +1603,12 @@ export default function BedLayoutExplorer() {
                                     type="button"
                                     onClick={() => setDialog({
                                         kind: 'create', level: 'bed',
-                                        context: { blockId: block?.id, floorId: floor?.id, wardId: room.ward_id, roomId: room.id },
+                                        context: buildCreateContext(blocks, {
+                                            block,
+                                            floor,
+                                            unit: roomWard || selectedUnit,
+                                            room,
+                                        }),
                                     })}
                                     style={primaryButton}
                                 >

@@ -87,11 +87,15 @@ export async function resolveClientFacilityId(): Promise<string | undefined> {
         return readHelixFacilityIdFromDocument();
     }
 
-    const cached = getCachedClientFacilityId();
-    if (cached) return cached;
-
+    // Cookie/act-as context wins over a stale sessionStorage id from a prior facility.
     const fromDoc = readHelixFacilityIdFromDocument();
-    if (fromDoc) return cacheClientFacilityId(fromDoc);
+    const cached = getCachedClientFacilityId();
+    if (fromDoc) {
+        if (cached && cached !== fromDoc) clearClientFacilityIdCache();
+        return cacheClientFacilityId(fromDoc);
+    }
+
+    if (cached) return cached;
 
     try {
         const res = await fetch(API_ENDPOINTS.INTERNAL_ACT_AS, { credentials: 'include' });

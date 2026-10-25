@@ -50,7 +50,10 @@ import {
     ROLES_CACHE_ROLES,
     ROLES_CACHE_STAFF,
     ROLES_PAGE_CACHE_TTL_MS,
+    currentRolesPageFacilityId,
+    rolesPageCacheKey,
 } from '@/lib/rolesAdminCache';
+import { appendFacilityIdForProxy } from '@/lib/facility-client';
 
 type EscalationLevel = {
     level: number;
@@ -786,14 +789,21 @@ export default function RolesBuilderAssignment() {
     );
 
     useLayoutEffect(() => {
-        const rolesJ = readCachedJson(ROLES_CACHE_ROLES, ROLES_PAGE_CACHE_TTL_MS);
-        const deptsJ = readCachedJson(ROLES_CACHE_DEPTS, ROLES_PAGE_CACHE_TTL_MS);
-        const policiesJ = readCachedJson(ROLES_CACHE_POLICIES, ROLES_PAGE_CACHE_TTL_MS);
-        const staffJ = readCachedJson(ROLES_CACHE_STAFF, ROLES_PAGE_CACHE_TTL_MS);
-        const hospitalJ = readCachedJson(ROLES_CACHE_HOSPITAL, ROLES_PAGE_CACHE_TTL_MS);
+        const facilityId = currentRolesPageFacilityId();
+        const rolesJ = readCachedJson(rolesPageCacheKey(ROLES_CACHE_ROLES, facilityId), ROLES_PAGE_CACHE_TTL_MS);
+        const deptsJ = readCachedJson(rolesPageCacheKey(ROLES_CACHE_DEPTS, facilityId), ROLES_PAGE_CACHE_TTL_MS);
+        const policiesJ = readCachedJson(rolesPageCacheKey(ROLES_CACHE_POLICIES, facilityId), ROLES_PAGE_CACHE_TTL_MS);
+        const staffJ = readCachedJson(rolesPageCacheKey(ROLES_CACHE_STAFF, facilityId), ROLES_PAGE_CACHE_TTL_MS);
+        const hospitalJ = readCachedJson(rolesPageCacheKey(ROLES_CACHE_HOSPITAL, facilityId), ROLES_PAGE_CACHE_TTL_MS);
         if (rolesJ == null || deptsJ == null || policiesJ == null || staffJ == null || hospitalJ == null) {
             return;
         }
+        // Only paint from cache when it provably belongs to this facility; otherwise wait for the fetch.
+        const cachedHospitalId = hospitalJ && typeof hospitalJ === 'object'
+            && typeof (hospitalJ as Record<string, unknown>).id === 'string'
+            ? String((hospitalJ as Record<string, unknown>).id)
+            : '';
+        if (!facilityId || cachedHospitalId !== facilityId) return;
         let facilityJ: unknown | null = null;
         if (hospitalJ && typeof hospitalJ === 'object') {
             const fid = typeof (hospitalJ as Record<string, unknown>).id === 'string'
@@ -817,17 +827,26 @@ export default function RolesBuilderAssignment() {
     const fetchData = useCallback(async () => {
         const gen = ++fetchDataGenRef.current;
         try {
+            const facilityId = currentRolesPageFacilityId();
+            const [rolesUrl, deptsUrl, hospitalUrl] = await Promise.all([
+                appendFacilityIdForProxy(ROLES_CACHE_ROLES),
+                appendFacilityIdForProxy(ROLES_CACHE_DEPTS),
+                appendFacilityIdForProxy(ROLES_CACHE_HOSPITAL),
+            ]);
             const [rolesRes, deptsRes, staffFetch, hospitalRes] = await Promise.all([
-                fetch(ROLES_CACHE_ROLES),
-                fetch(ROLES_CACHE_DEPTS),
+                fetch(rolesUrl),
+                fetch(deptsUrl),
                 fetchAllStaffPayload({ credentials: 'include' }),
-                fetch(ROLES_CACHE_HOSPITAL),
+                fetch(hospitalUrl),
             ]);
 
             const staffJson = staffFetch.ok ? staffFetch.data : null;
+            // The backend answers 404 for a facility with no roles or departments yet; that is an empty list, not a failure.
+            const rolesOk = rolesRes.ok || rolesRes.status === 404;
+            const deptsOk = deptsRes.ok || deptsRes.status === 404;
             const [rolesJson, deptsJson, hospitalJson] = await Promise.all([
-                rolesRes.ok ? rolesRes.json() : Promise.resolve(null),
-                deptsRes.ok ? deptsRes.json() : Promise.resolve(null),
+                rolesRes.ok ? rolesRes.json() : Promise.resolve(rolesOk ? [] : null),
+                deptsRes.ok ? deptsRes.json() : Promise.resolve(deptsOk ? [] : null),
                 hospitalRes.ok ? hospitalRes.json() : Promise.resolve(null),
             ]);
 
@@ -850,9 +869,10 @@ export default function RolesBuilderAssignment() {
             const policiesLoaded = await loadAllEscalationPoliciesForRoles<Policy>(rolesForBackfill, {
                 init: { credentials: 'include' },
                 fetchByRole: async (roleId) => {
-                    const res = await fetch(`/api/proxy/escalation-policies/by-role/${roleId}`, {
-                        credentials: 'include',
-                    });
+                    const res = await fetch(
+                        await appendFacilityIdForProxy(`/api/proxy/escalation-policies/by-role/${roleId}`),
+                        { credentials: 'include' },
+                    );
                     return res.ok ? res.json() : null;
                 },
             });
@@ -863,8 +883,8 @@ export default function RolesBuilderAssignment() {
 
             ingestRolesPagePayloads(
                 {
-                    roles: rolesRes.ok,
-                    depts: deptsRes.ok,
+                    roles: rolesOk,
+                    depts: deptsOk,
                     policies: policiesLoaded.ok,
                     staff: staffFetch.ok,
                 },
@@ -877,11 +897,26 @@ export default function RolesBuilderAssignment() {
                 },
             );
 
-            if (rolesRes.ok && rolesJson != null) writeCachedJson(ROLES_CACHE_ROLES, rolesJson);
-            if (deptsRes.ok && deptsJson != null) writeCachedJson(ROLES_CACHE_DEPTS, deptsJson);
-            if (policiesLoaded.ok && policiesForIngest != null) writeCachedJson(ROLES_CACHE_POLICIES, policiesForIngest);
-            if (staffFetch.ok && staffJson != null) writeCachedJson(ROLES_CACHE_STAFF, staffJson);
-            if (hospitalRes.ok && hospitalJson != null) writeCachedJson(ROLES_CACHE_HOSPITAL, hospitalJson);
+            const cacheFid = facilityId
+                || (hospitalJson && typeof hospitalJson === 'object'
+                    && typeof (hospitalJson as Record<string, unknown>).id === 'string'
+                    ? String((hospitalJson as Record<string, unknown>).id)
+                    : '');
+            if (rolesOk && rolesJson != null) {
+                writeCachedJson(rolesPageCacheKey(ROLES_CACHE_ROLES, cacheFid), rolesJson);
+            }
+            if (deptsOk && deptsJson != null) {
+                writeCachedJson(rolesPageCacheKey(ROLES_CACHE_DEPTS, cacheFid), deptsJson);
+            }
+            if (policiesLoaded.ok && policiesForIngest != null) {
+                writeCachedJson(rolesPageCacheKey(ROLES_CACHE_POLICIES, cacheFid), policiesForIngest);
+            }
+            if (staffFetch.ok && staffJson != null) {
+                writeCachedJson(rolesPageCacheKey(ROLES_CACHE_STAFF, cacheFid), staffJson);
+            }
+            if (hospitalRes.ok && hospitalJson != null) {
+                writeCachedJson(rolesPageCacheKey(ROLES_CACHE_HOSPITAL, cacheFid), hospitalJson);
+            }
             if (facilityJson != null && hospitalJson && typeof hospitalJson === 'object') {
                 const hid = typeof (hospitalJson as Record<string, unknown>).id === 'string'
                     ? (hospitalJson as Record<string, unknown>).id as string

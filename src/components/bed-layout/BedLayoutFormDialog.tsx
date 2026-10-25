@@ -1,16 +1,35 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Plus, X } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react';
+import {
+    Activity,
+    Bed as BedIcon,
+    Building2,
+    DoorOpen,
+    Layers,
+    Plus,
+    Sparkles,
+    X,
+} from 'lucide-react';
 import CustomSelect from '@/components/CustomSelect';
+import { Button } from '@/components/ui/button';
+import {
+    Dialog,
+    DialogBody,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogTitle,
+} from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { cn } from '@/lib/utils';
 import { API_ENDPOINTS } from '@/lib/config';
 import { appendFacilityIdForProxy } from '@/lib/facility-client';
 import type { BedStatus } from '@/lib/beds';
 import {
-    GENDER_RESTRICTIONS,
     NESTED_LIMITS,
     WARD_TYPES,
-    genderLabel,
     hierarchyApiMessage,
     optionalForApi,
     optionalFromApi,
@@ -27,12 +46,6 @@ import {
 } from '@/lib/bed-hierarchy';
 import {
     BED_STATUS_META,
-    dangerLinkButton,
-    fieldLabel,
-    input,
-    linkButton,
-    primaryButton,
-    secondaryButton,
 } from './bed-layout-ui';
 import type { PreviewOp } from './preview-store';
 
@@ -43,6 +56,11 @@ export type LayoutContext = {
     floorId?: string;
     wardId?: string;
     roomId?: string;
+    /** Optional labels for the location strip / subtitle when IDs are known. */
+    blockName?: string;
+    floorName?: string;
+    wardName?: string;
+    roomLabel?: string;
 };
 
 export type FormDialogRequest =
@@ -66,11 +84,15 @@ type BedDraft = { bed_number: string; bed_code: string; status: BedStatus };
 const NEW = '__new';
 const OTHER = '__other';
 
-const fieldSelectStyle = {
-    height: 38,
+const fieldSelectStyle: CSSProperties = {
+    width: '100%',
+    minWidth: 0,
+    height: 40,
     borderRadius: 8,
     border: '1px solid #E1E7EF',
     fontSize: 13,
+    boxSizing: 'border-box',
+    boxShadow: '0 1px 2px rgba(16, 24, 40, 0.04)',
 };
 
 function readCreatedId(raw: unknown): string {
@@ -122,12 +144,342 @@ function unitNameForFloor(name: string, floorId: string): string {
 }
 
 const LEVEL_TITLES: Record<LayoutLevel, { create: string; edit: string }> = {
-    block: { create: 'Add building / block', edit: 'Edit block info' },
-    floor: { create: 'Add floor', edit: 'Edit floor info' },
-    ward: { create: 'Add ward / unit', edit: 'Edit ward info' },
-    room: { create: 'Add room', edit: 'Edit room info' },
-    bed: { create: 'Add bed', edit: 'Edit bed info' },
+    block: { create: 'Add building', edit: 'Edit building' },
+    floor: { create: 'Add floor', edit: 'Edit floor' },
+    ward: { create: 'Add unit', edit: 'Edit unit' },
+    room: { create: 'Add room', edit: 'Edit room' },
+    bed: { create: 'Add bed', edit: 'Edit bed' },
 };
+
+const CREATE_CTA: Record<LayoutLevel, string> = {
+    block: 'Add building',
+    floor: 'Add floor',
+    ward: 'Add unit',
+    room: 'Add room',
+    bed: 'Add bed',
+};
+
+const LEVEL_ORDER: LayoutLevel[] = ['block', 'floor', 'ward', 'room', 'bed'];
+
+const LEVEL_NOUNS: Record<LayoutLevel, string> = {
+    block: 'Building',
+    floor: 'Floor',
+    ward: 'Unit',
+    room: 'Room',
+    bed: 'Bed',
+};
+
+const CREATE_INTROS: Record<LayoutLevel, string> = {
+    block: 'Add a building to this facility. You can add its floors now or later.',
+    floor: 'Add a floor to a building, along with any units on it.',
+    ward: 'A unit is a ward or department, such as Maternity or ICU. Add its rooms now or later.',
+    room: 'Rooms hold beds. Add the room, then any beds inside it.',
+    bed: 'Add one or more beds to a room. You can change a bed’s status at any time.',
+};
+
+const EDIT_INTROS: Record<LayoutLevel, string> = {
+    block: 'Rename this building.',
+    floor: 'Rename this floor.',
+    ward: 'Update the unit’s name, code, type or gender.',
+    room: 'Update the room number or name.',
+    bed: 'Update the bed number, code or status.',
+};
+
+function levelIcon(level: LayoutLevel, className: string) {
+    const props = { className, strokeWidth: 1.9 };
+    if (level === 'block') return <Building2 {...props} />;
+    if (level === 'floor') return <Layers {...props} />;
+    if (level === 'ward') return <Activity {...props} />;
+    if (level === 'room') return <DoorOpen {...props} />;
+    return <BedIcon {...props} />;
+}
+
+const BED_STATUS_OPTIONS: { value: BedStatus; label: string; dot: string }[] = [
+    { value: 'available', label: 'Available', dot: 'bg-emerald-500' },
+    { value: 'occupied', label: 'Occupied', dot: 'bg-sky-500' },
+    { value: 'blocked', label: 'Unavailable', dot: 'bg-[#94A3B8]' },
+];
+
+const BED_GRID = 'sm:grid-cols-[88px_minmax(0,1fr)_272px_32px]';
+const ROOM_GRID = 'sm:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)_32px]';
+const FLOOR_GRID = 'sm:grid-cols-[minmax(0,1fr)_32px]';
+
+function OptionalTag() {
+    return <span className="text-[12px] font-normal text-[#94A3B8]">Optional</span>;
+}
+
+function FieldLabel({ children, optional }: { children: ReactNode; optional?: boolean }) {
+    return (
+        <Label className="mb-1.5 flex items-baseline gap-1.5 text-[12.5px] font-medium text-[#475569]">
+            {children}
+            {optional ? <OptionalTag /> : null}
+        </Label>
+    );
+}
+
+/** Uses divs, not headings: the global h1–h4 rules in globals.css are unlayered and override Tailwind sizes. */
+function Section({
+    step,
+    title,
+    description,
+    optional,
+    children,
+}: {
+    step?: number;
+    title: string;
+    description?: string;
+    optional?: boolean;
+    children: ReactNode;
+}) {
+    return (
+        <section className="grid gap-4 border-t border-[#EEF2F7] pt-7 first:border-t-0 first:pt-0">
+            <div className="flex items-start gap-3">
+                {step ? (
+                    <span className="mt-px flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#1E3A5F] text-[12px] font-semibold text-white">
+                        {step}
+                    </span>
+                ) : null}
+                <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                        <div className="text-[15px] font-semibold leading-6 tracking-[-0.01em] text-[#0F172A]">{title}</div>
+                        {optional ? (
+                            <span className="rounded-full bg-[#F1F5F9] px-2 py-0.5 text-[11px] font-medium text-[#64748B]">Optional</span>
+                        ) : null}
+                    </div>
+                    {description ? <p className="mt-0.5 text-[12.5px] leading-5 text-[#64748B]">{description}</p> : null}
+                </div>
+            </div>
+            <div className={cn('min-w-0', step && 'sm:pl-9')}>{children}</div>
+        </section>
+    );
+}
+
+type TrailNode = { level: LayoutLevel; label: string; value: string; detail?: string; current?: boolean };
+
+function unitDetail(type: string, gender: string): string {
+    const parts = [type.trim() ? wardTypeLabel(type.trim()) : ''];
+    const g = gender.trim();
+    if (g === 'female') parts.push('Female only');
+    else if (g === 'male') parts.push('Male only');
+    else if (g === 'mixed') parts.push('Mixed');
+    return parts.filter(Boolean).join(' · ');
+}
+
+function PlacementTrail({ nodes }: { nodes: TrailNode[] }) {
+    return (
+        <ol className="grid">
+            {nodes.map((node, index) => {
+                const last = index === nodes.length - 1;
+                return (
+                    <li key={node.level} className="relative flex gap-3 pb-5 last:pb-0">
+                        {!last ? <span aria-hidden className="absolute bottom-0 left-[13.5px] top-8 w-px bg-[#E2E8F0]" /> : null}
+                        <span
+                            className={cn(
+                                'relative flex h-7 w-7 shrink-0 items-center justify-center rounded-full border',
+                                node.current
+                                    ? 'border-[#1E3A5F] bg-[#1E3A5F] text-white shadow-[0_2px_6px_rgba(30,58,95,0.25)]'
+                                    : node.value
+                                        ? 'border-[#D5DEE8] bg-white text-[#475569]'
+                                        : 'border-dashed border-[#CBD5E1] text-[#94A3B8]',
+                            )}
+                        >
+                            {levelIcon(node.level, 'h-3.5 w-3.5')}
+                        </span>
+                        <div className="min-w-0 flex-1">
+                            <div className="text-[11.5px] leading-4 text-[#94A3B8]">{node.label}</div>
+                            <div
+                                className={cn(
+                                    'truncate text-[13px] leading-5',
+                                    node.value ? 'font-medium text-[#0F172A]' : 'text-[#94A3B8]',
+                                )}
+                                title={node.value || undefined}
+                            >
+                                {node.value || (node.current ? 'Not entered yet' : 'Not chosen yet')}
+                            </div>
+                            {node.detail ? (
+                                <div className="mt-0.5 truncate text-[12px] leading-4 text-[#64748B]">{node.detail}</div>
+                            ) : null}
+                        </div>
+                    </li>
+                );
+            })}
+        </ol>
+    );
+}
+
+function ListShell({
+    header,
+    grid,
+    empty,
+    footer,
+    children,
+}: {
+    header: ReactNode[];
+    grid: string;
+    empty?: string;
+    footer?: ReactNode;
+    children?: ReactNode;
+}) {
+    return (
+        <div className="overflow-hidden rounded-xl border border-[#E2E8F0] bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+            {empty ? (
+                <div className="px-4 py-5 text-center text-[13px] text-[#94A3B8]">{empty}</div>
+            ) : children ? (
+                <>
+                    {header.length ? (
+                        <div className={cn('hidden items-center gap-2 border-b border-[#EEF2F7] bg-[#F8FAFC] px-3 py-2 text-[12px] font-medium text-[#64748B] sm:grid', grid)}>
+                            {header.map((cell, index) => <div key={index} className="flex items-baseline gap-1.5">{cell}</div>)}
+                        </div>
+                    ) : null}
+                    <div className="divide-y divide-[#EEF2F7]">{children}</div>
+                </>
+            ) : null}
+            {footer}
+        </div>
+    );
+}
+
+function ListAddRow({
+    label,
+    count,
+    limit,
+    onClick,
+}: {
+    label: string;
+    count: number;
+    limit: number;
+    onClick: () => void;
+}) {
+    return (
+        <button
+            type="button"
+            onClick={onClick}
+            disabled={count >= limit}
+            className="flex h-11 w-full items-center gap-2 border-t border-[#EEF2F7] px-4 first:border-t-0 text-[13px] font-medium text-[#1E3A5F] transition-colors hover:bg-[#F8FAFC] disabled:cursor-not-allowed disabled:text-[#94A3B8] disabled:hover:bg-transparent"
+        >
+            <Plus className="h-4 w-4" strokeWidth={2} />
+            {label}
+            <span className="ml-auto text-[12px] font-normal text-[#94A3B8]">{count} of {limit}</span>
+        </button>
+    );
+}
+
+function RemoveButton({ label, onClick }: { label: string; onClick: (() => void) | null }) {
+    if (!onClick) return <span className="h-8 w-8" aria-hidden />;
+    return (
+        <button
+            type="button"
+            onClick={onClick}
+            aria-label={label}
+            title={label}
+            className="flex h-8 w-8 items-center justify-center rounded-md text-[#94A3B8] transition-colors hover:bg-[#FEF2F2] hover:text-[#DC2626]"
+        >
+            <X className="h-4 w-4" strokeWidth={2} />
+        </button>
+    );
+}
+
+function floorDisplay(name: string): string {
+    const trimmed = name.trim();
+    return /^\d+$/.test(trimmed) ? `Floor ${trimmed}` : trimmed;
+}
+
+function Segmented<T extends string>({
+    value,
+    onChange,
+    options,
+}: {
+    value: T;
+    onChange: (value: T) => void;
+    options: { value: T; label: string; dot?: string }[];
+}) {
+    return (
+        <div
+            className="grid gap-1 rounded-lg bg-[#F1F5F9] p-1"
+            style={{ gridTemplateColumns: `repeat(${options.length}, minmax(0, 1fr))` }}
+        >
+            {options.map(option => {
+                const active = value === option.value;
+                return (
+                    <button
+                        key={option.value}
+                        type="button"
+                        onClick={() => onChange(option.value)}
+                        className={cn(
+                            'inline-flex h-8 min-w-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-md px-1.5 text-[12.5px] font-medium transition-colors',
+                            active
+                                ? 'bg-white text-[#0F172A] shadow-[0_1px_2px_rgba(15,23,42,0.08)]'
+                                : 'text-[#64748B] hover:text-[#0F172A]',
+                        )}
+                    >
+                        {option.dot ? <span className={cn('h-2 w-2 rounded-full', option.dot)} /> : null}
+                        {option.label}
+                    </button>
+                );
+            })}
+        </div>
+    );
+}
+
+function GenderSegment({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+    return (
+        <div>
+            <FieldLabel>Gender</FieldLabel>
+            <Segmented
+                value={value || 'mixed'}
+                onChange={onChange}
+                options={[
+                    { value: 'mixed', label: 'Mixed' },
+                    { value: 'female', label: 'Female' },
+                    { value: 'male', label: 'Male' },
+                ]}
+            />
+        </div>
+    );
+}
+
+function resolveLocationLabels(
+    context: LayoutContext,
+    blocks: Block[],
+    rooms: Room[],
+): { blockName: string; floorName: string; wardName: string; roomLabel: string } {
+    let blockName = context.blockName?.trim() || '';
+    let floorName = context.floorName?.trim() || '';
+    let wardName = context.wardName?.trim() || '';
+    let roomLabel = context.roomLabel?.trim() || '';
+
+    for (const block of blocks) {
+        if (context.blockId && block.id === context.blockId && !blockName) blockName = block.name;
+        for (const floor of block.floors) {
+            if (context.floorId && floor.id === context.floorId) {
+                if (!floorName) floorName = floor.name;
+                if (!blockName) blockName = block.name;
+            }
+            for (const ward of floor.wards) {
+                if (context.wardId && ward.id === context.wardId && !wardName) {
+                    wardName = visibleUnitName(ward.name);
+                }
+                if (context.roomId) {
+                    const embedded = ward.rooms.find(item => item.id === context.roomId);
+                    if (embedded && !roomLabel) {
+                        roomLabel = embedded.name
+                            ? `${embedded.name} · No. ${embedded.number}`
+                            : `Room ${embedded.number}`;
+                    }
+                }
+            }
+        }
+    }
+
+    if (context.roomId && !roomLabel) {
+        const match = rooms.find(item => item.id === context.roomId);
+        if (match) {
+            roomLabel = match.name ? `${match.name} · No. ${match.number}` : `Room ${match.number}`;
+        }
+    }
+
+    return { blockName, floorName, wardName, roomLabel };
+}
 
 function emptyWard(): WardDraft {
     return { name: '', nameChoice: '', code: '', type: '', gender: '' };
@@ -337,6 +689,8 @@ export default function BedLayoutFormDialog({
         [wardOptions, wardChoice],
     );
     const roomOptions = useMemo(() => {
+        // Prefer rooms loaded for the open unit (explorer), then any embedded on the ward node.
+        if (context.wardId && context.wardId === wardChoice && rooms.length) return rooms;
         if (selectedWard?.rooms.length) return selectedWard.rooms;
         return context.wardId && context.wardId === wardChoice ? rooms : [];
     }, [selectedWard, rooms, context.wardId, wardChoice]);
@@ -348,6 +702,33 @@ export default function BedLayoutFormDialog({
         ward: kind === 'create' && (level === 'room' || level === 'bed') && !context.wardId,
         room: kind === 'create' && level === 'bed' && !context.roomId,
     };
+
+    const locationLabels = useMemo(
+        () => resolveLocationLabels(context, blocks, rooms),
+        [context, blocks, rooms],
+    );
+    /** Unit type/gender only when inventing a new unit inline — not when picking an existing one. */
+    const creatingNewUnit = useMemo(() => {
+        if (!(kind === 'create' && needs.ward && (level === 'bed' || level === 'room'))) return false;
+        const choice = wardChoice.trim();
+        if (!choice) return false;
+        return !wardOptions.some(option => option.id === choice);
+    }, [kind, needs.ward, level, wardChoice, wardOptions]);
+
+    const dialogIntro = kind === 'create' ? CREATE_INTROS[level] : EDIT_INTROS[level];
+
+    const dialogTitle = kind === 'create' ? LEVEL_TITLES[level].create : LEVEL_TITLES[level].edit;
+
+    const showAssignmentSection = needs.block || needs.floor || needs.ward || needs.room;
+    /** Beds can update the unit they go into; rooms only set these when inventing a new unit. */
+    const showClassificationSection = creatingNewUnit
+        || (kind === 'create' && level === 'bed' && !!(context.wardId || wardChoice.trim()));
+    const bedsToCreate = level === 'bed' ? 1 + childBeds.length : 0;
+    const submitLabel = kind === 'edit'
+        ? 'Save changes'
+        : bedsToCreate > 1
+            ? `Add ${bedsToCreate} beds`
+            : CREATE_CTA[level];
 
     const savedBuildings = useMemo(
         () => blocks.filter(block => block.name.trim().toLowerCase() !== 'unassigned'),
@@ -385,6 +766,58 @@ export default function BedLayoutFormDialog({
                 .map(floor => floor.name.trim().toLowerCase()),
         );
     }, [buildingFloors, kind, level, request]);
+
+    const trail = useMemo<TrailNode[]>(() => {
+        const pickedRoom = roomOptions.find(item => item.id === roomChoice);
+        const typedRoom = roomChoice.trim();
+        const parents: Record<LayoutLevel, string> = {
+            block: locationLabels.blockName || selectedBlock?.name || (blockChoice === NEW ? newBlockName.trim() : ''),
+            floor: floorDisplay(locationLabels.floorName || selectedFloor?.name || (floorChoice === NEW ? newFloorName : '')),
+            ward: locationLabels.wardName
+                || (selectedWard ? visibleUnitName(selectedWard.name) : visibleUnitName(wardChoice)),
+            room: locationLabels.roomLabel
+                || (pickedRoom
+                    ? (pickedRoom.name ? `${pickedRoom.name} · No. ${pickedRoom.number}` : `Room ${pickedRoom.number}`)
+                    : typedRoom ? `Room ${typedRoom}` : ''),
+            bed: '',
+        };
+        const bedNumbers = [bed, ...childBeds].map(item => item.bed_number.trim()).filter(Boolean);
+        const current: Record<LayoutLevel, string> = {
+            block: savedBuildings.find(block => block.id === name)?.name || name.trim(),
+            floor: floorDisplay(name),
+            ward: ward.name.trim(),
+            room: room.number.trim() ? `Room ${room.number.trim()}` : '',
+            bed: bedNumbers.length === 0
+                ? ''
+                : bedNumbers.length === 1
+                    ? `Bed ${bedNumbers[0]}`
+                    : `Beds ${bedNumbers.slice(0, 4).join(', ')}${bedNumbers.length > 4 ? ` +${bedNumbers.length - 4}` : ''}`,
+        };
+        const above = kind === 'create' ? LEVEL_ORDER.slice(0, LEVEL_ORDER.indexOf(level)) : [];
+        const savedUnit = selectedWard
+            || blocks.flatMap(block => block.floors.flatMap(floor => floor.wards)).find(item => item.id === context.wardId);
+        const wardDetail = level === 'bed' || creatingNewUnit
+            ? unitDetail(bedUnitType, bedUnitGender)
+            : unitDetail(savedUnit?.type || '', savedUnit?.gender_restriction || '');
+        return [
+            ...above.map(item => ({
+                level: item,
+                label: LEVEL_NOUNS[item],
+                value: parents[item],
+                detail: item === 'ward' && parents.ward ? wardDetail : undefined,
+            })),
+            {
+                level,
+                label: kind === 'create' ? `New ${LEVEL_NOUNS[level].toLowerCase()}` : LEVEL_NOUNS[level],
+                value: current[level],
+                current: true,
+            },
+        ];
+    }, [
+        kind, level, locationLabels, selectedBlock, selectedFloor, selectedWard, blockChoice, newBlockName,
+        floorChoice, newFloorName, wardChoice, roomChoice, roomOptions, bed, childBeds, name, ward, room, savedBuildings,
+        blocks, context.wardId, creatingNewUnit, bedUnitType, bedUnitGender,
+    ]);
 
     /* ── submit ─────────────────────────────────────────────────────── */
     /** Sends to the API, or applies the equivalent op to the sample layout. */
@@ -464,7 +897,7 @@ export default function BedLayoutFormDialog({
                     }
                     await send(API_ENDPOINTS.WARD(id), 'PUT', body, { kind: 'edit', level, id, body });
                 } else if (level === 'room') {
-                    if (!room.number.trim()) throw new Error('Room number is required.');
+                    if (!room.number.trim()) throw new Error('Room is required.');
                     const body = roomPayload(room, undefined, { clearOptional: true });
                     await send(API_ENDPOINTS.ROOM(id), 'PUT', body, { kind: 'edit', level, id, body });
                 } else {
@@ -571,7 +1004,7 @@ export default function BedLayoutFormDialog({
             }
 
             if (level === 'room') {
-                if (!room.number.trim()) throw new Error('Room number is required.');
+                if (!room.number.trim()) throw new Error('Room is required.');
                 let resolvedFloorId = floorId;
                 if (!resolvedFloorId && newFloorName.trim()) {
                     resolvedFloorId = await resolveNewFloor();
@@ -700,12 +1133,13 @@ export default function BedLayoutFormDialog({
                     }
                     if (!resolvedWardId) throw new Error('Unit was created, but its id could not be read.');
                 }
-            } else if (resolvedWardId && !context.wardId) {
-                // Only update unit metadata when the unit was chosen in this form — not when adding a bed inside a known room.
-                const named = knownUnit?.name
-                    || blocks.flatMap(block => block.floors.flatMap(floor => floor.wards)).find(item => item.id === resolvedWardId)?.name
-                    || unitName;
-                if (named) {
+            } else if (resolvedWardId) {
+                const savedUnit = blocks.flatMap(block => block.floors.flatMap(floor => floor.wards)).find(item => item.id === resolvedWardId);
+                const unitChanged = !savedUnit
+                    || unitType !== (savedUnit.type || '')
+                    || (!!unitGender && unitGender !== (savedUnit.gender_restriction || ''));
+                const named = knownUnit?.name || savedUnit?.name || (context.wardId ? '' : unitName);
+                if (named && unitChanged) {
                     const body = unitBody(named, resolvedFloorId, true);
                     await send(API_ENDPOINTS.WARD(resolvedWardId), 'PUT', body, {
                         kind: 'edit', level: 'ward', id: resolvedWardId, body,
@@ -713,6 +1147,9 @@ export default function BedLayoutFormDialog({
                 }
             }
             if (!resolvedWardId) throw new Error('Pick the ward this bed belongs to.');
+            if (!context.roomId && !roomChoice.trim()) {
+                throw new Error('Room is required.');
+            }
             if ([bed, ...childBeds].some(item => item.bed_number.trim() && !BED_STATUS_META[item.status])) {
                 throw new Error('Choose a bed status.');
             }
@@ -728,11 +1165,13 @@ export default function BedLayoutFormDialog({
                 .find(item => item.id === resolvedWardId);
             const sameNumber = (item: { id: string; number: string }) => (
                 item.id === context.roomId
+                || item.id === typedRoom
                 || item.number.trim().toLowerCase() === typedRoom.toLowerCase()
             );
             const existingRoom = unitOnThisFloor?.rooms.find(sameNumber)
                 || roomOptions.find(item => item.ward_id === resolvedWardId && sameNumber(item));
-            const roomNumber = (existingRoom?.number || typedRoom || beds[0].bed_number).trim();
+            const roomNumber = (existingRoom?.number || typedRoom).trim();
+            if (!roomNumber) throw new Error('Room is required.');
             let resolvedRoomId = existingRoom?.id || '';
             if (!resolvedRoomId) {
                 const body = { number: roomNumber };
@@ -810,11 +1249,10 @@ export default function BedLayoutFormDialog({
             value={value}
             onChange={onChange}
             options={floorNameOptions(value, extraTaken)}
-            placeholder="Select a floor"
+            placeholder="Choose a floor"
             allowCustom
-            customEntryTitle="Custom floor"
-            customEntryHint="Not listed? Type here, then Enter."
-            customPlaceholder="Type floor — Enter"
+            customEntryTitle=""
+            customPlaceholder="Search or type a floor"
             style={fieldSelectStyle}
             maxH={280}
         />
@@ -837,11 +1275,10 @@ export default function BedLayoutFormDialog({
                 onChange(match ? match.id : next);
             }}
             options={buildingOptions(value)}
-            placeholder="Select a building"
+            placeholder="Choose a building"
             allowCustom
-            customEntryTitle="Custom building"
-            customEntryHint="Not listed? Type here, then Enter."
-            customPlaceholder="Type building — Enter"
+            customEntryTitle=""
+            customPlaceholder="Search or type a building"
             style={fieldSelectStyle}
             maxH={280}
         />
@@ -849,22 +1286,21 @@ export default function BedLayoutFormDialog({
 
     const floorNameField = (
         <div>
-            <label style={fieldLabel}>Floor name / number</label>
+            <FieldLabel>Floor</FieldLabel>
             {floorNameSelect(name, setName)}
         </div>
     );
 
     const wardFields = (draft: WardDraft, update: (next: WardDraft) => void) => (
-        <div style={{ display: 'grid', gap: 10 }}>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+        <div className="grid gap-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div>
-                    <label style={fieldLabel}>Ward / unit name *</label>
+                    <FieldLabel>Unit name</FieldLabel>
                     {kind === 'edit' || unitsOnPlace.length === 0 ? (
-                        <input
+                        <Input
                             value={draft.name}
                             onChange={e => update({ ...draft, nameChoice: OTHER, name: e.target.value })}
                             placeholder="e.g. Labour & Delivery Unit"
-                            style={input}
                         />
                     ) : (
                         <CustomSelect
@@ -897,29 +1333,27 @@ export default function BedLayoutFormDialog({
                                 }
                                 return listed;
                             })()}
-                            placeholder="Select a unit"
+                            placeholder="Choose a unit"
                             allowCustom
-                            customEntryTitle="New unit"
-                            customEntryHint="Not listed? Type here, then Enter."
-                            customPlaceholder="Type unit — Enter"
+                            customEntryTitle=""
+                            customPlaceholder="Search or type a new unit"
                             style={fieldSelectStyle}
                             maxH={240}
                         />
                     )}
                 </div>
                 <div>
-                    <label style={fieldLabel}>Ward / unit code</label>
-                    <input
+                    <FieldLabel optional>Unit code</FieldLabel>
+                    <Input
                         value={draft.code}
                         onChange={e => update({ ...draft, code: e.target.value })}
-                        placeholder="Optional"
-                        style={input}
+                        placeholder="e.g. BMT"
                     />
                 </div>
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div>
-                    <label style={fieldLabel}>Ward / unit type</label>
+                    <FieldLabel optional>Unit type</FieldLabel>
                     <CustomSelect
                         value={draft.type}
                         onChange={type => update({ ...draft, type })}
@@ -935,32 +1369,16 @@ export default function BedLayoutFormDialog({
                         allowCustom
                         allowClear
                         clearLabel="No type"
-                        customEntryTitle="Custom type"
-                        customEntryHint="Not listed? Type here, then Enter."
-                        customPlaceholder="Type a type — Enter"
+                        customEntryTitle=""
+                        customPlaceholder="Search or type a unit type"
                         style={fieldSelectStyle}
                         maxH={280}
                     />
                 </div>
                 <div>
-                    <label style={fieldLabel}>Gender restriction</label>
-                    <CustomSelect
-                        value={draft.gender}
-                        onChange={gender => {
-                            const match = matchedOption(gender, GENDER_RESTRICTIONS.map(value => ({ label: genderLabel(value), value })));
-                            update({ ...draft, gender: match ? match.value : gender });
-                        }}
-                        options={withTypedOption(
-                            GENDER_RESTRICTIONS.map(value => ({ label: genderLabel(value), value })),
-                            draft.gender,
-                        )}
-                        placeholder="Optional"
-                        allowCustom
-                        customEntryTitle="Custom gender"
-                        customEntryHint="Not listed? Type here, then Enter."
-                        customPlaceholder="Type gender — Enter"
-                        style={fieldSelectStyle}
-                        maxH={240}
+                    <GenderSegment
+                        value={draft.gender || 'mixed'}
+                        onChange={gender => update({ ...draft, gender })}
                     />
                 </div>
             </div>
@@ -968,450 +1386,516 @@ export default function BedLayoutFormDialog({
     );
 
     const roomFields = (draft: RoomDraft, update: (next: RoomDraft) => void) => (
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div>
-                <label style={fieldLabel}>Room number *</label>
-                <input
+                <FieldLabel>Room number</FieldLabel>
+                <Input
                     value={draft.number}
                     onChange={e => update({ ...draft, number: e.target.value })}
                     placeholder="e.g. 101"
-                    style={input}
                 />
             </div>
             <div>
-                <label style={fieldLabel}>Room name</label>
-                <input
+                <FieldLabel optional>Room name</FieldLabel>
+                <Input
                     value={draft.name}
                     onChange={e => update({ ...draft, name: e.target.value })}
-                    placeholder="Optional"
-                    style={input}
+                    placeholder="e.g. Isolation room"
                 />
             </div>
         </div>
     );
 
-    const bedFields = (draft: BedDraft, update: (next: BedDraft) => void) => (
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
-            <div>
-                <label style={fieldLabel}>Bed number *</label>
-                <input
+    const suggestedBedCode = (draft: BedDraft) => {
+        const roomHint = (level === 'room' ? room.number.trim() : '')
+            || roomOptions.find(item => item.id === roomChoice)?.number
+            || locationLabels.roomLabel.replace(/^.*No\.\s*|^Room\s+/i, '')
+            || roomChoice.trim()
+            || 'BED';
+        return `${String(roomHint).replace(/\s+/g, '').toUpperCase()}-${draft.bed_number.trim()}`;
+    };
+
+    const bedRow = (key: string, draft: BedDraft, update: (next: BedDraft) => void, onRemove: (() => void) | null) => {
+        const canGenerateCode = !draft.bed_code.trim() && !!draft.bed_number.trim();
+        return (
+            <div key={key} className={cn('grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_32px] items-center gap-2 px-3 py-2.5', BED_GRID)}>
+                <Input
+                    aria-label="Bed number"
                     value={draft.bed_number}
                     onChange={e => update({ ...draft, bed_number: e.target.value })}
-                    placeholder="e.g. 01"
-                    style={input}
+                    placeholder="e.g. 04"
                 />
+                <div className="relative min-w-0">
+                    <Input
+                        aria-label="Bed code"
+                        value={draft.bed_code}
+                        onChange={e => update({ ...draft, bed_code: e.target.value })}
+                        placeholder="e.g. 110-04"
+                        className={cn(canGenerateCode && 'pr-9')}
+                    />
+                    {canGenerateCode ? (
+                        <button
+                            type="button"
+                            onClick={() => update({ ...draft, bed_code: suggestedBedCode(draft) })}
+                            aria-label="Fill in a code from the room and bed number"
+                            title={`Use ${suggestedBedCode(draft)}`}
+                            className="absolute right-1.5 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-md text-[#94A3B8] transition-colors hover:bg-[#F1F5F9] hover:text-[#1E3A5F]"
+                        >
+                            <Sparkles className="h-3.5 w-3.5" strokeWidth={2} />
+                        </button>
+                    ) : null}
+                </div>
+                <div className="order-4 col-span-3 min-w-0 sm:order-0 sm:col-span-1">
+                    <Segmented
+                        value={draft.status}
+                        onChange={status => update({ ...draft, status })}
+                        options={BED_STATUS_OPTIONS}
+                    />
+                </div>
+                <div className="order-3 flex justify-end sm:order-0">
+                    <RemoveButton label="Remove this bed" onClick={onRemove} />
+                </div>
             </div>
-            <div>
-                <label style={fieldLabel}>Bed code / name</label>
-                <input
-                    value={draft.bed_code}
-                    onChange={e => update({ ...draft, bed_code: e.target.value })}
-                    placeholder="Optional"
-                    style={input}
-                />
+        );
+    };
+
+    const bedHeader: ReactNode[] = ['Bed number', <>Code <OptionalTag /></>, 'Status', ''];
+
+    const unitCard = (key: string, title: string, onRemove: () => void, children: ReactNode) => (
+        <div key={key} className="overflow-hidden rounded-xl border border-[#E2E8F0] bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+            <div className="flex items-center justify-between gap-3 border-b border-[#EEF2F7] bg-[#F8FAFC] py-1.5 pl-4 pr-2">
+                <span className="text-[12.5px] font-semibold text-[#334155]">{title}</span>
+                <RemoveButton label={`Remove ${title}`} onClick={onRemove} />
             </div>
-            <div>
-                <label style={fieldLabel}>Bed status</label>
-                <CustomSelect
-                    value={draft.status}
-                    onChange={status => {
-                        const choices = (Object.keys(BED_STATUS_META) as BedStatus[]).map(item => ({
-                            label: BED_STATUS_META[item].label,
-                            value: item,
-                        }));
-                        const match = matchedOption(status, choices);
-                        if (match) update({ ...draft, status: match.value as BedStatus });
-                    }}
-                    options={(Object.keys(BED_STATUS_META) as BedStatus[]).map(status => ({
-                        label: BED_STATUS_META[status].label,
-                        value: status,
-                    }))}
-                    placeholder="Select a status"
-                    allowCustom
-                    customEntryTitle="Custom status"
-                    customEntryHint="Not listed? Type here, then Enter."
-                    customPlaceholder="Type status — Enter"
-                    style={fieldSelectStyle}
-                    maxH={240}
-                />
-            </div>
+            <div className="p-4">{children}</div>
         </div>
     );
 
-    const sectionShell = (key: string, title: string, onRemove: (() => void) | null, children: React.ReactNode) => (
-        <div key={key} style={{ border: '1px solid #EDF1F6', borderRadius: 10, padding: 12, background: '#FBFCFE' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-                <span style={{ fontSize: 12, fontWeight: 700, color: '#344054' }}>{title}</span>
-                {onRemove && (
-                    <button type="button" onClick={onRemove} style={{ ...dangerLinkButton, display: 'flex', alignItems: 'center', gap: 4 }}>
-                        <X size={12} strokeWidth={2} /> Remove
-                    </button>
-                )}
-            </div>
-            {children}
-        </div>
-    );
+    const removeBedAt = (index: number) => {
+        if (index === 0) {
+            if (!childBeds.length) return;
+            setBed(childBeds[0]);
+            setChildBeds(prev => prev.slice(1));
+            return;
+        }
+        setChildBeds(prev => prev.filter((_, i) => i !== index - 1));
+    };
 
-    const addMoreButton = (label: string, disabled: boolean, onClick: () => void) => (
-        <button
-            type="button"
-            onClick={onClick}
-            disabled={disabled}
-            style={{
-                ...linkButton,
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 5,
-                opacity: disabled ? 0.45 : 1,
-                cursor: disabled ? 'default' : 'pointer',
-            }}
-        >
-            <Plus size={13} strokeWidth={2} /> {label}
-        </button>
-    );
+    const assignmentFields = showAssignmentSection ? (
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            {needs.block && (
+                <div className={needs.floor ? undefined : 'sm:col-span-2'}>
+                    <FieldLabel>Building</FieldLabel>
+                    {buildingSelect(blockChoice === NEW ? newBlockName : blockChoice, value => {
+                        const match = savedBuildings.find(block => block.id === value);
+                        setBlockChoice(match ? match.id : value ? NEW : '');
+                        setNewBlockName(match ? '' : value);
+                        setFloorChoice('');
+                        setWardChoice('');
+                        setRoomChoice('');
+                    })}
+                </div>
+            )}
+            {needs.floor && (
+                <div className={needs.block ? undefined : 'sm:col-span-2'}>
+                    <FieldLabel>Floor</FieldLabel>
+                    <CustomSelect
+                        value={floorChoice === NEW ? newFloorName : floorChoice}
+                        disabled={!blockChoice && !context.blockId}
+                        onChange={value => {
+                            const match = floorOptions.find(floor => floor.id === value || floor.name.trim().toLowerCase() === value.trim().toLowerCase());
+                            setFloorChoice(match ? match.id : value ? NEW : '');
+                            setNewFloorName(match ? '' : value);
+                            setWardChoice('');
+                            setRoomChoice('');
+                        }}
+                        options={(() => {
+                            const listed = floorOptions
+                                .filter(floor => {
+                                    const key = floor.name.trim().toLowerCase();
+                                    return key !== 'unassigned' && key !== 'attached units';
+                                })
+                                .sort((a, b) => b.name.localeCompare(a.name, undefined, { numeric: true, sensitivity: 'base' }))
+                                .map(floor => ({ label: floor.name, value: floor.id }));
+                            const used = new Set(listed.map(option => option.label.toLowerCase()));
+                            const numbers = Array.from({ length: 10 }, (_, index) => String(index + 1))
+                                .filter(value => !used.has(value))
+                                .map(value => ({ label: value, value }));
+                            return withTypedOption([...listed, ...numbers], floorChoice === NEW ? newFloorName : '');
+                        })()}
+                        placeholder={(blockChoice || context.blockId) ? 'Choose a floor' : 'Choose a building first'}
+                        allowCustom
+                        customEntryTitle=""
+                        customPlaceholder="Search or type a floor"
+                        style={fieldSelectStyle}
+                        maxH={280}
+                    />
+                </div>
+            )}
+            {needs.ward && (
+                <div className={needs.room || creatingNewUnit ? undefined : 'sm:col-span-2'}>
+                    <FieldLabel>Unit</FieldLabel>
+                    <CustomSelect
+                        value={wardChoice}
+                        disabled={!(floorChoice || context.floorId) || (floorChoice === NEW && !newFloorName.trim())}
+                        onChange={value => {
+                            const match = matchedOption(value, wardOptions.map(option => ({ label: option.name, value: option.id })));
+                            const picked = match ? wardOptions.find(option => option.id === match.value) : undefined;
+                            setWardChoice(match ? match.value : value);
+                            setRoomChoice('');
+                            if (picked) {
+                                setBedUnitType(picked.type || '');
+                                setBedUnitGender(picked.gender_restriction || '');
+                            } else {
+                                setBedUnitType('');
+                                setBedUnitGender(value.trim() ? 'mixed' : '');
+                            }
+                        }}
+                        options={withTypedOption(
+                            wardOptions.map(option => ({ label: visibleUnitName(option.name), value: option.id })),
+                            wardChoice,
+                        )}
+                        placeholder={(floorChoice || context.floorId) && (floorChoice !== NEW || newFloorName.trim()) ? 'Choose a unit' : 'Choose a floor first'}
+                        allowCustom
+                        customEntryTitle=""
+                        customPlaceholder="Search or type a new unit"
+                        style={fieldSelectStyle}
+                        maxH={280}
+                    />
+                </div>
+            )}
+            {needs.room && (
+                <div className={needs.ward ? undefined : 'sm:col-span-2'}>
+                    <FieldLabel>Room</FieldLabel>
+                    <CustomSelect
+                        value={roomChoice}
+                        disabled={!wardChoice && !context.wardId}
+                        onChange={value => {
+                            const match = roomOptions.find(option => (
+                                option.id === value || option.number.trim().toLowerCase() === value.trim().toLowerCase()
+                            ));
+                            setRoomChoice(match ? match.id : value);
+                        }}
+                        options={withTypedOption(
+                            roomOptions.map(option => ({
+                                label: option.name ? `${option.number} · ${option.name}` : option.number,
+                                value: option.id,
+                            })),
+                            roomChoice,
+                        )}
+                        placeholder={wardChoice || context.wardId ? 'Choose a room' : 'Choose a unit first'}
+                        allowCustom
+                        customEntryTitle=""
+                        customPlaceholder="Search or type a room number"
+                        style={fieldSelectStyle}
+                        maxH={240}
+                    />
+                </div>
+            )}
+        </div>
+    ) : null;
+
+    const hasChildSection = kind === 'create' && level !== 'bed';
+    const sectionOrder = [
+        showAssignmentSection ? 'location' : '',
+        showClassificationSection ? 'unit' : '',
+        'details',
+        hasChildSection ? 'children' : '',
+    ].filter(Boolean);
+    const stepOf = (id: string) => (sectionOrder.length > 1 ? sectionOrder.indexOf(id) + 1 : undefined);
+
+    const DETAIL_COPY: Record<LayoutLevel, { title: string; description: string }> = {
+        block: {
+            title: 'Building',
+            description: kind === 'create'
+                ? 'Pick an existing building to add floors to it, or type a new name.'
+                : 'The name staff see across the facility.',
+        },
+        floor: { title: 'Floor', description: 'Pick a floor number, or type a name such as Ground.' },
+        ward: { title: 'Unit details', description: 'Name the unit and choose who it serves.' },
+        room: { title: 'Room details', description: 'Use the number shown on the door.' },
+        bed: {
+            title: kind === 'create' && bedsToCreate > 1 ? 'Beds' : 'Bed',
+            description: kind === 'create'
+                ? 'Give each bed a number. Add rows to create several at once.'
+                : 'The bed number, an optional code, and its current status.',
+        },
+    };
 
     return (
-        <div
-            role="dialog"
-            aria-modal="true"
-            style={{
-                position: 'fixed', inset: 0, zIndex: 120, background: 'rgba(15, 23, 42, 0.45)',
-                display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20,
-            }}
-            onClick={onClose}
-        >
-            <div
-                onClick={e => e.stopPropagation()}
-                style={{
-                    width: 'min(640px, 100%)', maxHeight: '90vh', display: 'flex', flexDirection: 'column',
-                    background: '#FFFFFF', borderRadius: 14, boxShadow: '0 24px 60px rgba(15, 23, 42, 0.26)',
+        // Non-modal: CustomSelect portals its list to <body>, and a modal dialog would block clicks, focus and scroll there.
+        <Dialog open modal={false} onOpenChange={open => { if (!open) onClose(); }}>
+            <DialogContent
+                showClose
+                className="w-[min(920px,calc(100%-2rem))] flex-row gap-0 p-0"
+                onInteractOutside={event => {
+                    const target = event.target as Element | null;
+                    if (target?.closest?.('[data-custom-select-panel]')) event.preventDefault();
                 }}
             >
-                <div style={{
-                    padding: '16px 20px', borderBottom: '1px solid #EDF1F6',
-                    display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12,
-                }}>
-                    <div>
-                        <div style={{ fontSize: 15, fontWeight: 700, color: '#101828' }}>
-                            {kind === 'create' ? LEVEL_TITLES[level].create : LEVEL_TITLES[level].edit}
-                        </div>
-                        <div style={{ fontSize: 12, color: '#7B8798', marginTop: 2 }}>
-                            {kind === 'create'
-                                ? 'Only the details we don\u2019t already know are shown.'
-                                : 'Update the details below.'}
-                        </div>
+                <aside className="hidden w-[268px] shrink-0 flex-col border-r border-[#EDF1F6] bg-[#F8FAFC] px-6 py-7 md:flex">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-[#E2E8F0] bg-white text-[#1E3A5F] shadow-[0_1px_2px_rgba(15,23,42,0.06)]">
+                        {levelIcon(level, 'h-5 w-5')}
                     </div>
-                    <button
-                        type="button"
-                        onClick={onClose}
-                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#98A2B3', display: 'flex' }}
-                        aria-label="Close"
-                    >
-                        <X size={18} strokeWidth={1.8} />
-                    </button>
-                </div>
-
-                <div style={{ padding: 20, overflowY: 'auto', display: 'grid', gap: 14 }}>
-                    {error && (
-                        <div style={{
-                            padding: '9px 12px', borderRadius: 8, background: '#FEF3F2',
-                            border: '1px solid #FEE4E2', color: '#B42318', fontSize: 12.5,
-                        }}>
-                            {error}
+                    <DialogTitle asChild>
+                        <div className="mt-4 text-[19px] font-semibold leading-7 tracking-[-0.015em] text-[#0F172A]">
+                            {dialogTitle}
                         </div>
+                    </DialogTitle>
+                    <DialogDescription className="mt-1.5 text-[13px] leading-5 text-[#64748B]">
+                        {dialogIntro}
+                    </DialogDescription>
+
+                    <div className="mt-7 border-t border-[#E8EEF5] pt-5">
+                        <div className="mb-3.5 text-[12px] font-medium text-[#64748B]">
+                            {kind === 'create' ? 'Placement' : 'Item'}
+                        </div>
+                        <PlacementTrail nodes={trail} />
+                    </div>
+                </aside>
+
+                <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+                    <div className="border-b border-[#EEF2F7] px-5 py-4 pr-12 md:hidden">
+                        <div className="text-[16px] font-semibold text-[#0F172A]">{dialogTitle}</div>
+                        <p className="mt-0.5 text-[12.5px] text-[#64748B]">{dialogIntro}</p>
+                    </div>
+
+                <DialogBody className="content-start gap-7 px-5 py-6 md:px-8 md:pb-8 md:pt-8">
+                    {showAssignmentSection && (
+                        <Section step={stepOf('location')} title="Location" description="Where this goes in the facility.">
+                            {assignmentFields}
+                        </Section>
                     )}
 
-
-                    {/* Parent context the caller didn't supply */}
-                    {needs.block && (
-                        <div>
-                            <label style={fieldLabel}>Building / block *</label>
-                            {buildingSelect(blockChoice === NEW ? newBlockName : blockChoice, value => {
-                                const match = savedBuildings.find(block => block.id === value);
-                                setBlockChoice(match ? match.id : value ? NEW : '');
-                                setNewBlockName(match ? '' : value);
-                                setFloorChoice('');
-                                setWardChoice('');
-                                setRoomChoice('');
-                            })}
-                        </div>
-                    )}
-
-                    {needs.floor && (
-                        <div>
-                            <label style={fieldLabel}>Floor *</label>
-                            <CustomSelect
-                                value={floorChoice === NEW ? newFloorName : floorChoice}
-                                disabled={!blockChoice}
-                                onChange={value => {
-                                    const match = floorOptions.find(floor => floor.id === value || floor.name.trim().toLowerCase() === value.trim().toLowerCase());
-                                    setFloorChoice(match ? match.id : value ? NEW : '');
-                                    setNewFloorName(match ? '' : value);
-                                    setWardChoice('');
-                                    setRoomChoice('');
-                                }}
-                                options={(() => {
-                                    const listed = floorOptions
-                                        .filter(floor => {
-                                            const key = floor.name.trim().toLowerCase();
-                                            return key !== 'unassigned' && key !== 'attached units';
-                                        })
-                                        .sort((a, b) => b.name.localeCompare(a.name, undefined, { numeric: true, sensitivity: 'base' }))
-                                        .map(floor => ({ label: floor.name, value: floor.id }));
-                                    const used = new Set(listed.map(option => option.label.toLowerCase()));
-                                    const numbers = Array.from({ length: 10 }, (_, index) => String(index + 1))
-                                        .filter(value => !used.has(value))
-                                        .map(value => ({ label: value, value }));
-                                    return withTypedOption([...listed, ...numbers], floorChoice === NEW ? newFloorName : '');
-                                })()}
-                                placeholder={blockChoice ? 'Select a floor' : 'Select a building first'}
-                                allowCustom
-                                customEntryTitle="Custom floor"
-                                customEntryHint="Not listed? Type here, then Enter."
-                                customPlaceholder="Type floor — Enter"
-                                style={fieldSelectStyle}
-                                maxH={280}
-                            />
-                        </div>
-                    )}
-
-                    {needs.ward && (
-                        <div>
-                            <label style={fieldLabel}>Ward / unit *</label>
-                            <CustomSelect
-                                value={wardChoice}
-                                disabled={!floorChoice || (floorChoice === NEW && !newFloorName.trim())}
-                                onChange={value => {
-                                    const match = matchedOption(value, wardOptions.map(option => ({ label: option.name, value: option.id })));
-                                    const picked = match ? wardOptions.find(option => option.id === match.value) : undefined;
-                                    setWardChoice(match ? match.value : value);
-                                    setRoomChoice('');
-                                    if (picked) {
-                                        setBedUnitType(picked.type || '');
-                                        setBedUnitGender(picked.gender_restriction || '');
-                                    } else {
-                                        setBedUnitGender('');
-                                    }
-                                }}
-                                options={withTypedOption(
-                                    wardOptions.map(option => ({ label: option.name, value: option.id })),
-                                    wardChoice,
-                                )}
-                                placeholder={floorChoice && (floorChoice !== NEW || newFloorName.trim()) ? 'Select a unit' : 'Select a floor first'}
-                                allowCustom
-                                customEntryTitle="New unit"
-                                customEntryHint="Not listed? Type here, then Enter."
-                                customPlaceholder="Type unit — Enter"
-                                style={fieldSelectStyle}
-                                maxH={280}
-                            />
-                        </div>
-                    )}
-
-                    {/* Type/gender only when the unit is still being chosen or created — not when adding a bed inside a known room. */}
-                    {kind === 'create' && needs.ward && (level === 'bed' || level === 'room') && (
-                        <div>
-                            <label style={fieldLabel}>Ward / unit type</label>
-                            <CustomSelect
-                                value={bedUnitType}
-                                onChange={setBedUnitType}
-                                options={(() => {
-                                    const listed = WARD_TYPES.map(type => ({ label: wardTypeLabel(type), value: type }));
-                                    const typed = bedUnitType.trim();
-                                    if (typed && !(WARD_TYPES as readonly string[]).includes(typed)) {
-                                        return [{ label: typed, value: typed }, ...listed];
-                                    }
-                                    return listed;
-                                })()}
-                                placeholder="Optional"
-                                allowCustom
-                                allowClear
-                                clearLabel="No type"
-                                customEntryTitle="Custom type"
-                                customEntryHint="Not listed? Type here, then Enter."
-                                customPlaceholder="Type a type — Enter"
-                                style={fieldSelectStyle}
-                                maxH={280}
-                            />
-                        </div>
-                    )}
-
-                    {kind === 'create' && needs.ward && (level === 'bed' || level === 'room') && (
-                        <div>
-                            <label style={fieldLabel}>Gender restriction{level === 'room' ? ' *' : ''}</label>
-                            <CustomSelect
-                                value={bedUnitGender}
-                                onChange={gender => {
-                                    const match = matchedOption(gender, GENDER_RESTRICTIONS.map(value => ({ label: genderLabel(value), value })));
-                                    setBedUnitGender(match ? match.value : gender);
-                                }}
-                                options={withTypedOption(
-                                    GENDER_RESTRICTIONS.map(value => ({ label: genderLabel(value), value })),
-                                    bedUnitGender,
-                                )}
-                                placeholder={level === 'room' ? 'Select a gender' : 'Optional'}
-                                allowCustom
-                                customEntryTitle="Custom gender"
-                                customEntryHint="Not listed? Type here, then Enter."
-                                customPlaceholder="Type gender — Enter"
-                                style={fieldSelectStyle}
-                                maxH={240}
-                            />
-                        </div>
-                    )}
-
-                    {needs.room && (
-                        <div>
-                            <label style={fieldLabel}>Room</label>
-                            <CustomSelect
-                                value={roomChoice}
-                                disabled={!wardChoice && !context.wardId}
-                                onChange={value => {
-                                    const match = roomOptions.find(option => (
-                                        option.id === value || option.number.trim().toLowerCase() === value.trim().toLowerCase()
-                                    ));
-                                    setRoomChoice(match ? match.id : value);
-                                }}
-                                options={withTypedOption(
-                                    roomOptions.map(option => ({
-                                        label: option.name ? `${option.number} · ${option.name}` : option.number,
-                                        value: option.id,
-                                    })),
-                                    roomChoice,
-                                )}
-                                placeholder="Optional"
-                                allowCustom
-                                customEntryTitle="Room"
-                                customEntryHint="Not listed? Type here, then Enter."
-                                customPlaceholder="Type room — Enter"
-                                style={fieldSelectStyle}
-                                maxH={240}
-                            />
-                        </div>
-                    )}
-
-                    {/* The level's own fields */}
-                    {level === 'block' && (
-                        <div>
-                            <label style={fieldLabel}>Building / block name *</label>
-                            {kind === 'edit' ? (
-                                <input
-                                    value={name}
-                                    onChange={e => setName(e.target.value)}
-                                    placeholder="e.g. Maternity Block"
-                                    style={input}
-                                />
-                            ) : buildingSelect(name, setName)}
-                        </div>
-                    )}
-                    {level === 'floor' && floorNameField}
-                    {level === 'ward' && wardFields(ward, setWard)}
-                    {level === 'room' && roomFields(room, setRoom)}
-                    {level === 'bed' && bedFields(bed, setBed)}
-
-                    {/* Optional children, per the spec's nested add forms */}
-                    {kind === 'create' && level === 'block' && (
-                        <div style={{ display: 'grid', gap: 10 }}>
-                            {childFloors.map((floor, index) => sectionShell(
-                                `floor-${index}`,
-                                `Floor ${index + 1}`,
-                                () => setChildFloors(prev => prev.filter((_, i) => i !== index)),
+                    {showClassificationSection && (
+                        <Section
+                            step={stepOf('unit')}
+                            title={creatingNewUnit ? 'New unit' : 'Unit settings'}
+                            description={creatingNewUnit
+                                ? 'This unit doesn’t exist yet, so it will be created with these settings.'
+                                : 'Applies to every room and bed in this unit.'}
+                        >
+                            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                                 <div>
-                                    <label style={fieldLabel}>Floor name / number</label>
-                                    {floorNameSelect(
-                                        floor.name,
-                                        value => setChildFloors(prev => prev.map((item, i) => i === index ? { ...item, name: value } : item)),
-                                        childFloors.flatMap((item, i) => i === index || !item.name.trim() ? [] : [item.name.trim().toLowerCase()]),
-                                    )}
-                                </div>,
-                            ))}
-                            {addMoreButton(
-                                childFloors.length === 0 ? 'Add floor' : 'Add another floor',
-                                childFloors.length >= NESTED_LIMITS.floorsPerBlock,
-                                () => setChildFloors(prev => [...prev, { name: '' }]),
-                            )}
-                            {childFloors.length >= NESTED_LIMITS.floorsPerBlock && (
-                                <span style={{ fontSize: 12, color: '#98A2B3' }}>
-                                    Up to {NESTED_LIMITS.floorsPerBlock} floors per block here. Add more from the block page.
-                                </span>
-                            )}
-                        </div>
+                                    <FieldLabel optional>Unit type</FieldLabel>
+                                    <CustomSelect
+                                        value={bedUnitType}
+                                        onChange={setBedUnitType}
+                                        options={(() => {
+                                            const listed = WARD_TYPES.map(type => ({ label: wardTypeLabel(type), value: type }));
+                                            const typed = bedUnitType.trim();
+                                            if (typed && !(WARD_TYPES as readonly string[]).includes(typed)) {
+                                                return [{ label: typed, value: typed }, ...listed];
+                                            }
+                                            return listed;
+                                        })()}
+                                        placeholder="Choose a type"
+                                        allowCustom
+                                        allowClear
+                                        clearLabel="No type"
+                                        customEntryTitle=""
+                                        customPlaceholder="Search or type a unit type"
+                                        style={fieldSelectStyle}
+                                        maxH={280}
+                                    />
+                                </div>
+                                <GenderSegment
+                                    value={bedUnitGender || 'mixed'}
+                                    onChange={setBedUnitGender}
+                                />
+                            </div>
+                        </Section>
+                    )}
+
+                    {level === 'bed' ? (
+                        <Section step={stepOf('details')} title={DETAIL_COPY.bed.title} description={DETAIL_COPY.bed.description}>
+                            <div className="grid gap-2">
+                                <ListShell
+                                    header={bedHeader}
+                                    grid={BED_GRID}
+                                    footer={kind === 'create' ? (
+                                        <ListAddRow
+                                            label="Add another bed"
+                                            count={bedsToCreate}
+                                            limit={NESTED_LIMITS.bedsPerRoom}
+                                            onClick={() => setChildBeds(prev => [...prev, emptyBed()])}
+                                        />
+                                    ) : undefined}
+                                >
+                                    {[bed, ...childBeds].map((draft, index) => bedRow(
+                                        `bed-${index}`,
+                                        draft,
+                                        next => (index === 0
+                                            ? setBed(next)
+                                            : setChildBeds(prev => prev.map((item, i) => i === index - 1 ? next : item))),
+                                        kind === 'create' && bedsToCreate > 1 ? () => removeBedAt(index) : null,
+                                    ))}
+                                </ListShell>
+                                <p className="text-[12px] leading-5 text-[#64748B]">
+                                    Unavailable beds are out of service and can’t be assigned to patients.
+                                </p>
+                            </div>
+                        </Section>
+                    ) : (
+                    <Section step={stepOf('details')} title={DETAIL_COPY[level].title} description={DETAIL_COPY[level].description}>
+                        {level === 'block' && (
+                            <div>
+                                <FieldLabel>Building name</FieldLabel>
+                                {kind === 'edit' ? (
+                                    <Input
+                                        value={name}
+                                        onChange={e => setName(e.target.value)}
+                                        placeholder="e.g. Maternity Block"
+                                    />
+                                ) : buildingSelect(name, setName)}
+                            </div>
+                        )}
+                        {level === 'floor' && floorNameField}
+                        {level === 'ward' && wardFields(ward, setWard)}
+                        {level === 'room' && roomFields(room, setRoom)}
+                    </Section>
+                    )}
+
+                    {kind === 'create' && level === 'block' && (
+                        <Section step={stepOf('children')} title="Floors" optional description="Add the floors in this building now, or later from the layout.">
+                            <ListShell
+                                header={['Floor', '']}
+                                grid={FLOOR_GRID}
+                                empty={childFloors.length ? undefined : 'No floors yet. You can also add them later.'}
+                                footer={(
+                                    <ListAddRow
+                                        label={childFloors.length ? 'Add another floor' : 'Add a floor'}
+                                        count={childFloors.length}
+                                        limit={NESTED_LIMITS.floorsPerBlock}
+                                        onClick={() => setChildFloors(prev => [...prev, { name: '' }])}
+                                    />
+                                )}
+                            >
+                                {childFloors.map((floor, index) => (
+                                    <div key={`floor-${index}`} className={cn('grid grid-cols-[minmax(0,1fr)_32px] items-center gap-2 px-3 py-2.5', FLOOR_GRID)}>
+                                        {floorNameSelect(
+                                            floor.name,
+                                            value => setChildFloors(prev => prev.map((item, i) => i === index ? { ...item, name: value } : item)),
+                                            childFloors.flatMap((item, i) => i === index || !item.name.trim() ? [] : [item.name.trim().toLowerCase()]),
+                                        )}
+                                        <RemoveButton
+                                            label="Remove this floor"
+                                            onClick={() => setChildFloors(prev => prev.filter((_, i) => i !== index))}
+                                        />
+                                    </div>
+                                ))}
+                            </ListShell>
+                        </Section>
                     )}
 
                     {kind === 'create' && level === 'floor' && (
-                        <div style={{ display: 'grid', gap: 10 }}>
-                            {childWards.map((draft, index) => sectionShell(
-                                `ward-${index}`,
-                                `Ward ${index + 1}`,
-                                () => setChildWards(prev => prev.filter((_, i) => i !== index)),
-                                wardFields(draft, next => setChildWards(prev => prev.map((item, i) => i === index ? next : item))),
-                            ))}
-                            {addMoreButton(
-                                childWards.length === 0 ? 'Add ward' : 'Add another ward',
-                                childWards.length >= NESTED_LIMITS.wardsPerFloor,
-                                () => setChildWards(prev => [...prev, emptyWard()]),
-                            )}
-                            {childWards.length >= NESTED_LIMITS.wardsPerFloor && (
-                                <span style={{ fontSize: 12, color: '#98A2B3' }}>
-                                    Up to {NESTED_LIMITS.wardsPerFloor} wards per floor here.
-                                </span>
-                            )}
-                        </div>
+                        <Section step={stepOf('children')} title="Units on this floor" optional description="Wards or departments on this floor, such as Maternity or ICU.">
+                            <div className="grid gap-3">
+                                {childWards.map((draft, index) => unitCard(
+                                    `ward-${index}`,
+                                    `Unit ${index + 1}`,
+                                    () => setChildWards(prev => prev.filter((_, i) => i !== index)),
+                                    wardFields(draft, next => setChildWards(prev => prev.map((item, i) => i === index ? next : item))),
+                                ))}
+                                <ListShell
+                                    header={[]}
+                                    grid=""
+                                    empty={childWards.length ? undefined : 'No units yet. You can also add them later.'}
+                                    footer={(
+                                        <ListAddRow
+                                            label={childWards.length ? 'Add another unit' : 'Add a unit'}
+                                            count={childWards.length}
+                                            limit={NESTED_LIMITS.wardsPerFloor}
+                                            onClick={() => setChildWards(prev => [...prev, emptyWard()])}
+                                        />
+                                    )}
+                                />
+                            </div>
+                        </Section>
                     )}
 
                     {kind === 'create' && level === 'ward' && (
-                        <div style={{ display: 'grid', gap: 10 }}>
-                            {childRooms.map((draft, index) => sectionShell(
-                                `room-${index}`,
-                                `Room ${index + 1}`,
-                                () => setChildRooms(prev => prev.filter((_, i) => i !== index)),
-                                roomFields(draft, next => setChildRooms(prev => prev.map((item, i) => i === index ? next : item))),
-                            ))}
-                            {addMoreButton(
-                                childRooms.length === 0 ? 'Add room' : 'Add another room',
-                                childRooms.length >= NESTED_LIMITS.roomsPerWard,
-                                () => setChildRooms(prev => [...prev, emptyRoom()]),
-                            )}
-                            {childRooms.length >= NESTED_LIMITS.roomsPerWard && (
-                                <span style={{ fontSize: 12, color: '#98A2B3' }}>
-                                    Up to {NESTED_LIMITS.roomsPerWard} rooms per ward here.
-                                </span>
-                            )}
-                        </div>
+                        <Section step={stepOf('children')} title="Rooms in this unit" optional description="Add the rooms now, or later from the unit page.">
+                            <ListShell
+                                header={['Room number', <>Name <OptionalTag /></>, '']}
+                                grid={ROOM_GRID}
+                                empty={childRooms.length ? undefined : 'No rooms yet. You can also add them later.'}
+                                footer={(
+                                    <ListAddRow
+                                        label={childRooms.length ? 'Add another room' : 'Add a room'}
+                                        count={childRooms.length}
+                                        limit={NESTED_LIMITS.roomsPerWard}
+                                        onClick={() => setChildRooms(prev => [...prev, emptyRoom()])}
+                                    />
+                                )}
+                            >
+                                {childRooms.map((draft, index) => {
+                                    const update = (next: RoomDraft) => setChildRooms(prev => prev.map((item, i) => i === index ? next : item));
+                                    return (
+                                        <div key={`room-${index}`} className={cn('grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_32px] items-center gap-2 px-3 py-2.5', ROOM_GRID)}>
+                                            <Input
+                                                aria-label="Room number"
+                                                value={draft.number}
+                                                onChange={e => update({ ...draft, number: e.target.value })}
+                                                placeholder="e.g. 101"
+                                            />
+                                            <Input
+                                                aria-label="Room name"
+                                                value={draft.name}
+                                                onChange={e => update({ ...draft, name: e.target.value })}
+                                                placeholder="e.g. Isolation room"
+                                            />
+                                            <RemoveButton
+                                                label="Remove this room"
+                                                onClick={() => setChildRooms(prev => prev.filter((_, i) => i !== index))}
+                                            />
+                                        </div>
+                                    );
+                                })}
+                            </ListShell>
+                        </Section>
                     )}
 
-                    {kind === 'create' && (level === 'room' || level === 'bed') && (
-                        <div style={{ display: 'grid', gap: 10 }}>
-                            {childBeds.map((draft, index) => sectionShell(
-                                `bed-${index}`,
-                                `Bed ${index + (level === 'bed' ? 2 : 1)}`,
-                                () => setChildBeds(prev => prev.filter((_, i) => i !== index)),
-                                bedFields(draft, next => setChildBeds(prev => prev.map((item, i) => i === index ? next : item))),
-                            ))}
-                            {addMoreButton(
-                                childBeds.length === 0 && level === 'room' ? 'Add bed' : 'Add another bed',
-                                childBeds.length >= (level === 'bed' ? NESTED_LIMITS.bedsPerRoom - 1 : NESTED_LIMITS.bedsPerRoom),
-                                () => setChildBeds(prev => [...prev, emptyBed()]),
-                            )}
-                        </div>
+                    {kind === 'create' && level === 'room' && (
+                        <Section step={stepOf('children')} title="Beds in this room" optional description="Add the beds now, or later from the room page.">
+                            <ListShell
+                                header={bedHeader}
+                                grid={BED_GRID}
+                                empty={childBeds.length ? undefined : 'No beds yet. You can also add them later.'}
+                                footer={(
+                                    <ListAddRow
+                                        label={childBeds.length ? 'Add another bed' : 'Add a bed'}
+                                        count={childBeds.length}
+                                        limit={NESTED_LIMITS.bedsPerRoom}
+                                        onClick={() => setChildBeds(prev => [...prev, emptyBed()])}
+                                    />
+                                )}
+                            >
+                                {childBeds.map((draft, index) => bedRow(
+                                    `bed-${index}`,
+                                    draft,
+                                    next => setChildBeds(prev => prev.map((item, i) => i === index ? next : item)),
+                                    () => setChildBeds(prev => prev.filter((_, i) => i !== index)),
+                                ))}
+                            </ListShell>
+                        </Section>
                     )}
-                </div>
+                </DialogBody>
 
-                <div style={{
-                    padding: '14px 20px', borderTop: '1px solid #EDF1F6',
-                    display: 'flex', justifyContent: 'flex-end', gap: 10,
-                }}>
-                    <button type="button" onClick={onClose} style={secondaryButton}>Cancel</button>
-                    <button
-                        type="button"
-                        onClick={submit}
-                        disabled={saving}
-                        style={{ ...primaryButton, opacity: saving ? 0.6 : 1, cursor: saving ? 'default' : 'pointer' }}
-                    >
-                        {saving ? 'Saving…' : kind === 'create' ? 'Submit' : 'Save changes'}
-                    </button>
+                {error ? (
+                    <div role="alert" className="shrink-0 border-t border-[#FEE4E2] bg-[#FEF3F2] px-5 py-2.5 text-[13px] text-[#B42318] md:px-8">
+                        {error}
+                    </div>
+                ) : null}
+
+                <DialogFooter className="bg-white px-5 md:px-8">
+                    <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
+                    <Button type="button" onClick={submit} disabled={saving} className="min-w-[120px] bg-[#1E3A5F] hover:bg-[#172E4B]">
+                        {saving ? 'Saving…' : submitLabel}
+                    </Button>
+                </DialogFooter>
                 </div>
-            </div>
-        </div>
+            </DialogContent>
+        </Dialog>
     );
 }

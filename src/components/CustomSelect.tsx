@@ -64,8 +64,20 @@ export default function CustomSelect({
     const updatePos = useCallback(() => {
         if (!btnRef.current) return;
         const r = btnRef.current.getBoundingClientRect();
-        setPos({ top: r.bottom + 4, left: r.left, width: r.width });
-    }, []);
+        const minPanel = dropdownMinWidth ?? (allowCustom ? 248 : options.length > 6 ? 360 : r.width);
+        const panel = Math.min(Math.max(r.width, minPanel), Math.max(160, window.innerWidth - 16));
+        let left = r.left;
+        if (left + panel > window.innerWidth - 8) {
+            left = Math.max(8, window.innerWidth - 8 - panel);
+        }
+        if (left < 8) left = 8;
+        let top = r.bottom + 4;
+        const approxH = Math.min(maxH + 80, window.innerHeight - 24);
+        if (top + approxH > window.innerHeight - 8) {
+            top = Math.max(8, r.top - 4 - Math.min(approxH, r.top - 8));
+        }
+        setPos({ top, left, width: r.width });
+    }, [allowCustom, dropdownMinWidth, maxH, options.length]);
 
     useEffect(() => {
         if (!open) return;
@@ -106,23 +118,28 @@ export default function CustomSelect({
         close();
     };
     const btnStyle: React.CSSProperties = {
-        width: '100%', height: 36, padding: '0 10px', fontSize: 13, textAlign: 'left',
-        background: 'var(--surface-card,#fff)', border: '1px solid var(--border-default,#d1d5db)',
-        borderRadius: 'var(--radius-md,6px)', cursor: 'pointer', display: 'flex',
+        width: '100%', height: 40, padding: '0 12px', fontSize: 13, textAlign: 'left',
+        background: 'var(--surface-card,#fff)', border: '1px solid #E1E7EF',
+        borderRadius: 8, cursor: 'pointer', display: 'flex',
         alignItems: 'center', justifyContent: 'space-between',
-        color: sel ? 'var(--text-primary,#111)' : 'var(--text-muted,#888)', outline: 'none',
+        color: sel ? '#172033' : '#98A2B3', outline: 'none',
+        boxShadow: '0 1px 2px rgba(16, 24, 40, 0.04)',
+        transition: 'border-color 0.15s, box-shadow 0.15s',
     };
 
-    const panelWidth = Math.max(
-        pos.width,
-        dropdownMinWidth ?? (allowCustom ? 248 : options.length > 6 ? 360 : 0),
+    const panelWidth = Math.min(
+        Math.max(
+            pos.width,
+            dropdownMinWidth ?? (allowCustom ? 248 : options.length > 6 ? 360 : 0),
+        ),
+        typeof window !== 'undefined' ? Math.max(160, window.innerWidth - 16) : 480,
     );
 
     const dropdown = open && typeof document !== 'undefined' ? createPortal(
-        <div ref={ddRef} style={{
+        <div ref={ddRef} data-custom-select-panel="" style={{
             position: 'fixed', top: pos.top, left: pos.left, width: panelWidth,
-            background: 'var(--surface-card,#fff)', border: '1px solid var(--border-default,#d1d5db)',
-            borderRadius: 'var(--radius-md,6px)', boxShadow: '0 8px 24px rgba(0,0,0,0.15)',
+            background: '#FFFFFF', border: '1px solid #E6EBF1',
+            borderRadius: 10, boxShadow: '0 12px 32px rgba(15, 23, 42, 0.16)',
             zIndex: 99999, overflow: 'hidden',
         }}>
             {((searchable ?? options.length > 6) || allowCustom || requireQuery) && (
@@ -130,10 +147,10 @@ export default function CustomSelect({
                     style={{
                         padding: allowCustom ? '10px 10px 10px' : '6px 8px',
                         borderBottom: '1px solid var(--border-subtle,#e5e7eb)',
-                        background: allowCustom ? 'linear-gradient(180deg, rgba(11,74,163,0.06) 0%, rgba(11,74,163,0.03) 100%)' : undefined,
+                        background: allowCustom && customEntryTitle ? 'linear-gradient(180deg, rgba(11,74,163,0.06) 0%, rgba(11,74,163,0.03) 100%)' : undefined,
                     }}
                 >
-                    {allowCustom && (
+                    {allowCustom && customEntryTitle && (
                         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginBottom: 8 }}>
                             <span className="material-icons-round" style={{ fontSize: 20, color: 'var(--helix-primary,#1e3a5f)', flexShrink: 0, marginTop: 1 }}>
                                 edit_note
@@ -159,7 +176,7 @@ export default function CustomSelect({
                             }
                         }}
                         placeholder={allowCustom ? customPlaceholder : searchPlaceholder}
-                        aria-label={allowCustom ? `${customEntryTitle}. ${customPlaceholder}` : 'Search options'}
+                        aria-label={allowCustom ? (customEntryTitle ? `${customEntryTitle}. ${customPlaceholder}` : customPlaceholder) : 'Search options'}
                         autoFocus
                         style={{
                             width: '100%',
@@ -200,9 +217,9 @@ export default function CustomSelect({
                 )}
                 {list.map(o => (
                     <button key={o.value || o.label} type="button" onClick={() => { onChange(o.value); close(); }}
-                        style={{ width: '100%', padding: '8px 12px', fontSize: 13, lineHeight: 1.35, textAlign: 'left', whiteSpace: 'normal', background: o.value === value ? 'rgba(99,102,241,0.08)' : 'transparent', border: 'none', cursor: 'pointer', color: o.value === value ? 'var(--helix-primary,#6366f1)' : 'var(--text-primary,#111)', fontWeight: o.value === value ? 600 : 400 }}
-                        onMouseEnter={e => { if (o.value !== value) e.currentTarget.style.background = 'var(--surface-2,#f3f4f6)'; }}
-                        onMouseLeave={e => { e.currentTarget.style.background = o.value === value ? 'rgba(99,102,241,0.08)' : 'transparent'; }}>
+                        style={{ width: '100%', padding: '8px 12px', fontSize: 13, lineHeight: 1.35, textAlign: 'left', whiteSpace: 'normal', background: o.value === value ? 'rgba(30,58,95,0.08)' : 'transparent', border: 'none', cursor: 'pointer', color: o.value === value ? '#1e3a5f' : '#172033', fontWeight: o.value === value ? 600 : 400 }}
+                        onMouseEnter={e => { if (o.value !== value) e.currentTarget.style.background = '#F8FAFC'; }}
+                        onMouseLeave={e => { e.currentTarget.style.background = o.value === value ? 'rgba(30,58,95,0.08)' : 'transparent'; }}>
                         {o.value === value && <span style={{ marginRight: 6, fontSize: 12 }}>✓</span>}{o.label}
                     </button>
                 ))}
@@ -239,7 +256,8 @@ export default function CustomSelect({
     const wrapperStyle: React.CSSProperties = {
         position: 'relative',
         minWidth: 0,
-        ...(style && style.width !== undefined ? { width: style.width } : {}),
+        width: style?.width !== undefined ? style.width : '100%',
+        maxWidth: '100%',
     };
     const triggerStyle: React.CSSProperties = {
         ...btnStyle,

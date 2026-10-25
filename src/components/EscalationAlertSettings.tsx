@@ -40,7 +40,10 @@ import {
     ROLES_CACHE_POLICIES,
     ROLES_CACHE_ROLES,
     ROLES_PAGE_CACHE_TTL_MS,
+    currentRolesPageFacilityId,
+    rolesPageCacheKey,
 } from '@/lib/rolesAdminCache';
+import { appendFacilityIdForProxy } from '@/lib/facility-client';
 
 type EscalationLevel = {
     level: number;
@@ -249,9 +252,12 @@ export default function EscalationAlertSettings() {
     );
 
     useLayoutEffect(() => {
-        const rolesJ = readCachedJson(ROLES_CACHE_ROLES, ROLES_PAGE_CACHE_TTL_MS);
-        const deptsJ = readCachedJson(ROLES_CACHE_DEPTS, ROLES_PAGE_CACHE_TTL_MS);
-        const policiesJ = readCachedJson(ROLES_CACHE_POLICIES, ROLES_PAGE_CACHE_TTL_MS);
+        // Without a known facility the cache can't be tied to it, so wait for the fetch instead.
+        const facilityId = currentRolesPageFacilityId();
+        if (!facilityId) return;
+        const rolesJ = readCachedJson(rolesPageCacheKey(ROLES_CACHE_ROLES, facilityId), ROLES_PAGE_CACHE_TTL_MS);
+        const deptsJ = readCachedJson(rolesPageCacheKey(ROLES_CACHE_DEPTS, facilityId), ROLES_PAGE_CACHE_TTL_MS);
+        const policiesJ = readCachedJson(rolesPageCacheKey(ROLES_CACHE_POLICIES, facilityId), ROLES_PAGE_CACHE_TTL_MS);
         if (rolesJ == null || deptsJ == null || policiesJ == null) return;
         const basePolicies = extractPolicies(policiesJ);
         const mergedPolicies = basePolicies.map((p) => {
@@ -273,35 +279,43 @@ export default function EscalationAlertSettings() {
 
     const fetchData = useCallback(async () => {
         try {
-            const [rolesRes, deptsRes] = await Promise.all([
-                fetch(ROLES_CACHE_ROLES),
-                fetch(ROLES_CACHE_DEPTS),
+            const facilityId = currentRolesPageFacilityId();
+            const [rolesUrl, deptsUrl] = await Promise.all([
+                appendFacilityIdForProxy(ROLES_CACHE_ROLES),
+                appendFacilityIdForProxy(ROLES_CACHE_DEPTS),
             ]);
+            const [rolesRes, deptsRes] = await Promise.all([fetch(rolesUrl), fetch(deptsUrl)]);
+            // The backend answers 404 for a facility with no roles or departments yet; that is an empty list, not a failure.
+            const rolesOk = rolesRes.ok || rolesRes.status === 404;
+            const deptsOk = deptsRes.ok || deptsRes.status === 404;
             const [rolesJson, deptsJson] = await Promise.all([
-                rolesRes.ok ? rolesRes.json() : Promise.resolve(null),
-                deptsRes.ok ? deptsRes.json() : Promise.resolve(null),
+                rolesRes.ok ? rolesRes.json() : Promise.resolve(rolesOk ? [] : null),
+                deptsRes.ok ? deptsRes.json() : Promise.resolve(deptsOk ? [] : null),
             ]);
 
-            if (rolesRes.ok && rolesJson != null) writeCachedJson(ROLES_CACHE_ROLES, rolesJson);
-            if (deptsRes.ok && deptsJson != null) writeCachedJson(ROLES_CACHE_DEPTS, deptsJson);
+            if (rolesOk && rolesJson != null) writeCachedJson(rolesPageCacheKey(ROLES_CACHE_ROLES, facilityId), rolesJson);
+            if (deptsOk && deptsJson != null) writeCachedJson(rolesPageCacheKey(ROLES_CACHE_DEPTS, facilityId), deptsJson);
 
             const rolesForBackfill = Array.isArray(rolesJson) ? (rolesJson as Role[]) : [];
             const loaded = await loadAllEscalationPoliciesForRoles<Policy>(rolesForBackfill, {
                 init: { credentials: 'include' },
                 fetchByRole: async (roleId) => {
-                    const res = await fetch(`/api/proxy/escalation-policies/by-role/${roleId}`, {
-                        credentials: 'include',
-                    });
+                    const res = await fetch(
+                        await appendFacilityIdForProxy(`/api/proxy/escalation-policies/by-role/${roleId}`),
+                        { credentials: 'include' },
+                    );
                     return res.ok ? res.json() : null;
                 },
             });
 
             const policiesResolved = loaded.ok ? loaded.policies : null;
             // Cache the full hydrated + backfilled set so Roles/Home see every policy too.
-            if (policiesResolved != null) writeCachedJson(ROLES_CACHE_POLICIES, policiesResolved);
+            if (policiesResolved != null) {
+                writeCachedJson(rolesPageCacheKey(ROLES_CACHE_POLICIES, facilityId), policiesResolved);
+            }
 
             ingestEscalationPayloads(
-                { roles: rolesRes.ok, depts: deptsRes.ok, policies: loaded.ok },
+                { roles: rolesOk, depts: deptsOk, policies: loaded.ok },
                 {
                     roles: rolesJson,
                     departments: deptsJson,

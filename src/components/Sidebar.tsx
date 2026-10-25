@@ -12,7 +12,8 @@ import {
     writeCachedSidebarUser,
     writeFacilityDisplayName,
 } from '@/lib/facilityDisplayCache';
-import { primeClientFacilityId } from '@/lib/facility-client';
+import { clearClientFacilityIdCache, primeClientFacilityId } from '@/lib/facility-client';
+import { invalidateRolesPageCache } from '@/lib/rolesAdminCache';
 
 interface NavItem {
     icon: string;
@@ -242,6 +243,8 @@ export default function Sidebar({
                 credentials: 'include',
             });
         } finally {
+            invalidateRolesPageCache();
+            clearClientFacilityIdCache();
             if (typeof window !== 'undefined') {
                 window.location.assign('/internal/dashboard');
             } else {

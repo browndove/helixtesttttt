@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { API_ENDPOINTS } from '@/lib/config';
 import { districtsInRegion, GHANA_REGIONS } from '@/lib/ghana-admin-areas';
 import { primeClientFacilityId } from '@/lib/facility-client';
+import { invalidateRolesPageCache } from '@/lib/rolesAdminCache';
 import { MacVibrancyToast, MacVibrancyToastPortal } from '@/components/MacVibrancyToast';
 import InternalAdminShell from '@/components/InternalAdminShell';
 import CustomSelect from '@/components/CustomSelect';
@@ -310,6 +311,8 @@ export default function InternalAdminDashboard() {
                 return;
             }
             const actAsFacilityId = String(data.facility_id || facility.id || '').trim();
+            // Drop any prior facility's Roles/Departments/Staff cache before entering.
+            invalidateRolesPageCache(actAsFacilityId);
             if (actAsFacilityId) primeClientFacilityId(actAsFacilityId);
             showToast(`Support mode enabled for ${facility.name}.`, 'success');
             if (typeof window !== 'undefined') window.location.assign('/home');
