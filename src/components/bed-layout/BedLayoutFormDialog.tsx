@@ -2,10 +2,10 @@
 
 import { useCallback, useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react';
 import {
-    Activity,
     Bed as BedIcon,
     Building2,
     DoorOpen,
+    Hospital,
     Layers,
     Plus,
     Sparkles,
@@ -189,7 +189,7 @@ function levelIcon(level: LayoutLevel, className: string) {
     const props = { className, strokeWidth: 1.9 };
     if (level === 'block') return <Building2 {...props} />;
     if (level === 'floor') return <Layers {...props} />;
-    if (level === 'ward') return <Activity {...props} />;
+    if (level === 'ward') return <Hospital {...props} />;
     if (level === 'room') return <DoorOpen {...props} />;
     return <BedIcon {...props} />;
 }
@@ -267,11 +267,11 @@ function unitDetail(type: string, gender: string): string {
 
 function PlacementTrail({ nodes }: { nodes: TrailNode[] }) {
     return (
-        <ol className="grid">
+        <ol className="grid min-w-0 grid-cols-[minmax(0,1fr)]">
             {nodes.map((node, index) => {
                 const last = index === nodes.length - 1;
                 return (
-                    <li key={node.level} className="relative flex gap-3 pb-5 last:pb-0">
+                    <li key={node.level} className="relative flex min-w-0 gap-3 pb-5 last:pb-0">
                         {!last ? <span aria-hidden className="absolute bottom-0 left-[13.5px] top-8 w-px bg-[#E2E8F0]" /> : null}
                         <span
                             className={cn(
@@ -289,7 +289,7 @@ function PlacementTrail({ nodes }: { nodes: TrailNode[] }) {
                             <div className="text-[11.5px] leading-4 text-[#94A3B8]">{node.label}</div>
                             <div
                                 className={cn(
-                                    'truncate text-[13px] leading-5',
+                                    'line-clamp-2 wrap-break-word text-[13px] leading-5',
                                     node.value ? 'font-medium text-[#0F172A]' : 'text-[#94A3B8]',
                                 )}
                                 title={node.value || undefined}
@@ -1634,7 +1634,7 @@ export default function BedLayoutFormDialog({
                 }}
             >
                 <aside className="hidden w-[268px] shrink-0 flex-col border-r border-[#EDF1F6] bg-[#F8FAFC] px-6 py-7 md:flex">
-                    <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-[#E2E8F0] bg-white text-[#1E3A5F] shadow-[0_1px_2px_rgba(15,23,42,0.06)]">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#EAF0F7] text-[#1E3A5F] ring-1 ring-[#1E3A5F]/10 shadow-[inset_0_1px_0_rgba(255,255,255,0.7),0_1px_2px_rgba(15,23,42,0.06)]">
                         {levelIcon(level, 'h-5 w-5')}
                     </div>
                     <DialogTitle asChild>
@@ -1646,7 +1646,7 @@ export default function BedLayoutFormDialog({
                         {dialogIntro}
                     </DialogDescription>
 
-                    <div className="mt-7 border-t border-[#E8EEF5] pt-5">
+                    <div className="mt-7 min-w-0 border-t border-[#E8EEF5] pt-5">
                         <div className="mb-3.5 text-[12px] font-medium text-[#64748B]">
                             {kind === 'create' ? 'Placement' : 'Item'}
                         </div>
