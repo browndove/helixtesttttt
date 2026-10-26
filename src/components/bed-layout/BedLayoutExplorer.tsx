@@ -399,7 +399,7 @@ function buildCreateContext(
     }
 
     const roomLabel = room
-        ? (room.name ? `${room.name} · No. ${room.number}` : `Room ${room.number}`)
+        ? (room.name ? `${room.name} · ${room.number}` : `Room ${room.number}`)
         : '';
 
     return {
@@ -1560,7 +1560,7 @@ export default function BedLayoutExplorer() {
                                                                         {item.name || `Room ${item.number}`}
                                                                     </button>
                                                                     {item.name && (
-                                                                        <div style={{ fontSize: 11.5, color: '#A3AEBD', marginTop: 2 }}>No. {item.number}</div>
+                                                                        <div style={{ fontSize: 11.5, color: '#A3AEBD', marginTop: 2 }}>{item.number}</div>
                                                                     )}
                                                                 </td>
                                                                 {countCell(counts.bed_count)}
@@ -1597,7 +1597,7 @@ export default function BedLayoutExplorer() {
                         {pageHeader(
                             roomWard?.name || 'Ward',
                             <DoorOpen size={13} strokeWidth={1.9} />,
-                            room.name ? `${room.name} · No. ${room.number}` : `Room ${room.number}`,
+                            room.name ? `${room.name} · ${room.number}` : `Room ${room.number}`,
                             isAdmin ? (
                                 <button
                                     type="button"

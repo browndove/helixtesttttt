@@ -181,7 +181,7 @@ const EDIT_INTROS: Record<LayoutLevel, string> = {
     block: 'Rename this building.',
     floor: 'Rename this floor.',
     ward: 'Update the unit’s name, code, type or gender.',
-    room: 'Update the room number or name.',
+    room: 'Update the room or name.',
     bed: 'Update the bed number, code or status.',
 };
 
@@ -463,7 +463,7 @@ function resolveLocationLabels(
                     const embedded = ward.rooms.find(item => item.id === context.roomId);
                     if (embedded && !roomLabel) {
                         roomLabel = embedded.name
-                            ? `${embedded.name} · No. ${embedded.number}`
+                            ? `${embedded.name} · ${embedded.number}`
                             : `Room ${embedded.number}`;
                     }
                 }
@@ -474,7 +474,7 @@ function resolveLocationLabels(
     if (context.roomId && !roomLabel) {
         const match = rooms.find(item => item.id === context.roomId);
         if (match) {
-            roomLabel = match.name ? `${match.name} · No. ${match.number}` : `Room ${match.number}`;
+            roomLabel = match.name ? `${match.name} · ${match.number}` : `Room ${match.number}`;
         }
     }
 
@@ -777,7 +777,7 @@ export default function BedLayoutFormDialog({
                 || (selectedWard ? visibleUnitName(selectedWard.name) : visibleUnitName(wardChoice)),
             room: locationLabels.roomLabel
                 || (pickedRoom
-                    ? (pickedRoom.name ? `${pickedRoom.name} · No. ${pickedRoom.number}` : `Room ${pickedRoom.number}`)
+                    ? (pickedRoom.name ? `${pickedRoom.name} · ${pickedRoom.number}` : `Room ${pickedRoom.number}`)
                     : typedRoom ? `Room ${typedRoom}` : ''),
             bed: '',
         };
@@ -1388,7 +1388,7 @@ export default function BedLayoutFormDialog({
     const roomFields = (draft: RoomDraft, update: (next: RoomDraft) => void) => (
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div>
-                <FieldLabel>Room number</FieldLabel>
+                <FieldLabel>Room</FieldLabel>
                 <Input
                     value={draft.number}
                     onChange={e => update({ ...draft, number: e.target.value })}
@@ -1586,7 +1586,7 @@ export default function BedLayoutFormDialog({
                         placeholder={wardChoice || context.wardId ? 'Choose a room' : 'Choose a unit first'}
                         allowCustom
                         customEntryTitle=""
-                        customPlaceholder="Search or type a room number"
+                        customPlaceholder="Search or type a room"
                         style={fieldSelectStyle}
                         maxH={240}
                     />
@@ -1613,7 +1613,7 @@ export default function BedLayoutFormDialog({
         },
         floor: { title: 'Floor', description: 'Pick a floor number, or type a name such as Ground.' },
         ward: { title: 'Unit details', description: 'Name the unit and choose who it serves.' },
-        room: { title: 'Room details', description: 'Use the number shown on the door.' },
+        room: { title: 'Room details', description: 'Use what’s shown on the door.' },
         bed: {
             title: kind === 'create' && bedsToCreate > 1 ? 'Beds' : 'Bed',
             description: kind === 'create'
@@ -1817,7 +1817,7 @@ export default function BedLayoutFormDialog({
                     {kind === 'create' && level === 'ward' && (
                         <Section step={stepOf('children')} title="Rooms in this unit" optional description="Add the rooms now, or later from the unit page.">
                             <ListShell
-                                header={['Room number', <>Name <OptionalTag /></>, '']}
+                                header={['Room', <>Name <OptionalTag /></>, '']}
                                 grid={ROOM_GRID}
                                 empty={childRooms.length ? undefined : 'No rooms yet. You can also add them later.'}
                                 footer={(
@@ -1834,7 +1834,7 @@ export default function BedLayoutFormDialog({
                                     return (
                                         <div key={`room-${index}`} className={cn('grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_32px] items-center gap-2 px-3 py-2.5', ROOM_GRID)}>
                                             <Input
-                                                aria-label="Room number"
+                                                aria-label="Room"
                                                 value={draft.number}
                                                 onChange={e => update({ ...draft, number: e.target.value })}
                                                 placeholder="e.g. 101"
