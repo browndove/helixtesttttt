@@ -1400,7 +1400,7 @@ export default function BedLayoutFormDialog({
                 <Input
                     value={draft.name}
                     onChange={e => update({ ...draft, name: e.target.value })}
-                    placeholder="e.g. Isolation room"
+                    placeholder="Type Room Name or Number"
                 />
             </div>
         </div>
@@ -1843,7 +1843,7 @@ export default function BedLayoutFormDialog({
                                                 aria-label="Room name"
                                                 value={draft.name}
                                                 onChange={e => update({ ...draft, name: e.target.value })}
-                                                placeholder="e.g. Isolation room"
+                                                placeholder="Type Room Name or Number"
                                             />
                                             <RemoveButton
                                                 label="Remove this room"
