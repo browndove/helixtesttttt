@@ -91,6 +91,9 @@ export const API_ENDPOINTS = {
   FACILITY: (id: string) => `/api/proxy/facilities/${id}`,
   FACILITY_CONVERSATION_RETENTION: (id: string) => `/api/proxy/facilities/${id}/conversation-retention`,
   FACILITY_EXTERNAL_MESSAGING: (id: string) => `/api/proxy/facilities/${id}/external-messaging`,
+  FACILITY_JOIN_CODE: (id: string) => `/api/proxy/facilities/${id}/join-code`,
+  FACILITY_JOIN_REQUESTS: (id: string) => `/api/proxy/facilities/${id}/join-requests`,
+  FACILITY_JOIN_DECIDE: (id: string, requestId: string) => `/api/proxy/facilities/${id}/join-requests/${requestId}/decide`,
 
   // Presence
   /** Proxies GET /api/v1/presence/online — pass ?client=admin|app. */

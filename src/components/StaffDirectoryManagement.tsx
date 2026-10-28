@@ -29,6 +29,7 @@ import {
     resolveClientFacilityId,
 } from '@/lib/facility-client';
 import { formatGhanaPhoneInput, isValidGhanaPhone } from '@/lib/phone';
+import JoinRequestsPanel, { fetchPendingJoinCount } from '@/components/staff/JoinRequestsPanel';
 
 const STAFF_PAGE_CACHE_TTL_MS = 120_000;
 const STAFF_CACHE_LIST = STAFF_CACHE_LIST_KEY;
@@ -96,6 +97,7 @@ function parseSortControlValue(v: string): { key: SortKey; dir: 'asc' | 'desc' }
 }
 
 type StaffToastVariant = 'success' | 'error' | 'info';
+type StaffTab = 'directory' | 'import' | 'join';
 type StaffToastState = {
     message: string;
     variant: StaffToastVariant;
@@ -1072,7 +1074,13 @@ export default function StaffDirectoryManagement() {
     const [editEmployeeId, setEditEmployeeId] = useState('');
     const [editAccountExpiresOn, setEditAccountExpiresOn] = useState('');
     const [savingEdit, setSavingEdit] = useState(false);
-    const [activeTab, setActiveTab] = useState<'directory' | 'import'>('directory');
+    const [activeTab, setActiveTab] = useState<StaffTab>('directory');
+    const [pendingJoinCount, setPendingJoinCount] = useState(0);
+    useEffect(() => {
+        let cancelled = false;
+        void fetchPendingJoinCount().then(count => { if (!cancelled) setPendingJoinCount(count); });
+        return () => { cancelled = true; };
+    }, []);
     const [showAddForm, setShowAddForm] = useState(false);
     const [newFirstName, setNewFirstName] = useState('');
     const [newMiddleName, setNewMiddleName] = useState('');
@@ -2343,7 +2351,7 @@ export default function StaffDirectoryManagement() {
             <div className="app-main">
                 <TopBar
                     title="Staff Management"
-                    subtitle="Directory & Import"
+                    subtitle="Directory, import & join requests"
                     search={activeTab === 'directory' ? { placeholder: 'Search by name, dept, or email...', value: search, onChange: setSearch } : undefined}
                     actions={
                         <div style={{ display: 'flex', gap: 8 }}>
@@ -2359,10 +2367,15 @@ export default function StaffDirectoryManagement() {
 
                 {/* Tabs */}
                 <div style={{ display: 'flex', gap: 0, borderBottom: '1px solid var(--border-default)', padding: '0 24px', background: '#fff' }}>
-                    {([['directory', 'groups', 'Staff Directory'], ['import', 'upload_file', 'Bulk Import']] as const).map(([id, icon, label]) => (
-                        <button key={id} onClick={() => setActiveTab(id as 'directory' | 'import')}
+                    {([['directory', 'groups', 'Staff Directory'], ['import', 'upload_file', 'Bulk Import'], ['join', 'how_to_reg', 'Join Requests']] as const).map(([id, icon, label]) => (
+                        <button key={id} onClick={() => setActiveTab(id)}
                             style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '10px 16px', fontSize: 13, fontWeight: activeTab === id ? 600 : 500, color: activeTab === id ? 'var(--helix-primary)' : 'var(--text-muted)', background: 'transparent', border: 'none', borderBottom: activeTab === id ? '2px solid var(--helix-primary)' : '2px solid transparent', cursor: 'pointer', transition: 'all 0.2s' }}>
                             <span className="material-icons-round" style={{ fontSize: 16 }}>{icon}</span>{label}
+                            {id === 'join' && pendingJoinCount > 0 && (
+                                <span style={{ minWidth: 18, height: 18, padding: '0 5px', borderRadius: 999, background: '#1E3A5F', color: '#fff', fontSize: 11, fontWeight: 700, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontVariantNumeric: 'tabular-nums' }}>
+                                    {pendingJoinCount}
+                                </span>
+                            )}
                         </button>
                     ))}
                 </div>
@@ -3727,6 +3740,10 @@ export default function StaffDirectoryManagement() {
                             </div>
                         )}
                     </div>
+                </main>
+                ) : activeTab === 'join' ? (
+                <main style={{ flex: 1, minWidth: 0, overflow: 'auto', padding: '20px 24px', background: 'var(--bg-900)' }}>
+                    <JoinRequestsPanel onNotify={showToast} onCountChange={setPendingJoinCount} />
                 </main>
                 ) : (
                 /* Bulk Import Tab */
