@@ -98,6 +98,8 @@ function parseSortControlValue(v: string): { key: SortKey; dir: 'asc' | 'desc' }
 
 type StaffToastVariant = 'success' | 'error' | 'info';
 type StaffTab = 'directory' | 'import' | 'join';
+/** Temporarily hide join-code / join-requests admin UI on Staff. Flip to true to restore. */
+const SHOW_JOIN_REQUESTS_UI = false;
 type StaffToastState = {
     message: string;
     variant: StaffToastVariant;
@@ -1077,6 +1079,10 @@ export default function StaffDirectoryManagement() {
     const [activeTab, setActiveTab] = useState<StaffTab>('directory');
     const [pendingJoinCount, setPendingJoinCount] = useState(0);
     useEffect(() => {
+        if (!SHOW_JOIN_REQUESTS_UI) {
+            setPendingJoinCount(0);
+            return;
+        }
         let cancelled = false;
         void fetchPendingJoinCount().then(count => { if (!cancelled) setPendingJoinCount(count); });
         return () => { cancelled = true; };
@@ -2351,7 +2357,7 @@ export default function StaffDirectoryManagement() {
             <div className="app-main">
                 <TopBar
                     title="Staff Management"
-                    subtitle="Directory, import & join requests"
+                    subtitle={SHOW_JOIN_REQUESTS_UI ? 'Directory, import & join requests' : 'Directory & import'}
                     search={activeTab === 'directory' ? { placeholder: 'Search by name, dept, or email...', value: search, onChange: setSearch } : undefined}
                     actions={
                         <div style={{ display: 'flex', gap: 8 }}>
@@ -2367,7 +2373,11 @@ export default function StaffDirectoryManagement() {
 
                 {/* Tabs */}
                 <div style={{ display: 'flex', gap: 0, borderBottom: '1px solid var(--border-default)', padding: '0 24px', background: '#fff' }}>
-                    {([['directory', 'groups', 'Staff Directory'], ['import', 'upload_file', 'Bulk Import'], ['join', 'how_to_reg', 'Join Requests']] as const).map(([id, icon, label]) => (
+                    {([
+                        ['directory', 'groups', 'Staff Directory'] as const,
+                        ['import', 'upload_file', 'Bulk Import'] as const,
+                        ...(SHOW_JOIN_REQUESTS_UI ? [['join', 'how_to_reg', 'Join Requests'] as const] : []),
+                    ]).map(([id, icon, label]) => (
                         <button key={id} onClick={() => setActiveTab(id)}
                             style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '10px 16px', fontSize: 13, fontWeight: activeTab === id ? 600 : 500, color: activeTab === id ? 'var(--helix-primary)' : 'var(--text-muted)', background: 'transparent', border: 'none', borderBottom: activeTab === id ? '2px solid var(--helix-primary)' : '2px solid transparent', cursor: 'pointer', transition: 'all 0.2s' }}>
                             <span className="material-icons-round" style={{ fontSize: 16 }}>{icon}</span>{label}
@@ -3741,7 +3751,7 @@ export default function StaffDirectoryManagement() {
                         )}
                     </div>
                 </main>
-                ) : activeTab === 'join' ? (
+                ) : SHOW_JOIN_REQUESTS_UI && activeTab === 'join' ? (
                 <main style={{ flex: 1, minWidth: 0, overflow: 'auto', padding: '20px 24px', background: 'var(--bg-900)' }}>
                     <JoinRequestsPanel onNotify={showToast} onCountChange={setPendingJoinCount} />
                 </main>
