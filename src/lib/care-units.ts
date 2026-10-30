@@ -168,3 +168,30 @@ export function unitIsUnmapped(unit: Pick<CareUnit, 'capacity_level' | 'rooms' |
     if (String(unit.capacity_level || '').toLowerCase() === 'unmapped') return true;
     return (unit.rooms?.length || 0) === 0 && (unit.bed_count || 0) === 0;
 }
+
+/**
+ * API capacity_label can lag thresholds (e.g. "almost full" at 100%). Prefer occupancy.
+ */
+export function unitCapacityLabel(
+    unit: Pick<CareUnit, 'capacity_label' | 'occupancy_percent' | 'available_count' | 'bed_count' | 'occupied_count'>,
+): string {
+    const raw = String(unit.capacity_label || '').trim();
+    const pct = typeof unit.occupancy_percent === 'number' && Number.isFinite(unit.occupancy_percent)
+        ? unit.occupancy_percent
+        : undefined;
+    const beds = unit.bed_count || 0;
+    const available = unit.available_count;
+    const occupied = unit.occupied_count || 0;
+    const isFull = (pct !== undefined && pct >= 100)
+        || (beds > 0 && typeof available === 'number' && available === 0 && occupied >= beds);
+
+    if (isFull) {
+        if (!raw) return 'Critical — full';
+        return raw
+            .replace(/\balmost\s+full\b/gi, 'full')
+            .replace(/\bnear(?:ly)?\s+full\b/gi, 'full')
+            .replace(/\s{2,}/g, ' ')
+            .trim();
+    }
+    return raw;
+}

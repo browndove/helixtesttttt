@@ -6,6 +6,7 @@ import { DEPARTMENT_DESCRIPTION_MAX_LENGTH, DEPARTMENT_NAME_MAX_LENGTH, UNIT_DES
 import {
     parseCareUnit,
     parseCareUnits,
+    unitCapacityLabel,
     unitIsUnmapped,
     type CareUnit,
 } from '@/lib/care-units';
@@ -26,9 +27,7 @@ import {
     parseFloor,
     wardTypeLabel,
     type Block,
-    type HierarchyBed,
 } from '@/lib/bed-hierarchy';
-import { BED_STATUS_META } from '@/components/bed-layout/bed-layout-ui';
 
 const DEPTS_PAGE_CACHE_TTL_MS = 120_000;
 const DEPTS_CACHE_HOSPITAL = '/api/proxy/hospital';
@@ -77,11 +76,6 @@ function unitBedsSummary(unit: UnitItem): string {
     const rooms = unit.room_count || unit.rooms?.length || 0;
     const roomBit = rooms > 0 ? `${rooms} room${rooms === 1 ? '' : 's'} · ` : '';
     return `${roomBit}${total} bed${total === 1 ? '' : 's'} · ${available} free`;
-}
-
-function bedStatusLabel(bed: HierarchyBed): string {
-    if (bed.status === 'blocked') return 'Out of service';
-    return BED_STATUS_META[bed.status]?.label || bed.status;
 }
 
 function withTypedOption(options: { label: string; value: string }[], current: string) {
@@ -136,6 +130,50 @@ function createdId(raw: unknown, kind: 'block' | 'floor'): string {
     const rec = raw as Record<string, unknown>;
     const parse = kind === 'block' ? parseBlock : parseFloor;
     return parse(raw)?.id || parse(rec[kind])?.id || parse(rec.data)?.id || '';
+}
+
+function locationFromUnit(
+    unit: Pick<UnitItem, 'block_id' | 'block_name' | 'floor_id' | 'floor_name'>,
+    blocks: Block[],
+): { building: string; floor: string } {
+    if (unit.floor_id) {
+        for (const block of blocks) {
+            const floor = block.floors.find(item => item.id === unit.floor_id);
+            if (!floor) continue;
+            return {
+                building: block.id,
+                floor: isHiddenFloor(floor.name) ? (unit.floor_name || '') : floor.name,
+            };
+        }
+    }
+    if (unit.block_id) {
+        const block = blocks.find(item => item.id === unit.block_id);
+        return { building: block?.id || unit.block_id, floor: unit.floor_name || '' };
+    }
+    const blockName = (unit.block_name || '').trim().toLowerCase();
+    if (blockName) {
+        const block = blocks.find(item => item.name.trim().toLowerCase() === blockName);
+        if (block) return { building: block.id, floor: unit.floor_name || '' };
+    }
+    return { building: unit.block_name || '', floor: unit.floor_name || '' };
+}
+
+function floorSelectOptions(building: Block | null | undefined, currentFloor: string) {
+    const existing = (building?.floors || [])
+        .filter(floor => !isHiddenFloor(floor.name))
+        .sort((a, b) => b.name.localeCompare(a.name, undefined, { numeric: true, sensitivity: 'base' }));
+    const used = new Set(existing.map(floor => floor.name.trim().toLowerCase()));
+    const numbers = Array.from({ length: 10 }, (_, i) => String(i + 1))
+        .filter(value => !used.has(value));
+    const options = [
+        ...existing.map(floor => ({ label: floor.name, value: floor.name })),
+        ...numbers.map(value => ({ label: value, value })),
+    ];
+    const typed = currentFloor.trim();
+    if (typed && !options.some(option => option.value.toLowerCase() === typed.toLowerCase())) {
+        return [{ label: typed, value: typed }, ...options];
+    }
+    return options;
 }
 
 function normalizeDepartment(raw: Partial<Department> & Record<string, unknown>): Department {
@@ -193,6 +231,8 @@ export default function DepartmentsManagement() {
     const [unitDetailCode, setUnitDetailCode] = useState('');
     const [unitDetailType, setUnitDetailType] = useState('');
     const [unitDetailGender, setUnitDetailGender] = useState('');
+    const [unitDetailBuilding, setUnitDetailBuilding] = useState('');
+    const [unitDetailFloor, setUnitDetailFloor] = useState('');
     const [unitDetailLoading, setUnitDetailLoading] = useState(false);
     const [savingUnitDetails, setSavingUnitDetails] = useState(false);
     const [deleteInProgress, setDeleteInProgress] = useState(false);
@@ -392,12 +432,23 @@ export default function DepartmentsManagement() {
         };
     }, [editingDept, showToast, fetchUnits]);
 
-    const applyUnitDetail = (unit: { name?: string; description?: string; code?: string; type?: string; gender_restriction?: string; department_id?: string }) => {
+    const applyUnitDetail = (
+        unit: Partial<UnitItem>,
+        blocks: Block[] = layoutBlocks,
+    ) => {
         setUnitDetailName(unit.name || '');
         setUnitDetailDescription(unit.description || '');
         setUnitDetailCode(optionalFromApi(unit.code));
         setUnitDetailType(optionalFromApi(unit.type));
         setUnitDetailGender(unit.gender_restriction || '');
+        const loc = locationFromUnit({
+            block_id: unit.block_id,
+            block_name: unit.block_name,
+            floor_id: unit.floor_id,
+            floor_name: unit.floor_name,
+        }, blocks);
+        setUnitDetailBuilding(loc.building);
+        setUnitDetailFloor(loc.floor);
     };
 
     useEffect(() => {
@@ -436,7 +487,17 @@ export default function DepartmentsManagement() {
             cancelled = true;
             ac.abort();
         };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- hydrate fields when the selected unit changes
     }, [editingUnit, showToast]);
+
+    useEffect(() => {
+        if (!editingUnit || layoutBlocks.length === 0) return;
+        const unit = unitsRef.current.find(u => u.id === editingUnit);
+        if (!unit) return;
+        const loc = locationFromUnit(unit, layoutBlocks);
+        if (loc.building) setUnitDetailBuilding(prev => prev || loc.building);
+        if (loc.floor) setUnitDetailFloor(prev => prev || loc.floor);
+    }, [editingUnit, layoutBlocks]);
 
     const resetNewDepartmentForm = () => {
         setNewDeptName('');
@@ -457,18 +518,20 @@ export default function DepartmentsManagement() {
         () => layoutBlocks.filter(block => block.name.trim().toLowerCase() !== 'unassigned'),
         [layoutBlocks],
     );
-    const selectedBuilding = savedBuildings.find(block => block.id === newUnitBuilding) || null;
+    const selectedBuilding = savedBuildings.find(block => (
+        block.id === newUnitBuilding
+        || block.name.trim().toLowerCase() === newUnitBuilding.trim().toLowerCase()
+    )) || null;
+    const selectedEditBuilding = savedBuildings.find(block => (
+        block.id === unitDetailBuilding
+        || block.name.trim().toLowerCase() === unitDetailBuilding.trim().toLowerCase()
+    )) || null;
+    const editBuildingFloorOptions = useMemo(
+        () => floorSelectOptions(selectedEditBuilding, unitDetailFloor),
+        [selectedEditBuilding, unitDetailFloor],
+    );
     const buildingFloorOptions = useMemo(() => {
-        const existing = (selectedBuilding?.floors || [])
-            .filter(floor => !isHiddenFloor(floor.name))
-            .sort((a, b) => b.name.localeCompare(a.name, undefined, { numeric: true, sensitivity: 'base' }));
-        const used = new Set(existing.map(floor => floor.name.trim().toLowerCase()));
-        const numbers = Array.from({ length: 10 }, (_, i) => String(i + 1))
-            .filter(value => !used.has(value));
-        const options = [
-            ...existing.map(floor => ({ label: floor.name, value: floor.name })),
-            ...numbers.map(value => ({ label: value, value })),
-        ];
+        const options = floorSelectOptions(selectedBuilding, newUnitFloor);
         const typed = newUnitFloor.trim();
         if (typed && !options.some(option => option.value.toLowerCase() === typed.toLowerCase())) {
             return [{ label: typed, value: typed }, ...options];
@@ -715,9 +778,63 @@ export default function DepartmentsManagement() {
             showToast(`Description must be ${UNIT_DESCRIPTION_MAX_LENGTH} characters or fewer`);
             return;
         }
+        if (!unitDetailBuilding.trim()) {
+            showToast('Building is required');
+            return;
+        }
+        if (!unitDetailFloor.trim()) {
+            showToast('Floor is required');
+            return;
+        }
         const descTrimmed = unitDetailDescription.trim();
         setSavingUnitDetails(true);
         try {
+            const postJson = async (path: string, body: Record<string, unknown>) => {
+                const url = await appendFacilityIdForProxy(path);
+                const res = await fetch(url, {
+                    method: 'POST',
+                    credentials: 'include',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body),
+                });
+                const raw = await res.json().catch(() => ({}));
+                return { res, raw };
+            };
+
+            let blockId = savedBuildings.find(block => block.id === unitDetailBuilding)?.id || '';
+            if (!blockId) {
+                const named = savedBuildings.find(block => block.name.trim().toLowerCase() === unitDetailBuilding.trim().toLowerCase());
+                blockId = named?.id || '';
+            }
+            if (!blockId) {
+                const { res, raw } = await postJson(API_ENDPOINTS.BLOCKS, { name: unitDetailBuilding.trim() });
+                blockId = createdId(raw, 'block');
+                if (!blockId && (res.status === 409 || /already exists/i.test(apiError(raw, '')))) {
+                    const refreshed = await loadLayoutBlocks();
+                    blockId = refreshed.find(block => block.name.trim().toLowerCase() === unitDetailBuilding.trim().toLowerCase())?.id || '';
+                }
+                if (!res.ok && !blockId) throw new Error(apiError(raw, 'Failed to add building'));
+                if (!blockId) throw new Error('Building was created, but its id could not be read');
+            }
+
+            const knownBlocks = layoutBlocks.some(block => block.id === blockId) ? layoutBlocks : await loadLayoutBlocks();
+            const parent = knownBlocks.find(block => block.id === blockId);
+            let floorId = (parent?.floors || []).find(floor => (
+                !isHiddenFloor(floor.name) && floor.name.trim().toLowerCase() === unitDetailFloor.trim().toLowerCase()
+            ))?.id || '';
+            if (!floorId) {
+                const { res, raw } = await postJson(API_ENDPOINTS.BLOCK_FLOORS(blockId), { name: unitDetailFloor.trim() });
+                floorId = createdId(raw, 'floor');
+                if (!floorId && (res.status === 409 || /already exists/i.test(apiError(raw, '')))) {
+                    const refreshed = await loadLayoutBlocks();
+                    floorId = refreshed
+                        .find(block => block.id === blockId)?.floors
+                        .find(floor => floor.name.trim().toLowerCase() === unitDetailFloor.trim().toLowerCase())?.id || '';
+                }
+                if (!res.ok && !floorId) throw new Error(apiError(raw, 'Failed to add floor'));
+                if (!floorId) throw new Error('Floor was created, but its id could not be read');
+            }
+
             const res = await fetch(`/api/proxy/units/${u.id}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
@@ -727,6 +844,7 @@ export default function DepartmentsManagement() {
                     code: optionalForApi(unitDetailCode),
                     type: optionalForApi(unitDetailType),
                     gender_restriction: unitDetailGender,
+                    floor_id: floorId,
                     ...(u.department_id ? { department_id: u.department_id } : {}),
                 }),
             });
@@ -755,6 +873,10 @@ export default function DepartmentsManagement() {
             const updatedType = optionalFromApi(parsed?.type ?? (typeof body.type === 'string' ? body.type : unitDetailType));
             const updatedGender = parsed?.gender_restriction
                 ?? (typeof body.gender_restriction === 'string' ? body.gender_restriction : unitDetailGender);
+            const blockName = parent?.name
+                || knownBlocks.find(block => block.id === blockId)?.name
+                || unitDetailBuilding.trim();
+            const floorName = unitDetailFloor.trim();
             setUnits(prev => prev.map(x => {
                 if (x.id !== u.id) return x;
                 if (parsed) {
@@ -767,6 +889,10 @@ export default function DepartmentsManagement() {
                         code: updatedCode,
                         type: updatedType,
                         gender_restriction: updatedGender,
+                        block_id: parsed.block_id || blockId,
+                        block_name: parsed.block_name || blockName,
+                        floor_id: parsed.floor_id || floorId,
+                        floor_name: parsed.floor_name || floorName,
                         department_name: parsed.department_name
                             || departments.find(dept => dept.id === (parsed.department_id || x.department_id))?.name
                             || x.department_name,
@@ -785,6 +911,10 @@ export default function DepartmentsManagement() {
                     code: updatedCode,
                     type: updatedType,
                     gender_restriction: updatedGender,
+                    block_id: blockId,
+                    block_name: blockName,
+                    floor_id: floorId,
+                    floor_name: floorName,
                 };
             }));
             setUnitDetailName(updatedName);
@@ -792,9 +922,12 @@ export default function DepartmentsManagement() {
             setUnitDetailCode(updatedCode);
             setUnitDetailType(updatedType);
             setUnitDetailGender(updatedGender);
+            setUnitDetailBuilding(blockId);
+            setUnitDetailFloor(floorName);
             showToast('Unit updated');
-        } catch {
-            showToast('Failed to update unit');
+            void loadLayoutBlocks();
+        } catch (err) {
+            showToast(err instanceof Error ? err.message : 'Failed to update unit');
         } finally {
             setSavingUnitDetails(false);
         }
@@ -909,13 +1042,22 @@ export default function DepartmentsManagement() {
         && (detailName.trim() !== editDept.name
             || detailDescription.trim() !== (editDept.description || '').trim()),
     );
+    const editUnitLocation = editUnit ? locationFromUnit(editUnit, layoutBlocks) : { building: '', floor: '' };
+    const buildingKey = (value: string) => {
+        const match = savedBuildings.find(block => (
+            block.id === value || block.name.trim().toLowerCase() === value.trim().toLowerCase()
+        ));
+        return match ? match.id : value.trim().toLowerCase();
+    };
     const unitDetailsDirty = Boolean(
         editUnit
         && (unitDetailName.trim() !== editUnit.name
             || unitDetailDescription.trim() !== (editUnit.description || '').trim()
             || unitDetailCode.trim() !== optionalFromApi(editUnit.code)
             || unitDetailType.trim() !== optionalFromApi(editUnit.type)
-            || unitDetailGender !== (editUnit.gender_restriction || '')),
+            || unitDetailGender !== (editUnit.gender_restriction || '')
+            || buildingKey(unitDetailBuilding) !== buildingKey(editUnitLocation.building)
+            || unitDetailFloor.trim().toLowerCase() !== editUnitLocation.floor.trim().toLowerCase()),
     );
 
     if (loading) {
@@ -1400,7 +1542,7 @@ export default function DepartmentsManagement() {
                                                         textOverflow: 'ellipsis',
                                                     }}>
                                                         {unitBedsSummary(u)}
-                                                        {u.capacity_label && !unitIsUnmapped(u) ? ` · ${u.capacity_label}` : ''}
+                                                        {!unitIsUnmapped(u) && unitCapacityLabel(u) ? ` · ${unitCapacityLabel(u)}` : ''}
                                                     </div>
                                                 </div>
                                             </button>
@@ -1624,6 +1766,49 @@ export default function DepartmentsManagement() {
                                             />
                                             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12, marginBottom: 12 }}>
                                                 <div>
+                                                    <span className="label" style={{ marginBottom: 6, display: 'block' }}>Building / block</span>
+                                                    <CustomSelect
+                                                        value={unitDetailBuilding}
+                                                        onChange={next => {
+                                                            const match = savedBuildings.find(block => block.id === next || block.name.trim().toLowerCase() === next.trim().toLowerCase());
+                                                            setUnitDetailBuilding(match ? match.id : next);
+                                                            setUnitDetailFloor('');
+                                                        }}
+                                                        disabled={unitDetailLoading || savingUnitDetails}
+                                                        options={(() => {
+                                                            const listed = savedBuildings.map(block => ({ label: block.name, value: block.id }));
+                                                            const typed = unitDetailBuilding.trim();
+                                                            if (typed && !savedBuildings.some(block => block.id === typed || block.name.trim().toLowerCase() === typed.toLowerCase())) {
+                                                                return [{ label: typed, value: typed }, ...listed];
+                                                            }
+                                                            return listed;
+                                                        })()}
+                                                        placeholder="Select a building"
+                                                        allowCustom
+                                                        customEntryTitle="Custom building"
+                                                        customEntryHint="Not listed? Type here, then Enter."
+                                                        customPlaceholder="Type building — Enter"
+                                                        style={{ width: '100%', height: 40, fontSize: 13 }}
+                                                        maxH={280}
+                                                    />
+                                                </div>
+                                                <div>
+                                                    <span className="label" style={{ marginBottom: 6, display: 'block' }}>Floor</span>
+                                                    <CustomSelect
+                                                        value={unitDetailFloor}
+                                                        onChange={setUnitDetailFloor}
+                                                        disabled={unitDetailLoading || savingUnitDetails || !unitDetailBuilding.trim()}
+                                                        options={editBuildingFloorOptions}
+                                                        placeholder={unitDetailBuilding.trim() ? 'Select a floor' : 'Select a building first'}
+                                                        allowCustom
+                                                        customEntryTitle="Custom floor"
+                                                        customEntryHint="Not listed? Type here, then Enter."
+                                                        customPlaceholder="Type floor — Enter"
+                                                        style={{ width: '100%', height: 40, fontSize: 13 }}
+                                                        maxH={280}
+                                                    />
+                                                </div>
+                                                <div>
                                                     <span className="label" style={{ marginBottom: 6, display: 'block' }}>Unit code</span>
                                                     <input
                                                         className="input"
@@ -1713,18 +1898,36 @@ export default function DepartmentsManagement() {
                                             </div>
                                         </div>
 
-                                        <div className="card" style={{ padding: '16px 18px', margin: '16px 0 0', background: 'var(--surface-2)', border: '1px solid var(--border-subtle)', minWidth: 0, maxWidth: '100%' }}>
-                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
-                                                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Beds & rooms</div>
+                                        <div
+                                            style={{
+                                                padding: '18px 18px 16px',
+                                                margin: '16px 0 0',
+                                                background: 'linear-gradient(180deg, #FFFFFF 0%, #F8FAFC 100%)',
+                                                border: '1px solid rgba(15, 23, 42, 0.06)',
+                                                borderRadius: 16,
+                                                boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.95), 0 1px 2px rgba(15,23,42,0.04), 0 14px 32px -16px rgba(15,23,42,0.16)',
+                                                minWidth: 0,
+                                                maxWidth: '100%',
+                                            }}
+                                        >
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
+                                                <div style={{ fontSize: 11, fontWeight: 700, color: '#64748B', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Beds & rooms</div>
                                                 <span style={{
-                                                    fontSize: 11,
+                                                    fontSize: 11.5,
                                                     fontWeight: 650,
-                                                    color: unitIsUnmapped(editUnit) ? 'var(--text-muted)' : (editUnit.capacity_color || 'var(--text-secondary)'),
+                                                    padding: '4px 10px',
+                                                    borderRadius: 999,
+                                                    background: unitIsUnmapped(editUnit) ? '#F1F5F9' : 'rgba(255,255,255,0.9)',
+                                                    color: unitIsUnmapped(editUnit) ? '#64748B' : (editUnit.capacity_color || '#475569'),
+                                                    boxShadow: unitIsUnmapped(editUnit)
+                                                        ? 'none'
+                                                        : 'inset 0 1px 0 rgba(255,255,255,0.9), 0 1px 2px rgba(15,23,42,0.06), 0 6px 14px -8px rgba(15,23,42,0.18)',
+                                                    border: '1px solid rgba(15, 23, 42, 0.06)',
                                                 }}>
                                                     {unitIsUnmapped(editUnit)
                                                         ? 'Unmapped'
                                                         : [
-                                                            editUnit.capacity_label,
+                                                            unitCapacityLabel(editUnit),
                                                             typeof editUnit.occupancy_percent === 'number' ? `${Math.round(editUnit.occupancy_percent)}% occupied` : '',
                                                         ].filter(Boolean).join(' · ') || unitBedsSummary(editUnit)}
                                                 </span>
@@ -1735,19 +1938,57 @@ export default function DepartmentsManagement() {
                                                 </div>
                                             ) : (
                                                 <>
-                                                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(96px, 1fr))', gap: 8, marginBottom: (editUnit.rooms?.length || 0) ? 14 : 0 }}>
+                                                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 12, marginBottom: (editUnit.rooms?.length || 0) ? 16 : 0, paddingTop: 2 }}>
                                                         {[
-                                                            { label: 'Total', value: String(editUnit.bed_count || 0), color: 'var(--text-primary)' },
-                                                            { label: 'Available', value: String(editUnit.available_count || 0), color: '#17803D' },
-                                                            { label: 'Occupied', value: String(editUnit.occupied_count || 0), color: '#1D4ED8' },
-                                                            { label: 'Out of service', value: String(editUnit.blocked_count || 0), color: '#6B7280' },
+                                                            { label: 'Total', value: String(editUnit.bed_count || 0), color: '#0F172A', dot: '#94A3B8', float: false },
+                                                            { label: 'Available', value: String(editUnit.available_count || 0), color: '#059669', dot: '#10B981', float: true },
+                                                            { label: 'Occupied', value: String(editUnit.occupied_count || 0), color: '#1D4ED8', dot: '#3B82F6', float: false },
+                                                            { label: 'Out of service', value: String(editUnit.blocked_count || 0), color: '#64748B', dot: '#94A3B8', float: false },
                                                             ...(typeof editUnit.patient_count === 'number'
-                                                                ? [{ label: 'Patients', value: String(editUnit.patient_count), color: 'var(--text-primary)' }]
+                                                                ? [{ label: 'Patients', value: String(editUnit.patient_count), color: '#0F172A', dot: '#64748B', float: false }]
                                                                 : []),
                                                         ].map(stat => (
-                                                            <div key={stat.label} style={{ background: 'var(--surface-card)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)', padding: '10px 12px', minWidth: 0 }}>
-                                                                <div style={{ fontSize: 10.5, fontWeight: 650, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{stat.label}</div>
-                                                                <div style={{ fontSize: 18, fontWeight: 700, color: stat.color, marginTop: 4, fontVariantNumeric: 'tabular-nums' }}>{stat.value}</div>
+                                                            <div
+                                                                key={stat.label}
+                                                                style={{
+                                                                    background: '#FFFFFF',
+                                                                    border: '1px solid rgba(15, 23, 42, 0.06)',
+                                                                    borderRadius: 14,
+                                                                    padding: '12px 14px 11px',
+                                                                    minWidth: 0,
+                                                                    transform: stat.float ? 'translateY(-3px)' : undefined,
+                                                                    boxShadow: stat.float
+                                                                        ? 'inset 0 1px 0 #fff, 0 2px 4px rgba(15,23,42,0.04), 0 16px 32px -14px rgba(15,23,42,0.18), 0 28px 48px -24px rgba(15,23,42,0.14)'
+                                                                        : 'inset 0 1px 0 rgba(255,255,255,0.9), 0 1px 2px rgba(15,23,42,0.05), 0 10px 22px -12px rgba(15,23,42,0.12)',
+                                                                }}
+                                                            >
+                                                                <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 8 }}>
+                                                                    <span
+                                                                        aria-hidden
+                                                                        style={{
+                                                                            width: 7,
+                                                                            height: 7,
+                                                                            borderRadius: '50%',
+                                                                            background: stat.dot,
+                                                                            boxShadow: `0 0 0 3px ${stat.dot}22`,
+                                                                            flexShrink: 0,
+                                                                        }}
+                                                                    />
+                                                                    <div style={{ fontSize: 10.5, fontWeight: 650, color: '#64748B', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                                                                        {stat.label}
+                                                                    </div>
+                                                                </div>
+                                                                <div style={{
+                                                                    fontSize: 28,
+                                                                    fontWeight: 650,
+                                                                    color: stat.color,
+                                                                    lineHeight: 1,
+                                                                    letterSpacing: '-0.03em',
+                                                                    fontVariantNumeric: 'tabular-nums',
+                                                                    textShadow: '0 1px 1px rgba(15,23,42,0.06)',
+                                                                }}>
+                                                                    {stat.value}
+                                                                </div>
                                                             </div>
                                                         ))}
                                                     </div>
@@ -1757,67 +1998,49 @@ export default function DepartmentsManagement() {
                                                                 <div
                                                                     key={room.id}
                                                                     style={{
-                                                                        padding: '12px 12px 10px',
-                                                                        background: 'var(--surface-card)',
-                                                                        border: '1px solid var(--border-subtle)',
-                                                                        borderRadius: 'var(--radius-md)',
+                                                                        padding: '13px 14px',
+                                                                        background: '#FFFFFF',
+                                                                        border: '1px solid rgba(15, 23, 42, 0.06)',
+                                                                        borderRadius: 14,
                                                                         minWidth: 0,
+                                                                        boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.9), 0 1px 2px rgba(15,23,42,0.04), 0 8px 18px -12px rgba(15,23,42,0.12)',
                                                                     }}
                                                                 >
-                                                                    <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, marginBottom: room.beds.length ? 10 : 0 }}>
+                                                                    <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
                                                                         <div style={{ minWidth: 0 }}>
-                                                                            <div style={{ fontSize: 13, fontWeight: 650, color: 'var(--text-primary)' }}>
+                                                                            <div style={{ fontSize: 13.5, fontWeight: 650, color: '#0F172A' }}>
                                                                                 Room {room.number}{room.name ? ` · ${room.name}` : ''}
                                                                             </div>
-                                                                            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
+                                                                            <div style={{ fontSize: 11.5, color: '#64748B', marginTop: 3 }}>
                                                                                 {room.bed_count} bed{room.bed_count === 1 ? '' : 's'}
                                                                             </div>
                                                                         </div>
-                                                                        <div style={{ display: 'flex', gap: 10, flexShrink: 0, fontSize: 11.5, fontWeight: 650, fontVariantNumeric: 'tabular-nums' }}>
-                                                                            <span style={{ color: '#17803D' }}>{room.available_count} free</span>
-                                                                            <span style={{ color: '#1D4ED8' }}>{room.occupied_count} occ</span>
-                                                                            <span style={{ color: '#6B7280' }}>{room.blocked_count} out</span>
+                                                                        <div style={{ display: 'flex', gap: 10, flexShrink: 0, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                                                                            {[
+                                                                                { label: 'available', value: room.available_count, color: '#059669', bg: '#ECFDF5' },
+                                                                                { label: 'occupied', value: room.occupied_count, color: '#1D4ED8', bg: '#EFF6FF' },
+                                                                                { label: 'out of service', value: room.blocked_count, color: '#64748B', bg: '#F8FAFC' },
+                                                                            ].map(chip => (
+                                                                                <span
+                                                                                    key={chip.label}
+                                                                                    style={{
+                                                                                        fontSize: 11.5,
+                                                                                        fontWeight: 650,
+                                                                                        fontVariantNumeric: 'tabular-nums',
+                                                                                        whiteSpace: 'nowrap',
+                                                                                        color: chip.color,
+                                                                                        background: chip.bg,
+                                                                                        border: '1px solid rgba(15, 23, 42, 0.05)',
+                                                                                        borderRadius: 999,
+                                                                                        padding: '4px 9px',
+                                                                                        boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.8), 0 1px 2px rgba(15,23,42,0.04)',
+                                                                                    }}
+                                                                                >
+                                                                                    {chip.value} {chip.label}
+                                                                                </span>
+                                                                            ))}
                                                                         </div>
                                                                     </div>
-                                                                    {room.beds.length > 0 ? (
-                                                                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                                                                            {room.beds.map(bed => {
-                                                                                const meta = BED_STATUS_META[bed.status] || BED_STATUS_META.available;
-                                                                                return (
-                                                                                    <div
-                                                                                        key={bed.id}
-                                                                                        title={bedStatusLabel(bed)}
-                                                                                        style={{
-                                                                                            display: 'inline-flex',
-                                                                                            alignItems: 'center',
-                                                                                            gap: 6,
-                                                                                            padding: '5px 8px',
-                                                                                            borderRadius: 8,
-                                                                                            border: `1px solid ${meta.border}`,
-                                                                                            background: meta.bg,
-                                                                                            minWidth: 0,
-                                                                                        }}
-                                                                                    >
-                                                                                        <span style={{ width: 6, height: 6, borderRadius: '50%', background: meta.dot, flexShrink: 0 }} />
-                                                                                        <span style={{ fontSize: 12, fontWeight: 700, color: '#101828', fontVariantNumeric: 'tabular-nums' }}>
-                                                                                            {bed.bed_number}
-                                                                                        </span>
-                                                                                        {bed.bed_code ? (
-                                                                                            <span style={{ fontSize: 10.5, fontWeight: 600, color: meta.fg, maxWidth: 88, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                                                                                {bed.bed_code}
-                                                                                            </span>
-                                                                                        ) : (
-                                                                                            <span style={{ fontSize: 10.5, fontWeight: 600, color: meta.fg }}>
-                                                                                                {bedStatusLabel(bed)}
-                                                                                            </span>
-                                                                                        )}
-                                                                                    </div>
-                                                                                );
-                                                                            })}
-                                                                        </div>
-                                                                    ) : (
-                                                                        <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>No beds listed for this room.</div>
-                                                                    )}
                                                                 </div>
                                                             ))}
                                                         </div>
