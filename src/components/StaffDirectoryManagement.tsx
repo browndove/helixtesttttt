@@ -24,11 +24,13 @@ import {
     appendFacilityIdToProxyUrl,
     clearClientFacilityIdCache,
     getCachedClientFacilityId,
+    isClientInternalSupportMode,
     readClientSupportModeFromDocument,
     readHelixFacilityIdFromDocument,
     resolveClientFacilityId,
 } from '@/lib/facility-client';
 import { formatGhanaPhoneInput, isValidGhanaPhone } from '@/lib/phone';
+import { fetchLoggedOutMatchKeys, isStaffLoggedOut } from '@/lib/logged-out-users';
 import JoinRequestsPanel, { fetchPendingJoinCount } from '@/components/staff/JoinRequestsPanel';
 
 const STAFF_PAGE_CACHE_TTL_MS = 120_000;
@@ -1141,6 +1143,31 @@ export default function StaffDirectoryManagement() {
     const fileInputRef = useRef<HTMLInputElement | null>(null);
     const toastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const { onlineIdSet, lastSeenByKey } = useFacilityPresence({ enabled: activeTab === 'directory' });
+    const [loggedOutKeys, setLoggedOutKeys] = useState<Set<string>>(() => new Set());
+
+    useEffect(() => {
+        if (activeTab !== 'directory') return;
+        let cancelled = false;
+        void (async () => {
+            const support = await isClientInternalSupportMode();
+            if (!support || cancelled) {
+                if (!cancelled) setLoggedOutKeys(new Set());
+                return;
+            }
+            const facilityId = await resolveClientFacilityId();
+            if (!facilityId || cancelled) {
+                if (!cancelled) setLoggedOutKeys(new Set());
+                return;
+            }
+            try {
+                const keys = await fetchLoggedOutMatchKeys(facilityId);
+                if (!cancelled) setLoggedOutKeys(keys);
+            } catch {
+                if (!cancelled) setLoggedOutKeys(new Set());
+            }
+        })();
+        return () => { cancelled = true; };
+    }, [activeTab]);
 
     const dismissToast = useCallback(() => {
         if (toastTimeoutRef.current) {
@@ -2729,6 +2756,9 @@ export default function StaffDirectoryManagement() {
                                             <th style={{ ...staffHeadCell, minWidth: 140, whiteSpace: 'nowrap', background: '#fafbfc', borderBottom: '1px solid var(--border-default)' }}>Patient Access</th>
                                             <th style={{ ...staffHeadCell, minWidth: 120, whiteSpace: 'nowrap', background: '#fafbfc', borderBottom: '1px solid var(--border-default)' }}>Scheduler</th>
                                             <th style={{ ...staffHeadCell, minWidth: 88, whiteSpace: 'nowrap', cursor: 'pointer', background: '#fafbfc', borderBottom: '1px solid var(--border-default)' }} onClick={() => toggleSort('status')}>Status {sortKey === 'status' && (sortDir === 'asc' ? '↑' : '↓')}</th>
+                                            {loggedOutKeys.size > 0 ? (
+                                                <th style={{ ...staffHeadCell, minWidth: 108, whiteSpace: 'nowrap', background: '#fafbfc', borderBottom: '1px solid var(--border-default)' }} title="Mobile app session">Mobile</th>
+                                            ) : null}
                                             <th style={{ ...staffHeadCell, minWidth: 88, whiteSpace: 'nowrap', cursor: 'pointer', background: '#fafbfc', borderBottom: '1px solid var(--border-default)' }} onClick={() => toggleSort('last_seen')}>Last seen {sortKey === 'last_seen' && (sortDir === 'asc' ? '↑' : '↓')}</th>
                                             <th style={{ ...staffHeadCell, width: 72, minWidth: 72, background: '#fafbfc', borderBottom: '1px solid var(--border-default)' }} />
                                         </tr>
@@ -2736,7 +2766,7 @@ export default function StaffDirectoryManagement() {
                                     <tbody>
                                         {loading && filtered.length === 0 && (
                                             <tr>
-                                                <td colSpan={12} style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--text-muted)', fontSize: 13 }}>
+                                                <td colSpan={loggedOutKeys.size > 0 ? 13 : 12} style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--text-muted)', fontSize: 13 }}>
                                                     <span className="material-icons-round" style={{ fontSize: 24, display: 'block', marginBottom: 8, opacity: 0.4 }}>hourglass_empty</span>
                                                     Loading staff from server...
                                                 </td>
@@ -2744,7 +2774,7 @@ export default function StaffDirectoryManagement() {
                                         )}
                                         {!loading && fetchError && filtered.length === 0 && (
                                             <tr>
-                                                <td colSpan={12} style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--text-muted)', fontSize: 13 }}>
+                                                <td colSpan={loggedOutKeys.size > 0 ? 13 : 12} style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--text-muted)', fontSize: 13 }}>
                                                     <span className="material-icons-round" style={{ fontSize: 24, display: 'block', marginBottom: 8, color: 'var(--critical)' }}>cloud_off</span>
                                                     <div style={{ fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>Could not load staff</div>
                                                     <div style={{ marginBottom: 12 }}>The server is unreachable. Check your connection and try again.</div>
@@ -2756,7 +2786,7 @@ export default function StaffDirectoryManagement() {
                                         )}
                                         {!loading && !fetchError && filtered.length === 0 && (
                                             <tr>
-                                                <td colSpan={12} style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--text-muted)', fontSize: 13 }}>
+                                                <td colSpan={loggedOutKeys.size > 0 ? 13 : 12} style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--text-muted)', fontSize: 13 }}>
                                                     <span className="material-icons-round" style={{ fontSize: 24, display: 'block', marginBottom: 8, opacity: 0.4 }}>person_off</span>
                                                     {search || deptFilter !== 'all' || statusFilter !== 'all' ? 'No staff match your filters.' : 'No staff members yet. Add staff above to get started.'}
                                                 </td>
@@ -2767,6 +2797,7 @@ export default function StaffDirectoryManagement() {
                                             const isSelected = selected?.id === s.id;
                                             const rowBg = isSelected ? '#edf1f7' : '#ffffff';
                                             const online = isStaffOnline(s, onlineIdSet);
+                                            const loggedOut = !online && isStaffLoggedOut(s, loggedOutKeys);
                                             const lastSeenLabel = formatLastSeenAgo(staffLastSeenMs(s, lastSeenByKey));
                                             return (
                                                 <tr
@@ -2877,6 +2908,21 @@ export default function StaffDirectoryManagement() {
                                                     <td style={{ ...staffBodyCell, minWidth: 88, background: rowBg, borderBottom: '1px solid var(--border-subtle)' }}>
                                                         <span className="badge" style={{ background: st.bg, color: st.color }}>{st.label}</span>
                                                     </td>
+                                                    {loggedOutKeys.size > 0 ? (
+                                                        <td style={{ ...staffBodyCell, minWidth: 108, whiteSpace: 'nowrap', background: rowBg, borderBottom: '1px solid var(--border-subtle)' }}>
+                                                            {loggedOut ? (
+                                                                <span
+                                                                    className="badge"
+                                                                    title="No live mobile app session"
+                                                                    style={{ background: '#FEF3C7', color: '#92400E' }}
+                                                                >
+                                                                    Logged out
+                                                                </span>
+                                                            ) : (
+                                                                <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>—</span>
+                                                            )}
+                                                        </td>
+                                                    ) : null}
                                                     <td style={{ ...staffBodyCell, minWidth: 76, background: rowBg, borderBottom: '1px solid var(--border-subtle)' }}>
                                                         <span
                                                             style={{
@@ -3110,6 +3156,15 @@ export default function StaffDirectoryManagement() {
                                         </span>
                                             );
                                         })()}
+                                        {!isStaffOnline(selected, onlineIdSet) && isStaffLoggedOut(selected, loggedOutKeys) ? (
+                                            <span
+                                                title="No live mobile app session"
+                                                style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11, fontWeight: 600, padding: '4px 10px', borderRadius: 999, border: '1px solid #FCD34D', background: '#FEF3C7', color: '#92400E' }}
+                                            >
+                                                <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#D97706' }} aria-hidden />
+                                                Logged out
+                                            </span>
+                                        ) : null}
                                         <span style={{ fontSize: 11, fontWeight: 600, padding: '4px 10px', borderRadius: 999, background: '#FEF9C3', color: '#854D0E', border: '1px solid #FDE047', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 160 }} title={selected.job_title}>
                                             {selected.job_title || 'Role'}
                                         </span>

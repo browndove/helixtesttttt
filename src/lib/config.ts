@@ -44,6 +44,7 @@ export const API_ENDPOINTS = {
   INTERNAL_FEATURE_USAGE_METRICS: `/api/proxy/internal/feature-usage-metrics`,
   INTERNAL_LEADERBOARD_METRICS: `/api/proxy/internal/leaderboard-metrics`,
   INTERNAL_LEADERBOARD_USER: (id: string) => `/api/proxy/internal/leaderboard-metrics/users/${encodeURIComponent(id)}`,
+  INTERNAL_USERS_LOGGED_OUT: `/api/proxy/internal/users/logged-out`,
 
   // Departments
   DEPARTMENTS: `/api/proxy/departments`,
