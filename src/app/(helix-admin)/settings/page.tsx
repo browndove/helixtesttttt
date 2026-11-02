@@ -9,6 +9,8 @@ import { readSettingsPageSnapshot, writeSettingsPageSnapshot, type SettingsPageS
 import CustomSelect from '@/components/CustomSelect';
 import { formatGhanaPhoneInput, isValidGhanaPhone } from '@/lib/phone';
 import { MacVibrancyToast, MacVibrancyToastPortal } from '@/components/MacVibrancyToast';
+import CriticalAlertSoundPicker from '@/components/settings/CriticalAlertSoundPicker';
+import { readCriticalAlertSound } from '@/lib/critical-alert-sound';
 
 type Admin = {
     id: string;
@@ -303,6 +305,7 @@ export default function SettingsPage() {
     );
     const [savingRetention, setSavingRetention] = useState(false);
     const [pendingRetention, setPendingRetention] = useState<RetentionMonths | undefined>(undefined);
+    const [criticalAlertSound, setCriticalAlertSound] = useState('classic');
 
     const showToast = (message: string, variant: 'success' | 'error' | 'info' = 'success') => {
         setToast({ message, variant });
@@ -577,9 +580,11 @@ export default function SettingsPage() {
             if (resolvedFacilityId && facJson && typeof facJson === 'object') {
                 setScreenshotsAllowed(screenshotsForSnapshot);
                 setRetentionMonths(retentionForSnapshot);
+                setCriticalAlertSound(readCriticalAlertSound(facJson));
             } else {
                 setScreenshotsAllowed(false);
                 setRetentionMonths(null);
+                setCriticalAlertSound('classic');
             }
 
             let finalSessions: SessionEntry[] = [];
@@ -989,6 +994,23 @@ export default function SettingsPage() {
                                                 <span style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>Saving…</span>
                                             )}
                                         </div>
+                                    </div>
+
+                                    {/* critical alert sound */}
+                                    <div className="settings-row settings-row--wrap" style={{ alignItems: 'stretch' }}>
+                                        <div style={{ marginBottom: 14 }}>
+                                            <div className="settings-row__label">Critical alert sound</div>
+                                            <div className="settings-row__desc">
+                                                Choose the alarm mobile staff hear for critical messages and escalations at this facility.
+                                                Preview Pulse and Siren here before you switch. Code blue keeps its own sound.
+                                            </div>
+                                        </div>
+                                        <CriticalAlertSoundPicker
+                                            facilityId={facilityId}
+                                            value={criticalAlertSound}
+                                            onChange={setCriticalAlertSound}
+                                            onNotify={showToast}
+                                        />
                                     </div>
                                 </>
                             )}
