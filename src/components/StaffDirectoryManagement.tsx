@@ -101,7 +101,7 @@ function parseSortControlValue(v: string): { key: SortKey; dir: 'asc' | 'desc' }
 type StaffToastVariant = 'success' | 'error' | 'info';
 type StaffTab = 'directory' | 'import' | 'join';
 /** Temporarily hide join-code / join-requests admin UI on Staff. Flip to true to restore. */
-const SHOW_JOIN_REQUESTS_UI = false;
+const SHOW_JOIN_REQUESTS_UI = true;
 type StaffToastState = {
     message: string;
     variant: StaffToastVariant;
@@ -1144,6 +1144,8 @@ export default function StaffDirectoryManagement() {
     const toastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const { onlineIdSet, lastSeenByKey } = useFacilityPresence({ enabled: activeTab === 'directory' });
     const [loggedOutKeys, setLoggedOutKeys] = useState<Set<string>>(() => new Set());
+    /** Internal support mode only — drives the Logged out filter pill (and related column). */
+    const [loggedOutFilterEnabled, setLoggedOutFilterEnabled] = useState(false);
 
     useEffect(() => {
         if (activeTab !== 'directory') return;
@@ -1151,23 +1153,41 @@ export default function StaffDirectoryManagement() {
         void (async () => {
             const support = await isClientInternalSupportMode();
             if (!support || cancelled) {
-                if (!cancelled) setLoggedOutKeys(new Set());
+                if (!cancelled) {
+                    setLoggedOutKeys(new Set());
+                    setLoggedOutFilterEnabled(false);
+                }
                 return;
             }
             const facilityId = await resolveClientFacilityId();
             if (!facilityId || cancelled) {
-                if (!cancelled) setLoggedOutKeys(new Set());
+                if (!cancelled) {
+                    setLoggedOutKeys(new Set());
+                    setLoggedOutFilterEnabled(false);
+                }
                 return;
             }
             try {
                 const keys = await fetchLoggedOutMatchKeys(facilityId);
-                if (!cancelled) setLoggedOutKeys(keys);
+                if (!cancelled) {
+                    setLoggedOutKeys(keys);
+                    setLoggedOutFilterEnabled(true);
+                }
             } catch {
-                if (!cancelled) setLoggedOutKeys(new Set());
+                if (!cancelled) {
+                    setLoggedOutKeys(new Set());
+                    setLoggedOutFilterEnabled(false);
+                }
             }
         })();
         return () => { cancelled = true; };
     }, [activeTab]);
+
+    useEffect(() => {
+        if (!loggedOutFilterEnabled && statusFilter === 'logged_out') {
+            setStatusFilter('all');
+        }
+    }, [loggedOutFilterEnabled, statusFilter]);
 
     const dismissToast = useCallback(() => {
         if (toastTimeoutRef.current) {
@@ -1670,7 +1690,9 @@ export default function StaffDirectoryManagement() {
             const q = search.toLowerCase();
             const matchSearch = search === '' || s.first_name.toLowerCase().includes(q) || s.last_name.toLowerCase().includes(q) || s.dept.toLowerCase().includes(q) || s.email.toLowerCase().includes(q) || s.employee_id.toLowerCase().includes(q) || s.job_title.toLowerCase().includes(q);
             const matchDept = deptFilter === 'all' || s.dept === deptFilter;
-            const matchStatus = statusFilter === 'all' || s.status === statusFilter;
+            const matchStatus = statusFilter === 'logged_out'
+                ? (!isStaffOnline(s, onlineIdSet) && isStaffLoggedOut(s, loggedOutKeys))
+                : (statusFilter === 'all' || s.status === statusFilter);
             return matchSearch && matchDept && matchStatus;
         });
         if (sortKey === 'response_order') return f;
@@ -1689,7 +1711,7 @@ export default function StaffDirectoryManagement() {
             const bv = b[sortKey as ColumnSortKey].toLowerCase();
             return sortDir === 'asc' ? av.localeCompare(bv) : bv.localeCompare(av);
         });
-    }, [staffForList, search, deptFilter, statusFilter, sortKey, sortDir, lastSeenByKey]);
+    }, [staffForList, search, deptFilter, statusFilter, sortKey, sortDir, lastSeenByKey, onlineIdSet, loggedOutKeys]);
 
     const staffTotalPages = useMemo(() => Math.max(1, Math.ceil(filtered.length / staffPageSize)), [filtered.length, staffPageSize]);
     const paginatedFiltered = useMemo(
@@ -1744,6 +1766,11 @@ export default function StaffDirectoryManagement() {
             all: inviteSummary.all ?? local.all ?? staff.length,
         };
     }, [staff, inviteSummary]);
+
+    const loggedOutCount = useMemo(
+        () => staffForList.filter(s => !isStaffOnline(s, onlineIdSet) && isStaffLoggedOut(s, loggedOutKeys)).length,
+        [staffForList, onlineIdSet, loggedOutKeys],
+    );
 
     useEffect(() => {
         setStaffPage(1);
@@ -2611,6 +2638,38 @@ export default function StaffDirectoryManagement() {
                                     </button>
                                 );
                             })}
+                            {loggedOutFilterEnabled ? (
+                                <button
+                                    type="button"
+                                    className="btn btn-secondary btn-xs"
+                                    onClick={() => setStatusFilter('logged_out')}
+                                    title="Staff with no live mobile app session"
+                                    style={{
+                                        background: statusFilter === 'logged_out' ? '#FEF3C7' : undefined,
+                                        borderColor: statusFilter === 'logged_out' ? '#D97706' : undefined,
+                                        color: statusFilter === 'logged_out' ? '#92400E' : undefined,
+                                        fontWeight: statusFilter === 'logged_out' ? 600 : 400,
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: 6,
+                                    }}
+                                >
+                                    Logged out
+                                    <span
+                                        style={{
+                                            fontSize: 10,
+                                            fontWeight: 700,
+                                            lineHeight: 1,
+                                            padding: '2px 6px',
+                                            borderRadius: 999,
+                                            background: statusFilter === 'logged_out' ? 'rgba(146, 64, 14, 0.12)' : 'rgba(15, 23, 42, 0.06)',
+                                            color: statusFilter === 'logged_out' ? '#92400E' : 'var(--text-muted)',
+                                        }}
+                                    >
+                                        {loggedOutCount}
+                                    </span>
+                                </button>
+                            ) : null}
                         </div>
                         {selectedStaffIds.size > 0 && invitableSelectedIds.length > 0 && (
                             <button
