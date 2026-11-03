@@ -33,6 +33,7 @@ import {
     hierarchyApiMessage,
     optionalForApi,
     optionalFromApi,
+    parseBeds,
     parseFloors,
     parseRoom,
     parseRooms,
@@ -524,6 +525,35 @@ function bedPayload(draft: BedDraft, opts?: { clearOptional?: boolean }): Record
             : (bedCode ? { bed_code: bedCode } : {})),
         status: draft.status,
     };
+}
+
+/**
+ * POST /rooms/{id}/beds (and nested room creates) often ignore per-bed status and
+ * default everything to available. After create, PATCH any bed that should not be.
+ */
+async function applyDesiredBedStatuses(
+    roomId: string,
+    drafts: BedDraft[],
+    patchStatus: (bedId: string, status: BedStatus) => Promise<void>,
+): Promise<void> {
+    const wanted = drafts
+        .map(draft => ({
+            number: draft.bed_number.trim().toLowerCase(),
+            status: draft.status,
+        }))
+        .filter(draft => draft.number);
+    if (!roomId || !wanted.length || wanted.every(draft => draft.status === 'available')) return;
+
+    const listUrl = await appendFacilityIdForProxy(API_ENDPOINTS.ROOM_BEDS(roomId));
+    const res = await fetch(listUrl, { credentials: 'include', cache: 'no-store' });
+    if (!res.ok) return;
+    const listed = parseBeds(await res.json().catch(() => []));
+    for (const draft of wanted) {
+        if (draft.status === 'available') continue;
+        const match = listed.find(bed => bed.bed_number.trim().toLowerCase() === draft.number);
+        if (!match || match.status === draft.status) continue;
+        await patchStatus(match.id, draft.status);
+    }
 }
 
 /** Finds a room id for this number anywhere in a list or error payload. */
@@ -1042,9 +1072,19 @@ export default function BedLayoutFormDialog({
                     throw new Error(`A room can include up to ${NESTED_LIMITS.bedsPerRoom} beds.`);
                 }
                 const body = roomPayload(room, childBeds);
-                await send(API_ENDPOINTS.WARD_ROOMS(resolvedWardId), 'POST', body, {
+                const createdRoom = await send(API_ENDPOINTS.WARD_ROOMS(resolvedWardId), 'POST', body, {
                     kind: 'create', level: 'room', parentId: resolvedWardId, body,
                 });
+                const createdRoomId = readCreatedId(createdRoom)
+                    || roomIdForNumber(createdRoom, room.number.trim());
+                if (createdRoomId && !preview) {
+                    await applyDesiredBedStatuses(createdRoomId, childBeds, async (bedId, status) => {
+                        const statusBody = { status };
+                        await send(API_ENDPOINTS.BED(bedId), 'PATCH', statusBody, {
+                            kind: 'edit', level: 'bed', id: bedId, body: statusBody,
+                        });
+                    });
+                }
                 onSaved('Room created');
                 return;
             }
@@ -1213,6 +1253,15 @@ export default function BedLayoutFormDialog({
             await send(API_ENDPOINTS.ROOM_BEDS(resolvedRoomId), 'POST', body, {
                 kind: 'create', level: 'bed', parentId: resolvedRoomId, body,
             });
+            // Preview store keeps status from the payload; the live create API often defaults to available.
+            if (!preview) {
+                await applyDesiredBedStatuses(resolvedRoomId, beds, async (bedId, nextStatus) => {
+                    const statusBody = { status: nextStatus };
+                    await send(API_ENDPOINTS.BED(bedId), 'PATCH', statusBody, {
+                        kind: 'edit', level: 'bed', id: bedId, body: statusBody,
+                    });
+                });
+            }
             onSaved(beds.length === 1 ? 'Bed added' : `${beds.length} beds added`);
         } catch (err) {
             setError(err instanceof Error ? err.message : 'Something went wrong.');

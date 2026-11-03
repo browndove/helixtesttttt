@@ -150,6 +150,8 @@ function bySort<T extends { sort_order: number }>(items: T[], label: (item: T) =
 function bedStatus(value: unknown): BedStatus {
     const raw = str(value).toLowerCase();
     if (raw === 'available' || raw === 'occupied' || raw === 'blocked') return raw;
+    // UI label "Unavailable" and some payloads use this alias for blocked.
+    if (raw === 'unavailable' || raw === 'out_of_service' || raw === 'out-of-service') return 'blocked';
     return 'available';
 }
 
