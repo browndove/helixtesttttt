@@ -78,6 +78,7 @@ type WardDraft = {
     code: string;
     type: string;
     gender: string;
+    has_inpatient_beds: boolean;
 };
 type RoomDraft = { number: string; name: string };
 type BedDraft = { bed_number: string; bed_code: string; status: BedStatus };
@@ -181,7 +182,7 @@ const CREATE_INTROS: Record<LayoutLevel, string> = {
 const EDIT_INTROS: Record<LayoutLevel, string> = {
     block: 'Rename this building.',
     floor: 'Rename this floor.',
-    ward: 'Update the unit’s name, code, type or gender.',
+    ward: 'Update the unit’s name, code, type, gender, or inpatient beds setting.',
     room: 'Update the room or name.',
     bed: 'Update the bed number, code or status.',
 };
@@ -483,7 +484,7 @@ function resolveLocationLabels(
 }
 
 function emptyWard(): WardDraft {
-    return { name: '', nameChoice: '', code: '', type: '', gender: '' };
+    return { name: '', nameChoice: '', code: '', type: '', gender: '', has_inpatient_beds: true };
 }
 
 function emptyRoom(): RoomDraft {
@@ -505,11 +506,13 @@ function wardPayload(draft: WardDraft, opts?: { clearOptional?: boolean }): Reco
             name: draft.name.trim(),
             code: optionalForApi(code),
             type: optionalForApi(type),
+            has_inpatient_beds: draft.has_inpatient_beds,
             ...(gender ? { gender_restriction: gender } : {}),
         };
     }
     return {
         name: draft.name.trim(),
+        has_inpatient_beds: draft.has_inpatient_beds,
         ...(code ? { code } : {}),
         ...(type ? { type } : {}),
         ...(gender ? { gender_restriction: gender } : {}),
@@ -673,6 +676,7 @@ export default function BedLayoutFormDialog({
                     code: optionalFromApi(entity.code),
                     type: optionalFromApi(entity.type),
                     gender: optionalFromApi(entity.gender_restriction),
+                    has_inpatient_beds: entity.has_inpatient_beds !== false,
                 });
             }
             if (request.level === 'room') {
@@ -1431,6 +1435,24 @@ export default function BedLayoutFormDialog({
                     />
                 </div>
             </div>
+            <label
+                htmlFor="ward-has-inpatient-beds"
+                className="flex cursor-pointer items-start gap-3 rounded-xl border border-[#E1E7EF] bg-white px-3.5 py-3 shadow-[0_1px_2px_rgba(16,24,40,0.04)]"
+            >
+                <input
+                    id="ward-has-inpatient-beds"
+                    type="checkbox"
+                    checked={draft.has_inpatient_beds}
+                    onChange={e => update({ ...draft, has_inpatient_beds: e.target.checked })}
+                    className="mt-0.5 h-4 w-4 accent-[#1E3A5F]"
+                />
+                <span className="min-w-0">
+                    <span className="block text-[13px] font-semibold text-slate-900">Has inpatient beds</span>
+                    <span className="mt-0.5 block text-[12px] leading-5 text-slate-500">
+                        When off, this unit/workstation stays available for staffing but is hidden from bed management.
+                    </span>
+                </span>
+            </label>
         </div>
     );
 

@@ -71,6 +71,7 @@ function makeRoom(wardId: string, body: Payload, order: number): Room {
 function makeWard(floorId: string, body: Payload, order: number): Ward {
     const id = newId('ward');
     const gender = text(body.gender_restriction) as GenderRestriction;
+    const hasInpatient = body.has_inpatient_beds;
     return countWard({
         id,
         floor_id: floorId,
@@ -78,6 +79,7 @@ function makeWard(floorId: string, body: Payload, order: number): Ward {
         ...(text(body.code) ? { code: text(body.code) } : {}),
         ...(text(body.type) ? { type: text(body.type) } : {}),
         ...(gender ? { gender_restriction: gender } : {}),
+        has_inpatient_beds: typeof hasInpatient === 'boolean' ? hasInpatient : true,
         sort_order: order,
         rooms: rows(body, 'rooms').map((room, index) => makeRoom(id, room, index)),
         room_count: 0,
@@ -307,6 +309,9 @@ export function applyPreviewOp(blocks: Block[], op: PreviewOp): Block[] {
                     ...('type' in body ? { type: text(body.type) || undefined } : {}),
                     ...('gender_restriction' in body
                         ? { gender_restriction: gender || undefined }
+                        : {}),
+                    ...('has_inpatient_beds' in body
+                        ? { has_inpatient_beds: typeof body.has_inpatient_beds === 'boolean' ? body.has_inpatient_beds : current.has_inpatient_beds !== false }
                         : {}),
                     floor_id: nextFloorId || current.floor_id,
                 };

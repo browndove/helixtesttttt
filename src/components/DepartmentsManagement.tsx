@@ -219,6 +219,7 @@ export default function DepartmentsManagement() {
     const [newUnitGender, setNewUnitGender] = useState('');
     const [newUnitBuilding, setNewUnitBuilding] = useState('');
     const [newUnitFloor, setNewUnitFloor] = useState('');
+    const [newUnitHasInpatientBeds, setNewUnitHasInpatientBeds] = useState(true);
     const [layoutBlocks, setLayoutBlocks] = useState<Block[]>([]);
     const [showAddUnit, setShowAddUnit] = useState(false);
     const [units, setUnits] = useState<UnitItem[]>([]);
@@ -233,6 +234,7 @@ export default function DepartmentsManagement() {
     const [unitDetailGender, setUnitDetailGender] = useState('');
     const [unitDetailBuilding, setUnitDetailBuilding] = useState('');
     const [unitDetailFloor, setUnitDetailFloor] = useState('');
+    const [unitDetailHasInpatientBeds, setUnitDetailHasInpatientBeds] = useState(true);
     const [unitDetailLoading, setUnitDetailLoading] = useState(false);
     const [savingUnitDetails, setSavingUnitDetails] = useState(false);
     const [deleteInProgress, setDeleteInProgress] = useState(false);
@@ -441,6 +443,7 @@ export default function DepartmentsManagement() {
         setUnitDetailCode(optionalFromApi(unit.code));
         setUnitDetailType(optionalFromApi(unit.type));
         setUnitDetailGender(unit.gender_restriction || '');
+        setUnitDetailHasInpatientBeds(unit.has_inpatient_beds !== false);
         const loc = locationFromUnit({
             block_id: unit.block_id,
             block_name: unit.block_name,
@@ -512,6 +515,7 @@ export default function DepartmentsManagement() {
         setNewUnitGender('');
         setNewUnitBuilding('');
         setNewUnitFloor('');
+        setNewUnitHasInpatientBeds(true);
     };
 
     const savedBuildings = useMemo(
@@ -724,21 +728,22 @@ export default function DepartmentsManagement() {
                 description: newUnitDescription.trim(),
                 floor_id: floorId,
                 facility_id: hospitalId || '',
+                has_inpatient_beds: newUnitHasInpatientBeds,
                 ...(newUnitCode.trim() ? { code: newUnitCode.trim() } : {}),
                 ...(unitType ? { type: unitType } : {}),
                 ...(newUnitGender ? { gender_restriction: newUnitGender } : {}),
             });
-            if (!res.ok) throw new Error(apiError(raw, 'Failed to add unit'));
+            if (!res.ok) throw new Error(apiError(raw, 'Failed to add unit/workstation'));
             const rec = raw && typeof raw === 'object' ? raw as Record<string, unknown> : {};
             const created = parseCareUnit(raw) || parseCareUnit(rec.unit) || parseCareUnit(rec.ward) || parseCareUnit(rec.data);
             await fetchUnits();
             if (created) setEditingUnit(created.id);
-            showToast(`Unit "${name}" added`);
+            showToast(`Unit/workstation "${name}" added`);
             resetNewUnitForm();
             setShowAddUnit(false);
             void loadLayoutBlocks();
         } catch (err) {
-            showToast(err instanceof Error ? err.message : 'Failed to add unit');
+            showToast(err instanceof Error ? err.message : 'Failed to add unit/workstation');
         }
         setAddingUnit(false);
     };
@@ -845,6 +850,7 @@ export default function DepartmentsManagement() {
                     type: optionalForApi(unitDetailType),
                     gender_restriction: unitDetailGender,
                     floor_id: floorId,
+                    has_inpatient_beds: unitDetailHasInpatientBeds,
                     ...(u.department_id ? { department_id: u.department_id } : {}),
                 }),
             });
@@ -889,6 +895,7 @@ export default function DepartmentsManagement() {
                         code: updatedCode,
                         type: updatedType,
                         gender_restriction: updatedGender,
+                        has_inpatient_beds: parsed.has_inpatient_beds,
                         block_id: parsed.block_id || blockId,
                         block_name: parsed.block_name || blockName,
                         floor_id: parsed.floor_id || floorId,
@@ -911,6 +918,7 @@ export default function DepartmentsManagement() {
                     code: updatedCode,
                     type: updatedType,
                     gender_restriction: updatedGender,
+                    has_inpatient_beds: unitDetailHasInpatientBeds,
                     block_id: blockId,
                     block_name: blockName,
                     floor_id: floorId,
@@ -922,9 +930,13 @@ export default function DepartmentsManagement() {
             setUnitDetailCode(updatedCode);
             setUnitDetailType(updatedType);
             setUnitDetailGender(updatedGender);
+            setUnitDetailHasInpatientBeds(
+                parsed?.has_inpatient_beds
+                ?? (typeof body.has_inpatient_beds === 'boolean' ? body.has_inpatient_beds : unitDetailHasInpatientBeds),
+            );
             setUnitDetailBuilding(blockId);
             setUnitDetailFloor(floorName);
-            showToast('Unit updated');
+            showToast('Unit/workstation updated');
             void loadLayoutBlocks();
         } catch (err) {
             showToast(err instanceof Error ? err.message : 'Failed to update unit');
@@ -1056,6 +1068,7 @@ export default function DepartmentsManagement() {
             || unitDetailCode.trim() !== optionalFromApi(editUnit.code)
             || unitDetailType.trim() !== optionalFromApi(editUnit.type)
             || unitDetailGender !== (editUnit.gender_restriction || '')
+            || unitDetailHasInpatientBeds !== (editUnit.has_inpatient_beds !== false)
             || buildingKey(unitDetailBuilding) !== buildingKey(editUnitLocation.building)
             || unitDetailFloor.trim().toLowerCase() !== editUnitLocation.floor.trim().toLowerCase()),
     );
@@ -1159,7 +1172,7 @@ export default function DepartmentsManagement() {
                                         <>
                                             <div style={{ fontSize: 13, color: 'var(--text-muted)', minWidth: 0 }}>
                                                 <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{units.length}</span>
-                                                {' '}unit{units.length !== 1 ? 's' : ''}
+                                                {' '}unit/workstation{units.length !== 1 ? 's' : ''}
                                                 {unitsSearch.trim() ? (
                                                     <span style={{ marginLeft: 8 }}>
                                                         · <span style={{ fontWeight: 600, color: 'var(--text-secondary)' }}>{filteredUnits.length}</span> shown
@@ -1176,7 +1189,7 @@ export default function DepartmentsManagement() {
                                                 style={{ flexShrink: 0 }}
                                             >
                                                 <span className="material-icons-round" style={{ fontSize: 14 }}>{showAddUnit ? 'close' : 'add'}</span>
-                                                {showAddUnit ? 'Cancel' : 'Add Unit'}
+                                                {showAddUnit ? 'Cancel' : 'Add Unit/workstation'}
                                             </button>
                                         </>
                                     )}
@@ -1234,7 +1247,7 @@ export default function DepartmentsManagement() {
                                         Departments
                                     </button>
                                     <button type="button" className={`btn btn-sm ${activeTab === 'units' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setActiveTab('units')}>
-                                        Units
+                                        Unit/workstation
                                     </button>
                                 </div>
                                 <div style={{ position: 'relative', width: '100%' }}>
@@ -1251,7 +1264,7 @@ export default function DepartmentsManagement() {
                                     <input
                                         className="input"
                                         type="text"
-                                        placeholder={activeTab === 'departments' ? 'Search by department…' : 'Search by unit…'}
+                                        placeholder={activeTab === 'departments' ? 'Search by department…' : 'Search by unit/workstation…'}
                                         value={activeTab === 'departments' ? deptSearch : unitsSearch}
                                         onChange={e => (activeTab === 'departments' ? setDeptSearch : setUnitsSearch)(e.target.value)}
                                         style={{ fontSize: 13, paddingLeft: 38, height: 40, width: '100%', boxSizing: 'border-box' }}
@@ -1426,7 +1439,7 @@ export default function DepartmentsManagement() {
 
                                         <div className="card" style={{ padding: '16px 18px', margin: 0, background: 'var(--surface-2)', border: '1px solid var(--border-subtle)' }}>
                                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-                                                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Department units</div>
+                                                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Department units/workstations</div>
                                                 <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{selectedDepartmentUnits.length}</span>
                                             </div>
                                             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -1531,6 +1544,7 @@ export default function DepartmentsManagement() {
                                                     <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                                                         {unitBedLocationLabel(u, layoutBlocks)}
                                                         {u.type ? ` · ${wardTypeLabel(u.type)}` : ''}
+                                                        {u.has_inpatient_beds === false ? ' · Workstation only' : ''}
                                                     </div>
                                                     <div style={{
                                                         fontSize: 11,
@@ -1548,7 +1562,7 @@ export default function DepartmentsManagement() {
                                             </button>
                                         ))}
                                         {units.length === 0 && !unitsLoading && (
-                                            <div style={{ padding: 24, textAlign: 'center', fontSize: 13, color: 'var(--text-muted)' }}>No units yet. Use Add Unit above.</div>
+                                            <div style={{ padding: 24, textAlign: 'center', fontSize: 13, color: 'var(--text-muted)' }}>No units/workstations yet. Use Add Unit/workstation above.</div>
                                         )}
                                         {units.length > 0 && filteredUnits.length === 0 && (
                                             <div style={{ padding: 24, textAlign: 'center', fontSize: 13, color: 'var(--text-muted)' }}>
@@ -1563,7 +1577,7 @@ export default function DepartmentsManagement() {
                             <section style={{ minHeight: 0, overflow: showAddUnit ? 'hidden' : 'auto', padding: '20px 24px 24px', minWidth: 0, background: 'var(--surface-card)', display: 'flex', flexDirection: 'column' }}>
                                 {showAddUnit ? (
                                     <div className="fade-in" style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
-                                        <h2 style={{ fontSize: 20, fontWeight: 700, margin: '0 0 16px', color: 'var(--text-primary)', letterSpacing: '-0.02em', flexShrink: 0 }}>Add unit</h2>
+                                        <h2 style={{ fontSize: 20, fontWeight: 700, margin: '0 0 16px', color: 'var(--text-primary)', letterSpacing: '-0.02em', flexShrink: 0 }}>Add unit/workstation</h2>
                                         <div className="card" style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', padding: '18px 20px', margin: 0, width: '100%', background: 'var(--surface-2)', border: '1px solid var(--border-subtle)' }}>
                                             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 16, flexShrink: 0 }}>
                                                 <div>
@@ -1674,6 +1688,35 @@ export default function DepartmentsManagement() {
                                                         maxH={240}
                                                     />
                                                 </div>
+                                                <div style={{ gridColumn: '1 / -1' }}>
+                                                    <label
+                                                        htmlFor="new-unit-inpatient"
+                                                        style={{
+                                                            display: 'flex',
+                                                            alignItems: 'flex-start',
+                                                            gap: 10,
+                                                            padding: '12px 14px',
+                                                            borderRadius: 'var(--radius-md)',
+                                                            border: '1px solid var(--border-default)',
+                                                            background: 'var(--surface-card)',
+                                                            cursor: 'pointer',
+                                                        }}
+                                                    >
+                                                        <input
+                                                            id="new-unit-inpatient"
+                                                            type="checkbox"
+                                                            checked={newUnitHasInpatientBeds}
+                                                            onChange={e => setNewUnitHasInpatientBeds(e.target.checked)}
+                                                            style={{ marginTop: 2, width: 16, height: 16, accentColor: 'var(--helix-primary)' }}
+                                                        />
+                                                        <span>
+                                                            <span className="label" style={{ display: 'block', marginBottom: 2 }}>Has inpatient beds</span>
+                                                            <span style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.4 }}>
+                                                                When off, this unit/workstation is hidden from bed management but still available for staffing and join requests.
+                                                            </span>
+                                                        </span>
+                                                    </label>
+                                                </div>
                                             </div>
                                             <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', marginTop: 16 }}>
                                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, marginBottom: 6, flexShrink: 0 }}>
@@ -1717,7 +1760,7 @@ export default function DepartmentsManagement() {
                                                     onClick={addUnit}
                                                     disabled={!newUnitName.trim() || !newUnitBuilding.trim() || !newUnitFloor.trim() || addingUnit}
                                                 >
-                                                    {addingUnit ? 'Adding…' : 'Add unit'}
+                                                    {addingUnit ? 'Adding…' : 'Add unit/workstation'}
                                                 </button>
                                             </div>
                                         </div>
@@ -1727,7 +1770,7 @@ export default function DepartmentsManagement() {
                                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, marginBottom: 20, flexWrap: 'wrap' }}>
                                             <div style={{ flex: 1, minWidth: 0 }}>
                                                 <h2 style={{ fontSize: 20, fontWeight: 700, margin: 0, color: 'var(--text-primary)', letterSpacing: '-0.02em' }}>{editUnit.name}</h2>
-                                                <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '6px 0 0' }}>Edit unit details</p>
+                                                <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '6px 0 0' }}>Edit unit/workstation details</p>
                                             </div>
                                             <button
                                                 type="button"
@@ -1735,13 +1778,13 @@ export default function DepartmentsManagement() {
                                                 onClick={() => setPendingDelete({ kind: 'unit', id: editUnit.id, label: editUnit.name })}
                                             >
                                                 <span className="material-icons-round" style={{ fontSize: 14 }}>delete</span>
-                                                Delete unit
+                                                Delete unit/workstation
                                             </button>
                                         </div>
 
                                         <div className="card" style={{ padding: '16px 18px', margin: 0, background: 'var(--surface-2)', border: '1px solid var(--border-subtle)', opacity: unitDetailLoading ? 0.88 : 1, transition: 'opacity 0.15s', minWidth: 0, maxWidth: '100%', overflow: 'hidden' }}>
                                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-                                                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Unit details</div>
+                                                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Unit/workstation details</div>
                                                 {unitDetailLoading ? (
                                                     <span style={{ fontSize: 11, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 6 }}>
                                                         <span className="material-icons-round" style={{ fontSize: 14 }}>hourglass_empty</span>
@@ -1859,6 +1902,37 @@ export default function DepartmentsManagement() {
                                                         style={{ width: '100%', height: 40, fontSize: 13 }}
                                                         maxH={240}
                                                     />
+                                                </div>
+                                                <div style={{ gridColumn: '1 / -1' }}>
+                                                    <label
+                                                        htmlFor="unit-detail-inpatient"
+                                                        style={{
+                                                            display: 'flex',
+                                                            alignItems: 'flex-start',
+                                                            gap: 10,
+                                                            padding: '12px 14px',
+                                                            borderRadius: 'var(--radius-md)',
+                                                            border: '1px solid var(--border-default)',
+                                                            background: 'var(--surface-card)',
+                                                            cursor: unitDetailLoading || savingUnitDetails ? 'not-allowed' : 'pointer',
+                                                            opacity: unitDetailLoading || savingUnitDetails ? 0.7 : 1,
+                                                        }}
+                                                    >
+                                                        <input
+                                                            id="unit-detail-inpatient"
+                                                            type="checkbox"
+                                                            checked={unitDetailHasInpatientBeds}
+                                                            disabled={unitDetailLoading || savingUnitDetails}
+                                                            onChange={e => setUnitDetailHasInpatientBeds(e.target.checked)}
+                                                            style={{ marginTop: 2, width: 16, height: 16, accentColor: 'var(--helix-primary)' }}
+                                                        />
+                                                        <span>
+                                                            <span className="label" style={{ display: 'block', marginBottom: 2 }}>Has inpatient beds</span>
+                                                            <span style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.4 }}>
+                                                                When off, this unit/workstation is hidden from bed management but still available for staffing and join requests.
+                                                            </span>
+                                                        </span>
+                                                    </label>
                                                 </div>
                                             </div>
                                             <label className="label" htmlFor="unit-detail-desc" style={{ marginBottom: 6 }}>Description</label>

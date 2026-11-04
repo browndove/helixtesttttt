@@ -586,7 +586,10 @@ export default function BedLayoutExplorer() {
                 setBlocks(SAMPLE_BLOCKS);
             } else {
                 setPreview(false);
-                const unitRes = await fetch(await appendFacilityIdForProxy(API_ENDPOINTS.UNITS), { credentials: 'include' });
+                const unitRes = await fetch(
+                    await appendFacilityIdForProxy(`${API_ENDPOINTS.UNITS}?has_inpatient_beds=true`),
+                    { credentials: 'include' },
+                );
                 const units = unitRes.ok ? parseCareUnits(await unitRes.json()) : [];
                 setCareUnits(units);
                 setBlocks(homeWardsOntoFloors(parseBlocks(data), units));

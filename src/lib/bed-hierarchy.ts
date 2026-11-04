@@ -83,6 +83,8 @@ export type Ward = BedCounts & {
     code?: string;
     type?: string;
     gender_restriction?: GenderRestriction;
+    /** When false, hidden from bed management. Missing defaults to true. */
+    has_inpatient_beds?: boolean;
     room_count: number;
     sort_order: number;
     rooms: Room[];
@@ -268,6 +270,14 @@ export function parseWard(raw: unknown): Ward | null {
     if (!id || !name) return null;
     const rooms = parseRooms(rec.rooms);
     const gender = str(rec.gender_restriction).toLowerCase();
+    const inpatientRaw = rec.has_inpatient_beds ?? rec.hasInpatientBeds;
+    const hasInpatientBeds = typeof inpatientRaw === 'boolean'
+        ? inpatientRaw
+        : inpatientRaw === 'false' || inpatientRaw === 0 || inpatientRaw === '0'
+            ? false
+            : inpatientRaw === 'true' || inpatientRaw === 1 || inpatientRaw === '1'
+                ? true
+                : undefined;
     return {
         id,
         floor_id: str(rec.floor_id),
@@ -282,6 +292,7 @@ export function parseWard(raw: unknown): Ward | null {
         ...(GENDER_RESTRICTIONS.includes(gender as GenderRestriction)
             ? { gender_restriction: gender as GenderRestriction }
             : {}),
+        ...(hasInpatientBeds === undefined ? {} : { has_inpatient_beds: hasInpatientBeds }),
         room_count: rooms.length || int(rec.room_count),
         sort_order: int(rec.sort_order),
         rooms,

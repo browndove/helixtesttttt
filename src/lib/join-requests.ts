@@ -21,6 +21,12 @@ export type JoinRequest = {
     employeeMatched?: boolean;
     role?: string;
     department?: string;
+    departmentId?: string;
+    /** Unit id, or the sentinel `not_applicable`. */
+    primaryWorkstationId?: string;
+    primaryWorkstationName?: string;
+    workstationIds?: string[];
+    roomCubicle?: string;
     submittedAt?: string;
     status?: string;
 };
@@ -50,6 +56,17 @@ function bool(rec: Rec | null, ...keys: string[]): boolean | undefined {
         if (value === 'false' || value === 0) return false;
     }
     return undefined;
+}
+
+function stringList(value: unknown): string[] {
+    if (!Array.isArray(value)) return [];
+    return value
+        .map(item => {
+            if (typeof item === 'string' || typeof item === 'number') return String(item).trim();
+            const rec = asRec(item);
+            return str(rec, 'id', 'unit_id', 'workstation_id', 'name');
+        })
+        .filter(Boolean);
 }
 
 /** Unwraps `{ data: … }` / `{ join_code: … }` envelopes. */
@@ -91,6 +108,26 @@ function parseOne(raw: unknown): JoinRequest | null {
         || [firstName, lastName].filter(Boolean).join(' ')
         || pick('email')
         || 'Unnamed applicant';
+    const primaryWorkstationId = pick(
+        'primary_workstation_id',
+        'primaryWorkstationId',
+        'primary_unit_id',
+        'primaryUnitId',
+    ) || undefined;
+    const primaryWorkstationName = pick(
+        'primary_workstation_name',
+        'primaryWorkstationName',
+        'primary_unit_name',
+        'primaryUnitName',
+    ) || undefined;
+    const workstationIds = stringList(
+        rec.workstation_ids
+        ?? rec.workstationIds
+        ?? rec.unit_ids
+        ?? rec.unitIds
+        ?? profile?.workstation_ids
+        ?? profile?.workstationIds,
+    );
     return {
         id,
         firstName,
@@ -102,7 +139,12 @@ function parseOne(raw: unknown): JoinRequest | null {
         employeeMatched: bool(rec, 'employee_matched', 'employee_id_matched', 'matched', 'directory_match')
             ?? (rec.matched_staff_id || rec.staff_id ? true : undefined),
         role: pick('role', 'role_name', 'requested_role', 'job_title', 'title', 'cadre') || undefined,
-        department: pick('department', 'department_name', 'unit', 'ward') || undefined,
+        department: pick('department', 'department_name', 'departmentName') || undefined,
+        departmentId: pick('department_id', 'departmentId') || undefined,
+        primaryWorkstationId,
+        primaryWorkstationName,
+        ...(workstationIds.length ? { workstationIds } : {}),
+        roomCubicle: pick('room_cubicle', 'roomCubicle', 'room', 'cubicle') || undefined,
         submittedAt: str(rec, 'created_at', 'submitted_at', 'requested_at', 'createdAt') || undefined,
         status: str(rec, 'status', 'state') || undefined,
     };
@@ -154,4 +196,11 @@ export function timeAgo(iso?: string): string {
 export function apiErrorMessage(data: unknown, fallback: string): string {
     const rec = asRec(data);
     return str(rec, 'message', 'detail', 'error', 'reason') || fallback;
+}
+
+export function primaryWorkstationLabel(request: JoinRequest): string {
+    const id = (request.primaryWorkstationId || '').trim();
+    if (!id) return '';
+    if (/^not[_-]?applicable$/i.test(id)) return 'Not applicable';
+    return (request.primaryWorkstationName || '').trim() || id;
 }

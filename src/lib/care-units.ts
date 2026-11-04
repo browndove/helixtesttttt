@@ -24,6 +24,11 @@ export type CareUnit = {
     gender_restriction?: string;
     type?: string;
     facility_id?: string;
+    /**
+     * When false, unit is a workstation only — hidden from bed management.
+     * Missing / omitted on create defaults to true on the API.
+     */
+    has_inpatient_beds: boolean;
     patient_count?: number;
     room_count: number;
     /** Total mapped beds (API `total`). */
@@ -40,6 +45,13 @@ export type CareUnit = {
     floors: CareUnitFloor[];
     created_at?: string;
 };
+
+function boolOrDefault(value: unknown, fallback: boolean): boolean {
+    if (typeof value === 'boolean') return value;
+    if (value === 'true' || value === 1 || value === '1') return true;
+    if (value === 'false' || value === 0 || value === '0') return false;
+    return fallback;
+}
 
 function sortFloors(floors: CareUnitFloor[]): CareUnitFloor[] {
     return [...floors].sort((a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name));
@@ -113,6 +125,10 @@ export function parseCareUnit(raw: unknown): CareUnit | null {
     const occupiedCount = int(rec.occupied ?? rec.occupied_count);
     const blockedCount = int(rec.blocked ?? rec.blocked_count);
     const roomCount = rooms.length || int(rec.room_count);
+    const hasInpatientBeds = boolOrDefault(
+        rec.has_inpatient_beds ?? rec.hasInpatientBeds,
+        true,
+    );
 
     return {
         id,
@@ -128,6 +144,7 @@ export function parseCareUnit(raw: unknown): CareUnit | null {
         ...(gender === 'male' || gender === 'female' || gender === 'mixed' ? { gender_restriction: gender } : {}),
         ...(type ? { type } : {}),
         ...(facilityId ? { facility_id: facilityId } : {}),
+        has_inpatient_beds: hasInpatientBeds,
         ...(Number.isFinite(patientCount) ? { patient_count: patientCount } : {}),
         room_count: roomCount,
         bed_count: bedCount || rooms.reduce((sum, room) => sum + room.bed_count, 0),

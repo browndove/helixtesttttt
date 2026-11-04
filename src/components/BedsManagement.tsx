@@ -204,7 +204,7 @@ export default function BedsManagement() {
             const url = await appendFacilityIdForProxy(API_ENDPOINTS.BEDS_SUMMARY);
             const [res, unitsRes] = await Promise.all([
                 fetch(url, { credentials: 'include' }),
-                fetch('/api/proxy/units', { credentials: 'include' }),
+                fetch('/api/proxy/units?has_inpatient_beds=true', { credentials: 'include' }),
             ]);
             if (res.ok) {
                 const data = await res.json();

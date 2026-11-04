@@ -7,6 +7,7 @@ import CustomSelect from '@/components/CustomSelect';
 import DatePicker from '@/components/DatePicker';
 import { parseBulkUploadHistoryResponse, type BulkUploadHistoryEntry } from '@/lib/bulk-upload-history';
 import ImportHistoryLedger from '@/components/ImportHistoryLedger';
+import './staff-bulk-import.css';
 import { MacVibrancyToast, MacVibrancyToastPortal } from '@/components/MacVibrancyToast';
 import { BulkImportErrorsSheet } from '@/components/BulkImportErrorsSheet';
 import { readCachedJson, writeCachedJson } from '@/lib/getJsonCache';
@@ -14,7 +15,6 @@ import { useFacilityPresence } from '@/lib/useFacilityPresence';
 import { formatLastSeenAgo, looksLikeEmployeeId, pickEmployeeIdFromRecord, staffLastSeenMs } from '@/lib/presence-store';
 import { API_ENDPOINTS } from '@/lib/config';
 import {
-    extractStaffIdFromBulkCreated,
     sendStaffInviteEmails,
     type StaffInviteEmailError,
 } from '@/lib/staff-invite-emails';
@@ -1582,6 +1582,22 @@ export default function StaffDirectoryManagement() {
         void fetchBulkHistory();
     }, [activeTab, fetchBulkHistory]);
 
+    const bulkImportStats = useMemo(() => {
+        let failed = 0;
+        let issues = 0;
+        let ok = 0;
+        let conflictRows = 0;
+        for (const entry of bulkHistory) {
+            conflictRows += entry.errors.length;
+            if (entry.status === 'error') failed += 1;
+            else if (entry.warnings > 0 || entry.errors.length > 0) issues += 1;
+            else ok += 1;
+        }
+        const total = bulkHistory.length;
+        const successRate = total === 0 ? 0 : (ok / total) * 100;
+        return { total, failed, issues, ok, conflictRows, successRate };
+    }, [bulkHistory]);
+
     const handleBulkImport = async () => {
         if (!uploadedFile) return;
         setProcessing(true);
@@ -1732,11 +1748,6 @@ export default function StaffDirectoryManagement() {
             return next;
         });
     }, [filtered]);
-
-    const bulkCreatedStaffIds = useMemo(
-        () => bulkResultCreated.map(extractStaffIdFromBulkCreated).filter(Boolean),
-        [bulkResultCreated],
-    );
 
     const onlineInFiltered = useMemo(
         () => filtered.filter(s => isStaffOnline(s, onlineIdSet)).length,
@@ -3871,82 +3882,211 @@ export default function StaffDirectoryManagement() {
                 </main>
                 ) : (
                 /* Bulk Import Tab */
-                <main style={{ flex: 1, minWidth: 0, overflow: 'auto', padding: '20px 24px', background: 'var(--bg-900)' }}>
-                    <p className="fade-in" style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 20 }}>
-                        Upload a CSV or Excel file (.xlsx, .xls). Download the CSV template for column order.
-                    </p>
+                <main className="staff-bulk" style={{ flex: 1, minWidth: 0, overflow: 'auto', padding: '16px 24px 24px', background: '#f1f5f9' }}>
+                    <div className="fade-in staff-bulk__toolbar">
+                        <p className="staff-bulk__crumb">
+                            Staff Management / <strong>Bulk Import</strong>
+                        </p>
+                        <div className="staff-bulk__toolbar-actions">
+                            <a
+                                className="btn btn-secondary btn-sm"
+                                href="/templates/latest_bulk_upload.csv"
+                                download="staff-directory-template.csv"
+                                onClick={() => showToast('staff-directory-template.csv downloaded')}
+                            >
+                                <span className="material-icons-round" style={{ fontSize: 16 }}>download</span>
+                                Download CSV Template
+                            </a>
+                        </div>
+                    </div>
 
-                    <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 0.6fr', gap: 20, marginBottom: 24 }}>
-                        <div className="fade-in delay-1 card">
-                            <h3 style={{ marginBottom: 14 }}>Upload Staff File</h3>
+                    <div className="fade-in delay-1 staff-bulk__metrics" aria-label="Import metrics">
+                        <div className="staff-bulk__metric">
+                            <div className="staff-bulk__metric-label">
+                                <span className="material-icons-round" aria-hidden>cloud_download</span>
+                                Total Uploads
+                            </div>
+                            <div className="staff-bulk__metric-value">
+                                {bulkHistoryLoading ? '—' : bulkImportStats.total}
+                            </div>
+                            <div className="staff-bulk__metric-sub">lifetime batches</div>
+                        </div>
+                        <div className="staff-bulk__metric">
+                            <div className="staff-bulk__metric-label">Sync Success Rate</div>
+                            {!bulkHistoryLoading && bulkImportStats.total > 0 ? (
+                                <span className="staff-bulk__metric-badge staff-bulk__metric-badge--ok">
+                                    <span className="staff-bulk__metric-badge-dot" aria-hidden />
+                                    {bulkImportStats.ok} Passed
+                                </span>
+                            ) : null}
+                            <div className="staff-bulk__metric-value">
+                                {bulkHistoryLoading || bulkImportStats.total === 0
+                                    ? '—'
+                                    : `${bulkImportStats.successRate.toFixed(1)}%`}
+                            </div>
+                            <div className="staff-bulk__metric-sub">strict schema</div>
+                        </div>
+                        <div className="staff-bulk__metric">
+                            <div className="staff-bulk__metric-label">Active Conflicts</div>
+                            {!bulkHistoryLoading ? (
+                                <span className="staff-bulk__metric-badge staff-bulk__metric-badge--bad">
+                                    <span className="staff-bulk__metric-badge-dot" aria-hidden />
+                                    {bulkImportStats.failed} Failed
+                                </span>
+                            ) : null}
+                            <div className="staff-bulk__metric-value">
+                                {bulkHistoryLoading ? '—' : bulkImportStats.conflictRows}
+                            </div>
+                            <div className="staff-bulk__metric-sub">row exceptions logged</div>
+                        </div>
+                        <div className="staff-bulk__metric">
+                            <div className="staff-bulk__metric-label">Import Health</div>
+                            <span
+                                className={[
+                                    'staff-bulk__metric-badge',
+                                    bulkHistoryLoading
+                                        ? 'staff-bulk__metric-badge--muted'
+                                        : bulkImportStats.failed > 0
+                                            ? 'staff-bulk__metric-badge--bad'
+                                            : 'staff-bulk__metric-badge--ok',
+                                ].join(' ')}
+                            >
+                                <span className="staff-bulk__metric-badge-dot" aria-hidden />
+                                {bulkHistoryLoading
+                                    ? 'Loading'
+                                    : bulkImportStats.failed > 0
+                                        ? 'Attention'
+                                        : 'Nominal'}
+                            </span>
+                            <div className="staff-bulk__metric-value" style={{ fontSize: 22, paddingTop: 4 }}>
+                                {bulkHistoryLoading ? '—' : `${bulkImportStats.issues} issues`}
+                            </div>
+                            <div className="staff-bulk__metric-sub">
+                                {bulkImportStats.ok} clean · {bulkImportStats.failed} failed
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="fade-in delay-1 staff-bulk__panels">
+                        <section className="staff-bulk__panel">
+                            <h3 className="staff-bulk__panel-title">Import Records</h3>
+                            <p className="staff-bulk__panel-desc">
+                                Upload a staff directory file. Names and directory fields only — staff add email and profile details later.
+                            </p>
                             <input
                                 ref={fileInputRef}
                                 type="file"
-                                accept=".csv,.xlsx,.xls,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                                accept=".csv,.txt,.xlsx,text/csv,text/plain,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                                 style={{ display: 'none' }}
                                 onChange={e => {
                                     const file = e.target.files?.[0];
-                                    if (file) setUploadedFile(file);
+                                    if (!file) return;
+                                    if (/\.xls$/i.test(file.name) && !/\.xlsx$/i.test(file.name)) {
+                                        showToast('.xls files are not accepted. Use .csv or .xlsx.', 'error');
+                                        e.target.value = '';
+                                        return;
+                                    }
+                                    setUploadedFile(file);
                                 }}
                             />
                             <div
+                                className={[
+                                    'staff-bulk__drop',
+                                    dragOver ? 'staff-bulk__drop--over' : '',
+                                    uploadedFile ? 'staff-bulk__drop--ready' : '',
+                                ].filter(Boolean).join(' ')}
                                 onDragOver={e => { e.preventDefault(); setDragOver(true); }}
                                 onDragLeave={() => setDragOver(false)}
                                 onDrop={e => {
                                     e.preventDefault();
                                     setDragOver(false);
                                     const file = e.dataTransfer.files?.[0];
-                                    if (file) setUploadedFile(file);
+                                    if (!file) return;
+                                    if (/\.xls$/i.test(file.name) && !/\.xlsx$/i.test(file.name)) {
+                                        showToast('.xls files are not accepted. Use .csv or .xlsx.', 'error');
+                                        return;
+                                    }
+                                    setUploadedFile(file);
                                 }}
                                 onClick={() => fileInputRef.current?.click()}
-                                style={{ border: `2px dashed ${dragOver ? 'var(--helix-primary)' : 'var(--border-default)'}`, borderRadius: 'var(--radius-lg)', padding: '40px 20px', textAlign: 'center', cursor: 'pointer', background: dragOver ? 'rgba(30,58,95,0.05)' : 'var(--surface-2)', transition: 'all 0.2s' }}>
-                                <div style={{ width: 52, height: 52, background: uploadedFile ? 'var(--success-bg)' : 'rgba(30,58,95,0.1)', borderRadius: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 14px' }}>
-                                    <span className="material-icons-round" style={{ fontSize: 26, color: uploadedFile ? 'var(--success)' : 'var(--helix-primary-light)' }}>{uploadedFile ? 'check_circle' : 'cloud_upload'}</span>
+                                role="button"
+                                tabIndex={0}
+                                onKeyDown={e => {
+                                    if (e.key === 'Enter' || e.key === ' ') {
+                                        e.preventDefault();
+                                        fileInputRef.current?.click();
+                                    }
+                                }}
+                            >
+                                <div className="staff-bulk__drop-icon">
+                                    <span className="material-icons-round" aria-hidden>
+                                        {uploadedFile ? 'check_circle' : 'cloud_upload'}
+                                    </span>
                                 </div>
                                 {uploadedFile ? (
-                                    <><div style={{ fontWeight: 600, color: 'var(--success)' }}>{uploadedFile.name}</div><div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>File ready for import</div></>
+                                    <>
+                                        <div className="staff-bulk__drop-title">{uploadedFile.name}</div>
+                                        <div className="staff-bulk__drop-meta">Ready to import</div>
+                                    </>
                                 ) : (
-                                    <><div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>Click to upload or drag and drop</div><div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 6 }}>CSV, XLSX or XLS (max. 50MB)</div></>
+                                    <>
+                                        <div className="staff-bulk__drop-title">Choose file or drag and drop here</div>
+                                        <div className="staff-bulk__drop-formats">
+                                            <span className="staff-bulk__format">.CSV</span>
+                                            <span className="staff-bulk__format">.TXT</span>
+                                            <span className="staff-bulk__format">.XLSX</span>
+                                        </div>
+                                        <div className="staff-bulk__drop-meta">UTF-8 · Max 50MB</div>
+                                        <div className="staff-bulk__drop-note">
+                                            Files are validated for duplicates prior to directory commit.
+                                        </div>
+                                    </>
                                 )}
                             </div>
-                            {uploadedFile && (
-                                <div style={{ marginTop: 14, display: 'flex', gap: 8 }}>
+                            {uploadedFile ? (
+                                <div className="staff-bulk__actions">
                                     <button className="btn btn-primary" style={{ flex: 1, justifyContent: 'center' }} disabled={processing} onClick={handleBulkImport}>
-                                        <span className="material-icons-round" style={{ fontSize: 16 }}>{processing ? 'hourglass_empty' : 'upload'}</span>{processing ? 'Processing...' : 'Process Import'}
+                                        <span className="material-icons-round" style={{ fontSize: 16 }}>{processing ? 'hourglass_empty' : 'upload'}</span>
+                                        {processing ? 'Importing…' : 'Import directory'}
                                     </button>
-                                    <button className="btn btn-secondary btn-sm" onClick={clearUploadedFile}><span className="material-icons-round" style={{ fontSize: 16 }}>close</span></button>
+                                    <button type="button" className="btn btn-secondary btn-sm" onClick={clearUploadedFile} disabled={processing}>
+                                        <span className="material-icons-round" style={{ fontSize: 16 }}>close</span>
+                                        Clear
+                                    </button>
                                 </div>
-                            )}
-                        </div>
+                            ) : null}
+                        </section>
 
-                        <div className="fade-in delay-2 card">
-                            <h3 style={{ marginBottom: 14 }}>Download Template</h3>
-                            {[
-                                {
-                                    icon: 'badge',
-                                    label: 'latest_bulk_upload.csv',
-                                    desc: 'email, first_name, last_name, job_title, middle_name, phone, dob, gender, department, patient_access, is_scheduler, employee_id, highest_qualification, is_doctor',
-                                    color: '#4a6fa5',
-                                    href: '/templates/latest_bulk_upload.csv',
-                                    downloadName: 'latest_bulk_upload.csv',
-                                },
-                            ].map(t => (
-                                <div key={t.label} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-subtle)', marginBottom: 8, cursor: 'pointer', background: 'var(--surface-2)' }}>
-                                    <div style={{ width: 36, height: 36, borderRadius: 9, background: `${t.color}20`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                                        <span className="material-icons-round" style={{ fontSize: 18, color: t.color }}>{t.icon}</span>
-                                    </div>
-                                    <div style={{ flex: 1 }}><div style={{ fontWeight: 600, fontSize: 13 }}>{t.label}</div><div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{t.desc}</div></div>
-                                    <a
-                                        className="btn btn-ghost btn-xs"
-                                        href={t.href}
-                                        download={t.downloadName}
-                                        onClick={() => showToast(`${t.downloadName} downloaded`)}
-                                    >
-                                        <span className="material-icons-round" style={{ fontSize: 16, color: 'var(--text-muted)' }}>download</span>
-                                    </a>
-                                </div>
-                            ))}
-                        </div>
+                        <aside className="staff-bulk__panel">
+                            <h3 className="staff-bulk__panel-title">Data Schema &amp; Specs</h3>
+                            <p className="staff-bulk__panel-desc">
+                                Column order for the CSV template. Keep the sheet short.
+                            </p>
+
+                            <p className="staff-bulk__schema-label">Required headers · 4 columns</p>
+                            <div className="staff-bulk__chips">
+                                {['first_name', 'last_name', 'dob', 'can_manage_schedule'].map(col => (
+                                    <span key={col} className="staff-bulk__chip staff-bulk__chip--required">{col}</span>
+                                ))}
+                            </div>
+                            <p className="staff-bulk__hint">
+                                DOB as YYYY-MM-DD or DD/MM/YYYY. Schedule as yes or no.
+                            </p>
+
+                            <p className="staff-bulk__schema-label">Optional headers · 2 columns</p>
+                            <div className="staff-bulk__chips">
+                                {['middle_name', 'employee_id'].map(col => (
+                                    <span key={col} className="staff-bulk__chip">{col}</span>
+                                ))}
+                            </div>
+
+                            <div className="staff-bulk__exclude">
+                                <p className="staff-bulk__exclude-title">Exclusion note</p>
+                                <p className="staff-bulk__exclude-body">
+                                    Do not include contact email, phone, or departmental rank. These attributes are synced during employee onboarding.
+                                </p>
+                            </div>
+                        </aside>
                     </div>
 
                     {bulkResultCreated.length > 0 && (
@@ -3968,81 +4108,65 @@ export default function StaffDirectoryManagement() {
                                     style={{
                                         display: 'flex',
                                         alignItems: 'flex-start',
-                                        justifyContent: 'space-between',
-                                        gap: 16,
-                                        flexWrap: 'wrap',
+                                        gap: 12,
                                         padding: '16px 18px',
                                         background: 'linear-gradient(180deg, #f4f7fb 0%, #eef2f8 100%)',
                                         borderBottom: '1px solid rgba(11, 30, 59, 0.06)',
                                     }}
                                 >
-                                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, minWidth: 0 }}>
-                                        <div
+                                    <div
+                                        style={{
+                                            width: 40,
+                                            height: 40,
+                                            borderRadius: 10,
+                                            flexShrink: 0,
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            background: 'var(--helix-primary)',
+                                            color: '#fff',
+                                            fontSize: 15,
+                                            fontWeight: 700,
+                                            letterSpacing: '-0.02em',
+                                        }}
+                                        aria-hidden
+                                    >
+                                        {bulkResultCreated.length}
+                                    </div>
+                                    <div style={{ minWidth: 0 }}>
+                                        <h3
                                             style={{
-                                                width: 40,
-                                                height: 40,
-                                                borderRadius: 10,
-                                                flexShrink: 0,
-                                                display: 'flex',
-                                                alignItems: 'center',
-                                                justifyContent: 'center',
-                                                background: 'var(--helix-primary)',
-                                                color: '#fff',
+                                                margin: 0,
                                                 fontSize: 15,
                                                 fontWeight: 700,
+                                                color: 'var(--text-primary)',
                                                 letterSpacing: '-0.02em',
                                             }}
-                                            aria-hidden
                                         >
-                                            {bulkResultCreated.length}
-                                        </div>
-                                        <div style={{ minWidth: 0 }}>
-                                            <h3
-                                                style={{
-                                                    margin: 0,
-                                                    fontSize: 15,
-                                                    fontWeight: 700,
-                                                    color: 'var(--text-primary)',
-                                                    letterSpacing: '-0.02em',
-                                                }}
-                                            >
-                                                Added to directory
-                                            </h3>
-                                            <p style={{ margin: '4px 0 0', fontSize: 12.5, lineHeight: 1.45, color: 'var(--text-muted)' }}>
-                                                {bulkResultCreated.length === 1
-                                                    ? 'One person was imported. Send an invite when you are ready.'
-                                                    : `${bulkResultCreated.length} people were imported. Send invites when you are ready.`}
-                                            </p>
-                                        </div>
+                                            Added to directory
+                                        </h3>
+                                        <p style={{ margin: '4px 0 0', fontSize: 12.5, lineHeight: 1.45, color: 'var(--text-muted)' }}>
+                                            {bulkResultCreated.length === 1
+                                                ? 'One person was imported. They can finish email and profile details when they join.'
+                                                : `${bulkResultCreated.length} people were imported. They can finish email and profile details when they join.`}
+                                        </p>
                                     </div>
-                                    {bulkCreatedStaffIds.length > 0 && (
-                                        <button
-                                            type="button"
-                                            className="btn btn-primary btn-sm"
-                                            disabled={sendingInvites}
-                                            onClick={() => { void handleSendInviteEmails(bulkCreatedStaffIds); }}
-                                            style={{ flexShrink: 0, alignSelf: 'center' }}
-                                        >
-                                            <span className="material-icons-round" style={{ fontSize: 16 }}>
-                                                {sendingInvites ? 'hourglass_empty' : 'mail'}
-                                            </span>
-                                            {sendingInvites
-                                                ? 'Sending…'
-                                                : `Send invites (${bulkCreatedStaffIds.length})`}
-                                        </button>
-                                    )}
                                 </div>
                                 <ul style={{ margin: 0, padding: 0, listStyle: 'none' }}>
                                     {bulkResultCreated.map((raw, idx) => {
-                                        const { name, email, job, idShort } = summarizeBulkCreatedEntry(raw);
+                                        const { name, email, idShort } = summarizeBulkCreatedEntry(raw);
                                         const initials = staffDisplayInitials(name);
                                         const isLast = idx === bulkResultCreated.length - 1;
                                         return (
                                             <li
                                                 key={`created-${idx}-${email || name}`}
                                                 style={{
-                                                    padding: '12px 18px',
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    gap: 12,
+                                                    padding: '14px 18px',
                                                     borderBottom: isLast ? 'none' : '1px solid var(--border-subtle)',
+                                                    background: '#fff',
                                                 }}
                                             >
                                                 <div
@@ -4055,7 +4179,7 @@ export default function StaffDirectoryManagement() {
                                                         display: 'flex',
                                                         alignItems: 'center',
                                                         justifyContent: 'center',
-                                                        background: 'rgba(30, 58, 95, 0.09)',
+                                                        background: '#e8eef5',
                                                         color: 'var(--helix-primary)',
                                                         fontSize: 12,
                                                         fontWeight: 700,
@@ -4064,72 +4188,31 @@ export default function StaffDirectoryManagement() {
                                                 >
                                                     {initials}
                                                 </div>
-                                                <div style={{ minWidth: 0 }}>
-                                                    <div
-                                                        style={{
-                                                            fontWeight: 600,
-                                                            fontSize: 13.5,
-                                                            color: 'var(--text-primary)',
-                                                            lineHeight: 1.3,
-                                                        }}
-                                                    >
-                                                        {name}
-                                                    </div>
-                                                    {email ? (
-                                                        <div
-                                                            style={{
-                                                                fontSize: 12,
-                                                                color: 'var(--text-secondary)',
-                                                                marginTop: 2,
-                                                                overflow: 'hidden',
-                                                                textOverflow: 'ellipsis',
-                                                                whiteSpace: 'nowrap',
-                                                            }}
-                                                        >
-                                                            {email}
-                                                        </div>
-                                                    ) : null}
-                                                </div>
                                                 <div
                                                     style={{
-                                                        display: 'flex',
-                                                        flexDirection: 'column',
-                                                        alignItems: 'flex-end',
-                                                        gap: 4,
+                                                        flex: 1,
                                                         minWidth: 0,
+                                                        fontWeight: 600,
+                                                        fontSize: 14,
+                                                        color: 'var(--text-primary)',
+                                                        lineHeight: 1.3,
                                                     }}
                                                 >
-                                                    {job ? (
-                                                        <span
-                                                            style={{
-                                                                fontSize: 11,
-                                                                fontWeight: 600,
-                                                                padding: '3px 8px',
-                                                                borderRadius: 6,
-                                                                background: 'rgba(11, 30, 59, 0.06)',
-                                                                color: 'var(--text-secondary)',
-                                                                whiteSpace: 'nowrap',
-                                                                maxWidth: 'min(10rem, 28vw)',
-                                                                overflow: 'hidden',
-                                                                textOverflow: 'ellipsis',
-                                                            }}
-                                                        >
-                                                            {job}
-                                                        </span>
-                                                    ) : null}
-                                                    {idShort ? (
-                                                        <span
-                                                            style={{
-                                                                fontSize: 10,
-                                                                fontWeight: 500,
-                                                                color: 'var(--text-muted)',
-                                                                fontVariantNumeric: 'tabular-nums',
-                                                            }}
-                                                        >
-                                                            {idShort}
-                                                        </span>
-                                                    ) : null}
+                                                    {name}
                                                 </div>
+                                                {idShort ? (
+                                                    <span
+                                                        style={{
+                                                            flexShrink: 0,
+                                                            fontSize: 12,
+                                                            fontWeight: 500,
+                                                            color: 'var(--text-muted)',
+                                                            fontVariantNumeric: 'tabular-nums',
+                                                        }}
+                                                    >
+                                                        {idShort}
+                                                    </span>
+                                                ) : null}
                                             </li>
                                         );
                                     })}
@@ -4138,14 +4221,22 @@ export default function StaffDirectoryManagement() {
                         </section>
                     )}
 
-                    <div className="fade-in delay-3" style={{ marginTop: 8 }}>
+                    <div className="fade-in delay-3">
                         <ImportHistoryLedger
                             entries={bulkHistory}
                             loading={bulkHistoryLoading}
                             emptyMessage="No staff imports found."
-                            kindLabel="Staff"
                         />
                     </div>
+
+                    <footer className="staff-bulk__foot">
+                        <span>Staff Directory · Import health: {bulkHistoryLoading ? '…' : bulkImportStats.failed > 0 ? 'Attention' : 'Nominal'}</span>
+                        <div className="staff-bulk__foot-links">
+                            <a href="/templates/latest_bulk_upload.csv" download="staff-directory-template.csv">
+                                CSV Specification
+                            </a>
+                        </div>
+                    </footer>
                 </main>
                 )}
             </div>
@@ -4584,27 +4675,6 @@ export default function StaffDirectoryManagement() {
                 </div>
             )}
             <style>{`
-                .staff-bulk-created li {
-                    display: grid;
-                    grid-template-columns: auto 1fr auto;
-                    align-items: center;
-                    gap: 12px 14px;
-                }
-                @media (max-width: 640px) {
-                    .staff-bulk-created li {
-                        grid-template-columns: auto 1fr;
-                        grid-template-rows: auto auto;
-                        align-items: start;
-                    }
-                    .staff-bulk-created li > div:last-child {
-                        grid-column: 2;
-                        flex-direction: row !important;
-                        align-items: center !important;
-                        justify-content: flex-start !important;
-                        flex-wrap: wrap;
-                        gap: 6px !important;
-                    }
-                }
                 @media (max-width: 1024px) {
                     .staff-table-scroll {
                         overflow-x: auto !important;

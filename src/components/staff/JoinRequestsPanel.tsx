@@ -22,6 +22,7 @@ import {
     initials,
     parseJoinCode,
     parseJoinRequests,
+    primaryWorkstationLabel,
     timeAgo,
     type JoinCodeInfo,
     type JoinRequest,
@@ -32,7 +33,7 @@ type Notify = (message: string, variant?: 'success' | 'error' | 'info') => void;
 type Facility = { id: string; name: string };
 
 const CARD = 'rounded-2xl bg-white ring-1 ring-slate-900/6 shadow-[inset_0_1px_0_rgba(255,255,255,0.9),0_1px_2px_rgba(15,23,42,0.05),0_8px_20px_-10px_rgba(15,23,42,0.10)]';
-const ROW_GRID = 'lg:grid-cols-[20px_minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,1fr)_220px]';
+const ROW_GRID = 'lg:grid-cols-[20px_minmax(0,1.4fr)_minmax(0,0.9fr)_minmax(0,1.35fr)_220px]';
 
 async function resolveFacility(): Promise<Facility> {
     const [id, hospital] = await Promise.all([
@@ -255,7 +256,17 @@ function RequestRow({
     onConfirmReject: () => void;
 }) {
     const contact = [request.email, request.phone].filter(Boolean);
-    const roleLine = [request.role, request.department].filter(Boolean).join(' · ');
+    const workstation = primaryWorkstationLabel(request);
+    const extraWorkstations = (request.workstationIds || []).filter(id => {
+        const primary = (request.primaryWorkstationId || '').trim().toLowerCase();
+        return id.trim() && id.trim().toLowerCase() !== primary && !/^not[_-]?applicable$/i.test(id);
+    });
+    const placementBits = [
+        request.department ? `Dept: ${request.department}` : '',
+        workstation ? `Primary: ${workstation}` : '',
+        extraWorkstations.length ? `Also: ${extraWorkstations.join(', ')}` : '',
+        request.roomCubicle ? `Room/cubicle: ${request.roomCubicle}` : '',
+    ].filter(Boolean);
     return (
         <li className={cn('grid grid-cols-[20px_minmax(0,1fr)] items-center gap-x-3 gap-y-2 px-5 py-3.5 transition-colors', ROW_GRID, selected ? 'bg-[#F3F6FA]' : 'hover:bg-slate-50/70')}>
             <input
@@ -283,8 +294,15 @@ function RequestRow({
                 <EmployeeIdChip request={request} />
             </div>
             <div className="col-start-2 min-w-0 lg:col-start-auto">
-                <div className="truncate text-[12.5px] text-slate-700">{roleLine || <span className="text-slate-400">No role given</span>}</div>
-                {request.submittedAt ? <div className="text-[12px] text-slate-400">{timeAgo(request.submittedAt)}</div> : null}
+                <div className="truncate text-[12.5px] text-slate-700">{request.role || <span className="text-slate-400">No role given</span>}</div>
+                {placementBits.length ? (
+                    <div className="mt-0.5 space-y-0.5 text-[12px] text-slate-500">
+                        {placementBits.map(line => (
+                            <div key={line} className="truncate">{line}</div>
+                        ))}
+                    </div>
+                ) : null}
+                {request.submittedAt ? <div className="mt-0.5 text-[12px] text-slate-400">{timeAgo(request.submittedAt)}</div> : null}
             </div>
             <div className="col-start-2 flex items-center justify-end gap-2 lg:col-start-auto">
                 {confirmingReject ? (
@@ -587,7 +605,7 @@ export default function JoinRequestsPanel({ onNotify, onCountChange }: { onNotif
                             />
                             <div>Person</div>
                             <div>Employee ID</div>
-                            <div>Role · submitted</div>
+                            <div>Role · placement</div>
                             <div className="text-right">Decision</div>
                         </div>
                         {filtered.length ? (

@@ -20,6 +20,11 @@ export async function GET(req: NextRequest) {
         const deptId = searchParams.get('department_id');
         if (deptId) url.searchParams.set('department_id', deptId);
 
+        const hasInpatientBeds = searchParams.get('has_inpatient_beds');
+        if (hasInpatientBeds === 'true' || hasInpatientBeds === 'false') {
+            url.searchParams.set('has_inpatient_beds', hasInpatientBeds);
+        }
+
         const res = await fetch(url.toString(), { method: 'GET', headers: getProxyHeaders(req) });
         const text = await res.text();
         let data: unknown;
