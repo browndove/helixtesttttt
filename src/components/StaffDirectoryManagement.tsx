@@ -32,6 +32,9 @@ import {
 import { formatGhanaPhoneInput, isValidGhanaPhone } from '@/lib/phone';
 import { fetchLoggedOutMatchKeys, isStaffLoggedOut } from '@/lib/logged-out-users';
 import JoinRequestsPanel, { fetchPendingJoinCount } from '@/components/staff/JoinRequestsPanel';
+import DirectoryReportsPanel, { fetchOpenDirectoryReportCount } from '@/components/staff/DirectoryReportsPanel';
+import DirectoryReviewsPanel, { fetchOpenDirectoryReviewCount } from '@/components/staff/DirectoryReviewsPanel';
+import { parseBulkNeedsReviewCount } from '@/lib/directory-reviews';
 
 const STAFF_PAGE_CACHE_TTL_MS = 120_000;
 const STAFF_CACHE_LIST = STAFF_CACHE_LIST_KEY;
@@ -99,9 +102,11 @@ function parseSortControlValue(v: string): { key: SortKey; dir: 'asc' | 'desc' }
 }
 
 type StaffToastVariant = 'success' | 'error' | 'info';
-type StaffTab = 'directory' | 'import' | 'join';
+type StaffTab = 'directory' | 'import' | 'join' | 'reports' | 'review';
 /** Temporarily hide join-code / join-requests admin UI on Staff. Flip to true to restore. */
 const SHOW_JOIN_REQUESTS_UI = true;
+const SHOW_DIRECTORY_REPORTS_UI = true;
+const SHOW_DIRECTORY_REVIEW_UI = true;
 type StaffToastState = {
     message: string;
     variant: StaffToastVariant;
@@ -1080,6 +1085,9 @@ export default function StaffDirectoryManagement() {
     const [savingEdit, setSavingEdit] = useState(false);
     const [activeTab, setActiveTab] = useState<StaffTab>('directory');
     const [pendingJoinCount, setPendingJoinCount] = useState(0);
+    const [directoryReportCount, setDirectoryReportCount] = useState(0);
+    const [directoryReviewCount, setDirectoryReviewCount] = useState(0);
+    const [bulkNeedsReview, setBulkNeedsReview] = useState(0);
     useEffect(() => {
         if (!SHOW_JOIN_REQUESTS_UI) {
             setPendingJoinCount(0);
@@ -1087,6 +1095,24 @@ export default function StaffDirectoryManagement() {
         }
         let cancelled = false;
         void fetchPendingJoinCount().then(count => { if (!cancelled) setPendingJoinCount(count); });
+        return () => { cancelled = true; };
+    }, []);
+    useEffect(() => {
+        if (!SHOW_DIRECTORY_REPORTS_UI) {
+            setDirectoryReportCount(0);
+            return;
+        }
+        let cancelled = false;
+        void fetchOpenDirectoryReportCount().then(count => { if (!cancelled) setDirectoryReportCount(count); });
+        return () => { cancelled = true; };
+    }, []);
+    useEffect(() => {
+        if (!SHOW_DIRECTORY_REVIEW_UI) {
+            setDirectoryReviewCount(0);
+            return;
+        }
+        let cancelled = false;
+        void fetchOpenDirectoryReviewCount().then(count => { if (!cancelled) setDirectoryReviewCount(count); });
         return () => { cancelled = true; };
     }, []);
     const [showAddForm, setShowAddForm] = useState(false);
@@ -1649,15 +1675,24 @@ export default function StaffDirectoryManagement() {
                 data && typeof data === 'object' && !Array.isArray(data) ? (data as Record<string, unknown>) : {};
             const created = Array.isArray(recPayload.created) ? [...recPayload.created] : [];
             const importErrors = parseBulkErrorRows(recPayload.errors);
+            const needsReview = parseBulkNeedsReviewCount(data);
             setBulkResultCreated(created);
             setBulkResultErrors(importErrors);
+            setBulkNeedsReview(needsReview);
+            if (needsReview > 0) {
+                setDirectoryReviewCount(prev => Math.max(prev, needsReview));
+            }
 
-            if (created.length > 0 || importErrors.length > 0) {
+            if (created.length > 0 || importErrors.length > 0 || needsReview > 0) {
                 // Row-level failures use BulkImportErrorsSheet only (no red-accent error toast).
-                if (created.length > 0) {
+                if (created.length > 0 || needsReview > 0) {
+                    const base = bulkImportToastHeadline(created.length, importErrors.length);
+                    const toastMsg = needsReview > 0
+                        ? `${base} · ${needsReview} need${needsReview === 1 ? 's' : ''} a directory decision`
+                        : base;
                     showToast(
-                        bulkImportToastHeadline(created.length, importErrors.length),
-                        importErrors.length > 0 ? 'info' : 'success',
+                        toastMsg,
+                        importErrors.length > 0 || needsReview > 0 ? 'info' : 'success',
                     );
                 }
             } else {
@@ -1679,9 +1714,13 @@ export default function StaffDirectoryManagement() {
                 setLoading(true);
                 fetchStaff();
             }
+            if (needsReview > 0 && SHOW_DIRECTORY_REVIEW_UI) {
+                void fetchOpenDirectoryReviewCount().then(setDirectoryReviewCount);
+            }
         } catch {
             setBulkResultCreated([]);
             setBulkResultErrors([]);
+            setBulkNeedsReview(0);
             showToast('Bulk import failed', 'error', true);
         } finally {
             setProcessing(false);
@@ -2422,7 +2461,13 @@ export default function StaffDirectoryManagement() {
             <div className="app-main">
                 <TopBar
                     title="Staff Management"
-                    subtitle={SHOW_JOIN_REQUESTS_UI ? 'Directory, import & join requests' : 'Directory & import'}
+                    subtitle={
+                        SHOW_DIRECTORY_REVIEW_UI || SHOW_DIRECTORY_REPORTS_UI
+                            ? 'Directory, import, join requests & reviews'
+                            : SHOW_JOIN_REQUESTS_UI
+                                ? 'Directory, import & join requests'
+                                : 'Directory & import'
+                    }
                     search={activeTab === 'directory' ? { placeholder: 'Search by name, dept, or email...', value: search, onChange: setSearch } : undefined}
                     actions={
                         <div style={{ display: 'flex', gap: 8 }}>
@@ -2442,13 +2487,25 @@ export default function StaffDirectoryManagement() {
                         ['directory', 'groups', 'Staff Directory'] as const,
                         ['import', 'upload_file', 'Bulk Import'] as const,
                         ...(SHOW_JOIN_REQUESTS_UI ? [['join', 'how_to_reg', 'Join Requests'] as const] : []),
+                        ...(SHOW_DIRECTORY_REVIEW_UI ? [['review', 'rule', 'Directory Review'] as const] : []),
+                        ...(SHOW_DIRECTORY_REPORTS_UI ? [['reports', 'report_problem', 'Directory Reports'] as const] : []),
                     ]).map(([id, icon, label]) => (
-                        <button key={id} onClick={() => setActiveTab(id)}
+                        <button key={id} onClick={() => setActiveTab(id as StaffTab)}
                             style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '10px 16px', fontSize: 13, fontWeight: activeTab === id ? 600 : 500, color: activeTab === id ? 'var(--helix-primary)' : 'var(--text-muted)', background: 'transparent', border: 'none', borderBottom: activeTab === id ? '2px solid var(--helix-primary)' : '2px solid transparent', cursor: 'pointer', transition: 'all 0.2s' }}>
                             <span className="material-icons-round" style={{ fontSize: 16 }}>{icon}</span>{label}
                             {id === 'join' && pendingJoinCount > 0 && (
                                 <span style={{ minWidth: 18, height: 18, padding: '0 5px', borderRadius: 999, background: '#1E3A5F', color: '#fff', fontSize: 11, fontWeight: 700, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontVariantNumeric: 'tabular-nums' }}>
                                     {pendingJoinCount}
+                                </span>
+                            )}
+                            {id === 'review' && directoryReviewCount > 0 && (
+                                <span style={{ minWidth: 18, height: 18, padding: '0 5px', borderRadius: 999, background: '#1E3A5F', color: '#fff', fontSize: 11, fontWeight: 700, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontVariantNumeric: 'tabular-nums' }}>
+                                    {directoryReviewCount}
+                                </span>
+                            )}
+                            {id === 'reports' && directoryReportCount > 0 && (
+                                <span style={{ minWidth: 18, height: 18, padding: '0 5px', borderRadius: 999, background: '#1E3A5F', color: '#fff', fontSize: 11, fontWeight: 700, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontVariantNumeric: 'tabular-nums' }}>
+                                    {directoryReportCount}
                                 </span>
                             )}
                         </button>
@@ -3880,6 +3937,46 @@ export default function StaffDirectoryManagement() {
                 <main style={{ flex: 1, minWidth: 0, overflow: 'auto', padding: '20px 24px', background: 'var(--bg-900)' }}>
                     <JoinRequestsPanel onNotify={showToast} onCountChange={setPendingJoinCount} />
                 </main>
+                ) : SHOW_DIRECTORY_REVIEW_UI && activeTab === 'review' ? (
+                <main style={{ flex: 1, minWidth: 0, overflow: 'auto', padding: '20px 24px', background: 'var(--bg-900)' }}>
+                    <DirectoryReviewsPanel
+                        onNotify={showToast}
+                        onCountChange={(count) => {
+                            setDirectoryReviewCount(count);
+                            if (count === 0) setBulkNeedsReview(0);
+                        }}
+                    />
+                </main>
+                ) : SHOW_DIRECTORY_REPORTS_UI && activeTab === 'reports' ? (
+                <main style={{ flex: 1, minWidth: 0, overflow: 'auto', padding: '20px 24px', background: 'var(--bg-900)' }}>
+                    <DirectoryReportsPanel
+                        onNotify={showToast}
+                        onCountChange={setDirectoryReportCount}
+                        onOpenDirectoryUser={(directoryUserId) => {
+                            const target = String(directoryUserId || '').trim().toLowerCase();
+                            if (!target) {
+                                showToast('That report has no directory person linked.', 'error');
+                                return;
+                            }
+                            const match = staff.find(s => {
+                                const ids = [s.id, s.user_id, s.employee_id]
+                                    .map(v => String(v || '').trim().toLowerCase())
+                                    .filter(Boolean);
+                                return ids.includes(target);
+                            });
+                            if (!match) {
+                                showToast('Couldn’t find that person in the loaded directory. Search for them on Staff Directory.', 'error');
+                                setActiveTab('directory');
+                                return;
+                            }
+                            setSelected(match);
+                            setEditingSelected(false);
+                            setActiveTab('directory');
+                            const label = [match.first_name, match.last_name].filter(Boolean).join(' ').trim() || 'staff member';
+                            showToast(`Opened ${label}`, 'info');
+                        }}
+                    />
+                </main>
                 ) : (
                 /* Bulk Import Tab */
                 <main className="staff-bulk" style={{ flex: 1, minWidth: 0, overflow: 'auto', padding: '16px 24px 24px', background: '#f1f5f9' }}>
@@ -4080,14 +4177,42 @@ export default function StaffDirectoryManagement() {
                                 ))}
                             </div>
 
-                            <div className="staff-bulk__exclude">
-                                <p className="staff-bulk__exclude-title">Exclusion note</p>
-                                <p className="staff-bulk__exclude-body">
-                                    Do not include contact email, phone, or departmental rank. These attributes are synced during employee onboarding.
-                                </p>
-                            </div>
                         </aside>
                     </div>
+
+                    {SHOW_DIRECTORY_REVIEW_UI && bulkNeedsReview > 0 ? (
+                        <section
+                            className="fade-in"
+                            style={{
+                                marginBottom: 16,
+                                borderRadius: 12,
+                                border: '1px solid #D7E0EC',
+                                background: '#F4F7FB',
+                                padding: '14px 16px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                                gap: 12,
+                                flexWrap: 'wrap',
+                            }}
+                        >
+                            <div style={{ minWidth: 0 }}>
+                                <div style={{ fontSize: 13.5, fontWeight: 700, color: '#1E3A5F' }}>
+                                    {bulkNeedsReview} {bulkNeedsReview === 1 ? 'row needs' : 'rows need'} a directory decision
+                                </div>
+                                <div style={{ marginTop: 2, fontSize: 12.5, color: '#64748b' }}>
+                                    Same employee ID, same name and date of birth, or incomplete rows from this upload.
+                                </div>
+                            </div>
+                            <button
+                                type="button"
+                                className="btn btn-primary btn-sm"
+                                onClick={() => setActiveTab('review')}
+                            >
+                                Open Directory Review
+                            </button>
+                        </section>
+                    ) : null}
 
                     {bulkResultCreated.length > 0 && (
                         <section

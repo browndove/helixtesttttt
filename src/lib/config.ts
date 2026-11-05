@@ -97,6 +97,12 @@ export const API_ENDPOINTS = {
   FACILITY_JOIN_CODE: (id: string) => `/api/proxy/facilities/${id}/join-code`,
   FACILITY_JOIN_REQUESTS: (id: string) => `/api/proxy/facilities/${id}/join-requests`,
   FACILITY_JOIN_DECIDE: (id: string, requestId: string) => `/api/proxy/facilities/${id}/join-requests/${requestId}/decide`,
+  FACILITY_DIRECTORY_REPORTS: (id: string) => `/api/proxy/facilities/${id}/directory-reports`,
+  FACILITY_DIRECTORY_REPORT_DISMISS: (id: string, reportId: string) =>
+    `/api/proxy/facilities/${id}/directory-reports/${reportId}/dismiss`,
+  FACILITY_DIRECTORY_REVIEWS: (id: string) => `/api/proxy/facilities/${id}/directory-reviews`,
+  FACILITY_DIRECTORY_REVIEW_RESOLVE: (id: string, reviewId: string) =>
+    `/api/proxy/facilities/${id}/directory-reviews/${reviewId}/resolve`,
 
   // Presence
   /** Proxies GET /api/v1/presence/online — pass ?client=admin|app. */

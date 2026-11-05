@@ -579,7 +579,7 @@ export default function JoinRequestsPanel({ onNotify, onCountChange }: { onNotif
                         <span className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-50 text-slate-400 ring-1 ring-slate-200 shadow-[0_1px_2px_rgba(15,23,42,0.05),0_6px_14px_-8px_rgba(15,23,42,0.18)]">
                             <Inbox className="h-5 w-5" strokeWidth={1.8} />
                         </span>
-                        <div className="mt-4 text-[14px] font-semibold text-slate-900">No one is waiting</div>
+                        <div className="mt-4 text-[14px] font-semibold text-slate-900">No one is waiting for approval.</div>
                         <p className="mx-auto mt-1 max-w-sm text-[12.5px] leading-5 text-slate-500">
                             When staff sign up with your join code, their requests appear here for you to approve.
                         </p>
