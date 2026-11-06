@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import TopBar from '@/components/TopBar';
 import { API_ENDPOINTS } from '@/lib/config';
 import { clearAdminSidebarSession } from '@/lib/facilityDisplayCache';
+import { appendFacilityIdForProxy } from '@/lib/facility-client';
 import { readSettingsPageSnapshot, writeSettingsPageSnapshot, type SettingsPageSnapshotV1 } from '@/lib/settingsPageCache';
 import CustomSelect from '@/components/CustomSelect';
 import { formatGhanaPhoneInput, isValidGhanaPhone } from '@/lib/phone';
@@ -372,16 +373,25 @@ export default function SettingsPage() {
         try {
             // API: JSON booleans only — "screenshots_allowed": true or false (not strings)
             const payload: { screenshots_allowed: boolean } = { screenshots_allowed: next };
-            const res = await fetch(API_ENDPOINTS.FACILITY(facilityId), {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                credentials: 'include',
-                body: JSON.stringify(payload),
-            });
+            const res = await fetch(
+                await appendFacilityIdForProxy(API_ENDPOINTS.FACILITY(facilityId)),
+                {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'include',
+                    body: JSON.stringify(payload),
+                },
+            );
             const data = await res.json().catch(() => ({} as Record<string, unknown>));
             if (!res.ok) {
                 setScreenshotsAllowed(!next);
-                showToast(String(data?.message || data?.detail || data?.error || 'Failed to update facility'), 'error');
+                const msg = String(data?.message || data?.detail || data?.error || 'Failed to update facility');
+                showToast(
+                    res.status === 403
+                        ? (msg.toLowerCase().includes('access') ? msg : 'You do not have access to this facility')
+                        : msg,
+                    'error',
+                );
                 return;
             }
             if (data && typeof data === 'object' && 'screenshots_allowed' in data) {
@@ -406,23 +416,29 @@ export default function SettingsPage() {
         setSavingRetention(true);
         setPendingRetention(undefined);
         try {
-            const res = await fetch(API_ENDPOINTS.FACILITY_CONVERSATION_RETENTION(facilityId), {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                credentials: 'include',
-                body: JSON.stringify({ conversation_retention_months: next }),
-            });
+            const res = await fetch(
+                await appendFacilityIdForProxy(API_ENDPOINTS.FACILITY_CONVERSATION_RETENTION(facilityId)),
+                {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'include',
+                    body: JSON.stringify({ conversation_retention_months: next }),
+                },
+            );
             const data = await res.json().catch(() => ({} as Record<string, unknown>));
             if (!res.ok) {
                 setRetentionMonths(prev);
+                const msg = String(
+                    data?.message
+                    || data?.detail
+                    || data?.error
+                    || data?.details
+                    || 'Failed to update conversation retention',
+                );
                 showToast(
-                    String(
-                        data?.message
-                        || data?.detail
-                        || data?.error
-                        || data?.details
-                        || 'Failed to update conversation retention',
-                    ),
+                    res.status === 403
+                        ? (msg.toLowerCase().includes('access') ? msg : 'You do not have access to this facility')
+                        : msg,
                     'error',
                 );
                 return;
@@ -1002,7 +1018,7 @@ export default function SettingsPage() {
                                             <div className="settings-row__label">Critical alert sound</div>
                                             <div className="settings-row__desc">
                                                 Choose the alarm mobile staff hear for critical messages and escalations at this facility.
-                                                Preview Pulse and Siren here before you switch. Code blue keeps its own sound.
+                                                Preview a sound before you switch. Code blue keeps its own sound.
                                             </div>
                                         </div>
                                         <CriticalAlertSoundPicker

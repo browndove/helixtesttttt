@@ -20,8 +20,37 @@ type LogEntry = {
     targetId: string;
 };
 
-const entityTypes = ['All', 'staff', 'patient', 'role', 'department', 'facility'];
-const actionTypes = ['All', 'create', 'update', 'delete', 'sign_in', 'sign_out', 'request_phone_update'];
+const entityTypes = [
+    'All',
+    'staff',
+    'patient',
+    'role',
+    'department',
+    'facility',
+    'staff_directory_review',
+    'staff_directory_report',
+];
+/** Include ready-made directory / join / settings actions from the API. */
+const actionTypes = [
+    'All',
+    'create',
+    'update',
+    'delete',
+    'sign_in',
+    'sign_out',
+    'request_phone_update',
+    'upload_directory',
+    'approve_join_request',
+    'reject_join_request',
+    'added',
+    'replaced',
+    'dismissed',
+    'dismiss_directory_report',
+    'correct_directory_from_report',
+    'merge_join_into_directory',
+    'update_join_settings',
+    'update_critical_alert_sound',
+];
 
 function splitActorDisplayName(actorName: string): { firstName: string; lastName: string } {
     const parts = actorName.trim().split(/\s+/).filter(Boolean);
@@ -488,11 +517,11 @@ function parseAuditPayload(raw: unknown): { logs: LogEntry[]; total: number } {
         const ts = String(rec.timestamp || rec.created_at || new Date().toISOString());
         const detailsObj = mergeAuditDetailObjects(rec);
         const fallbackDetails = entityDetailsFallback(entityRaw, actionRaw, detailsObj);
+        /** Prefer API display_message as-is; only fall back when it is absent. */
+        const displayMessage = asCleanString(rec.display_message) || asCleanString(detailsObj?.display_message);
         /** For roles the metadata (role_name + priority) reads better than the backend's raw `role: <name>` summary. */
         const isRoleEntity = entityRaw.trim().toLowerCase() === 'role';
-        const details = [
-            rec.display_message,
-            detailsObj?.display_message,
+        const details = displayMessage || [
             detailsObj?.message,
             isRoleEntity ? fallbackDetails : '',
             rec.details,

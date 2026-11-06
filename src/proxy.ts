@@ -6,7 +6,7 @@ const INTERNAL_COOKIE_NAME = 'helix-internal-session';
 const SUPPORT_MODE_COOKIE = 'helix-support-mode';
 
 const PUBLIC_PATHS = ['/', '/login', '/forgot-password', '/reset-password', '/setup-account', '/setup-facility', '/setup', '/internal/login'];
-const PUBLIC_PREFIXES = ['/api/auth', '/api/proxy', '/_next', '/favicon.ico', '/assets'];
+const PUBLIC_PREFIXES = ['/api/auth', '/api/proxy', '/_next', '/favicon.ico', '/assets', '/.well-known'];
 const PUBLIC_FILE_EXTENSIONS = /\.(png|jpg|jpeg|gif|webp|svg|ico)$/i;
 
 export async function proxy(req: NextRequest) {
@@ -15,6 +15,7 @@ export async function proxy(req: NextRequest) {
     // Allow public paths (magic-link staff phone update is unauthenticated; token is in query string)
     if (PUBLIC_PATHS.includes(pathname)) return NextResponse.next();
     if (pathname === '/update-phone' || pathname.startsWith('/update-phone/')) return NextResponse.next();
+    if (pathname.startsWith('/setup-account')) return NextResponse.next();
     if (PUBLIC_PREFIXES.some(prefix => pathname.startsWith(prefix))) return NextResponse.next();
     if (PUBLIC_FILE_EXTENSIONS.test(pathname)) return NextResponse.next();
 

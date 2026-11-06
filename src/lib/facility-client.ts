@@ -125,9 +125,12 @@ export function appendFacilityIdToProxyUrl(url: string, facilityId?: string): st
     return `${parsed.pathname}${parsed.search}`;
 }
 
-/** Only adds facility_id for internal act-as; tenant sessions use the proxy auth cookie. */
+/**
+ * Always append the signed-in admin's facility_id (tenant own facility, or
+ * act-as target for internal support). Required for facility-scoped routes
+ * like join-code, directory-reviews/reports, conversation-retention, etc.
+ */
 export async function appendFacilityIdForProxy(url: string): Promise<string> {
-    if (!(await isClientInternalSupportMode())) return url;
     const facilityId = await resolveClientFacilityId();
     return appendFacilityIdToProxyUrl(url, facilityId);
 }

@@ -1,27 +1,78 @@
 /**
- * Facility directory mismatch reports from the mobile app.
- * Someone matched the wrong directory person and asked an admin to fix it.
+ * Facility directory mismatch reports from the mobile app ("Not me").
+ * Admin compares entered vs directory, then merge / correct / dismiss.
  */
 
-export type DirectoryReportShown = {
+export type DirectoryReportPerson = {
     directoryUserId: string;
-    name: string;
+    firstName: string;
+    middleName: string;
+    lastName: string;
+    employeeId: string;
+    dob: string;
+    hasAccount: boolean;
+};
+
+export type DirectoryReportEntered = {
+    firstName: string;
+    middleName: string;
+    lastName: string;
     employeeId: string;
     dob: string;
 };
+
+export type DirectoryReportDifference = {
+    field: string;
+    entered: string;
+    directory: string;
+    differs: boolean;
+};
+
+export type DirectoryRelatedRequest = {
+    requestId: string;
+    firstName: string;
+    middleName: string;
+    lastName: string;
+    dob: string;
+    employeeId: string;
+    email: string;
+    phone: string;
+    jobTitle: string;
+    department: string;
+};
+
+export type DirectoryReportAction = 'dismiss' | 'correct_directory' | 'merge';
 
 export type DirectoryReport = {
     id: string;
-    /** Lookup fields the person entered. Empty string means unused. */
-    employeeId: string;
-    firstName: string;
-    lastName: string;
-    dob: string;
     note: string;
     createdAt: string;
-    shown: DirectoryReportShown;
+    entered: DirectoryReportEntered;
+    directory: DirectoryReportPerson;
+    differences: DirectoryReportDifference[];
+    relatedRequests: DirectoryRelatedRequest[];
+    actions: DirectoryReportAction[];
 };
 
+export type DirectoryReportResolveAction = DirectoryReportAction;
+
+export type DirectoryReportResolvePayload = {
+    action: DirectoryReportResolveAction;
+    request_id?: string;
+    first_name?: string;
+    middle_name?: string;
+    last_name?: string;
+    dob?: string;
+    employee_id?: string;
+};
+
+export type DirectoryReportForm = {
+    firstName: string;
+    middleName: string;
+    lastName: string;
+    employeeId: string;
+    dob: string;
+};
 
 type Rec = Record<string, unknown>;
 
@@ -39,16 +90,32 @@ function str(rec: Rec | null, ...keys: string[]): string {
     return '';
 }
 
+function bool(rec: Rec | null, ...keys: string[]): boolean {
+    if (!rec) return false;
+    for (const key of keys) {
+        const value = rec[key];
+        if (typeof value === 'boolean') return value;
+        if (typeof value === 'string') {
+            const t = value.trim().toLowerCase();
+            if (['true', 'yes', '1'].includes(t)) return true;
+            if (['false', 'no', '0'].includes(t)) return false;
+        }
+        if (value === 1) return true;
+        if (value === 0) return false;
+    }
+    return false;
+}
+
 function unwrapList(raw: unknown): unknown[] {
     if (Array.isArray(raw)) return raw;
     const rec = asRec(raw);
     if (!rec) return [];
-    for (const key of ['items', 'reports', 'data', 'results', 'directory_reports']) {
+    for (const key of ['reports', 'items', 'data', 'results', 'directory_reports']) {
         const v = rec[key];
         if (Array.isArray(v)) return v;
         const nested = asRec(v);
         if (nested) {
-            for (const inner of ['items', 'reports', 'data', 'results']) {
+            for (const inner of ['reports', 'items', 'data', 'results']) {
                 if (Array.isArray(nested[inner])) return nested[inner] as unknown[];
             }
         }
@@ -56,148 +123,113 @@ function unwrapList(raw: unknown): unknown[] {
     return [];
 }
 
-function personName(rec: Rec | null): string {
-    if (!rec) return '';
-    const full = str(rec, 'name', 'full_name', 'display_name');
-    if (full) return full;
-    const first = str(rec, 'first_name', 'firstName');
-    const last = str(rec, 'last_name', 'lastName');
-    return [first, last].filter(Boolean).join(' ').trim();
-}
-
-function parseShown(raw: unknown): DirectoryReportShown {
+function parseEntered(raw: unknown): DirectoryReportEntered {
     const rec = asRec(raw);
     return {
-        directoryUserId: str(rec, 'directory_user_id', 'directoryUserId', 'user_id', 'staff_id', 'id'),
-        name: personName(rec) || 'Unknown person',
+        firstName: str(rec, 'first_name', 'firstName'),
+        middleName: str(rec, 'middle_name', 'middleName'),
+        lastName: str(rec, 'last_name', 'lastName'),
         employeeId: str(rec, 'employee_id', 'employeeId'),
         dob: str(rec, 'dob', 'date_of_birth', 'dateOfBirth'),
     };
 }
 
-function parseLookupFields(rec: Rec): {
-    employeeId: string;
-    firstName: string;
-    lastName: string;
-    dob: string;
-} {
-    // Prefer an explicit nested lookup / entered / query object when present.
-    const nameObj = asRec(rec.name);
-    const nestedCandidates = [
-        asRec(rec.lookup),
-        asRec(rec.entered),
-        asRec(rec.query),
-        asRec(rec.search),
-        asRec(rec.criteria),
-        asRec(rec.reported),
-        asRec(rec.input),
-        asRec(rec.fields),
-        nameObj && (nameObj.first || nameObj.first_name || nameObj.last || nameObj.last_name)
-            ? nameObj
-            : null,
-    ].filter(Boolean) as Rec[];
+function parseDirectory(raw: unknown): DirectoryReportPerson {
+    const rec = asRec(raw);
+    return {
+        directoryUserId: str(rec, 'directory_user_id', 'directoryUserId', 'user_id', 'staff_id', 'id'),
+        firstName: str(rec, 'first_name', 'firstName'),
+        middleName: str(rec, 'middle_name', 'middleName'),
+        lastName: str(rec, 'last_name', 'lastName'),
+        employeeId: str(rec, 'employee_id', 'employeeId'),
+        dob: str(rec, 'dob', 'date_of_birth', 'dateOfBirth'),
+        hasAccount: bool(rec, 'has_account', 'hasAccount', 'has_joined', 'hasJoined'),
+    };
+}
 
-    const sources = [...nestedCandidates, rec];
-    let employeeId = '';
-    let firstName = '';
-    let lastName = '';
-    let dob = '';
-
-    for (const src of sources) {
-        if (!employeeId) {
-            employeeId = str(
-                src,
-                'employee_id',
-                'employeeId',
-                'lookup_employee_id',
-                'entered_employee_id',
-            );
-        }
-        if (!firstName) {
-            firstName = str(
-                src,
-                'first_name',
-                'firstName',
-                'given_name',
-                'lookup_first_name',
-                'entered_first_name',
-                'first',
-            );
-        }
-        if (!lastName) {
-            lastName = str(
-                src,
-                'last_name',
-                'lastName',
-                'family_name',
-                'lookup_last_name',
-                'entered_last_name',
-                'last',
-            );
-        }
-        if (!dob) {
-            dob = str(
-                src,
-                'dob',
-                'date_of_birth',
-                'dateOfBirth',
-                'lookup_dob',
-                'entered_dob',
-                'birth_date',
-                'birthdate',
-            );
-        }
+function parseDifferences(raw: unknown, entered: DirectoryReportEntered, directory: DirectoryReportPerson): DirectoryReportDifference[] {
+    if (Array.isArray(raw) && raw.length) {
+        return raw.map(row => {
+            const rec = asRec(row);
+            const field = str(rec, 'field', 'name', 'key') || 'field';
+            return {
+                field,
+                entered: str(rec, 'entered', 'incoming', 'left', 'value'),
+                directory: str(rec, 'directory', 'stored', 'right', 'current'),
+                differs: bool(rec, 'differs', 'different', 'changed') || (
+                    str(rec, 'entered', 'incoming', 'left', 'value') !== str(rec, 'directory', 'stored', 'right', 'current')
+                ),
+            };
+        });
     }
+    // Synthesize when API omits differences.
+    const fields: Array<{ field: string; entered: string; directory: string }> = [
+        { field: 'first_name', entered: entered.firstName, directory: directory.firstName },
+        { field: 'middle_name', entered: entered.middleName, directory: directory.middleName },
+        { field: 'last_name', entered: entered.lastName, directory: directory.lastName },
+        { field: 'employee_id', entered: entered.employeeId, directory: directory.employeeId },
+        { field: 'dob', entered: entered.dob, directory: directory.dob },
+    ];
+    return fields.map(f => ({ ...f, differs: f.entered !== f.directory }));
+}
 
-    // Some payloads send a single full name instead of first/last.
-    if (!firstName && !lastName) {
-        for (const src of sources) {
-            const full = str(src, 'name', 'full_name', 'display_name', 'lookup_name', 'person_name');
-            if (!full) continue;
-            const parts = full.split(/\s+/).filter(Boolean);
-            if (parts.length === 1) {
-                firstName = parts[0];
-            } else if (parts.length > 1) {
-                firstName = parts[0];
-                lastName = parts.slice(1).join(' ');
-            }
-            break;
-        }
+function parseRelated(raw: unknown): DirectoryRelatedRequest[] {
+    if (!Array.isArray(raw)) return [];
+    return raw.map(row => {
+        const rec = asRec(row);
+        return {
+            requestId: str(rec, 'request_id', 'requestId', 'id'),
+            firstName: str(rec, 'first_name', 'firstName'),
+            middleName: str(rec, 'middle_name', 'middleName'),
+            lastName: str(rec, 'last_name', 'lastName'),
+            dob: str(rec, 'dob', 'date_of_birth', 'dateOfBirth'),
+            employeeId: str(rec, 'employee_id', 'employeeId'),
+            email: str(rec, 'email'),
+            phone: str(rec, 'phone'),
+            jobTitle: str(rec, 'job_title', 'jobTitle', 'title'),
+            department: str(rec, 'department', 'department_name'),
+        };
+    }).filter(r => r.requestId);
+}
+
+function parseActions(raw: unknown): DirectoryReportAction[] {
+    const allowed = new Set<DirectoryReportAction>(['dismiss', 'correct_directory', 'merge']);
+    if (!Array.isArray(raw)) return ['dismiss', 'correct_directory', 'merge'];
+    const out: DirectoryReportAction[] = [];
+    for (const item of raw) {
+        const v = String(item || '').trim().toLowerCase() as DirectoryReportAction;
+        if (allowed.has(v) && !out.includes(v)) out.push(v);
     }
-
-    return { employeeId, firstName, lastName, dob };
+    return out.length ? out : ['dismiss'];
 }
 
 function parseOne(raw: unknown, idx: number): DirectoryReport | null {
-    const outer = asRec(raw);
-    if (!outer) return null;
-    // Some list rows wrap the report under `report` / `attributes`.
-    const rec = asRec(outer.report) || asRec(outer.attributes) || outer;
-    const shownRaw =
-        rec.shown
-        ?? rec.matched
-        ?? rec.directory_person
-        ?? rec.directory_user
-        ?? outer.shown
-        ?? outer.matched;
-    const shown = parseShown(shownRaw);
-    const id = str(rec, 'id', 'report_id', 'uuid') || str(outer, 'id', 'report_id', 'uuid') || `report-${idx}`;
-    const lookup = parseLookupFields(rec);
-    // If the inner object had no lookup fields, try the outer wrapper too.
-    const fallback = (!lookup.employeeId && !lookup.firstName && !lookup.lastName && !lookup.dob)
-        ? parseLookupFields(outer)
-        : lookup;
+    const rec = asRec(raw);
+    if (!rec) return null;
+
+    const entered = parseEntered(
+        rec.entered ?? rec.lookup ?? rec.query ?? rec.shown_entered ?? {
+            first_name: rec.first_name,
+            last_name: rec.last_name,
+            employee_id: rec.employee_id,
+            dob: rec.dob,
+            middle_name: rec.middle_name,
+        },
+    );
+    const directory = parseDirectory(
+        rec.directory ?? rec.shown ?? rec.matched ?? rec.directory_person ?? rec.directory_user,
+    );
+    const id = str(rec, 'id', 'report_id', 'uuid') || `report-${idx}`;
+
     return {
         id,
-        employeeId: fallback.employeeId,
-        firstName: fallback.firstName,
-        lastName: fallback.lastName,
-        dob: fallback.dob,
-        note: str(rec, 'note', 'message', 'comment', 'reason') || str(outer, 'note', 'message', 'comment', 'reason'),
-        createdAt:
-            str(rec, 'created_at', 'createdAt', 'reported_at', 'timestamp')
-            || str(outer, 'created_at', 'createdAt', 'reported_at', 'timestamp'),
-        shown,
+        note: str(rec, 'note', 'message', 'comment', 'reason'),
+        createdAt: str(rec, 'created_at', 'createdAt', 'reported_at', 'timestamp'),
+        entered,
+        directory,
+        differences: parseDifferences(rec.differences, entered, directory),
+        relatedRequests: parseRelated(rec.related_requests ?? rec.relatedRequests ?? rec.join_requests),
+        actions: parseActions(rec.actions),
     };
 }
 
@@ -216,34 +248,47 @@ export function parseDirectoryReportsResponse(raw: unknown): {
     return { reports, openCount };
 }
 
-/** Lookup label used when the person searched: employee ID, or name (+ DOB in the meta line). */
-export function reportLookupLabel(report: DirectoryReport): string {
-    if (report.employeeId) return report.employeeId;
-    const name = [report.firstName, report.lastName].filter(Boolean).join(' ').trim();
-    if (name) return name;
-    if (report.dob) return report.dob;
-    return '—';
+export function personDisplayName(p: { firstName: string; middleName?: string; lastName: string }): string {
+    return [p.firstName, p.middleName, p.lastName].filter(Boolean).join(' ').trim() || '—';
 }
 
-export function reportLookupMeta(report: DirectoryReport): string {
-    if (report.employeeId) return 'Employee ID';
-    const name = [report.firstName, report.lastName].filter(Boolean).join(' ').trim();
-    if (name && report.dob) return `DOB ${report.dob}`;
-    if (name) return 'Name';
-    if (report.dob) return 'Date of birth';
-    return 'Name / date of birth';
+export function fieldLabel(field: string): string {
+    const t = field.trim().toLowerCase();
+    if (t === 'first_name' || t === 'firstname') return 'First name';
+    if (t === 'middle_name' || t === 'middlename') return 'Middle name';
+    if (t === 'last_name' || t === 'lastname') return 'Last name';
+    if (t === 'employee_id' || t === 'employeeid') return 'Employee ID';
+    if (t === 'dob' || t === 'date_of_birth') return 'Date of birth';
+    return field.replace(/_/g, ' ').replace(/\b\w/g, m => m.toUpperCase());
 }
 
-export function reportSummaryLine(report: DirectoryReport): string {
-    const lookup = reportLookupLabel(report);
-    const shown = report.shown.name || 'a directory person';
-    return `${lookup} matched ${shown}`;
+export function formFromEntered(entered: DirectoryReportEntered): DirectoryReportForm {
+    return {
+        firstName: entered.firstName,
+        middleName: entered.middleName,
+        lastName: entered.lastName,
+        employeeId: entered.employeeId,
+        dob: entered.dob,
+    };
 }
 
-export function reportNoteLabel(report: DirectoryReport): string {
-    const note = report.note.replace(/\s+/g, ' ').trim();
-    if (note) return note;
-    return 'This is not their name';
+export function buildReportResolveBody(
+    action: DirectoryReportResolveAction,
+    form: DirectoryReportForm,
+    requestId?: string,
+): DirectoryReportResolvePayload {
+    if (action === 'dismiss') return { action: 'dismiss' };
+    const body: DirectoryReportResolvePayload = {
+        action,
+        first_name: form.firstName.trim(),
+        middle_name: form.middleName.trim(),
+        last_name: form.lastName.trim(),
+        dob: form.dob.trim(),
+    };
+    const employeeId = form.employeeId.trim();
+    if (employeeId) body.employee_id = employeeId;
+    if (action === 'merge' && requestId) body.request_id = requestId;
+    return body;
 }
 
 export function formatReportWhen(iso: string): string {
@@ -272,6 +317,19 @@ export function apiErrorMessage(data: unknown, fallback: string): string {
     for (const key of ['error', 'message', 'detail', 'details']) {
         const v = rec[key];
         if (typeof v === 'string' && v.trim()) return v.trim();
+        if (Array.isArray(v) && v.length) {
+            const first = v[0];
+            if (typeof first === 'string' && first.trim()) return first.trim();
+            const nested = asRec(first);
+            const msg = str(nested, 'message', 'detail', 'error');
+            if (msg) return msg;
+        }
     }
     return fallback;
+}
+
+/** True when 409 means only dismiss remains viable (directory person already has an account). */
+export function isAccountAlreadyExistsConflict(message: string): boolean {
+    const t = message.toLowerCase();
+    return t.includes('already has an account') || t.includes('already joined');
 }

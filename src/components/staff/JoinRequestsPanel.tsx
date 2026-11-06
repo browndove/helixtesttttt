@@ -27,7 +27,10 @@ import {
     type JoinCodeInfo,
     type JoinRequest,
 } from '@/lib/join-requests';
+import { sendStaffInviteEmails } from '@/lib/staff-invite-emails';
 import { cn } from '@/lib/utils';
+
+type PendingInviteResend = { userId: string; name: string };
 
 type Notify = (message: string, variant?: 'success' | 'error' | 'info') => void;
 type Facility = { id: string; name: string };
@@ -355,6 +358,8 @@ export default function JoinRequestsPanel({ onNotify, onCountChange }: { onNotif
     const [busyIds, setBusyIds] = useState<Set<string>>(new Set());
     const [confirmRejectId, setConfirmRejectId] = useState('');
     const [bulkConfirmReject, setBulkConfirmReject] = useState(false);
+    const [pendingInviteResends, setPendingInviteResends] = useState<PendingInviteResend[]>([]);
+    const [resendingInviteIds, setResendingInviteIds] = useState<Set<string>>(new Set());
 
     const load = useCallback(async () => {
         setCodeLoading(true);
@@ -430,6 +435,32 @@ export default function JoinRequestsPanel({ onNotify, onCountChange }: { onNotif
         }
     }, [facility, codeInfo, onNotify]);
 
+    const resendInvite = useCallback(async (userId: string) => {
+        setResendingInviteIds(prev => new Set([...prev, userId]));
+        try {
+            const result = await sendStaffInviteEmails([userId]);
+            if (result.emailNotConfigured) {
+                onNotify('Invite email is not configured on the server.', 'error');
+                return;
+            }
+            if (result.queued > 0) {
+                setPendingInviteResends(prev => prev.filter(item => item.userId !== userId));
+                onNotify('Invite email sent', 'success');
+                return;
+            }
+            const msg = result.errors[0]?.message || 'Couldn’t send invite email.';
+            onNotify(msg, 'error');
+        } catch {
+            onNotify('Couldn’t send invite email.', 'error');
+        } finally {
+            setResendingInviteIds(prev => {
+                const next = new Set(prev);
+                next.delete(userId);
+                return next;
+            });
+        }
+    }, [onNotify]);
+
     const decide = useCallback(async (ids: string[], decision: 'approve' | 'reject') => {
         if (!facility?.id || !ids.length) return;
         setBusyIds(prev => new Set([...prev, ...ids]));
@@ -440,11 +471,17 @@ export default function JoinRequestsPanel({ onNotify, onCountChange }: { onNotif
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ decision }),
             });
-            const data = await res.json().catch(() => ({}));
+            const data = await res.json().catch(() => ({})) as Record<string, unknown>;
             if (!res.ok) throw new Error(apiErrorMessage(data, `Request failed (${res.status})`));
-            return id;
+            return {
+                id,
+                userId: String(data.user_id || data.userId || '').trim(),
+                inviteEmailSent: data.invite_email_sent === true || data.inviteEmailSent === true,
+                name: requests.find(item => item.id === id)?.fullName || '',
+            };
         }));
-        const done = new Set(results.flatMap(r => (r.status === 'fulfilled' ? [r.value] : [])));
+        const fulfilled = results.flatMap(r => (r.status === 'fulfilled' ? [r.value] : []));
+        const done = new Set(fulfilled.map(r => r.id));
         const failed = results.filter(r => r.status === 'rejected') as PromiseRejectedResult[];
 
         setRequests(prev => {
@@ -457,10 +494,35 @@ export default function JoinRequestsPanel({ onNotify, onCountChange }: { onNotif
         setConfirmRejectId('');
         setBulkConfirmReject(false);
 
+        if (decision === 'approve') {
+            const missingEmail = fulfilled.filter(r => r.userId && !r.inviteEmailSent);
+            if (missingEmail.length) {
+                setPendingInviteResends(prev => {
+                    const map = new Map(prev.map(item => [item.userId, item]));
+                    for (const row of missingEmail) {
+                        map.set(row.userId, { userId: row.userId, name: row.name || 'Approved staff' });
+                    }
+                    return [...map.values()];
+                });
+            }
+        }
+
         if (done.size) {
             const name = ids.length === 1 ? requests.find(item => item.id === ids[0])?.fullName : '';
             const verb = decision === 'approve' ? 'Approved' : 'Rejected';
-            onNotify(name ? `${verb} ${name}` : `${verb} ${done.size} request${done.size === 1 ? '' : 's'}`, 'success');
+            const missing = decision === 'approve'
+                ? fulfilled.filter(r => r.userId && !r.inviteEmailSent).length
+                : 0;
+            if (missing > 0 && done.size === missing) {
+                onNotify(
+                    name
+                        ? `Approved ${name}, but the invite email was not sent`
+                        : `Approved ${done.size}, but invite email was not sent`,
+                    'info',
+                );
+            } else {
+                onNotify(name ? `${verb} ${name}` : `${verb} ${done.size} request${done.size === 1 ? '' : 's'}`, 'success');
+            }
         }
         if (failed.length) {
             const reason = failed[0].reason instanceof Error ? failed[0].reason.message : 'Something went wrong.';
@@ -536,6 +598,31 @@ export default function JoinRequestsPanel({ onNotify, onCountChange }: { onNotif
                         </button>
                     </div>
                 </div>
+
+                {pendingInviteResends.length > 0 ? (
+                    <div className="border-y border-amber-200/80 bg-amber-50 px-5 py-3">
+                        <div className="text-[12.5px] font-semibold text-amber-950">Invite email not sent</div>
+                        <p className="mt-0.5 text-[12px] text-amber-900/80">
+                            The account was created, but the setup email failed. Resend it so they can set a password.
+                        </p>
+                        <ul className="mt-2 grid gap-2">
+                            {pendingInviteResends.map(item => (
+                                <li key={item.userId} className="flex flex-wrap items-center justify-between gap-2">
+                                    <span className="text-[12.5px] font-medium text-slate-800">{item.name}</span>
+                                    <button
+                                        type="button"
+                                        disabled={resendingInviteIds.has(item.userId)}
+                                        onClick={() => void resendInvite(item.userId)}
+                                        className="inline-flex h-8 items-center gap-1 rounded-lg bg-[#1E3A5F] px-3 text-[12.5px] font-medium text-white disabled:opacity-60"
+                                    >
+                                        <Mail className="h-3.5 w-3.5" strokeWidth={2} />
+                                        {resendingInviteIds.has(item.userId) ? 'Sending…' : 'Resend invite'}
+                                    </button>
+                                </li>
+                            ))}
+                        </ul>
+                    </div>
+                ) : null}
 
                 {selectedIds.length ? (
                     <div className="flex flex-wrap items-center justify-between gap-2 border-y border-[#E3EAF3] bg-[#F3F6FA] px-5 py-2.5">

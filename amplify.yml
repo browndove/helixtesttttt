@@ -13,6 +13,8 @@ frontend:
         - env | grep -e DOWNLOAD_ >> .env.production || true
         - env | grep -e GOOGLE_PLAY_ >> .env.production || true
         - env | grep -e DATABASE_URL >> .env.production || true
+        # Android App Links fingerprints (comma-separated SHA-256 from Play / upload key)
+        - env | grep -e ANDROID_SHA256_CERT_FINGERPRINTS >> .env.production || true
         - npm run build
   artifacts:
     baseDirectory: .next

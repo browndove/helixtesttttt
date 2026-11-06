@@ -4,6 +4,8 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import TopBar from '@/components/TopBar';
 import CustomSelect from '@/components/CustomSelect';
 import { MacVibrancyToast, MacVibrancyToastPortal } from '@/components/MacVibrancyToast';
+import { appendFacilityIdForProxy } from '@/lib/facility-client';
+import { API_ENDPOINTS } from '@/lib/config';
 
 type RoleRow = {
     id: string;
@@ -188,21 +190,34 @@ export default function ExternalCommunicationManagement() {
         }
         setSaving(true);
         try {
-            let facRes = await fetch(`/api/proxy/facilities/${facilityId}/external-messaging`, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ external_messaging_enabled: draftFacilityEnabled }),
-            });
-            if (facRes.status === 404) {
-                facRes = await fetch(`/api/proxy/facilities/${facilityId}`, {
+            let facRes = await fetch(
+                await appendFacilityIdForProxy(API_ENDPOINTS.FACILITY_EXTERNAL_MESSAGING(facilityId)),
+                {
                     method: 'PUT',
                     headers: { 'Content-Type': 'application/json' },
+                    credentials: 'include',
                     body: JSON.stringify({ external_messaging_enabled: draftFacilityEnabled }),
-                });
+                },
+            );
+            if (facRes.status === 404) {
+                facRes = await fetch(
+                    await appendFacilityIdForProxy(API_ENDPOINTS.FACILITY(facilityId)),
+                    {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        credentials: 'include',
+                        body: JSON.stringify({ external_messaging_enabled: draftFacilityEnabled }),
+                    },
+                );
             }
             if (!facRes.ok) {
-                const err = await facRes.json().catch(() => ({} as { error?: string; detail?: string }));
-                showToast(String(err.error || err.detail || 'Failed to update facility'));
+                const err = await facRes.json().catch(() => ({} as { error?: string; detail?: string; message?: string }));
+                const msg = String(err.error || err.message || err.detail || 'Failed to update facility');
+                if (facRes.status === 403) {
+                    showToast(msg.includes('access') ? msg : 'You do not have access to this facility');
+                } else {
+                    showToast(msg);
+                }
                 setSaving(false);
                 return;
             }

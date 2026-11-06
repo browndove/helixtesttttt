@@ -1,15 +1,12 @@
-import SetupAccountStepper from '@/components/SetupAccountStepper';
+import SetupAccountOpenInApp from '@/components/SetupAccountOpenInApp';
 import { redirect } from 'next/navigation';
 
-type SetupStep = 'info' | 'security';
-
-function normalizeStepFromSearch(raw: string | string[] | undefined): SetupStep {
-    const v = Array.isArray(raw) ? raw[0] : raw;
-    const s = String(v || '').toLowerCase();
-    if (s === 'security' || s === 'phone') return 'security';
-    return 'info';
-}
-
+/**
+ * Staff setup emails deep-link here. The Helix mobile app claims /setup-account*
+ * via Universal Links / App Links. This page is the browser fallback when the
+ * app is not installed or the link is opened on a computer — no password form.
+ * Facility/org admin invites still go to /setup-facility.
+ */
 export default async function SetupAccountPage({
     searchParams,
 }: {
@@ -21,27 +18,22 @@ export default async function SetupAccountPage({
     const setupKindRaw = params.setup_kind;
     const setupKind = String(Array.isArray(setupKindRaw) ? (setupKindRaw[0] || '') : (setupKindRaw || '')).toLowerCase();
     const facilityRouting =
-        facilityParam === '1' ||
-        facilityParam === 'true' ||
-        setupKind === 'facility' ||
-        setupKind === 'organization';
+        facilityParam === '1'
+        || facilityParam === 'true'
+        || setupKind === 'facility'
+        || setupKind === 'organization';
 
-    const sp = new URLSearchParams();
-    Object.entries(params).forEach(([key, value]) => {
-        if (Array.isArray(value)) value.forEach(v => sp.append(key, v));
-        else if (typeof value === 'string') sp.set(key, value);
-    });
-    sp.delete('facility');
-    sp.delete('setup_kind');
-
-    const query = sp.toString();
     if (facilityRouting) {
+        const sp = new URLSearchParams();
+        Object.entries(params).forEach(([key, value]) => {
+            if (Array.isArray(value)) value.forEach(v => sp.append(key, v));
+            else if (typeof value === 'string') sp.set(key, value);
+        });
+        sp.delete('facility');
+        sp.delete('setup_kind');
+        const query = sp.toString();
         redirect(query ? `/setup-facility?${query}` : '/setup-facility');
     }
 
-    const rawToken = params.token;
-    const token = Array.isArray(rawToken) ? (rawToken[0] || '') : (rawToken || '');
-    const step = normalizeStepFromSearch(params.step);
-
-    return <SetupAccountStepper token={token.trim()} step={step} />;
+    return <SetupAccountOpenInApp />;
 }

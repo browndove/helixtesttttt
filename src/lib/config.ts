@@ -100,6 +100,8 @@ export const API_ENDPOINTS = {
   FACILITY_DIRECTORY_REPORTS: (id: string) => `/api/proxy/facilities/${id}/directory-reports`,
   FACILITY_DIRECTORY_REPORT_DISMISS: (id: string, reportId: string) =>
     `/api/proxy/facilities/${id}/directory-reports/${reportId}/dismiss`,
+  FACILITY_DIRECTORY_REPORT_RESOLVE: (id: string, reportId: string) =>
+    `/api/proxy/facilities/${id}/directory-reports/${reportId}/resolve`,
   FACILITY_DIRECTORY_REVIEWS: (id: string) => `/api/proxy/facilities/${id}/directory-reviews`,
   FACILITY_DIRECTORY_REVIEW_RESOLVE: (id: string, reviewId: string) =>
     `/api/proxy/facilities/${id}/directory-reviews/${reviewId}/resolve`,
