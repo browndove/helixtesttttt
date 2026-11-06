@@ -11,7 +11,15 @@ import InternalAdminShell from '@/components/InternalAdminShell';
 import CustomSelect from '@/components/CustomSelect';
 import './internal-admin-dashboard.css';
 
-type FacilityRow = { id: string; name: string; code: string };
+type FacilityRow = {
+    id: string;
+    name: string;
+    code: string;
+    archived: boolean;
+    archived_at: string | null;
+};
+
+type ArchiveFilter = 'active' | 'archived' | 'all';
 
 const FACILITY_PAGE_SIZE = 15;
 
@@ -52,7 +60,13 @@ function parseFacilities(raw: unknown): FacilityRow[] {
             const name = String(rec.name || rec.facility_name || rec.hospital_name || '').trim();
             const code = String(rec.code || rec.facility_code || '').trim();
             if (!id || !name) return null;
-            return { id, name, code };
+            const archived = Boolean(rec.archived);
+            const archivedAtRaw = rec.archived_at;
+            const archived_at =
+                archivedAtRaw == null || archivedAtRaw === ''
+                    ? null
+                    : String(archivedAtRaw);
+            return { id, name, code, archived, archived_at };
         })
         .filter((f): f is FacilityRow => Boolean(f))
         .sort((a, b) => a.name.localeCompare(b.name));
@@ -228,9 +242,12 @@ export default function InternalAdminDashboard() {
     const router = useRouter();
     const [facilities, setFacilities] = useState<FacilityRow[]>([]);
     const [search, setSearch] = useState('');
+    const [archiveFilter, setArchiveFilter] = useState<ArchiveFilter>('active');
     const [page, setPage] = useState(1);
     const [loading, setLoading] = useState(true);
     const [switchingId, setSwitchingId] = useState<string | null>(null);
+    const [archivingId, setArchivingId] = useState<string | null>(null);
+    const [pendingArchive, setPendingArchive] = useState<FacilityRow | null>(null);
     const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
     // Create Facility modal
@@ -251,9 +268,18 @@ export default function InternalAdminDashboard() {
         setTimeout(() => setToast(null), 3000);
     };
 
-    const loadFacilities = useCallback(async () => {
+    const loadFacilities = useCallback(async (filter: ArchiveFilter = archiveFilter) => {
         try {
-            const res = await fetch(API_ENDPOINTS.INTERNAL_FACILITIES, { credentials: 'include' });
+            const qs =
+                filter === 'all'
+                    ? '?archived=include'
+                    : filter === 'archived'
+                        ? '?archived=only'
+                        : '';
+            const res = await fetch(`${API_ENDPOINTS.INTERNAL_FACILITIES}${qs}`, {
+                credentials: 'include',
+                cache: 'no-store',
+            });
             if (!res.ok) {
                 showToast('Could not load facilities for internal support.', 'error');
                 return;
@@ -265,11 +291,12 @@ export default function InternalAdminDashboard() {
         } finally {
             setLoading(false);
         }
-    }, []);
+    }, [archiveFilter]);
 
     useEffect(() => {
-        void loadFacilities();
-    }, [loadFacilities]);
+        setLoading(true);
+        void loadFacilities(archiveFilter);
+    }, [archiveFilter, loadFacilities]);
 
     const filtered = useMemo(() => {
         const q = search.trim().toLowerCase();
@@ -288,7 +315,7 @@ export default function InternalAdminDashboard() {
 
     useEffect(() => {
         setPage(1);
-    }, [search]);
+    }, [search, archiveFilter]);
 
     useEffect(() => {
         setPage((p) => Math.min(p, totalPages));
@@ -513,6 +540,66 @@ export default function InternalAdminDashboard() {
             showToast('Failed to delete facility.', 'error');
         } finally {
             setDeletingId(null);
+        }
+    };
+
+    const requestArchiveToggle = (facility: FacilityRow) => {
+        if (facility.archived) {
+            void handleArchiveToggle(facility, false);
+            return;
+        }
+        setPendingArchive(facility);
+    };
+
+    const handleArchiveToggle = async (facility: FacilityRow, archived: boolean) => {
+        setArchivingId(facility.id);
+        try {
+            const res = await fetch(API_ENDPOINTS.INTERNAL_FACILITY_ARCHIVE(facility.id), {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify({ archived }),
+            });
+            const data = await res.json().catch(() => ({} as Record<string, unknown>));
+            if (!res.ok) {
+                showToast(
+                    String(data.error || data.message || (archived ? 'Failed to archive facility.' : 'Failed to restore facility.')),
+                    'error',
+                );
+                return;
+            }
+            showToast(
+                archived
+                    ? `${facility.name} archived. Staff can still sign in; it is hidden from facility lists and External.`
+                    : `${facility.name} restored.`,
+                'success',
+            );
+            setPendingArchive(null);
+            // Drop from the current view when the filter no longer matches.
+            if (
+                (archiveFilter === 'active' && archived)
+                || (archiveFilter === 'archived' && !archived)
+            ) {
+                setFacilities((prev) => prev.filter((f) => f.id !== facility.id));
+            } else {
+                setFacilities((prev) =>
+                    prev.map((f) =>
+                        f.id === facility.id
+                            ? {
+                                ...f,
+                                archived,
+                                archived_at: archived
+                                    ? (typeof data.archived_at === 'string' ? data.archived_at : new Date().toISOString())
+                                    : null,
+                            }
+                            : f,
+                    ),
+                );
+            }
+        } catch {
+            showToast(archived ? 'Failed to archive facility.' : 'Failed to restore facility.', 'error');
+        } finally {
+            setArchivingId(null);
         }
     };
 
@@ -848,6 +935,83 @@ export default function InternalAdminDashboard() {
                 </div>
             )}
 
+            {pendingArchive && (
+                <div
+                    role="dialog"
+                    aria-modal="true"
+                    onClick={() => { if (!archivingId) setPendingArchive(null); }}
+                    style={{
+                        position: 'fixed',
+                        inset: 0,
+                        background: 'rgba(8, 12, 20, 0.45)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        zIndex: 9100,
+                        padding: 16,
+                    }}
+                >
+                    <div
+                        onClick={(e) => e.stopPropagation()}
+                        style={{
+                            width: '100%',
+                            maxWidth: 440,
+                            background: '#fff',
+                            border: '1px solid #e5e7eb',
+                            borderRadius: 12,
+                            boxShadow: '0 24px 64px rgba(0,0,0,0.25)',
+                            padding: '18px 18px 14px',
+                        }}
+                    >
+                        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+                            <div
+                                style={{
+                                    width: 32,
+                                    height: 32,
+                                    borderRadius: 10,
+                                    background: 'rgba(10, 70, 118, 0.1)',
+                                    color: '#0A4676',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    flexShrink: 0,
+                                }}
+                            >
+                                <span className="material-icons-round" style={{ fontSize: 18 }}>inventory_2</span>
+                            </div>
+                            <div style={{ minWidth: 0 }}>
+                                <div style={{ fontSize: 15, fontWeight: 700, color: '#171717' }}>
+                                    Archive facility?
+                                </div>
+                                <div style={{ marginTop: 6, fontSize: 12.5, color: '#4b5563', lineHeight: 1.5 }}>
+                                    <strong>{pendingArchive.name}</strong> will be hidden from the facility list
+                                    and from External. Nothing is deleted — staff keep signing in, messaging,
+                                    and the join code still works.
+                                </div>
+                            </div>
+                        </div>
+                        <div style={{ marginTop: 14, display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+                            <button
+                                type="button"
+                                className="internal-dash__btn internal-dash__btn--outline internal-dash__btn--sm"
+                                onClick={() => setPendingArchive(null)}
+                                disabled={Boolean(archivingId)}
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                type="button"
+                                className="internal-dash__btn internal-dash__btn--primary internal-dash__btn--sm"
+                                onClick={() => { void handleArchiveToggle(pendingArchive, true); }}
+                                disabled={Boolean(archivingId)}
+                            >
+                                {archivingId ? 'Archiving…' : 'Archive'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {pendingDelete && (
                 <div
                     role="dialog"
@@ -941,16 +1105,36 @@ export default function InternalAdminDashboard() {
                     </div>
                 </div>
 
-                {/* ── Search ─────────────────────────────────── */}
+                {/* ── Search + archive filter ─────────────────── */}
                 <div className="internal-dash__toolbar">
-                    <div className="internal-dash__search-wrap">
-                        <span className="material-icons-round internal-dash__search-icon" aria-hidden>search</span>
-                        <input
-                            className="internal-dash__input"
-                            placeholder="Search facilities..."
-                            value={search}
-                            onChange={(e) => setSearch(e.target.value)}
-                        />
+                    <div className="internal-dash__toolbar-row">
+                        <div className="internal-dash__search-wrap">
+                            <span className="material-icons-round internal-dash__search-icon" aria-hidden>search</span>
+                            <input
+                                className="internal-dash__input"
+                                placeholder="Search facilities..."
+                                value={search}
+                                onChange={(e) => setSearch(e.target.value)}
+                            />
+                        </div>
+                        <div className="internal-dash__filter-pills" role="radiogroup" aria-label="Archive filter">
+                            {([
+                                { id: 'active', label: 'Active' },
+                                { id: 'archived', label: 'Archived' },
+                                { id: 'all', label: 'All' },
+                            ] as const).map((opt) => (
+                                <button
+                                    key={opt.id}
+                                    type="button"
+                                    role="radio"
+                                    aria-checked={archiveFilter === opt.id}
+                                    className={`internal-dash__filter-pill${archiveFilter === opt.id ? ' internal-dash__filter-pill--active' : ''}`}
+                                    onClick={() => setArchiveFilter(opt.id)}
+                                >
+                                    {opt.label}
+                                </button>
+                            ))}
+                        </div>
                     </div>
                 </div>
 
@@ -961,7 +1145,7 @@ export default function InternalAdminDashboard() {
                             {paginated.map((facility) => (
                                 <div
                                     key={facility.id}
-                                    className="internal-dash__card"
+                                    className={`internal-dash__card${facility.archived ? ' internal-dash__card--archived' : ''}`}
                                     onClick={() => { if (switchingId !== facility.id) void enterFacility(facility); }}
                                     role="button"
                                     tabIndex={0}
@@ -972,7 +1156,12 @@ export default function InternalAdminDashboard() {
                                             {(facility.name[0] || 'F').toUpperCase()}
                                         </div>
                                         <div className="internal-dash__card-info">
-                                            <span className="internal-dash__card-name">{facility.name}</span>
+                                            <span className="internal-dash__card-name">
+                                                {facility.name}
+                                                {facility.archived ? (
+                                                    <span className="internal-dash__badge">Archived</span>
+                                                ) : null}
+                                            </span>
                                             <span className="internal-dash__card-code">{facility.code || '—'}</span>
                                         </div>
                                     </div>
@@ -988,6 +1177,19 @@ export default function InternalAdminDashboard() {
                                                 }}
                                             >
                                                 Edit
+                                            </button>
+                                            <button
+                                                type="button"
+                                                className="internal-dash__card-mini-btn"
+                                                disabled={archivingId === facility.id}
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    requestArchiveToggle(facility);
+                                                }}
+                                            >
+                                                {archivingId === facility.id
+                                                    ? (facility.archived ? 'Restoring…' : 'Archiving…')
+                                                    : (facility.archived ? 'Restore' : 'Archive')}
                                             </button>
                                             <button
                                                 type="button"
@@ -1049,7 +1251,11 @@ export default function InternalAdminDashboard() {
                     {!loading && filtered.length === 0 && (
                         <div className="internal-dash__empty">
                             <span className="material-icons-round" style={{ fontSize: 24, color: '#ccc', marginBottom: 8 }}>search_off</span>
-                            {search.trim() ? 'No facilities match your search.' : 'No facilities found.'}
+                            {search.trim()
+                                ? 'No facilities match your search.'
+                                : archiveFilter === 'archived'
+                                    ? 'No archived facilities.'
+                                    : 'No facilities found.'}
                         </div>
                     )}
                 </main>

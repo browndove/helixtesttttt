@@ -38,6 +38,7 @@ export const API_ENDPOINTS = {
   AUTH_SESSION: (sessionId: string) => `/api/proxy/auth/sessions/${sessionId}`,
   INTERNAL_FACILITIES: `/api/proxy/internal/facilities`,
   INTERNAL_FACILITY: (id: string) => `/api/proxy/internal/facilities/${id}`,
+  INTERNAL_FACILITY_ARCHIVE: (id: string) => `/api/proxy/internal/facilities/${id}/archive`,
   INTERNAL_ACT_AS: `/api/proxy/internal/act-as`,
   INTERNAL_EXIT_ACT_AS: `/api/proxy/internal/exit-act-as`,
   INTERNAL_AUDIT: `/api/proxy/internal/audit`,
@@ -45,6 +46,10 @@ export const API_ENDPOINTS = {
   INTERNAL_LEADERBOARD_METRICS: `/api/proxy/internal/leaderboard-metrics`,
   INTERNAL_LEADERBOARD_USER: (id: string) => `/api/proxy/internal/leaderboard-metrics/users/${encodeURIComponent(id)}`,
   INTERNAL_USERS_LOGGED_OUT: `/api/proxy/internal/users/logged-out`,
+  INTERNAL_USER_UNREAD_BREAKDOWN: (userId: string) =>
+    `/api/proxy/internal/users/${encodeURIComponent(userId)}/unread-breakdown`,
+  INTERNAL_USER_NOTIFICATION_DIAGNOSTICS: (userId: string) =>
+    `/api/proxy/internal/users/${encodeURIComponent(userId)}/notification-diagnostics`,
 
   // Departments
   DEPARTMENTS: `/api/proxy/departments`,

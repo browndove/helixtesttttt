@@ -8,12 +8,21 @@ export async function GET(req: NextRequest) {
         const token = getInternalTokenFromCookie(req);
         if (!token) return NextResponse.json({ error: 'Not authenticated as internal admin' }, { status: 401 });
 
-        const res = await fetch(`${API_BASE_URL}/api/v1/facilities`, {
+        const incoming = new URL(req.url);
+        const upstream = new URL(`${API_BASE_URL}/api/v1/facilities`);
+        // Internal admins: archived=include (all) | archived=only (archived). Default hides archived.
+        const archived = incoming.searchParams.get('archived');
+        if (archived === 'include' || archived === 'only') {
+            upstream.searchParams.set('archived', archived);
+        }
+
+        const res = await fetch(upstream.toString(), {
             method: 'GET',
             headers: {
                 'Content-Type': 'application/json',
                 Authorization: `Bearer ${token}`,
             },
+            cache: 'no-store',
         });
 
         const text = await res.text();

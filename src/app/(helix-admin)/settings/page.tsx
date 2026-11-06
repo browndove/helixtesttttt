@@ -1371,7 +1371,7 @@ export default function SettingsPage() {
                                 </div>
                                 <div style={{ marginTop: 6, fontSize: 12.5, color: 'var(--text-secondary)', lineHeight: 1.5 }}>
                                     {pendingRetention === null
-                                        ? 'Inactive conversations will no longer be automatically removed from inboxes. Existing retention schedules may still finish for chats already marked to expire.'
+                                        ? 'Inactive conversations will no longer be automatically removed from inboxes. Any chats already marked to expire will have those dates cleared — nothing at this facility will be deleted while retention is off.'
                                         : retentionMonths !== null && pendingRetention < retentionMonths
                                             ? 'Chats already past the new window will start deleting in about 7 days, not immediately.'
                                             : `Inactive conversations older than ${retentionLabel(pendingRetention)} will be removed from everyone’s inbox. Activity means messaging — the clock resets when someone sends a message.`}
