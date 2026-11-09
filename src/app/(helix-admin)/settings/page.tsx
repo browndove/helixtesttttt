@@ -306,7 +306,7 @@ export default function SettingsPage() {
     );
     const [savingRetention, setSavingRetention] = useState(false);
     const [pendingRetention, setPendingRetention] = useState<RetentionMonths | undefined>(undefined);
-    const [criticalAlertSound, setCriticalAlertSound] = useState('urgent');
+    const [criticalAlertSound, setCriticalAlertSound] = useState('classic');
 
     const showToast = (message: string, variant: 'success' | 'error' | 'info' = 'success') => {
         setToast({ message, variant });
@@ -600,7 +600,7 @@ export default function SettingsPage() {
             } else {
                 setScreenshotsAllowed(false);
                 setRetentionMonths(null);
-                setCriticalAlertSound('urgent');
+                setCriticalAlertSound('classic');
             }
 
             let finalSessions: SessionEntry[] = [];
@@ -1018,7 +1018,8 @@ export default function SettingsPage() {
                                             <div className="settings-row__label">Critical alert sound</div>
                                             <div className="settings-row__desc">
                                                 Choose the alarm mobile staff hear for critical messages and escalations at this facility.
-                                                Preview a sound before you switch. Code blue keeps its own sound.
+                                                Preview a sound before you switch. Until you pick one, phones use the default alarm.
+                                                Code blue keeps its own sound.
                                             </div>
                                         </div>
                                         <CriticalAlertSoundPicker

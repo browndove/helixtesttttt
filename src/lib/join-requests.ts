@@ -15,6 +15,9 @@ export type JoinRequest = {
     lastName: string;
     fullName: string;
     email?: string;
+    /** True when the applicant verified their email during self-join. */
+    emailVerified?: boolean;
+    emailVerifiedAt?: string;
     phone?: string;
     employeeId?: string;
     /** True/false when the API says whether the employee ID matched the directory; undefined when unknown. */
@@ -134,6 +137,9 @@ function parseOne(raw: unknown): JoinRequest | null {
         lastName,
         fullName,
         email: pick('email', 'email_address') || undefined,
+        emailVerified: bool(rec, 'email_verified', 'emailVerified')
+            ?? bool(profile, 'email_verified', 'emailVerified'),
+        emailVerifiedAt: pick('email_verified_at', 'emailVerifiedAt') || undefined,
         phone: pick('phone', 'phone_number', 'phoneNumber', 'mobile') || undefined,
         employeeId: pick('employee_id', 'employeeId', 'staff_id', 'staff_number') || undefined,
         employeeMatched: bool(rec, 'employee_matched', 'employee_id_matched', 'matched', 'directory_match')

@@ -287,7 +287,23 @@ function RequestRow({
                     <div className="truncate text-[13.5px] font-semibold text-slate-900">{request.fullName}</div>
                     {contact.length ? (
                         <div className="flex min-w-0 flex-wrap items-center gap-x-3 text-[12px] text-slate-500">
-                            {request.email ? <span className="inline-flex min-w-0 items-center gap-1 truncate"><Mail className="h-3 w-3 shrink-0" />{request.email}</span> : null}
+                            {request.email ? (
+                                <span className="inline-flex min-w-0 items-center gap-1 truncate">
+                                    <Mail className="h-3 w-3 shrink-0" />
+                                    <span className="truncate">{request.email}</span>
+                                    {request.emailVerified ? (
+                                        <span
+                                            className="inline-flex shrink-0 items-center gap-0.5 rounded-full bg-emerald-50 px-1.5 py-0.5 text-[10.5px] font-semibold text-emerald-700 ring-1 ring-emerald-200"
+                                            title={request.emailVerifiedAt
+                                                ? `Email verified ${timeAgo(request.emailVerifiedAt) || request.emailVerifiedAt}`
+                                                : 'Email verified'}
+                                        >
+                                            <BadgeCheck className="h-3 w-3" strokeWidth={2.25} aria-hidden />
+                                            Verified
+                                        </span>
+                                    ) : null}
+                                </span>
+                            ) : null}
                             {request.phone ? <span className="inline-flex items-center gap-1"><Phone className="h-3 w-3 shrink-0" />{request.phone}</span> : null}
                         </div>
                     ) : null}

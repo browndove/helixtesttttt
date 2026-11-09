@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Check, Pause, Play, Search, Volume2 } from 'lucide-react';
 import { API_ENDPOINTS } from '@/lib/config';
 import {
+    isDefaultCriticalAlertSound,
     parseCriticalAlertSoundOptions,
     type CriticalAlertSoundOption,
 } from '@/lib/critical-alert-sound';
@@ -30,6 +31,7 @@ export default function CriticalAlertSoundPicker({
 }: Props) {
     const [options, setOptions] = useState<CriticalAlertSoundOption[]>([]);
     const [loading, setLoading] = useState(true);
+    const [loadError, setLoadError] = useState('');
     const [query, setQuery] = useState('');
     const [savingKey, setSavingKey] = useState('');
     const [playingKey, setPlayingKey] = useState('');
@@ -50,6 +52,7 @@ export default function CriticalAlertSoundPicker({
     useEffect(() => {
         let cancelled = false;
         setLoading(true);
+        setLoadError('');
         void (async () => {
             try {
                 const res = await fetch(API_ENDPOINTS.FACILITY_CRITICAL_ALERT_SOUNDS, {
@@ -57,9 +60,18 @@ export default function CriticalAlertSoundPicker({
                     cache: 'no-store',
                 });
                 const raw = res.ok ? await res.json().catch(() => null) : null;
-                if (!cancelled) setOptions(parseCriticalAlertSoundOptions(raw));
+                if (cancelled) return;
+                if (!res.ok) {
+                    setOptions([]);
+                    setLoadError('Could not load alert sounds.');
+                    return;
+                }
+                setOptions(parseCriticalAlertSoundOptions(raw));
             } catch {
-                if (!cancelled) setOptions(parseCriticalAlertSoundOptions(null));
+                if (!cancelled) {
+                    setOptions([]);
+                    setLoadError('Could not load alert sounds.');
+                }
             } finally {
                 if (!cancelled) setLoading(false);
             }
@@ -73,11 +85,12 @@ export default function CriticalAlertSoundPicker({
         return options.filter(option => (
             option.label.toLowerCase().includes(q)
             || option.key.toLowerCase().includes(q)
-            || option.blurb.toLowerCase().includes(q)
+            || (option.blurb || '').toLowerCase().includes(q)
         ));
     }, [options, query]);
 
-    const selectedOption = options.find(option => option.key === value) || null;
+    const usingDefault = isDefaultCriticalAlertSound(value, options);
+    const selectedOption = usingDefault ? null : (options.find(option => option.key === value) || null);
     const showSearch = options.length > 6;
 
     const playPreview = async (option: CriticalAlertSoundOption) => {
@@ -161,14 +174,23 @@ export default function CriticalAlertSoundPicker({
 
     return (
         <div className="grid gap-3">
-            {selectedOption ? (
-                <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-[#EFF4FA] px-3.5 py-2.5 ring-1 ring-[#D7E0EC]">
-                    <div className="min-w-0 text-[12.5px] text-[#1E3A5F]">
-                        <span className="font-semibold">Active:</span>{' '}
-                        <span className="font-medium">{selectedOption.label}</span>
-                    </div>
-                    <span className="text-[11.5px] text-[#1E3A5F]/80">Code blue keeps its own sound</span>
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-[#EFF4FA] px-3.5 py-2.5 ring-1 ring-[#D7E0EC]">
+                <div className="min-w-0 text-[12.5px] text-[#1E3A5F]">
+                    <span className="font-semibold">Active:</span>{' '}
+                    <span className="font-medium">
+                        {selectedOption ? selectedOption.label : 'Default alarm'}
+                    </span>
+                    {usingDefault ? (
+                        <span className="ml-2 text-[11.5px] font-normal text-[#1E3A5F]/70">
+                            (no custom sound chosen)
+                        </span>
+                    ) : null}
                 </div>
+                <span className="text-[11.5px] text-[#1E3A5F]/80">Code blue keeps its own sound</span>
+            </div>
+
+            {loadError ? (
+                <p className="text-[12.5px] text-rose-700">{loadError}</p>
             ) : null}
 
             {showSearch ? (
@@ -192,10 +214,12 @@ export default function CriticalAlertSoundPicker({
                 <ul className="divide-y divide-slate-100">
                     {filtered.length === 0 ? (
                         <li className="px-4 py-8 text-center text-[13px] text-slate-500">
-                            No sounds match “{query.trim()}”.
+                            {query.trim()
+                                ? `No sounds match “${query.trim()}”.`
+                                : 'No alert sounds available from the server.'}
                         </li>
                     ) : filtered.map(option => {
-                        const selected = value === option.key;
+                        const selected = !usingDefault && value === option.key;
                         const playing = playingKey === option.key;
                         const saving = savingKey === option.key;
                         return (
@@ -245,9 +269,11 @@ export default function CriticalAlertSoundPicker({
                                                 <span className="text-[11px] font-medium text-slate-500">Saving…</span>
                                             ) : null}
                                         </div>
-                                        <p className="mt-0.5 line-clamp-1 text-[12px] text-slate-500">
-                                            {option.blurb}
-                                        </p>
+                                        {option.blurb ? (
+                                            <p className="mt-0.5 line-clamp-1 text-[12px] text-slate-500">
+                                                {option.blurb}
+                                            </p>
+                                        ) : null}
                                     </div>
 
                                     <button
@@ -290,6 +316,10 @@ export default function CriticalAlertSoundPicker({
                     })}
                 </ul>
             </div>
+
+            <p className="text-[12px] leading-5 text-slate-500">
+                Phones play the new alarm after the Helix app is updated.
+            </p>
         </div>
     );
 }

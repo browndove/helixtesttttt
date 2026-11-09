@@ -30,6 +30,8 @@ export const API_ENDPOINTS = {
   STAFF_REMOTE_WIPE: (staffId: string) => `/api/proxy/staff/${staffId}/remote-wipe`,
   /** Facility admin: send account-setup invite emails (explicit; not sent on create/bulk). */
   STAFF_SEND_INVITE_EMAILS: `/api/proxy/staff/send-invite-emails`,
+  /** Add one directory person (same core fields as bulk upload). */
+  STAFF_DIRECTORY: `/api/proxy/staff/directory`,
   ADMIN_RESET: (staffId: string) => `/api/proxy/auth/admin-reset/${staffId}`,
   AUTH_ME: `/api/proxy/auth/me`,
   AUTH_USER: `/api/proxy/auth/user`,

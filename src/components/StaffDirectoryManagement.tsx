@@ -1122,6 +1122,17 @@ export default function StaffDirectoryManagement() {
     const [newEmployeeId, setNewEmployeeId] = useState('');
     /** Same as bulk `can_manage_schedule` — null until the admin chooses. */
     const [newCanManageSchedule, setNewCanManageSchedule] = useState<boolean | null>(null);
+    /**
+     * patient_access three-way for POST /staff/directory:
+     * yes | no | auto (omit field → backend decides from job category).
+     */
+    const [newPatientAccess, setNewPatientAccess] = useState<'yes' | 'no' | 'auto'>('auto');
+    const [directoryConflict, setDirectoryConflict] = useState<{
+        reviewId: string;
+        kind: string;
+        name: string;
+        problem: string;
+    } | null>(null);
     const [sortKey, setSortKey] = useState<SortKey>('response_order');
     const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
     const [statusFilter, setStatusFilter] = useState('all');
@@ -1797,31 +1808,66 @@ export default function StaffDirectoryManagement() {
             return;
         }
         setAdding(true);
+        setDirectoryConflict(null);
         try {
             const canManage = newCanManageSchedule === true;
             const employeeId = newEmployeeId.trim();
-            const res = await fetch(staffUrl('/api/proxy/staff'), {
+            const body: Record<string, unknown> = {
+                first_name: newFirstName.trim(),
+                last_name: newLastName.trim(),
+                dob: newDob.trim(),
+                can_manage_schedule: canManage,
+            };
+            const middleName = newMiddleName.trim();
+            if (middleName) body.middle_name = middleName;
+            if (employeeId) body.employee_id = employeeId;
+            if (newPatientAccess === 'yes') body.patient_access = true;
+            if (newPatientAccess === 'no') body.patient_access = false;
+
+            const res = await fetch(staffUrl(API_ENDPOINTS.STAFF_DIRECTORY), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    first_name: newFirstName.trim(),
-                    middle_name: newMiddleName.trim() || undefined,
-                    last_name: newLastName.trim(),
-                    dob: newDob.trim(),
-                    employee_id: employeeId || undefined,
-                    can_manage_schedule: canManage,
-                    is_scheduler: canManage,
-                    role: 'staff',
-                }),
+                credentials: 'include',
+                body: JSON.stringify(body),
             });
 
-            if (!res.ok) {
-                const err = await res.json().catch(() => ({} as { message?: string; detail?: string; error?: string }));
-                showToast(String(err.message || err.detail || err.error || 'Failed to add staff'), 'error');
+            const data = await res.json().catch(() => ({} as Record<string, unknown>));
+
+            if (res.status === 409) {
+                const reviewRec = (data.review && typeof data.review === 'object'
+                    ? data.review
+                    : data) as Record<string, unknown>;
+                const reviewId = String(
+                    data.review_id
+                    || data.reviewId
+                    || reviewRec.id
+                    || '',
+                ).trim();
+                const kind = String(data.kind || reviewRec.kind || '').trim();
+                const name = String(reviewRec.name || '').trim()
+                    || `${newFirstName.trim()} ${newLastName.trim()}`.trim();
+                const problem = String(
+                    reviewRec.problem
+                    || data.message
+                    || data.detail
+                    || data.error
+                    || 'This person is already in the directory.',
+                ).trim();
+                setDirectoryConflict({
+                    reviewId,
+                    kind,
+                    name,
+                    problem,
+                });
+                showToast(problem, 'error');
                 return;
             }
 
-            const data = await res.json();
+            if (!res.ok) {
+                showToast(String(data.message || data.detail || data.error || 'Failed to add to directory'), 'error');
+                return;
+            }
+
             const created = parseStaffList([data])[0];
             const fallbackMember: StaffMember = {
                 id: String(Date.now()),
@@ -1835,14 +1881,13 @@ export default function StaffDirectoryManagement() {
                 status: 'active',
                 access: 'Staff',
                 employee_id: employeeId,
-                patient_access: false,
+                patient_access: newPatientAccess === 'yes',
                 is_scheduler: canManage,
                 role: 'staff',
                 phone: '',
                 dob: newDob.trim(),
             };
 
-            // Merge form values into parsed result for fields the backend may not return
             const member: StaffMember = created
                 ? {
                     ...created,
@@ -1853,6 +1898,8 @@ export default function StaffDirectoryManagement() {
                         created,
                     ) || employeeId,
                     is_scheduler: created.is_scheduler ?? canManage,
+                    patient_access: created.patient_access
+                        ?? (newPatientAccess === 'yes' ? true : newPatientAccess === 'no' ? false : created.patient_access),
                 }
                 : fallbackMember;
 
@@ -1864,13 +1911,15 @@ export default function StaffDirectoryManagement() {
             setNewDob('');
             setNewEmployeeId('');
             setNewCanManageSchedule(null);
+            setNewPatientAccess('auto');
+            setDirectoryConflict(null);
             const displayName = `${newFirstName} ${newLastName}`.trim() || 'Staff member';
             showToast(`${displayName} added to the directory`, 'success');
-            if (member.id && member.email.trim()) {
-                setPendingInviteSend(member);
+            if (SHOW_DIRECTORY_REVIEW_UI) {
+                void fetchOpenDirectoryReviewCount().then(setDirectoryReviewCount);
             }
         } catch {
-            showToast('Failed to add staff', 'error');
+            showToast('Failed to add to directory', 'error');
         } finally {
             setAdding(false);
         }
@@ -2411,7 +2460,16 @@ export default function StaffDirectoryManagement() {
                     actions={
                         <div style={{ display: 'flex', gap: 8 }}>
                             {activeTab === 'directory' && (
-                                <button className="btn btn-primary btn-sm" onClick={() => setShowAddForm(!showAddForm)}>
+                                <button
+                                    className="btn btn-primary btn-sm"
+                                    onClick={() => {
+                                        setShowAddForm(prev => {
+                                            const next = !prev;
+                                            if (!next) setDirectoryConflict(null);
+                                            return next;
+                                        });
+                                    }}
+                                >
                                     <span className="material-icons-round" style={{ fontSize: 14 }}>{showAddForm ? 'close' : 'add'}</span>
                                     {showAddForm ? 'Cancel' : 'Add Staff'}
                                 </button>
@@ -2454,13 +2512,45 @@ export default function StaffDirectoryManagement() {
                 {activeTab === 'directory' ? (
                 <main style={{ flex: 1, minWidth: 0, overflow: 'auto', padding: '20px 24px', background: 'var(--bg-900)' }}>
 
-                    {/* Add Staff Form — same fields as bulk upload */}
+                    {/* Add Staff Form — POST /staff/directory */}
                     {showAddForm && (
                         <div className="fade-in card" style={{ marginBottom: 18, padding: '18px 20px' }}>
                             <h3 style={{ fontSize: 14, marginBottom: 4 }}>New directory person</h3>
                             <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 12 }}>
-                                Same fields as bulk upload. They set email and password later from the invite or self-join flow.
+                                Same core fields as bulk upload. They set email and password later from self-join or an invite.
                             </p>
+                            {directoryConflict ? (
+                                <div
+                                    style={{
+                                        marginBottom: 12,
+                                        padding: '10px 12px',
+                                        borderRadius: 10,
+                                        background: 'rgba(180, 35, 24, 0.06)',
+                                        border: '1px solid rgba(180, 35, 24, 0.18)',
+                                    }}
+                                >
+                                    <div style={{ fontSize: 12.5, fontWeight: 600, color: '#B42318', marginBottom: 4 }}>
+                                        Already in the directory{directoryConflict.name ? ` — ${directoryConflict.name}` : ''}
+                                    </div>
+                                    <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.45 }}>
+                                        {directoryConflict.problem}
+                                    </div>
+                                    {SHOW_DIRECTORY_REVIEW_UI ? (
+                                        <button
+                                            type="button"
+                                            className="btn btn-secondary btn-xs"
+                                            style={{ marginTop: 8 }}
+                                            onClick={() => {
+                                                setActiveTab('review');
+                                                setShowAddForm(false);
+                                                setDirectoryConflict(null);
+                                            }}
+                                        >
+                                            Open Directory Review
+                                        </button>
+                                    ) : null}
+                                </div>
+                            ) : null}
                             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 12, marginBottom: 14 }}>
                                 <div>
                                     <label className="label">First Name *</label>
@@ -2476,7 +2566,7 @@ export default function StaffDirectoryManagement() {
                                 </div>
                                 <div>
                                     <label className="label">Date of birth *</label>
-                                    <DatePicker value={newDob} onChange={setNewDob} placeholder="YYYY-MM-DD" />
+                                    <DatePicker value={newDob} onChange={setNewDob} placeholder="YYYY-MM-DD or DD/MM/YYYY" />
                                 </div>
                                 <div>
                                     <label className="label">Employee ID</label>
@@ -2493,6 +2583,22 @@ export default function StaffDirectoryManagement() {
                                         ]}
                                         placeholder="-- Select --"
                                     />
+                                </div>
+                                <div>
+                                    <label className="label">Patient access</label>
+                                    <CustomSelect
+                                        value={newPatientAccess}
+                                        onChange={v => setNewPatientAccess((v as 'yes' | 'no' | 'auto') || 'auto')}
+                                        options={[
+                                            { label: 'Decide from job category', value: 'auto' },
+                                            { label: 'Yes', value: 'yes' },
+                                            { label: 'No', value: 'no' },
+                                        ]}
+                                        placeholder="Decide from job category"
+                                    />
+                                    <div style={{ marginTop: 4, fontSize: 10.5, color: 'var(--text-muted)' }}>
+                                        Leave as “Decide from job category” unless you need to force Yes or No.
+                                    </div>
                                 </div>
                             </div>
                             <button className="btn btn-primary btn-sm" onClick={handleAdd} disabled={adding || !isAddFormComplete}>
