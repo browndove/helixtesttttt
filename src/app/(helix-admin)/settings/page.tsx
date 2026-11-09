@@ -306,7 +306,7 @@ export default function SettingsPage() {
     );
     const [savingRetention, setSavingRetention] = useState(false);
     const [pendingRetention, setPendingRetention] = useState<RetentionMonths | undefined>(undefined);
-    const [criticalAlertSound, setCriticalAlertSound] = useState('classic');
+    const [criticalAlertSound, setCriticalAlertSound] = useState('urgent');
 
     const showToast = (message: string, variant: 'success' | 'error' | 'info' = 'success') => {
         setToast({ message, variant });
@@ -600,7 +600,7 @@ export default function SettingsPage() {
             } else {
                 setScreenshotsAllowed(false);
                 setRetentionMonths(null);
-                setCriticalAlertSound('classic');
+                setCriticalAlertSound('urgent');
             }
 
             let finalSessions: SessionEntry[] = [];

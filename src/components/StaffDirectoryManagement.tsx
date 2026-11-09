@@ -29,7 +29,6 @@ import {
     readHelixFacilityIdFromDocument,
     resolveClientFacilityId,
 } from '@/lib/facility-client';
-import { formatGhanaPhoneInput, isValidGhanaPhone } from '@/lib/phone';
 import { fetchLoggedOutMatchKeys, isStaffLoggedOut } from '@/lib/logged-out-users';
 import JoinRequestsPanel, { fetchPendingJoinCount } from '@/components/staff/JoinRequestsPanel';
 import DirectoryReportsPanel, { fetchOpenDirectoryReportCount } from '@/components/staff/DirectoryReportsPanel';
@@ -1119,18 +1118,10 @@ export default function StaffDirectoryManagement() {
     const [newFirstName, setNewFirstName] = useState('');
     const [newMiddleName, setNewMiddleName] = useState('');
     const [newLastName, setNewLastName] = useState('');
-    const [newEmail, setNewEmail] = useState('');
-    const [newPhone, setNewPhone] = useState('');
     const [newDob, setNewDob] = useState('');
-    const [newGender, setNewGender] = useState('');
-    /** Maps to API `additional_title` (e.g. Dr, Prof). */
-    const [newCreationTitle, setNewCreationTitle] = useState('');
-    const [newRole, setNewRole] = useState('');
-    const [newHighestQualification, setNewHighestQualification] = useState('');
-    const [newDept, setNewDept] = useState('');
-    const [newAccountExpiresOn, setNewAccountExpiresOn] = useState('');
-    const [newPatientAccess, setNewPatientAccess] = useState(true);
-    const [newIsScheduler, setNewIsScheduler] = useState(false);
+    const [newEmployeeId, setNewEmployeeId] = useState('');
+    /** Same as bulk `can_manage_schedule` — null until the admin chooses. */
+    const [newCanManageSchedule, setNewCanManageSchedule] = useState<boolean | null>(null);
     const [sortKey, setSortKey] = useState<SortKey>('response_order');
     const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
     const [statusFilter, setStatusFilter] = useState('all');
@@ -1339,49 +1330,22 @@ export default function StaffDirectoryManagement() {
         return m;
     }, [deptIdToName]);
 
-    const phoneForCreate = formatGhanaPhoneInput(newPhone);
-    const phoneIsValid = isValidGhanaPhone(phoneForCreate);
+    // Match bulk upload: first + last + DOB + can_manage_schedule required; middle name + employee ID optional.
     const isAddFormComplete = useMemo(() => (
         Boolean(newFirstName.trim())
         && Boolean(newLastName.trim())
-        && Boolean(newEmail.trim())
-        && phoneIsValid
-        && Boolean(newGender.trim())
-        && Boolean(newHighestQualification.trim())
-        && Boolean(newDept.trim())
-    ), [
-        newFirstName,
-        newLastName,
-        newEmail,
-        phoneIsValid,
-        newDob,
-        newGender,
-        newHighestQualification,
-        newDept,
-    ]);
+        && Boolean(newDob.trim())
+        && newCanManageSchedule !== null
+    ), [newFirstName, newLastName, newDob, newCanManageSchedule]);
 
     const addFormMissingFields = useMemo(() => {
         const missing: string[] = [];
         if (!newFirstName.trim()) missing.push('First name');
         if (!newLastName.trim()) missing.push('Last name');
-        if (!newEmail.trim()) missing.push('Email');
-        if (!newPhone.trim() || newPhone.trim() === '+233') missing.push('Phone number');
-        else if (!phoneIsValid) missing.push('a valid phone number (+233 and 9 digits)');
-        if (!newGender.trim()) missing.push('Gender');
-        if (!newHighestQualification.trim()) missing.push('Highest qualification');
-        if (!newDept.trim()) missing.push('Department');
+        if (!newDob.trim()) missing.push('Date of birth');
+        if (newCanManageSchedule === null) missing.push('Can manage schedule');
         return missing;
-    }, [
-        newFirstName,
-        newLastName,
-        newEmail,
-        newPhone,
-        phoneIsValid,
-        newDob,
-        newGender,
-        newHighestQualification,
-        newDept,
-    ]);
+    }, [newFirstName, newLastName, newDob, newCanManageSchedule]);
 
     const formatMissingFieldsToast = useCallback((missing: string[]) => {
         if (missing.length === 0) return 'Please fill all required fields before adding staff';
@@ -1545,9 +1509,6 @@ export default function StaffDirectoryManagement() {
         return () => document.removeEventListener('visibilitychange', onVisible);
     }, [activeTab, fetchStaff]);
 
-    useEffect(() => {
-        if (!newDept && departmentOptions.length > 0) setNewDept(departmentOptions[0]);
-    }, [newDept, departmentOptions]);
     useEffect(() => {
         setEditingContactEmail(false);
     }, [selected?.id]);
@@ -1837,7 +1798,8 @@ export default function StaffDirectoryManagement() {
         }
         setAdding(true);
         try {
-            const derivedIsDoctor = isDoctorFromHighestQualification(newHighestQualification);
+            const canManage = newCanManageSchedule === true;
+            const employeeId = newEmployeeId.trim();
             const res = await fetch(staffUrl('/api/proxy/staff'), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -1845,20 +1807,11 @@ export default function StaffDirectoryManagement() {
                     first_name: newFirstName.trim(),
                     middle_name: newMiddleName.trim() || undefined,
                     last_name: newLastName.trim(),
-                    email: newEmail.trim(),
-                    phone: phoneForCreate,
-                    dob: newDob.trim() || undefined,
-                    gender: newGender.trim() || undefined,
-                    title: newRole.trim() || undefined,
-                    job_title: newRole.trim() || undefined,
-                    additional_title: newCreationTitle.trim() || undefined,
-                    highest_qualification: newHighestQualification.trim() || undefined,
-                    is_doctor: derivedIsDoctor,
-                    patient_access: newPatientAccess,
-                    is_scheduler: newIsScheduler,
+                    dob: newDob.trim(),
+                    employee_id: employeeId || undefined,
+                    can_manage_schedule: canManage,
+                    is_scheduler: canManage,
                     role: 'staff',
-                    department: newDept,
-                    account_expires_on: newAccountExpiresOn.trim() || undefined,
                 }),
             });
 
@@ -1875,22 +1828,18 @@ export default function StaffDirectoryManagement() {
                 first_name: newFirstName.trim(),
                 middle_name: newMiddleName.trim(),
                 last_name: newLastName.trim(),
-                email: newEmail.trim(),
-                job_title: newRole.trim(),
-                title: newRole.trim(),
-                additional_title: newCreationTitle.trim() || undefined,
-                highest_qualification: newHighestQualification.trim(),
-                is_doctor: derivedIsDoctor,
-                dept: newDept,
+                email: '',
+                job_title: '',
+                title: '',
+                dept: 'Unassigned',
                 status: 'active',
                 access: 'Staff',
-                employee_id: '',
-                patient_access: newPatientAccess,
-                is_scheduler: newIsScheduler,
+                employee_id: employeeId,
+                patient_access: false,
+                is_scheduler: canManage,
                 role: 'staff',
-                phone: phoneForCreate,
+                phone: '',
                 dob: newDob.trim(),
-                gender: newGender.trim(),
             };
 
             // Merge form values into parsed result for fields the backend may not return
@@ -1898,15 +1847,12 @@ export default function StaffDirectoryManagement() {
                 ? {
                     ...created,
                     middle_name: created.middle_name || newMiddleName.trim(),
-                    dept: (!created.dept || created.dept === 'Unassigned') ? newDept : created.dept,
-                    highest_qualification: created.highest_qualification || newHighestQualification.trim(),
-                    additional_title: created.additional_title || newCreationTitle.trim() || undefined,
                     dob: created.dob || newDob.trim(),
-                    gender: created.gender || newGender.trim(),
-                    phone: created.phone || phoneForCreate,
-                    is_doctor: created.is_doctor ?? derivedIsDoctor,
-                    patient_access: created.patient_access ?? newPatientAccess,
-                    is_scheduler: created.is_scheduler ?? newIsScheduler,
+                    employee_id: pickEmployeeId(
+                        { ...created, employee_id: employeeId || created.employee_id },
+                        created,
+                    ) || employeeId,
+                    is_scheduler: created.is_scheduler ?? canManage,
                 }
                 : fallbackMember;
 
@@ -1915,18 +1861,11 @@ export default function StaffDirectoryManagement() {
             setNewFirstName('');
             setNewMiddleName('');
             setNewLastName('');
-            setNewEmail('');
-            setNewPhone('');
             setNewDob('');
-            setNewGender('');
-            setNewCreationTitle('');
-            setNewRole('');
-            setNewHighestQualification('');
-            setNewAccountExpiresOn('');
-            setNewPatientAccess(true);
-            setNewIsScheduler(false);
+            setNewEmployeeId('');
+            setNewCanManageSchedule(null);
             const displayName = `${newFirstName} ${newLastName}`.trim() || 'Staff member';
-            showToast(`${displayName} added to staff`, 'success');
+            showToast(`${displayName} added to the directory`, 'success');
             if (member.id && member.email.trim()) {
                 setPendingInviteSend(member);
             }
@@ -2515,115 +2454,49 @@ export default function StaffDirectoryManagement() {
                 {activeTab === 'directory' ? (
                 <main style={{ flex: 1, minWidth: 0, overflow: 'auto', padding: '20px 24px', background: 'var(--bg-900)' }}>
 
-                    {/* Add Staff Form */}
+                    {/* Add Staff Form — same fields as bulk upload */}
                     {showAddForm && (
                         <div className="fade-in card" style={{ marginBottom: 18, padding: '18px 20px' }}>
-                            <h3 style={{ fontSize: 14, marginBottom: 12 }}>New Staff Member</h3>
-                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 12, marginBottom: 14 }}>
-                                <div><label className="label">First Name *</label><input className="input" value={newFirstName} onChange={e => setNewFirstName(e.target.value)} placeholder="First name" style={{ fontSize: 12 }} /></div>
-                                <div><label className="label">Middle Name (Optional)</label><input className="input" value={newMiddleName} onChange={e => setNewMiddleName(e.target.value)} placeholder="Middle name" style={{ fontSize: 12 }} /></div>
-                                <div><label className="label">Last Name *</label><input className="input" value={newLastName} onChange={e => setNewLastName(e.target.value)} placeholder="Last name" style={{ fontSize: 12 }} /></div>
-                                <div><label className="label">Email *</label><input className="input" value={newEmail} onChange={e => setNewEmail(e.target.value)} placeholder="Email address" style={{ fontSize: 12 }} /></div>
+                            <h3 style={{ fontSize: 14, marginBottom: 4 }}>New directory person</h3>
+                            <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 12 }}>
+                                Same fields as bulk upload. They set email and password later from the invite or self-join flow.
+                            </p>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 12, marginBottom: 14 }}>
                                 <div>
-                                    <label className="label">Phone *</label>
-                                    <input
-                                        className="input"
-                                        value={newPhone}
-                                        onChange={e => setNewPhone(formatGhanaPhoneInput(e.target.value))}
-                                        placeholder="+233201234567"
-                                        inputMode="tel"
-                                        autoComplete="tel"
-                                        style={{ fontSize: 12 }}
-                                    />
+                                    <label className="label">First Name *</label>
+                                    <input className="input" value={newFirstName} onChange={e => setNewFirstName(e.target.value)} placeholder="First name" style={{ fontSize: 12 }} />
                                 </div>
                                 <div>
-                                    <label className="label">DOB</label>
-                                    <DatePicker value={newDob} onChange={setNewDob} placeholder="Select DOB" />
+                                    <label className="label">Middle Name</label>
+                                    <input className="input" value={newMiddleName} onChange={e => setNewMiddleName(e.target.value)} placeholder="Optional" style={{ fontSize: 12 }} />
                                 </div>
                                 <div>
-                                    <label className="label">Gender *</label>
+                                    <label className="label">Last Name *</label>
+                                    <input className="input" value={newLastName} onChange={e => setNewLastName(e.target.value)} placeholder="Last name" style={{ fontSize: 12 }} />
+                                </div>
+                                <div>
+                                    <label className="label">Date of birth *</label>
+                                    <DatePicker value={newDob} onChange={setNewDob} placeholder="YYYY-MM-DD" />
+                                </div>
+                                <div>
+                                    <label className="label">Employee ID</label>
+                                    <input className="input" value={newEmployeeId} onChange={e => setNewEmployeeId(e.target.value)} placeholder="Optional" style={{ fontSize: 12 }} />
+                                </div>
+                                <div>
+                                    <label className="label">Can manage schedule *</label>
                                     <CustomSelect
-                                        value={newGender}
-                                        onChange={v => setNewGender(v)}
+                                        value={newCanManageSchedule === null ? '' : newCanManageSchedule ? 'yes' : 'no'}
+                                        onChange={v => setNewCanManageSchedule(v === '' ? null : v === 'yes')}
                                         options={[
-                                            { label: 'Male', value: 'male' },
-                                            { label: 'Female', value: 'female' },
-                                            { label: 'Other', value: 'other' },
+                                            { label: 'Yes', value: 'yes' },
+                                            { label: 'No', value: 'no' },
                                         ]}
                                         placeholder="-- Select --"
                                     />
                                 </div>
-                                <div>
-                                    <label className="label">Title</label>
-                                    <input
-                                        className="input"
-                                        value={newCreationTitle}
-                                        onChange={e => setNewCreationTitle(e.target.value.slice(0, STAFF_CREATE_TITLE_MAX_LEN))}
-                                        maxLength={STAFF_CREATE_TITLE_MAX_LEN}
-                                        style={{ fontSize: 12 }}
-                                    />
-                                    <div style={{ marginTop: 4, fontSize: 10.5, color: 'var(--text-muted)' }}>
-                                        {newCreationTitle.length}/{STAFF_CREATE_TITLE_MAX_LEN}
-                                    </div>
-                                </div>
-                                <div>
-                                    <label className="label">Rank</label>
-                                    <CustomSelect
-                                        value={newRole}
-                                        onChange={v => setNewRole(v)}
-                                        options={STAFF_RANK_OPTIONS.map(t => ({ label: t, value: t }))}
-                                        placeholder="-- Select rank --"
-                                        allowCustom
-                                        customEntryTitle="Custom rank"
-                                        customEntryHint="Not listed? Type here, then Enter."
-                                        customPlaceholder="Type rank — Enter"
-                                    />
-                                </div>
-                                <div>
-                                    <label className="label">Highest Qualification *</label>
-                                    <CustomSelect
-                                        value={newHighestQualification}
-                                        onChange={v => setNewHighestQualification(v)}
-                                        options={QUALIFICATION_OPTIONS.map(q => ({ label: q, value: q }))}
-                                        placeholder="-- Select Qualification --"
-                                        allowCustom
-                                        customEntryTitle="Custom qualification"
-                                        customEntryHint="Not listed below? Type here, then Enter."
-                                        customPlaceholder="e.g. MBChB — Enter"
-                                    />
-                                </div>
-                                <div>
-                                    <label className="label">Department *</label>
-                                    <CustomSelect
-                                        value={newDept}
-                                        onChange={v => setNewDept(v)}
-                                        options={departmentOptions.map(d => ({ label: d, value: d }))}
-                                        placeholder="-- Select --"
-                                    />
-                                </div>
-                                <div><label className="label">Patient Access</label><CustomSelect value={newPatientAccess ? 'yes' : 'no'} onChange={v => setNewPatientAccess(v === 'yes')} options={[{ label: 'Yes', value: 'yes' }, { label: 'No', value: 'no' }]} placeholder="-- Select --" /></div>
-                                <div>
-                                    <label className="label">Scheduler</label>
-                                    <CustomSelect
-                                        value={newIsScheduler ? 'yes' : 'no'}
-                                        onChange={v => setNewIsScheduler(v === 'yes')}
-                                        options={[{ label: 'Yes', value: 'yes' }, { label: 'No', value: 'no' }]}
-                                        placeholder="-- Select --"
-                                    />
-                                    <div style={{ marginTop: 4, fontSize: 10.5, color: 'var(--text-muted)' }}>
-                                        Allow this person to create and manage schedules.
-                                    </div>
-                                </div>
-                                <div>
-                                    <label className="label">Account Expiry Date</label>
-                                    <DatePicker value={newAccountExpiresOn} onChange={setNewAccountExpiresOn} placeholder="No expiry" minDate={new Date().toISOString().slice(0, 10)} />
-                                    <div style={{ marginTop: 4, fontSize: 10.5, color: 'var(--text-muted)' }}>
-                                        Optional. Staff access is revoked on this date.
-                                    </div>
-                                </div>
                             </div>
-                            <button className="btn btn-primary btn-sm" onClick={handleAdd} disabled={adding}>
-                                <span className="material-icons-round" style={{ fontSize: 14 }}>{adding ? 'hourglass_empty' : 'person_add'}</span>{adding ? 'Adding...' : 'Add Staff'}
+                            <button className="btn btn-primary btn-sm" onClick={handleAdd} disabled={adding || !isAddFormComplete}>
+                                <span className="material-icons-round" style={{ fontSize: 14 }}>{adding ? 'hourglass_empty' : 'person_add'}</span>{adding ? 'Adding...' : 'Add to directory'}
                             </button>
                         </div>
                     )}

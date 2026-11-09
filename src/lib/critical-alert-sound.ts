@@ -1,4 +1,11 @@
-export type CriticalAlertSoundKey = 'classic' | 'pulse' | 'siren' | string;
+export type CriticalAlertSoundKey =
+    | 'urgent'
+    | 'nuclear'
+    | 'security'
+    | 'klaxon'
+    | 'alert'
+    | 'fire'
+    | string;
 
 export type CriticalAlertSoundOption = {
     key: CriticalAlertSoundKey;
@@ -11,45 +18,80 @@ export type CriticalAlertSoundOption = {
 
 const FALLBACK_OPTIONS: CriticalAlertSoundOption[] = [
     {
-        key: 'classic',
-        label: 'Classic',
-        file: 'critical_alert.mp3',
-        blurb: 'The familiar critical alert already used in Helix.',
+        key: 'urgent',
+        label: 'Urgent',
+        file: 'critical_alert_urgent.mp3',
+        previewUrl: '/sounds/critical_alert_urgent.mp3',
+        blurb: 'Loud rising alarm for immediate attention.',
     },
     {
-        key: 'pulse',
-        label: 'Pulse',
-        file: 'critical_alert_pulse.mp3',
-        previewUrl: '/sounds/critical_alert_pulse.mp3',
-        blurb: 'A steady fire-alarm pulse for urgent attention.',
+        key: 'nuclear',
+        label: 'Nuclear',
+        file: 'critical_alert_nuclear.mp3',
+        previewUrl: '/sounds/critical_alert_nuclear.mp3',
+        blurb: 'Heavy nuclear-style alert beat.',
     },
     {
-        key: 'siren',
-        label: 'Siren',
-        file: 'critical_alert_siren.mp3',
-        previewUrl: '/sounds/critical_alert_siren.mp3',
-        blurb: 'A rising siren for maximum urgency.',
+        key: 'security',
+        label: 'Security',
+        file: 'critical_alert_security.mp3',
+        previewUrl: '/sounds/critical_alert_security.mp3',
+        blurb: 'Sharp security alarm tone.',
+    },
+    {
+        key: 'klaxon',
+        label: 'Klaxon',
+        file: 'critical_alert_klaxon.mp3',
+        previewUrl: '/sounds/critical_alert_klaxon.mp3',
+        blurb: 'Short repeating security klaxon.',
+    },
+    {
+        key: 'alert',
+        label: 'Alert',
+        file: 'critical_alert_alert.mp3',
+        previewUrl: '/sounds/critical_alert_alert.mp3',
+        blurb: 'Compact high-attention alert.',
+    },
+    {
+        key: 'fire',
+        label: 'Fire',
+        file: 'critical_alert_fire.mp3',
+        previewUrl: '/sounds/critical_alert_fire.mp3',
+        blurb: 'Steady fire-alarm pulse.',
     },
 ];
 
-const BLURBS: Record<string, string> = {
-    classic: 'The familiar critical alert already used in Helix.',
-    pulse: 'A steady fire-alarm pulse for urgent attention.',
-    siren: 'A rising siren for maximum urgency.',
-};
+const BLURBS: Record<string, string> = Object.fromEntries(
+    FALLBACK_OPTIONS.map(option => [option.key, option.blurb]),
+);
 
-const PREVIEW_BY_FILE: Record<string, string> = {
-    'critical_alert_pulse.mp3': '/sounds/critical_alert_pulse.mp3',
-    'critical_alert_siren.mp3': '/sounds/critical_alert_siren.mp3',
-};
+const PREVIEW_BY_FILE: Record<string, string> = Object.fromEntries(
+    FALLBACK_OPTIONS
+        .filter(option => option.previewUrl)
+        .map(option => [option.file, option.previewUrl as string]),
+);
 
-const PREVIEW_BY_KEY: Record<string, string> = {
-    pulse: '/sounds/critical_alert_pulse.mp3',
-    siren: '/sounds/critical_alert_siren.mp3',
-};
+const PREVIEW_BY_KEY: Record<string, string> = Object.fromEntries(
+    FALLBACK_OPTIONS
+        .filter(option => option.previewUrl)
+        .map(option => [option.key, option.previewUrl as string]),
+);
+
+const LEGACY_KEYS = new Set(['classic', 'pulse', 'siren']);
 
 function asRec(value: unknown): Record<string, unknown> | null {
     return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null;
+}
+
+function enrich(option: CriticalAlertSoundOption): CriticalAlertSoundOption {
+    return {
+        ...option,
+        previewUrl: option.previewUrl
+            || PREVIEW_BY_KEY[option.key]
+            || (option.file ? PREVIEW_BY_FILE[option.file] : undefined)
+            || (option.file ? `/sounds/${option.file}` : undefined),
+        blurb: option.blurb || BLURBS[option.key] || 'Critical alert tone for this facility.',
+    };
 }
 
 export function parseCriticalAlertSoundOptions(raw: unknown): CriticalAlertSoundOption[] {
@@ -69,22 +111,27 @@ export function parseCriticalAlertSoundOptions(raw: unknown): CriticalAlertSound
         if (!key) return null;
         const file = String(rec.file || rec.filename || '').trim();
         const label = String(rec.label || rec.name || key).trim() || key;
-        const previewUrl = PREVIEW_BY_KEY[key] || (file ? PREVIEW_BY_FILE[file] : undefined) || (file ? `/sounds/${file}` : undefined);
-        return {
+        return enrich({
             key,
             label: label.charAt(0).toUpperCase() + label.slice(1),
             file,
-            previewUrl,
             blurb: BLURBS[key] || 'Critical alert tone for this facility.',
-        };
+        });
     }).filter((item): item is CriticalAlertSoundOption => Boolean(item));
 
-    return parsed.length ? parsed : FALLBACK_OPTIONS;
+    if (!parsed.length) return FALLBACK_OPTIONS;
+
+    // Backend may still advertise the old classic/pulse/siren trio — prefer the new local catalog.
+    if (parsed.every(option => LEGACY_KEYS.has(option.key))) {
+        return FALLBACK_OPTIONS;
+    }
+
+    return parsed;
 }
 
 export function readCriticalAlertSound(raw: unknown): string {
     const rec = asRec(raw);
-    if (!rec) return 'classic';
+    if (!rec) return 'urgent';
     const value = String(rec.critical_alert_sound || rec.criticalAlertSound || '').trim().toLowerCase();
-    return value || 'classic';
+    return value || 'urgent';
 }

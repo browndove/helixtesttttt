@@ -3,7 +3,7 @@ import { getProxyHeaders } from '@/lib/proxy-auth';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3000';
 
-/** GET /facilities/critical-alert-sounds — classic | pulse | siren choices */
+/** GET /facilities/critical-alert-sounds — facility critical alert tone choices */
 export async function GET(req: NextRequest) {
     try {
         const res = await fetch(`${API_BASE_URL}/api/v1/facilities/critical-alert-sounds`, {

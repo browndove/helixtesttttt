@@ -19,6 +19,7 @@ type IncomingStaffBody = {
     email?: string;
     phone?: string;
     dob?: string;
+    employee_id?: string;
     gender?: string;
     title?: string;
     job_title?: string;
@@ -31,6 +32,7 @@ type IncomingStaffBody = {
     is_scheduler?: boolean;
     scheduler?: boolean;
     can_schedule?: boolean;
+    can_manage_schedule?: boolean;
     role?: string;
 };
 
@@ -129,32 +131,46 @@ export async function POST(req: NextRequest) {
         const departmentId = body.department_id
             || body.departmentId
             || (facilityId ? await resolveDepartmentIdByName(req, facilityId, body.department || body.dept) : undefined);
+        const canManageSchedule = Boolean(
+            body.can_manage_schedule ?? body.is_scheduler ?? body.scheduler ?? body.can_schedule,
+        );
         const payload: Record<string, unknown> = {
             facility_id: facilityId,
-            department_id: departmentId,
             first_name: (body.first_name || '').trim(),
             middle_name: (body.middle_name || '').trim(),
             last_name: (body.last_name || '').trim(),
-            email: (body.email || '').trim(),
-            phone: (body.phone || '').trim(),
-            title: (body.title || '').trim(),
-            job_title: (body.job_title || '').trim(),
-            highest_qualifications: (body.highest_qualifications || body.highest_qualification || '').trim(),
-            highest_qualification: (body.highest_qualification || body.highest_qualifications || '').trim(),
-            additional_title: (body.additional_title || '').trim(),
-            is_doctor: Boolean(body.is_doctor),
-            // Backend field naming has varied; send both for compatibility.
-            patient_access: Boolean(body.patient_access ?? body.can_access_patients),
-            can_access_patients: Boolean(body.patient_access ?? body.can_access_patients),
-            is_scheduler: Boolean(body.is_scheduler ?? body.scheduler ?? body.can_schedule),
+            // Same core fields as staff bulk upload; extras are optional when provided.
+            can_manage_schedule: canManageSchedule,
+            is_scheduler: canManageSchedule,
             role: (body.role || 'staff').toLowerCase(),
         };
+        if (departmentId) payload.department_id = departmentId;
+        const email = (body.email || '').trim();
+        const phone = (body.phone || '').trim();
+        const title = (body.title || '').trim();
+        const jobTitle = (body.job_title || '').trim();
+        const highestQual = (body.highest_qualifications || body.highest_qualification || '').trim();
+        const additionalTitle = (body.additional_title || '').trim();
+        const employeeId = (body.employee_id || '').trim();
+        if (email) payload.email = email;
+        if (phone) payload.phone = phone;
+        if (title) payload.title = title;
+        if (jobTitle) payload.job_title = jobTitle;
+        if (highestQual) {
+            payload.highest_qualifications = highestQual;
+            payload.highest_qualification = highestQual;
+        }
+        if (additionalTitle) payload.additional_title = additionalTitle;
+        if (employeeId) payload.employee_id = employeeId;
         if (!payload.middle_name) delete payload.middle_name;
-        if (!payload.additional_title) delete payload.additional_title;
-        if (!payload.highest_qualification) delete payload.highest_qualification;
-        if (!payload.highest_qualifications) delete payload.highest_qualifications;
         if (body.dob) payload.dob = body.dob.trim();
         if (body.gender) payload.gender = body.gender.trim();
+        if (body.is_doctor !== undefined) payload.is_doctor = Boolean(body.is_doctor);
+        if (body.patient_access !== undefined || body.can_access_patients !== undefined) {
+            const patientAccess = Boolean(body.patient_access ?? body.can_access_patients);
+            payload.patient_access = patientAccess;
+            payload.can_access_patients = patientAccess;
+        }
         const upstream = await buildTenantUpstreamUrl(req, API_BASE_URL, `/api/v1/staff`);
 
         if (upstream instanceof NextResponse) return upstream;

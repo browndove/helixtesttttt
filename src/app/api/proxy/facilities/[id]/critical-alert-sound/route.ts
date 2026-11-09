@@ -4,7 +4,7 @@ import { buildTenantUpstreamUrl, mergeFacilityIntoBody } from '@/lib/proxy-upstr
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3000';
 
-/** PUT /facilities/{id}/critical-alert-sound — { critical_alert_sound: classic|pulse|siren } */
+/** PUT /facilities/{id}/critical-alert-sound — { critical_alert_sound: <key> } */
 export async function PUT(
     req: NextRequest,
     { params }: { params: Promise<{ id: string }> },
