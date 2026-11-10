@@ -69,6 +69,10 @@ type StaffMember = {
     username?: string;
     /** Presence last seen from staff list API (`last_seen` field only). */
     last_seen?: string;
+    /** First/last successful sign-in from the API (active + empty ⇒ set up, never signed in). */
+    last_login_at?: string;
+    /** How the person entered the facility directory. */
+    source?: 'admin_created' | 'directory' | 'self_join';
     patient_access: boolean;
     /** When true, this staff member can manage schedules. */
     is_scheduler: boolean;
@@ -436,10 +440,13 @@ function parseStaffList(raw: unknown): StaffMember[] {
                 || ''
             ).trim();
             const statusRaw = String(r.status || r.account_status || 'active').toLowerCase().trim();
-            const VALID_STATUSES = ['not_invited', 'invited', 'expired', 'revoked', 'registered', 'active', 'suspended', 'disabled'];
-            const normalizedStatus = statusRaw === 'inactive' ? 'invited'
-                : VALID_STATUSES.includes(statusRaw) ? statusRaw
-                : 'active';
+            const normalizedStatus = normalizeStaffStatus(statusRaw);
+            const sourceRaw = String(r.source || r.join_source || r.directory_source || '').toLowerCase().trim();
+            const source = (['admin_created', 'directory', 'self_join'] as const).includes(
+                sourceRaw as 'admin_created' | 'directory' | 'self_join',
+            )
+                ? (sourceRaw as 'admin_created' | 'directory' | 'self_join')
+                : undefined;
             const deptSources = gatherStaffDeptSources(r);
             const { id: department_id, name: deptFromApi } = findDepartmentIdAndName(deptSources);
             return {
@@ -457,6 +464,8 @@ function parseStaffList(raw: unknown): StaffMember[] {
                 employee_id: pickEmployeeIdFromRecord(r),
                 username: String(r.username || '').trim() || undefined,
                 last_seen: String(r.last_seen ?? '').trim() || undefined,
+                last_login_at: String(r.last_login_at || r.lastLoginAt || '').trim() || undefined,
+                source,
                 patient_access: Boolean(r.patient_access ?? r.can_access_patients ?? false),
                 is_scheduler: Boolean(r.is_scheduler ?? r.scheduler ?? r.can_schedule ?? false),
                 role: String(r.system_role || r.role || 'staff').toLowerCase().includes('admin') ? 'admin' as const : 'staff' as const,
@@ -652,12 +661,6 @@ function isStaffOnline(s: StaffMember, online: Set<string>): boolean {
     return candidates.some(c => online.has(c.trim().toLowerCase()));
 }
 
-function canSendStaffInviteEmail(s: StaffMember): boolean {
-    if (!s.email?.trim()) return false;
-    const st = String(s.status || '').trim().toLowerCase();
-    return !['active', 'registered', 'suspended', 'disabled'].includes(st);
-}
-
 /** Clinical / professional rank presets (optional field); custom values allowed via CustomSelect. */
 const STAFF_RANK_OPTIONS = [
     'House Officer',
@@ -687,35 +690,72 @@ function isDoctorFromHighestQualification(raw: string): boolean {
     return false;
 }
 
-const statusColors: Record<string, { color: string; bg: string; label: string }> = {
+/** Canonical staff statuses (stop reading expired/revoked/registered/inactive). */
+const STAFF_STATUSES = [
+    'in_directory',
+    'pending_approval',
+    'not_invited',
+    'invited',
+    'invite_expired',
+    'active',
+    'suspended',
+    'disabled',
+] as const;
+
+type StaffStatus = (typeof STAFF_STATUSES)[number];
+
+function normalizeStaffStatus(raw: string): StaffStatus {
+    const t = raw.trim().toLowerCase();
+    // One-release alias from the old invite-expired key.
+    if (t === 'expired') return 'invite_expired';
+    if ((STAFF_STATUSES as readonly string[]).includes(t)) return t as StaffStatus;
+    return 'active';
+}
+
+const statusColors: Record<StaffStatus, { color: string; bg: string; label: string }> = {
+    in_directory: { color: '#475569', bg: '#f1f5f9', label: 'In directory' },
+    pending_approval: { color: '#b45309', bg: '#fffbeb', label: 'Pending approval' },
     not_invited: { color: '#64748b', bg: '#f1f5f9', label: 'Not invited' },
     invited: { color: 'var(--info)', bg: 'var(--info-bg)', label: 'Invited' },
-    expired: { color: 'var(--warning)', bg: 'var(--warning-bg)', label: 'Expired' },
-    revoked: { color: '#e11d48', bg: '#fff1f2', label: 'Revoked' },
-    registered: { color: '#7c3aed', bg: '#f5f3ff', label: 'Registered' },
+    invite_expired: { color: 'var(--warning)', bg: 'var(--warning-bg)', label: 'Invite expired' },
     active: { color: 'var(--success)', bg: 'var(--success-bg)', label: 'Active' },
     suspended: { color: '#b45309', bg: '#fffbeb', label: 'Suspended' },
     disabled: { color: 'var(--critical)', bg: 'var(--critical-bg)', label: 'Disabled' },
 };
 
-const LIFECYCLE_STATUSES = ['not_invited', 'invited', 'expired', 'revoked', 'registered'] as const;
+const SOURCE_LABELS: Record<NonNullable<StaffMember['source']>, string> = {
+    admin_created: 'Admin created',
+    directory: 'Directory',
+    self_join: 'Self-join',
+};
+
+/** Invite-lifecycle statuses that may show send/revoke/push actions. */
+const INVITE_ACTION_STATUSES = ['not_invited', 'invited', 'invite_expired'] as const;
 const ADMIN_PATCHABLE_STATUSES = ['active', 'suspended', 'disabled'] as const;
-const STATUS_FILTER_ADMIN_KEYS = ['active', 'disabled'] as const;
-const STATUS_FILTER_KEYS = ['all', ...LIFECYCLE_STATUSES, ...STATUS_FILTER_ADMIN_KEYS] as const;
+const STATUS_FILTER_KEYS = ['all', ...STAFF_STATUSES] as const;
 
 type InviteRowFlags = { can_reinvite?: boolean; can_revoke?: boolean; can_push?: boolean };
 type InviteSummaryCounts = Partial<Record<(typeof STATUS_FILTER_KEYS)[number], number>>;
 
 function isInviteLifecycleStatus(status: string): boolean {
-    return (LIFECYCLE_STATUSES as readonly string[]).includes(String(status || '').trim().toLowerCase());
+    return (INVITE_ACTION_STATUSES as readonly string[]).includes(normalizeStaffStatus(status));
 }
 
 function isAdminPatchableStatus(status: string): boolean {
-    return (ADMIN_PATCHABLE_STATUSES as readonly string[]).includes(String(status || '').trim().toLowerCase());
+    return (ADMIN_PATCHABLE_STATUSES as readonly string[]).includes(normalizeStaffStatus(status));
 }
 
-function statusBadgeStyle(status: string): { color: string; bg: string; label: string } {
-    return statusColors[String(status || '').trim().toLowerCase()] || statusColors.active;
+function hasSignedIn(s: StaffMember): boolean {
+    return Boolean((s.last_login_at || '').trim() || (s.last_seen || '').trim());
+}
+
+function statusBadgeStyle(status: string, member?: StaffMember): { color: string; bg: string; label: string } {
+    const st = normalizeStaffStatus(status);
+    const base = statusColors[st] || statusColors.active;
+    if (st === 'active' && member && !hasSignedIn(member)) {
+        return { ...base, label: 'Set up, never signed in' };
+    }
+    return base;
 }
 
 function parseInviteSummary(raw: unknown): InviteSummaryCounts {
@@ -725,15 +765,17 @@ function parseInviteSummary(raw: unknown): InviteSummaryCounts {
         ? (root.summary as Record<string, unknown>)
         : root;
     const out: InviteSummaryCounts = {};
-    for (const key of STATUS_FILTER_KEYS) {
-        if (key === 'all') continue;
-        const n = readNumber(summary[key]);
+    for (const key of STAFF_STATUSES) {
+        let n = readNumber(summary[key]);
+        // One-release: old `expired` repeats invite_expired — prefer invite_expired.
+        if (key === 'invite_expired' && n <= 0) n = readNumber(summary.expired);
         if (n > 0) out[key] = n;
     }
+    // Do not read revoked / registered / inactive (always 0 in the new model).
     const explicitAll = readNumber(summary.all ?? summary.total ?? root.total);
     out.all = explicitAll > 0
         ? explicitAll
-        : STATUS_FILTER_KEYS.slice(1).reduce((sum, k) => sum + (out[k] ?? 0), 0);
+        : STAFF_STATUSES.reduce((sum, k) => sum + (out[k] ?? 0), 0);
     return out;
 }
 
@@ -761,16 +803,32 @@ function parseInviteFlagsByStaffId(raw: unknown): Map<string, InviteRowFlags> {
 }
 
 function statusAllowsReinvite(status: string): boolean {
-    return ['not_invited', 'invited', 'expired', 'revoked'].includes(String(status || '').trim().toLowerCase());
+    const st = normalizeStaffStatus(status);
+    return st === 'not_invited' || st === 'invited' || st === 'invite_expired';
 }
 
 function statusAllowsRevoke(status: string): boolean {
-    return String(status || '').trim().toLowerCase() === 'invited';
+    const st = normalizeStaffStatus(status);
+    return st === 'invited' || st === 'invite_expired';
+}
+
+function statusAllowsPush(status: string): boolean {
+    const st = normalizeStaffStatus(status);
+    return st === 'invited' || st === 'invite_expired';
+}
+
+/** Directory rows have no email — they join from the app with the facility code. */
+function canSendStaffInviteEmail(s: StaffMember): boolean {
+    const st = normalizeStaffStatus(s.status);
+    if (st === 'in_directory') return false;
+    if (!s.email?.trim()) return false;
+    return statusAllowsReinvite(st);
 }
 
 function canReinviteStaff(s: StaffMember, flags?: InviteRowFlags): boolean {
+    if (normalizeStaffStatus(s.status) === 'in_directory') return false;
     if (flags?.can_reinvite !== undefined) return flags.can_reinvite;
-    return statusAllowsReinvite(s.status);
+    return statusAllowsReinvite(s.status) && Boolean(s.email?.trim());
 }
 
 function canRevokeStaffInvite(s: StaffMember, flags?: InviteRowFlags): boolean {
@@ -780,19 +838,19 @@ function canRevokeStaffInvite(s: StaffMember, flags?: InviteRowFlags): boolean {
 
 function canPushStaffInvite(s: StaffMember, flags?: InviteRowFlags): boolean {
     if (flags?.can_push !== undefined) return flags.can_push;
-    return String(s.status || '').trim().toLowerCase() === 'invited';
+    return statusAllowsPush(s.status);
 }
 
 function inviteEmailTooltip(s: StaffMember): string {
+    const st = normalizeStaffStatus(s.status);
+    if (st === 'in_directory') return 'Directory people join from the app with the facility code — no invite email';
     if (!s.email?.trim()) return 'No email on file';
-    const st = String(s.status || '').trim().toLowerCase();
     if (st === 'active') return 'Account already activated';
-    if (st === 'registered') return 'Already registered — invite not needed';
+    if (st === 'pending_approval') return 'Waiting for join approval';
     if (st === 'suspended') return 'Account suspended';
     if (st === 'disabled') return 'Account disabled';
     if (st === 'not_invited') return 'Send invite email';
-    if (st === 'expired') return 'Resend invite email (expired)';
-    if (st === 'revoked') return 'Send invite email (revoked)';
+    if (st === 'invite_expired') return 'Resend invite email (expired)';
     if (st === 'invited') return 'Resend invite email';
     return 'Send invite email';
 }
@@ -1777,14 +1835,14 @@ export default function StaffDirectoryManagement() {
     const statusCounts = useMemo(() => {
         const local: InviteSummaryCounts = { all: staff.length };
         for (const s of staff) {
-            const key = String(s.status || '').trim().toLowerCase();
-            if (!key) continue;
-            local[key as keyof InviteSummaryCounts] = (local[key as keyof InviteSummaryCounts] ?? 0) + 1;
+            const key = normalizeStaffStatus(s.status);
+            local[key] = (local[key] ?? 0) + 1;
         }
         if (Object.keys(inviteSummary).length === 0) return local;
         return {
             ...local,
             ...inviteSummary,
+            // Prefer server totals when present (includes pending_approval not listed in GET /staff).
             all: inviteSummary.all ?? local.all ?? staff.length,
         };
     }, [staff, inviteSummary]);
@@ -2650,7 +2708,9 @@ export default function StaffDirectoryManagement() {
                         <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
                             {STATUS_FILTER_KEYS.map(key => {
                                 const active = statusFilter === key;
-                                const label = key === 'all' ? 'All' : (statusColors[key]?.label || key);
+                                const label = key === 'all'
+                                    ? 'All'
+                                    : (statusColors[key as StaffStatus]?.label || key);
                                 const count = statusCounts[key] ?? 0;
                                 return (
                                     <button
@@ -2899,12 +2959,13 @@ export default function StaffDirectoryManagement() {
                                             </tr>
                                         )}
                                         {paginatedFiltered.map(s => {
-                                            const st = statusColors[s.status] || statusColors.active;
+                                            const st = statusBadgeStyle(s.status, s);
                                             const isSelected = selected?.id === s.id;
                                             const rowBg = isSelected ? '#edf1f7' : '#ffffff';
                                             const online = isStaffOnline(s, onlineIdSet);
                                             const loggedOut = !online && isStaffLoggedOut(s, loggedOutKeys);
                                             const lastSeenLabel = formatLastSeenAgo(staffLastSeenMs(s, lastSeenByKey));
+                                            const neverSignedIn = normalizeStaffStatus(s.status) === 'active' && !hasSignedIn(s);
                                             return (
                                                 <tr
                                                     key={s.id}
@@ -3011,8 +3072,17 @@ export default function StaffDirectoryManagement() {
                                                             {s.is_scheduler ? 'Yes' : 'No'}
                                                         </div>
                                                     </td>
-                                                    <td style={{ ...staffBodyCell, minWidth: 88, background: rowBg, borderBottom: '1px solid var(--border-subtle)' }}>
-                                                        <span className="badge" style={{ background: st.bg, color: st.color }}>{st.label}</span>
+                                                    <td style={{ ...staffBodyCell, minWidth: 120, background: rowBg, borderBottom: '1px solid var(--border-subtle)' }}>
+                                                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 4 }}>
+                                                            <span className="badge" style={{ background: st.bg, color: st.color }} title={neverSignedIn ? 'Account is set up but has never signed in' : undefined}>
+                                                                {st.label}
+                                                            </span>
+                                                            {s.source ? (
+                                                                <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--text-muted)', letterSpacing: '0.02em' }}>
+                                                                    {SOURCE_LABELS[s.source]}
+                                                                </span>
+                                                            ) : null}
+                                                        </div>
                                                     </td>
                                                     {loggedOutKeys.size > 0 ? (
                                                         <td style={{ ...staffBodyCell, minWidth: 108, whiteSpace: 'nowrap', background: rowBg, borderBottom: '1px solid var(--border-subtle)' }}>
@@ -3036,9 +3106,15 @@ export default function StaffDirectoryManagement() {
                                                                 fontWeight: online ? 600 : 500,
                                                                 color: online ? '#166534' : 'var(--text-muted)',
                                                             }}
-                                                            title={lastSeenLabel === 'Never' ? 'No last_seen on file' : `Last seen ${lastSeenLabel}`}
+                                                            title={
+                                                                neverSignedIn
+                                                                    ? 'Set up, never signed in'
+                                                                    : lastSeenLabel === 'Never'
+                                                                        ? 'No last_seen on file'
+                                                                        : `Last seen ${lastSeenLabel}`
+                                                            }
                                                         >
-                                                            {lastSeenLabel}
+                                                            {neverSignedIn ? 'Never' : lastSeenLabel}
                                                         </span>
                                                     </td>
                                                     <td style={{ ...staffBodyCell, width: 72, minWidth: 72, textAlign: 'center', background: rowBg, borderBottom: '1px solid var(--border-subtle)' }}>
@@ -3254,14 +3330,29 @@ export default function StaffDirectoryManagement() {
                                     </div>
                                     <div style={{ padding: '0 14px 12px', display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                                         {(() => {
-                                            const st = statusBadgeStyle(selected.status);
+                                            const st = statusBadgeStyle(selected.status, selected);
                                             return (
-                                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11, fontWeight: 600, padding: '4px 10px', borderRadius: 999, border: `1px solid ${st.color}`, background: st.bg, color: st.color }}>
+                                        <span
+                                            style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11, fontWeight: 600, padding: '4px 10px', borderRadius: 999, border: `1px solid ${st.color}`, background: st.bg, color: st.color }}
+                                            title={
+                                                normalizeStaffStatus(selected.status) === 'active' && !hasSignedIn(selected)
+                                                    ? 'Account is set up but has never signed in'
+                                                    : undefined
+                                            }
+                                        >
                                             <span style={{ width: 6, height: 6, borderRadius: '50%', background: st.color }} aria-hidden />
                                             {st.label}
                                         </span>
                                             );
                                         })()}
+                                        {selected.source ? (
+                                            <span
+                                                style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11, fontWeight: 600, padding: '4px 10px', borderRadius: 999, background: '#F8FAFC', color: '#475569', border: '1px solid #E2E8F0' }}
+                                                title="How this person entered the directory"
+                                            >
+                                                {SOURCE_LABELS[selected.source]}
+                                            </span>
+                                        ) : null}
                                         {!isStaffOnline(selected, onlineIdSet) && isStaffLoggedOut(selected, loggedOutKeys) ? (
                                             <span
                                                 title="No live mobile app session"
@@ -3454,24 +3545,25 @@ export default function StaffDirectoryManagement() {
                                         </div>
                                         )}
                                         {!editingSelected && (() => {
-                                            const inviteEnabled = canSendStaffInviteEmail({
+                                            const inviteMember = {
                                                 ...selected,
                                                 email: (selected.email || editEmail || '').trim(),
-                                            });
+                                            };
+                                            const selectedStatus = normalizeStaffStatus(selected.status);
+                                            const inviteEnabled = canSendStaffInviteEmail(inviteMember);
+                                            if (selectedStatus === 'in_directory') {
+                                                return (
+                                                    <div style={{ marginTop: 2, fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.45 }}>
+                                                        Directory people join from the Helix app with the facility code — no invite email.
+                                                    </div>
+                                                );
+                                            }
                                             return (
                                                 <button
                                                     type="button"
                                                     className="btn btn-secondary btn-sm"
                                                     disabled={sendingInvites || !inviteEnabled}
-                                                    title={
-                                                        String(selected.status || '').trim().toLowerCase() === 'active'
-                                                            ? 'Account already activated'
-                                                            : !inviteEnabled
-                                                                ? 'No email on file'
-                                                                : String(selected.status || '').trim().toLowerCase() === 'expired'
-                                                                    ? 'Resend invite email (expired)'
-                                                                    : 'Send invite email'
-                                                    }
+                                                    title={inviteEmailTooltip(inviteMember)}
                                                     onClick={() => { void handleSendInviteEmails([selected.id]); }}
                                                     style={{
                                                         width: '100%',
@@ -3497,11 +3589,11 @@ export default function StaffDirectoryManagement() {
                                                     </span>
                                                     {sendingInvites
                                                         ? 'Sending invite…'
-                                                        : String(selected.status || '').trim().toLowerCase() === 'active'
+                                                        : selectedStatus === 'active'
                                                             ? 'Invite not needed'
-                                                            : String(selected.status || '').trim().toLowerCase() === 'expired'
+                                                            : selectedStatus === 'invite_expired' || selectedStatus === 'invited'
                                                                 ? 'Resend invite'
-                                                            : 'Send invite email'}
+                                                                : 'Send invite email'}
                                                 </button>
                                             );
                                         })()}
@@ -3759,11 +3851,10 @@ export default function StaffDirectoryManagement() {
                                     <div style={{ display: 'flex', flexDirection: 'column', gap: 6, flexShrink: 0 }}>
                                         {(() => {
                                             const flags = inviteFlagsByStaffId.get(selected.id);
-                                            const selectedStatus = String(selected.status || '').trim().toLowerCase();
+                                            const selectedStatus = normalizeStaffStatus(selected.status);
                                             const showInviteActions = isInviteLifecycleStatus(selected.status);
                                             const reinviteEnabled = showInviteActions && canReinviteStaff(selected, flags);
                                             const revokeEnabled = showInviteActions && canRevokeStaffInvite(selected, flags);
-                                            const showMutedRevoke = showInviteActions && selectedStatus === 'expired';
                                             const pushEnabled = showInviteActions && canPushStaffInvite(selected, flags);
                                             const hasEmail = Boolean((selected.email || '').trim());
                                             const passwordResetEnabled = STAFF_PASSWORD_RESET_ENABLED && hasEmail;
@@ -3779,7 +3870,11 @@ export default function StaffDirectoryManagement() {
                                                             onClick={() => { void runInviteAction('reinvite', [selected.id]); }}
                                                         >
                                                             <span className="material-icons-round" style={{ fontSize: 15 }}>mail</span>
-                                                            {inviteActionPending ? 'Sending…' : selectedStatus === 'not_invited' ? 'Send invite' : selectedStatus === 'expired' ? 'Resend invite' : 'Reinvite'}
+                                                            {inviteActionPending
+                                                                ? 'Sending…'
+                                                                : selectedStatus === 'not_invited'
+                                                                    ? 'Send invite'
+                                                                    : 'Resend invite'}
                                                         </button>
                                                     )}
                                                     {pushEnabled && (
@@ -3854,20 +3949,17 @@ export default function StaffDirectoryManagement() {
                                                             </div>
                                                         </div>
                                                     )}
-                                                    {(revokeEnabled || showMutedRevoke) && (
+                                                    {revokeEnabled && (
                                                         <button
                                                             type="button"
-                                                            style={{
-                                                                ...staffDetailActionBtnDanger,
-                                                                opacity: revokeEnabled ? 1 : 0.42,
-                                                                cursor: revokeEnabled ? 'pointer' : 'not-allowed',
-                                                                color: revokeEnabled ? '#DC2626' : 'var(--text-disabled)',
-                                                                border: revokeEnabled ? '1px solid #FECACA' : '1px solid var(--border-subtle)',
-                                                                background: revokeEnabled ? '#FEF2F2' : '#F9FAFB',
-                                                            }}
-                                                            disabled={!revokeEnabled || inviteActionPending}
-                                                            title={revokeEnabled ? 'Cancel the pending invite' : 'Invite already expired — use Resend invite instead'}
-                                                            onClick={() => { if (revokeEnabled) void runInviteAction('revoke', [selected.id]); }}
+                                                            style={staffDetailActionBtnDanger}
+                                                            disabled={inviteActionPending}
+                                                            title={
+                                                                selectedStatus === 'invite_expired'
+                                                                    ? 'Revoke the expired invite (returns to not invited)'
+                                                                    : 'Cancel the pending invite'
+                                                            }
+                                                            onClick={() => { void runInviteAction('revoke', [selected.id]); }}
                                                         >
                                                             <span className="material-icons-round" style={{ fontSize: 15 }}>block</span>
                                                             {inviteActionPending ? 'Working…' : 'Revoke invite'}

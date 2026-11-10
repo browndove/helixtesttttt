@@ -62,14 +62,14 @@ export default function CriticalAlertSoundPicker({
                 const raw = res.ok ? await res.json().catch(() => null) : null;
                 if (cancelled) return;
                 if (!res.ok) {
-                    setOptions([]);
+                    setOptions(parseCriticalAlertSoundOptions(null));
                     setLoadError('Could not load alert sounds.');
                     return;
                 }
                 setOptions(parseCriticalAlertSoundOptions(raw));
             } catch {
                 if (!cancelled) {
-                    setOptions([]);
+                    setOptions(parseCriticalAlertSoundOptions(null));
                     setLoadError('Could not load alert sounds.');
                 }
             } finally {
@@ -182,7 +182,7 @@ export default function CriticalAlertSoundPicker({
                     </span>
                     {usingDefault ? (
                         <span className="ml-2 text-[11.5px] font-normal text-[#1E3A5F]/70">
-                            (no custom sound chosen)
+                            (legacy sound — pick one below)
                         </span>
                     ) : null}
                 </div>

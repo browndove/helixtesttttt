@@ -4,6 +4,7 @@ Source MP3s for facility critical alert tones. Keys match `GET /facilities/criti
 
 | Key | Label | File |
 |---|---|---|
+| `classic` | Classic | `critical_alert.mp3` |
 | `code_red` | Code Red | `critical_alert_code_red.mp3` |
 | `klaxon` | Klaxon | `critical_alert_klaxon.mp3` |
 | `fast_warble` | Fast Warble | `critical_alert_fast_warble.mp3` |
