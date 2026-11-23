@@ -12,6 +12,10 @@ type ToneStyle = {
     /** Raw colours for SVG strokes. */
     stroke: string;
     track: string;
+    /** Soft radial glow in the card corner. */
+    glow: string;
+    /** Gradient behind the white header icon. */
+    chip: string;
 };
 
 export const KPI_TONES: Record<KpiTone, ToneStyle> = {
@@ -23,6 +27,8 @@ export const KPI_TONES: Record<KpiTone, ToneStyle> = {
         text: 'text-slate-700',
         stroke: '#64748B',
         track: '#E2E8F0',
+        glow: 'rgba(120, 165, 225, 0.42)',
+        chip: 'linear-gradient(145deg, #3a5480, #1b2a44)',
     },
     green: {
         dot: 'bg-emerald-500',
@@ -32,6 +38,8 @@ export const KPI_TONES: Record<KpiTone, ToneStyle> = {
         text: 'text-emerald-700',
         stroke: '#059669',
         track: '#D1FAE5',
+        glow: 'rgba(120, 215, 180, 0.45)',
+        chip: 'linear-gradient(145deg, #4fbf98, #2a9a74)',
     },
     blue: {
         dot: 'bg-blue-500',
@@ -41,6 +49,8 @@ export const KPI_TONES: Record<KpiTone, ToneStyle> = {
         text: 'text-blue-700',
         stroke: '#2563EB',
         track: '#DBEAFE',
+        glow: 'rgba(110, 165, 235, 0.45)',
+        chip: 'linear-gradient(145deg, #5a92d6, #2f6fb8)',
     },
     orange: {
         dot: 'bg-orange-500',
@@ -50,6 +60,8 @@ export const KPI_TONES: Record<KpiTone, ToneStyle> = {
         text: 'text-orange-700',
         stroke: '#EA580C',
         track: '#FFEDD5',
+        glow: 'rgba(240, 200, 120, 0.5)',
+        chip: 'linear-gradient(145deg, #f0a24a, #d9771f)',
     },
     red: {
         dot: 'bg-red-500',
@@ -59,6 +71,8 @@ export const KPI_TONES: Record<KpiTone, ToneStyle> = {
         text: 'text-red-700',
         stroke: '#DC2626',
         track: '#FEE2E2',
+        glow: 'rgba(240, 140, 150, 0.45)',
+        chip: 'linear-gradient(145deg, #e0707a, #c2414b)',
     },
 };
 
@@ -66,7 +80,9 @@ export type KpiVisual =
     | { type: 'ring'; value: number; label: string }
     | { type: 'sparkline'; points: number[]; label: string }
     | { type: 'blocks'; blocks: KpiTone[]; caption: string; label: string }
-    | { type: 'pill'; text: string; variant: KpiTone };
+    | { type: 'pill'; text: string; variant: KpiTone }
+    /** Bed-shaped waffle: each cell is a share of beds, coloured by status. */
+    | { type: 'waffle'; available: number; occupied: number; blocked: number; caption: string; label: string };
 
 export type KpiFooterLead =
     | { type: 'text'; text: string; icon?: LucideIcon }
@@ -84,6 +100,8 @@ export interface KpiCardProps {
     subtitle: string;
     tone: KpiTone;
     icon: LucideIcon;
+    /** Material Icons Round name for the faint rotated watermark. */
+    mark: string;
     /** Floating cards sit higher than the rest of the row, for the numbers people act on first. */
     elevation?: 'raised' | 'floating';
     visual?: KpiVisual;
@@ -131,10 +149,18 @@ export function buildBedKpiItems(input: BedKpiInput): KpiCardProps[] {
             id: 'capacity',
             label: 'Total capacity',
             value: total.toLocaleString(),
-            subtitle: 'Licensed Clinical Units',
+            subtitle: 'Beds across all units',
             tone: 'neutral',
             icon: BedDouble,
-            visual: { type: 'pill', text: `${activeShare}% Active`, variant: 'neutral' },
+            mark: 'king_bed',
+            visual: {
+                type: 'waffle',
+                available,
+                occupied,
+                blocked,
+                caption: `${activeShare}% active`,
+                label: `${available} available, ${occupied} occupied, ${blocked} out of service; ${activeShare}% of beds active`,
+            },
             footer: {
                 lead: { type: 'text', text: plural(input.buildings, 'building'), icon: Building2 },
                 trailing: { type: 'text', text: plural(input.units, 'active ward') },
@@ -147,6 +173,7 @@ export function buildBedKpiItems(input: BedKpiInput): KpiCardProps[] {
             subtitle: 'Ready for triage',
             tone: 'green',
             icon: CheckCircle,
+            mark: 'check_circle',
             elevation: 'floating',
             visual: {
                 type: 'ring',
@@ -165,6 +192,7 @@ export function buildBedKpiItems(input: BedKpiInput): KpiCardProps[] {
             subtitle: 'Admitted In-Patients',
             tone: 'blue',
             icon: Users,
+            mark: 'hotel',
             visual: {
                 type: 'ring',
                 value: occupancy,
@@ -184,6 +212,7 @@ export function buildBedKpiItems(input: BedKpiInput): KpiCardProps[] {
             subtitle: 'Turnover & Maintenance',
             tone: 'orange',
             icon: Lock,
+            mark: 'build_circle',
             visual: {
                 type: 'blocks',
                 blocks,

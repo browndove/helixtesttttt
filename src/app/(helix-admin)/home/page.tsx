@@ -4,6 +4,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Plus_Jakarta_Sans } from 'next/font/google';
 import './home-overview.css';
+import { HomeCalendarCard, HomeCommandSearch, HomeDeptMessagesCard, HomeNotesCard } from './HomeWidgets';
+import { HomeKpiStrip } from './HomeKpis';
 import { parseBulkUploadHistoryResponse, type BulkUploadHistoryEntry } from '@/lib/bulk-upload-history';
 import {
     fetchAllEscalationPoliciesPayload,
@@ -19,7 +21,7 @@ type SignedInStaff = { id: string; name: string; initials: string; role: string;
 
 const plusJakarta = Plus_Jakarta_Sans({
     subsets: ['latin'],
-    weight: ['400', '600', '700'],
+    weight: ['300', '400', '500', '600', '700'],
     variable: '--font-plus-jakarta',
 });
 
@@ -158,15 +160,15 @@ function toWhenLabel(dateLike: string): string {
     return `${Math.floor(hours / 24)} day${Math.floor(hours / 24) > 1 ? 's' : ''} ago`;
 }
 
-function greetingByTime(): string {
-    const h = new Date().getHours();
+function greetingByTime(at: Date): string {
+    const h = at.getHours();
     if (h < 12) return 'Good morning';
     if (h < 17) return 'Good afternoon';
     return 'Good evening';
 }
 
-function todayLabelLong(): string {
-    return new Date().toLocaleDateString('en-US', {
+function todayLabelLong(at: Date): string {
+    return at.toLocaleDateString('en-US', {
         weekday: 'long',
         month: 'short',
         day: 'numeric',
@@ -174,13 +176,19 @@ function todayLabelLong(): string {
     });
 }
 
-function todayLabelShort(): string {
-    return new Date().toLocaleDateString('en-US', {
-        weekday: 'short',
-        month: 'short',
-        day: 'numeric',
-        year: 'numeric',
-    });
+/** Wall clock that only renders after mount (server time zone would mismatch on hydration). */
+function useNow(intervalMs = 15_000): Date | null {
+    const [now, setNow] = useState<Date | null>(null);
+    useEffect(() => {
+        const tick = () => setNow(new Date());
+        const first = window.setTimeout(tick, 0);
+        const id = window.setInterval(tick, intervalMs);
+        return () => {
+            window.clearTimeout(first);
+            window.clearInterval(id);
+        };
+    }, [intervalMs]);
+    return now;
 }
 
 function summarizeImport(entry: BulkUploadHistoryEntry): ActivityItem {
@@ -418,7 +426,6 @@ export default function HomePage() {
 
     useEffect(() => { fetchHomeData(); }, [fetchHomeData]);
 
-    const escalationNeedsAttention = criticalRolesWithoutEscalation > 0;
     const facilityShort = facilityName || 'Your facility';
     const teamPresenceLoadingCombined = loading || teamPresenceLoading;
 
@@ -432,7 +439,7 @@ export default function HomePage() {
     const healthRows = useMemo(() => [
         {
             icon: 'bolt',
-            label: 'Critical Acknowledgment Time',
+            label: 'Critical ack time',
             value: loading ? '—' : ackLabel,
             sub: '30 day avg.',
             sem: ackMin > 0 && ackMin > 15 ? 'negative' as const : ackMin > 0 ? 'positive' as const : 'neutral' as const,
@@ -461,18 +468,35 @@ export default function HomePage() {
     ], [loading, ackLabel, ackMin, twoFactorPct, twoFactorAdoption, failedImports24h, activeSessions]);
 
     const quickActions = [
-        { label: 'Create role', icon: 'add_circle_outline', href: '/roles' },
-        { label: 'Invite teammate', icon: 'person_add_alt', href: '/staff' },
-        { label: 'New provider team', icon: 'groups', href: '/provider-teams' },
-        { label: 'Escalation paths', icon: 'timeline', href: '/escalation' },
+        { label: 'New role', icon: 'badge', href: '/roles' },
+        { label: 'Invite staff', icon: 'person_add_alt', href: '/staff' },
+        { label: 'Teams', icon: 'diversity_3', href: '/provider-teams' },
+        { label: 'Escalation', icon: 'timeline', href: '/escalation' },
+        { label: 'Departments', icon: 'domain', href: '/departments' },
+        { label: 'Beds', icon: 'bed', href: '/beds' },
+        { label: 'Patients', icon: 'personal_injury', href: '/patients' },
+        { label: 'Audit log', icon: 'history', href: '/audit-log' },
     ];
 
-    const formatMetric = (n: number, suffix = '') => (loading ? '—' : `${n.toLocaleString()}${suffix}`);
+    const setupChecklist = [
+        {
+            label: 'Critical roles have escalation ladders',
+            done: criticalRolesTotal > 0 && criticalRolesWithoutEscalation === 0,
+            href: '/escalation',
+        },
+        { label: 'Every provider team has a lead', done: teamsWithoutLeadCount === 0, href: '/provider-teams' },
+        { label: 'Every provider team has members', done: teamsWithoutMembersCount === 0, href: '/provider-teams' },
+        { label: '2FA enabled for 80%+ of staff', done: twoFactorPct >= 80, href: '/staff' },
+        { label: 'No failed imports in 24 hours', done: failedImports24h === 0, href: '/staff' },
+    ];
+    const setupDone = setupChecklist.filter(c => c.done).length;
 
-    const deptMixCount = departmentMessageMix.length;
-    const deptMixAria = departmentMessageMix
-        .map((m) => `${m.label}: ${m.count.toLocaleString()} messages (${m.pct}%)`)
-        .join(', ');
+    const now = useNow();
+    const clockParts = now
+        ? now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true }).split(' ')
+        : ['--:--', ''];
+
+    const formatMetric = (n: number, suffix = '') => (loading ? '—' : `${n.toLocaleString()}${suffix}`);
 
     const handleDownloadReport = useCallback(() => {
         const reportData: DashboardReportData = {
@@ -511,232 +535,145 @@ export default function HomePage() {
         deptsWithoutNameCount, criticalRolesWithoutEscalation,
     ]);
 
+    const searchExtras = useMemo(() => [
+        { label: 'Download facility report', icon: 'summarize', run: handleDownloadReport, hint: 'Action' },
+        { label: 'Refresh dashboard', icon: 'sync', run: () => { void fetchHomeData(); }, hint: 'Action' },
+        { label: 'Transfer patient', icon: 'swap_horiz', href: '/external-communication', hint: 'Action' },
+    ], [handleDownloadReport, fetchHomeData]);
+
     return (
         <div className={`app-main home-overview-app-main ${plusJakarta.className}`}>
-            <div className="top-bar">
-                <div className="top-bar-left">
-                    <span>Home</span>
-                    <span className="top-bar-sep">·</span>
-                    <span className="top-bar-page">Overview</span>
-                </div>
-                <div className="top-bar-actions">
-                    <span className="top-bar-date">{todayLabelShort()}</span>
-                    <button type="button" className="btn-sync" onClick={() => fetchHomeData()}>
-                        <span className="material-icons-round btn-sync-icon">sync</span>
-                        Refresh
-                    </button>
-                </div>
-            </div>
-
             <main className="page">
                 <div className="dash">
-                    <header className="dash-head dash-reveal">
-                        <div>
-                            <h1 className="dash-title">Dashboard overview</h1>
-                            <p className="dash-sub">
-                                {greetingByTime()}{firstName ? `, ${firstName}` : ''} · {facilityShort} ·{' '}
-                                <span className="dash-sub__muted">{todayLabelLong()}</span>
+                    {/* ── Hero: greeting, clock, facility pulse ───────────────── */}
+                    <header className="hx-hero dash-reveal">
+                        <div className="hx-hero__left">
+                            <div className="hx-pill">
+                                <span className="material-icons-round">waving_hand</span>
+                                {now ? greetingByTime(now) : 'Welcome'}{firstName ? `, ${firstName}` : ''}
+                            </div>
+                            <div className="hx-clock" aria-live="off">
+                                <span className="hx-clock__time">{clockParts[0]}</span>
+                                <span className="hx-clock__ampm">{clockParts[1]}</span>
+                            </div>
+                            <p className="hx-hero__date">
+                                {now ? todayLabelLong(now) : ' '}
+                                <span className="hx-dot" />
+                                {facilityShort}
                             </p>
                         </div>
-                        <div className="dash-head__actions">
-                            <button type="button" className="dash-btn dash-btn--outline" onClick={handleDownloadReport} disabled={loading}>
-                                <span className="material-icons-round">summarize</span>
-                                Report
-                            </button>
-                            <button type="button" className="dash-btn dash-btn--outline" onClick={() => router.push('/staff')}>
-                                <span className="material-icons-round">group_add</span>
-                                Invite
-                            </button>
-                            <button type="button" className="dash-btn dash-btn--outline" onClick={() => router.push('/external-communication')}>
-                                <span className="material-icons-round">swap_horiz</span>
-                                Transfer
+
+                        <div className="hx-hero__mid">
+                            <HomeCommandSearch extra={searchExtras} />
+                        </div>
+
+                        <div className="hx-hero__right">
+                            <div className="hx-toolbar" role="toolbar" aria-label="Dashboard actions">
+                                <button type="button" onClick={() => fetchHomeData()} title="Refresh" aria-label="Refresh">
+                                    <span className={`material-icons-round${loading ? ' hx-spin' : ''}`}>sync</span>
+                                </button>
+                                <button type="button" onClick={handleDownloadReport} disabled={loading} title="Download report" aria-label="Download report">
+                                    <span className="material-icons-round">summarize</span>
+                                </button>
+                                <button type="button" onClick={() => router.push('/external-communication')} title="Transfer" aria-label="Transfer">
+                                    <span className="material-icons-round">swap_horiz</span>
+                                </button>
+                                <button type="button" onClick={() => router.push('/settings')} title="Settings" aria-label="Settings">
+                                    <span className="material-icons-round">settings</span>
+                                </button>
+                            </div>
+
+                            <button type="button" className="hx-pulse" onClick={() => router.push('/escalation')}>
+                                <span className={`hx-pulse__ring${criticalRoleFill.percent >= 90 ? ' hx-pulse__ring--ok' : ''}`}
+                                    style={{ ['--pct' as string]: `${loading ? 0 : criticalRoleFill.percent}` }}>
+                                    <span className="material-icons-round">shield</span>
+                                </span>
+                                <span className="hx-pulse__body">
+                                    <span className="hx-pulse__value">{formatMetric(criticalRoleFill.percent, '%')}</span>
+                                    <span className="hx-pulse__label">Critical coverage</span>
+                                    <span className="hx-pulse__meta">
+                                        {loading ? '—' : `${criticalRoleFill.filled} / ${criticalRoleFill.total} roles · target 90%`}
+                                    </span>
+                                </span>
                             </button>
                         </div>
                     </header>
 
-                    <section className="dash-wallets dash-reveal" aria-label="Key metrics">
-                        <article className="dash-wallet">
-                            <p className="dash-wallet__label">Active patients</p>
-                            <p className="dash-wallet__hint">Net enrolled</p>
-                            <p className="dash-wallet__balance">{formatMetric(patientCount)}</p>
-                            <p className="dash-wallet__foot">Compared to prior 7 days</p>
-                            <button type="button" className="dash-link" onClick={() => router.push('/patients')}>
-                                View details <span className="material-icons-round">arrow_forward</span>
-                            </button>
-                        </article>
-                        <article className="dash-wallet">
-                            <p className="dash-wallet__label">Active staff</p>
-                            <p className="dash-wallet__hint">Active rate</p>
-                            <p className="dash-wallet__balance">{formatMetric(staffAccountMetric.percent, '%')}</p>
-                            <p className="dash-wallet__foot">
-                                {loading
-                                    ? '—'
-                                    : `${staffAccountMetric.active.toLocaleString()} / ${staffAccountMetric.total.toLocaleString()} staff accounts · All time`}
-                            </p>
-                            <button type="button" className="dash-link" onClick={() => router.push('/staff')}>
-                                View details <span className="material-icons-round">arrow_forward</span>
-                            </button>
-                        </article>
-                        <article className="dash-wallet">
-                            <p className="dash-wallet__label">Critical coverage</p>
-                            <p className="dash-wallet__hint">Role fill rate</p>
-                            <p className="dash-wallet__balance">{formatMetric(criticalRoleFill.percent, '%')}</p>
-                            <p className="dash-wallet__foot">
-                                Target 90% · {criticalRoleFill.filled.toLocaleString()} / {criticalRoleFill.total.toLocaleString()} roles
-                            </p>
-                            <button type="button" className="dash-link" onClick={() => router.push('/escalation')}>
-                                View details <span className="material-icons-round">arrow_forward</span>
-                            </button>
-                        </article>
-                        <article className={`dash-wallet${escalationNeedsAttention ? ' dash-wallet--warn' : ''}`}>
-                            <p className="dash-wallet__label">Escalations</p>
-                            <p className="dash-wallet__hint">Critical roles · no ladder</p>
-                            <p className={`dash-wallet__balance${escalationNeedsAttention ? ' dash-wallet__balance--alert' : ''}`}>
-                                {formatMetric(criticalRolesWithoutEscalation)}
-                            </p>
-                            {escalationNeedsAttention && (
-                                <div className="dash-wallet__row">
-                                    <span className="dash-wallet__flag">
-                                        <span className="material-icons-round">warning</span>
-                                        {criticalRolesWithoutEscalation} critical role{criticalRolesWithoutEscalation === 1 ? '' : 's'} need ladders
-                                    </span>
-                                </div>
-                            )}
-                            <p className="dash-wallet__foot">
-                                {loading
-                                    ? '—'
-                                    : criticalRolesTotal > 0
-                                        ? criticalRolesWithoutEscalation > 0
-                                            ? `${criticalRolesWithoutEscalation} of ${criticalRolesTotal.toLocaleString()} critical roles without escalation ladders`
-                                            : `All ${criticalRolesTotal.toLocaleString()} critical roles have ladders`
-                                        : 'No critical roles configured'}
-                            </p>
-                            <button type="button" className="dash-link" onClick={() => router.push('/escalation')}>
-                                View details <span className="material-icons-round">arrow_forward</span>
-                            </button>
-                        </article>
-                    </section>
+                    {/* ── KPI tiles ───────────────────────────────────────────── */}
+                    <HomeKpiStrip
+                        loading={loading}
+                        patientCount={patientCount}
+                        staff={staffAccountMetric}
+                        twoFactor={{ ...twoFactorAdoption, percent: twoFactorPct }}
+                        escalation={{ missing: criticalRolesWithoutEscalation, total: criticalRolesTotal }}
+                        go={(href) => router.push(href)}
+                    />
 
-                    <section className="dash-mid dash-reveal" aria-label="Analytics">
-                        <div className="dash-card dash-card--lg" style={{ display: 'flex', flexDirection: 'column' }}>
-                            <div style={{ marginBottom: 16 }}>
-                                <h2 className="dash-card__title" style={{ margin: 0 }}>Messages by department</h2>
-                                <p className="dash-card__muted" style={{ margin: '3px 0 0' }}>
-                                    {loading
-                                        ? '—'
-                                        : deptMixCount > 0
-                                            ? `${departmentMessagesTotal.toLocaleString()} messages · ${analyticsWindowDays}-day window`
-                                            : 'No message data this period'}
-                                </p>
-                            </div>
-                            {loading ? (
-                                <p style={{ fontSize: 13, color: '#94a3b8' }}>Loading…</p>
-                            ) : deptMixCount === 0 ? (
-                                <p style={{ fontSize: 13, color: '#94a3b8' }}>No department message data for {facilityShort}.</p>
-                            ) : (
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: 16, flex: 1 }}>
-                                    {(() => {
-                                        const deptBarPalette = ['#6366f1', '#0ea5e9', '#8b5cf6', '#64748b', '#ec4899', '#14b8a6'];
-                                        return departmentMessageMix.map((m, i) => {
-                                            const maxCount = departmentMessageMix[0]?.count || 1;
-                                            const barPct = Math.round((m.count / maxCount) * 100);
-                                            const color = deptBarPalette[i % deptBarPalette.length];
-                                            return (
-                                                <div key={m.label}>
-                                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 5 }}>
-                                                        <span style={{ fontSize: 13, fontWeight: 600, color: '#1e293b' }}>
-                                                            {m.label}
-                                                        </span>
-                                                        <span style={{ fontSize: 15, fontWeight: 700, color: '#0f172a', marginLeft: 12 }}>
-                                                            {m.count.toLocaleString()}
-                                                        </span>
-                                                    </div>
-                                                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                                        <div style={{ flex: 1, height: 8, borderRadius: 4, background: '#f1f5f9', overflow: 'hidden' }}>
-                                                            <div style={{ height: '100%', borderRadius: 4, background: color, opacity: 0.7, width: `${barPct}%`, transition: 'width 0.4s ease' }} />
-                                                        </div>
-                                                        <span style={{ fontSize: 11, fontWeight: 500, color: '#94a3b8', minWidth: 28 }}>
-                                                            {m.pct}%
-                                                        </span>
-                                                    </div>
-                                                </div>
-                                            );
-                                        });
-                                    })()}
-                                </div>
-                            )}
+                    {/* ── Bento row 1 ─────────────────────────────────────────── */}
+                    <section className="hx-grid dash-reveal">
+                        <div className="hx-span-5 hx-stack">
+                            <HomeDeptMessagesCard
+                                rows={departmentMessageMix}
+                                total={departmentMessagesTotal}
+                                windowDays={analyticsWindowDays}
+                                loading={loading}
+                                facilityName={facilityShort}
+                            />
                         </div>
 
-                        <div className="dash-card dash-card--lg" style={{ display: 'flex', flexDirection: 'column' }}>
-                            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 16 }}>
-                                <div>
-                                    <h2 className="dash-card__title" style={{ margin: 0, fontWeight: 700 }}>Staff Breakdown</h2>
-                                    <p className="dash-card__muted" style={{ margin: '3px 0 0' }}>
-                                        {loading ? '—' : `${staffAccountMetric.total.toLocaleString()} total · ${jobTitleBreakdown.length} role${jobTitleBreakdown.length === 1 ? '' : 's'}`}
-                                    </p>
-                                </div>
-                                <button type="button" className="dash-btn dash-btn--outline dash-btn--sm" onClick={() => router.push('/staff')}>
-                                    View all
-                                </button>
+                        <div className="hx-stack hx-span-4">
+                        <div className="hx-card">
+                            <div className="hx-card__hd">
+                                <h2 className="hx-card__title">Quick access</h2>
                             </div>
-                            {loading ? (
-                                <p style={{ fontSize: 13, color: '#94a3b8' }}>Loading…</p>
-                            ) : jobTitleBreakdown.length === 0 ? (
-                                <p style={{ fontSize: 13, color: '#94a3b8' }}>No staff data available.</p>
-                            ) : (
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: 16, flex: 1 }}>
-                                    {(() => {
-                                        const roleBarPalette = ['#0ea5e9', '#6366f1', '#f59e0b', '#64748b'];
-                                        return jobTitleBreakdown.slice(0, 4).map((row, i) => {
-                                            const pct = staffAccountMetric.total > 0 ? Math.round((row.count / staffAccountMetric.total) * 100) : 0;
-                                            const maxCount = jobTitleBreakdown[0].count;
-                                            const barPct = maxCount > 0 ? Math.round((row.count / maxCount) * 100) : 0;
-                                            const color = roleBarPalette[i % roleBarPalette.length];
-                                            return (
-                                                <div key={row.title}>
-                                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 5 }}>
-                                                        <span style={{ fontSize: 13, fontWeight: 600, color: '#1e293b' }}>
-                                                            {row.title}
-                                                        </span>
-                                                        <span style={{ fontSize: 15, fontWeight: 700, color: '#0f172a', marginLeft: 12 }}>
-                                                            {row.count}
-                                                        </span>
-                                                    </div>
-                                                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                                        <div style={{ flex: 1, height: 8, borderRadius: 4, background: '#f1f5f9', overflow: 'hidden' }}>
-                                                            <div style={{ height: '100%', borderRadius: 4, background: color, opacity: 0.7, width: `${barPct}%`, transition: 'width 0.4s ease' }} />
-                                                        </div>
-                                                        <span style={{ fontSize: 11, fontWeight: 500, color: '#94a3b8', minWidth: 28 }}>
-                                                            {pct}%
-                                                        </span>
-                                                    </div>
-                                                </div>
-                                            );
-                                        });
-                                    })()}
-                                    {jobTitleBreakdown.length > 4 && (
+                            <div className="hx-tiles">
+                                {quickActions.map((a) => (
+                                    <button key={a.label} type="button" className="hx-tile" onClick={() => router.push(a.href)}>
+                                        <span className="hx-tile__icon"><span className="material-icons-round">{a.icon}</span></span>
+                                        <span className="hx-tile__label">{a.label}</span>
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                        <HomeNotesCard />
+                        </div>
+
+                        <div className="hx-card hx-span-3 hx-card--flex">
+                            <div className="hx-card__hd">
+                                <h2 className="hx-card__title">Setup checklist</h2>
+                            </div>
+                            <ul className="hx-todo">
+                                {setupChecklist.map((c) => (
+                                    <li key={c.label}>
                                         <button
                                             type="button"
-                                            onClick={() => router.push('/staff')}
-                                            style={{ fontSize: 13, fontWeight: 500, color: '#64748b', background: 'none', border: 'none', padding: 0, cursor: 'pointer', textAlign: 'left' }}
+                                            className={`hx-todo__item${!loading && c.done ? ' is-done' : ''}`}
+                                            onClick={() => router.push(c.href)}
                                         >
-                                            Show {jobTitleBreakdown.length - 4} more →
+                                            <span className="hx-todo__check">
+                                                {!loading && c.done && <span className="material-icons-round">check</span>}
+                                            </span>
+                                            {c.label}
                                         </button>
-                                    )}
-                                </div>
-                            )}
+                                    </li>
+                                ))}
+                            </ul>
+                            <div className="hx-todo__foot">
+                                <span>Completed {loading ? '—' : setupDone} / {setupChecklist.length}</span>
+                                <span className="hx-meter hx-meter--thin">
+                                    <span style={{ width: `${loading ? 0 : Math.round((setupDone / setupChecklist.length) * 100)}%` }} />
+                                </span>
+                            </div>
                         </div>
                     </section>
 
-                    <div className="dash-lower dash-reveal">
-                        <section
-                            className={`dash-card dash-card--table${!teamPresenceLoadingCombined && signedInStaff.length === 0 ? ' dash-card--table-empty' : ''}`}
-                            aria-label="Team presence"
-                        >
-                            <div className="dash-card__hd">
+                    {/* ── Bento row 2 ─────────────────────────────────────────── */}
+                    <section className="hx-grid dash-reveal">
+                        <div className="hx-card hx-span-5">
+                            <div className="hx-card__hd">
                                 <div>
-                                    <h2 className="dash-card__title">Team presence</h2>
-                                    <p className="dash-card__muted">
+                                    <h2 className="hx-card__title">Team presence</h2>
+                                    <p className="hx-card__sub">
                                         {teamPresenceLoadingCombined
                                             ? '—'
                                             : signedInStaff.length === 0
@@ -744,98 +681,125 @@ export default function HomePage() {
                                                 : `${onlineCount} online · ${signedInStaff.length} most recent`}
                                     </p>
                                 </div>
-                                <button type="button" className="dash-btn dash-btn--outline dash-btn--sm" onClick={() => router.push('/staff')}>
-                                    View directory
-                                </button>
+                                <button type="button" className="hx-chip-btn" onClick={() => router.push('/staff')}>View all</button>
                             </div>
-                            <div className="dash-tablewrap">
-                                {teamPresenceLoadingCombined ? (
-                                    <p className="dash-empty">Loading…</p>
-                                ) : signedInStaff.length === 0 ? (
-                                    <p className="dash-empty">No staff activity recorded yet.</p>
-                                ) : (
-                                    <table className="dash-table">
-                                        <thead>
-                                            <tr>
-                                                <th>Member</th>
-                                                <th>Role</th>
-                                                <th className="dash-num">Last seen</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            {signedInStaff.map((s) => {
-                                                const on = s.status === 'online';
-                                                return (
-                                                    <tr key={s.id}>
-                                                        <td>
-                                                            <span className="dash-member">
-                                                                <span className={`dash-presence dash-presence--${on ? 'on' : 'off'}`} />
-                                                                <span className="dash-av">{s.initials}</span>
-                                                                {s.name}
-                                                            </span>
-                                                        </td>
-                                                        <td className="td-muted">{s.role}</td>
-                                                        <td className="dash-num td-muted">{s.when}</td>
-                                                    </tr>
-                                                );
-                                            })}
-                                        </tbody>
-                                    </table>
-                                )}
-                            </div>
-                        </section>
-
-                        <div className="dash-stack">
-                            <section className="dash-card" aria-label="Reliability">
-                                <h2 className="dash-card__title dash-card__title--sm">System checks</h2>
-                                <ul className="dash-health">
-                                    {healthRows.map((r) => (
-                                        <li key={r.label} className={`dash-health__row dash-health__row--${r.sem}`}>
-                                            <span className="material-icons-round">{r.icon}</span>
-                                            <div className="dash-health__mid">
-                                                <span className="dash-health__lab">{r.label}</span>
-                                                <span className="dash-health__sub">{r.sub}</span>
-                                            </div>
-                                            <span className="dash-health__val">{r.value}</span>
-                                        </li>
-                                    ))}
-                                </ul>
-                            </section>
-
-                            <section className="dash-card" aria-label="Recent activity">
-                                <h2 className="dash-card__title dash-card__title--sm">Recent activity</h2>
-                                {recent.length === 0 ? (
-                                    <p className="dash-empty">{loading ? 'Loading…' : 'No recent activity'}</p>
-                                ) : (
-                                    <ul className="dash-feed">
-                                        {recent.map((item) => (
-                                            <li key={item.id}>
-                                                <span className="dash-feed__t">{item.time}</span>
-                                                <div className="dash-feed__d">
-                                                    <strong>{item.title}</strong>
-                                                    <span className="dash-feed__meta">{item.detail}</span>
-                                                </div>
+                            {teamPresenceLoadingCombined ? (
+                                <p className="hx-empty">Loading…</p>
+                            ) : signedInStaff.length === 0 ? (
+                                <p className="hx-empty">No staff activity recorded yet.</p>
+                            ) : (
+                                <ul className="hx-rows hx-rows--scroll">
+                                    {signedInStaff.map((s) => {
+                                        const on = s.status === 'online';
+                                        return (
+                                            <li key={s.id} className="hx-row">
+                                                <span className="hx-av">
+                                                    {s.initials}
+                                                    <span className={`hx-av__dot${on ? ' is-on' : ''}`} />
+                                                </span>
+                                                <span className="hx-row__main">
+                                                    <span className="hx-row__label">{s.name}</span>
+                                                    <span className="hx-row__sub">{s.role}</span>
+                                                </span>
+                                                <span className="hx-row__meta">{s.when}</span>
                                             </li>
-                                        ))}
-                                    </ul>
-                                )}
-                            </section>
+                                        );
+                                    })}
+                                </ul>
+                            )}
                         </div>
-                    </div>
 
-                    <nav className="dash-quick dash-reveal" aria-label="Shortcuts">
-                        {quickActions.map((a) => (
-                            <button
-                                key={a.label}
-                                type="button"
-                                className="dash-quick__btn"
-                                onClick={() => router.push(a.href)}
-                            >
-                                <span className="material-icons-round">{a.icon}</span>
-                                {a.label}
-                            </button>
-                        ))}
-                    </nav>
+                        <div className="hx-card hx-card--dark hx-span-4 hx-card--flex">
+                            <div className="hx-card__hd">
+                                <div>
+                                    <h2 className="hx-card__title">Staff breakdown</h2>
+                                    <p className="hx-card__sub">
+                                        {loading ? '—' : `${staffAccountMetric.total.toLocaleString()} staff · ${jobTitleBreakdown.length} role${jobTitleBreakdown.length === 1 ? '' : 's'}`}
+                                    </p>
+                                </div>
+                                <button type="button" className="hx-chip-btn hx-chip-btn--dark" onClick={() => router.push('/staff')}>Directory</button>
+                            </div>
+                            {loading ? (
+                                <p className="hx-empty">Loading…</p>
+                            ) : jobTitleBreakdown.length === 0 ? (
+                                <p className="hx-empty">No staff data available.</p>
+                            ) : (
+                                <div className="hx-columns" role="list">
+                                    {jobTitleBreakdown.slice(0, 5).map((row) => {
+                                        const maxCount = jobTitleBreakdown[0].count || 1;
+                                        const pct = staffAccountMetric.total > 0 ? Math.round((row.count / staffAccountMetric.total) * 100) : 0;
+                                        return (
+                                            <div key={row.title} className="hx-columns__col" role="listitem" title={`${row.title}: ${row.count} (${pct}%)`}>
+                                                <span className="hx-columns__val">{row.count}</span>
+                                                <span className="hx-columns__track">
+                                                    <span style={{ height: `${Math.max(6, Math.round((row.count / maxCount) * 100))}%` }} />
+                                                </span>
+                                                <span className="hx-columns__lab">{row.title}</span>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            )}
+                        </div>
+
+                        <div className="hx-card hx-span-3 hx-card--flex">
+                            <div className="hx-card__hd">
+                                <h2 className="hx-card__title">System checks</h2>
+                            </div>
+                            <ul className="hx-checks">
+                                {healthRows.map((r) => (
+                                    <li key={r.label} className={`hx-check hx-check--${r.sem}`}>
+                                        <span className="hx-check__icon"><span className="material-icons-round">{r.icon}</span></span>
+                                        <span className="hx-row__main">
+                                            <span className="hx-row__label">{r.label}</span>
+                                            <span className="hx-row__sub">{r.sub}</span>
+                                        </span>
+                                        <span className="hx-check__val">{r.value}</span>
+                                    </li>
+                                ))}
+                            </ul>
+                        </div>
+                    </section>
+
+                    {/* ── Recent activity ─────────────────────────────────────── */}
+                    <section className="hx-grid dash-reveal">
+                    <div className="hx-card hx-span-8" aria-label="Recent activity">
+                        <div className="hx-card__hd">
+                            <h2 className="hx-card__title">Recent activity</h2>
+                            <button type="button" className="hx-chip-btn" onClick={() => router.push('/audit-log')}>Audit log</button>
+                        </div>
+                        {recent.length === 0 ? (
+                            <p className="hx-empty">{loading ? 'Loading…' : 'No recent activity'}</p>
+                        ) : (
+                            <ul className="hx-rows">
+                                {recent.map((item) => (
+                                    <li key={item.id} className={`hx-row hx-row--${item.tone || 'default'}`}>
+                                        <span className="hx-row__icon">
+                                            <span className="material-icons-round">
+                                                {item.tone === 'critical' ? 'error_outline' : item.tone === 'info' ? 'upload_file' : 'history'}
+                                            </span>
+                                        </span>
+                                        <span className="hx-row__main">
+                                            <span className="hx-row__label">{item.title}</span>
+                                            <span className="hx-row__sub">{item.detail}</span>
+                                        </span>
+                                        <span className="hx-row__meta">{item.time}</span>
+                                    </li>
+                                ))}
+                            </ul>
+                        )}
+                    </div>
+                    <div className="hx-span-4 hx-stack">
+                        <HomeCalendarCard today={now} />
+                    </div>
+                    </section>
+
+                    <footer className="hx-foot dash-reveal">
+                        <span className="hx-pill hx-pill--quiet">
+                            <span className="material-icons-round">auto_awesome</span>
+                            {loading ? 'Syncing facility data…' : `${facilityShort} · all data synced`}
+                        </span>
+                    </footer>
                 </div>
             </main>
         </div>

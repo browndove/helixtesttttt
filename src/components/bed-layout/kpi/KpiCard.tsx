@@ -39,7 +39,50 @@ function VisualSlot({ visual, tone }: { visual: KpiVisual; tone: KpiTone }) {
             );
         case 'pill':
             return <StatusPill variant={visual.variant}>{visual.text}</StatusPill>;
+        case 'waffle':
+            return <BedWaffle visual={visual} tone={tone} />;
     }
+}
+
+const WAFFLE_CELLS = 20;
+
+/** 5×4 grid of tiny beds; cells split by real status counts (largest-remainder rounding). */
+function BedWaffle({ visual, tone }: { visual: Extract<KpiVisual, { type: 'waffle' }>; tone: KpiTone }) {
+    const parts = [
+        { count: visual.available, color: '#3fb68b' },
+        { count: visual.occupied, color: '#4f8ad6' },
+        { count: visual.blocked, color: '#f0a24a' },
+    ];
+    const total = parts.reduce((sum, part) => sum + part.count, 0);
+    const exact = parts.map(part => (total > 0 ? (part.count / total) * WAFFLE_CELLS : 0));
+    const cells = exact.map(Math.floor);
+    const order = exact.map((value, index) => ({ index, rest: value - Math.floor(value) })).sort((a, b) => b.rest - a.rest);
+    let left = total > 0 ? WAFFLE_CELLS - cells.reduce((a, b) => a + b, 0) : 0;
+    for (const { index } of order) {
+        if (left <= 0) break;
+        cells[index] += 1;
+        left -= 1;
+    }
+    const colors = parts.flatMap((part, index) => Array<string>(cells[index]).fill(part.color));
+
+    return (
+        <div role="img" aria-label={visual.label} className="flex shrink-0 flex-col items-end gap-1.5">
+            <svg aria-hidden width={78} height={42} viewBox="0 0 78 42">
+                {Array.from({ length: WAFFLE_CELLS }, (_, i) => {
+                    const x = (i % 5) * 16;
+                    const y = Math.floor(i / 5) * 11;
+                    const fill = colors[i] || '#dfe5ee';
+                    return (
+                        <g key={i} transform={`translate(${x} ${y})`}>
+                            <rect x={0} y={3} width={14} height={5} rx={1.6} fill={fill} />
+                            <rect x={0.6} y={0.4} width={4.2} height={3.4} rx={1.2} fill={fill} opacity={0.55} />
+                        </g>
+                    );
+                })}
+            </svg>
+            <span aria-hidden className={cn('text-[12px] font-bold tabular-nums', KPI_TONES[tone].text)}>{visual.caption}</span>
+        </div>
+    );
 }
 
 function FooterLead({ lead, tone }: { lead: KpiFooterLead; tone: KpiTone }) {
@@ -63,8 +106,6 @@ function FooterTrailing({ trailing }: { trailing: KpiFooterTrailing }) {
     return <span className="shrink-0 whitespace-nowrap font-medium tabular-nums text-slate-600">{trailing.text}</span>;
 }
 
-/** Inner depth stays well below the card's own shadow so the value keeps top billing. */
-const ICON_DEPTH = 'shadow-[inset_0_1px_0_rgba(255,255,255,0.7),0_1px_2px_rgba(15,23,42,0.06),0_3px_8px_-3px_rgba(15,23,42,0.10)]';
 const FOOTER_DEPTH = 'shadow-[inset_0_1px_3px_rgba(15,23,42,0.035)]';
 
 /** Layered shadows: a white inner top edge, a tight contact shadow, then a wide soft drop. */
@@ -79,24 +120,43 @@ const ELEVATION = {
     ].join(' '),
 };
 
-export default function KpiCard({ label, value, subtitle, tone, icon: Icon, elevation = 'raised', visual, footer }: KpiCardProps) {
+export default function KpiCard({ label, value, subtitle, tone, icon: Icon, mark, elevation = 'raised', visual, footer }: KpiCardProps) {
     const style = KPI_TONES[tone];
     return (
         <article
             aria-label={`${label}: ${value}`}
             className={cn(
-                'flex min-w-0 flex-col overflow-hidden rounded-2xl bg-white ring-1 ring-slate-900/6 transition-all duration-300 ease-out',
+                'group relative isolate flex min-w-0 flex-col overflow-hidden rounded-[22px] border border-white/85 bg-white/80 transition-all duration-300 ease-out',
                 ELEVATION[elevation],
             )}
         >
+            <span
+                aria-hidden
+                className="pointer-events-none absolute -bottom-16 -right-14 -z-10 h-48 w-56 rounded-full opacity-75 transition-all duration-500 group-hover:scale-110 group-hover:opacity-100"
+                style={{ background: `radial-gradient(closest-side, ${style.glow}, transparent)` }}
+            />
+            <span
+                aria-hidden
+                className="material-icons-round pointer-events-none absolute -right-3 top-7 -z-10 rotate-[-12deg] select-none leading-none opacity-[0.07]"
+                style={{ fontFamily: '"Material Icons Round"', fontSize: 112, color: style.stroke }}
+            >
+                {mark}
+            </span>
+
             <div className="flex flex-1 flex-col px-4 pb-3 pt-3.5">
                 <div className="flex items-center justify-between gap-3">
                     <div className="flex min-w-0 items-center gap-2">
                         <span aria-hidden className={cn('h-1.5 w-1.5 shrink-0 rounded-full', style.dot, style.dotRing)} />
                         <span className="truncate text-[11px] font-semibold uppercase tracking-wide text-slate-500">{label}</span>
                     </div>
-                    <span className={cn('flex h-7 w-7 shrink-0 items-center justify-center rounded-lg ring-1 ring-slate-900/5', ICON_DEPTH, style.iconBox)}>
-                        <Icon aria-hidden className="h-3.5 w-3.5" strokeWidth={2} />
+                    <span
+                        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[11px] text-white"
+                        style={{
+                            background: style.chip,
+                            boxShadow: `inset 0 1px 0 rgba(255,255,255,0.3), 0 6px 14px -5px ${style.stroke}`,
+                        }}
+                    >
+                        <Icon aria-hidden className="h-4 w-4" strokeWidth={2.1} />
                     </span>
                 </div>
 
@@ -109,7 +169,7 @@ export default function KpiCard({ label, value, subtitle, tone, icon: Icon, elev
                 </div>
             </div>
 
-            <div className={cn('flex min-w-0 items-center justify-between gap-2 border-t border-slate-100 bg-slate-50/70 px-4 py-2 text-[12px]', FOOTER_DEPTH)}>
+            <div className={cn('flex min-w-0 items-center justify-between gap-2 border-t border-slate-900/5 bg-white/45 px-4 py-2 text-[12px]', FOOTER_DEPTH)}>
                 <FooterLead lead={footer.lead} tone={tone} />
                 {footer.trailing ? <FooterTrailing trailing={footer.trailing} /> : null}
             </div>
@@ -119,7 +179,7 @@ export default function KpiCard({ label, value, subtitle, tone, icon: Icon, elev
 
 export function KpiCardSkeleton() {
     return (
-        <div aria-hidden className={cn('flex flex-col overflow-hidden rounded-2xl bg-white ring-1 ring-slate-900/6', ELEVATION.raised)}>
+        <div aria-hidden className={cn('flex flex-col overflow-hidden rounded-[22px] border border-white/85 bg-white/80', ELEVATION.raised)}>
             <div className="px-4 pb-3 pt-3.5">
                 <div className="flex items-center justify-between">
                     <div className="h-3 w-24 animate-pulse rounded bg-slate-200" />
@@ -133,7 +193,7 @@ export function KpiCardSkeleton() {
                     <div className="h-11 w-11 animate-pulse rounded-full bg-slate-100" />
                 </div>
             </div>
-            <div className="flex items-center justify-between border-t border-slate-100 bg-slate-50/70 px-4 py-2">
+            <div className="flex items-center justify-between border-t border-slate-900/5 bg-white/45 px-4 py-2">
                 <div className="h-3 w-20 animate-pulse rounded bg-slate-100" />
                 <div className="h-4 w-14 animate-pulse rounded-full bg-slate-100" />
             </div>

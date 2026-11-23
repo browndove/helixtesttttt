@@ -4,6 +4,11 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import TopBar from '@/components/TopBar';
 import CustomSelect from '@/components/CustomSelect';
 import { MacVibrancyToast, MacVibrancyToastPortal, type MacVibrancyToastVariant } from '@/components/MacVibrancyToast';
+import { HeroKpi, HeroKpis, SplitBar } from '@/components/glass/hero';
+import { MiniBars, PulseLine, Ring } from '@/components/glass/kpi';
+import '@/components/glass/glass-page.css';
+import '@/components/glass/glass-kit.css';
+import '@/components/glass/staff-glass.css';
 
 type Member = {
     id: string;
@@ -1062,12 +1067,68 @@ export default function ProviderTeamsPage() {
                 </div>
             )}
 
-            <div className="app-main">
+            <div className="app-main gx-page">
                 <TopBar title="Provider Teams" subtitle="Manage clinical teams and their members" />
 
                 <main style={{ flex: 1, overflow: 'auto', padding: '24px 28px', background: 'var(--bg-900)' }}>
+                    {(() => {
+                        const sizeOf = (t: Team) => t.memberCount || t.members.length;
+                        const members = teams.reduce((sum, t) => sum + sizeOf(t), 0);
+                        const staffed = teams.filter(t => sizeOf(t) > 0).length;
+                        const staffedPct = teams.length > 0 ? Math.round((staffed / teams.length) * 100) : 0;
+                        const withLead = teams.filter(t => t.lead && t.lead !== 'Unassigned').length;
+                        const deptCounts = new Map<string, number>();
+                        for (const t of teams) deptCounts.set(t.department, (deptCounts.get(t.department) ?? 0) + 1);
+                        const byDept = [...deptCounts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).slice(0, 6);
+                        const show = (n: number) => (loading ? '—' : n.toLocaleString());
+                        return (
+                            <HeroKpis label="Provider teams overview" mark="diversity_3">
+                                <HeroKpi
+                                    tone="navy"
+                                    icon="diversity_3"
+                                    label="Teams"
+                                    value={show(teams.length)}
+                                    art={byDept.length > 1 ? <MiniBars values={byDept.map(([, n]) => n)} labels={byDept.map(([d]) => d)} /> : undefined}
+                                    foot={`Across ${deptCounts.size} department${deptCounts.size === 1 ? '' : 's'}`}
+                                />
+                                <HeroKpi
+                                    tone="sky"
+                                    icon="groups"
+                                    label="Members"
+                                    value={show(members)}
+                                    art={<Ring pct={staffedPct} size={56}>{loading || teams.length === 0 ? '—' : `${staffedPct}%`}</Ring>}
+                                    foot={staffed < teams.length ? `${teams.length - staffed} team${teams.length - staffed === 1 ? '' : 's'} with no members` : staffed > 0 ? `Avg ${Math.round(members / staffed)} per team` : 'No teams yet'}
+                                />
+                                <HeroKpi
+                                    tone="mint"
+                                    icon="military_tech"
+                                    label="Leads assigned"
+                                    value={show(withLead)}
+                                    art={teams.length > 0 ? (
+                                        <SplitBar
+                                            label={`${withLead} of ${teams.length} teams have a lead`}
+                                            parts={[
+                                                { label: 'With a lead', n: withLead, color: '#2a9a74' },
+                                                { label: 'No lead', n: teams.length - withLead, color: 'rgba(42, 154, 116, 0.22)' },
+                                            ]}
+                                        />
+                                    ) : undefined}
+                                    foot={withLead < teams.length ? `${teams.length - withLead} without a lead` : 'Every team has a lead'}
+                                />
+                                <HeroKpi
+                                    tone="rose"
+                                    icon="monitor_heart"
+                                    label="Code blue team"
+                                    value={loading ? '—' : existingResuscitationTeam ? 'Set' : 'None'}
+                                    art={existingResuscitationTeam ? <PulseLine /> : undefined}
+                                    foot={existingResuscitationTeam ? existingResuscitationTeam.name : 'No resuscitation team yet'}
+                                />
+                            </HeroKpis>
+                        );
+                    })()}
+
                     {/* Filters */}
-                    <div className="fade-in" style={{ display: 'flex', gap: 12, marginBottom: 18, alignItems: 'center', flexWrap: 'wrap' }}>
+                    <div className="gx-toolbar fade-in">
                         <div style={{ position: 'relative', flex: 1, minWidth: 200, maxWidth: 300 }}>
                             <span className="material-icons-round" style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', fontSize: 16, color: 'var(--text-disabled)', pointerEvents: 'none' }}>search</span>
                             <input
@@ -1105,7 +1166,7 @@ export default function ProviderTeamsPage() {
                     {/* Table + Detail Panel */}
                     <div className="fade-in" style={{ display: 'grid', gridTemplateColumns: detailOpen ? '1fr 380px' : '1fr', gap: 20, alignItems: 'start' }}>
                         {/* Teams Table */}
-                        <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+                        <div className="card gx-table-card" style={{ padding: 0, overflow: 'hidden' }}>
                             <div className="table-wrapper">
                                 <table>
                                     <thead>
@@ -1120,37 +1181,29 @@ export default function ProviderTeamsPage() {
                                     </thead>
                                     <tbody>
                                         {loading ? (
-                                            <tr><td colSpan={6} style={{ textAlign: 'center', padding: 40, color: 'var(--text-muted)', fontSize: 13 }}>Loading teams...</td></tr>
+                                            <tr><td colSpan={6} style={{ padding: 0 }}><div className="gx-empty" style={{ color: 'var(--text-muted)', fontSize: 13 }}><span className="gx-empty__art"><span className="material-icons-round">hourglass_empty</span></span>Loading teams...</div></td></tr>
                                         ) : filtered.length === 0 ? (
-                                            <tr><td colSpan={6} style={{ textAlign: 'center', padding: 40, color: 'var(--text-muted)', fontSize: 13 }}>No teams found</td></tr>
+                                            <tr><td colSpan={6} style={{ padding: 0 }}><div className="gx-empty" style={{ color: 'var(--text-muted)', fontSize: 13 }}><span className="material-icons-round gx-mark" aria-hidden>diversity_3</span><span className="gx-empty__art"><span className="material-icons-round">group_off</span></span>No teams found</div></td></tr>
                                         ) : filtered.map(team => {
                                             const isSelected = selectedTeamId === team.id;
                                             const totalMembers = team.memberCount || team.members.length;
                                             return (
                                                 <tr
                                                     key={team.id}
+                                                    className={`gx-row${isSelected ? ' is-selected' : ''}`}
                                                     onClick={() => { setSelectedTeamId(isSelected ? null : team.id); setShowCreate(false); setEditingTeam(false); setShowAddMember(false); setShowAddRole(false); }}
-                                                    style={{
-                                                        cursor: 'pointer', transition: 'background 0.12s',
-                                                        background: isSelected ? 'rgba(59,130,246,0.04)' : undefined,
-                                                    }}
+                                                    style={{ cursor: 'pointer' }}
                                                 >
                                                     <td>
-                                                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                                                            <div style={{
-                                                                width: 30, height: 30, borderRadius: 'var(--radius-sm)',
-                                                                background: isSelected ? 'var(--helix-primary)' : 'var(--surface-2)',
-                                                                color: isSelected ? '#fff' : 'var(--text-secondary)',
-                                                                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                                                fontSize: 12, flexShrink: 0,
-                                                            }}>
-                                                                <span className="material-icons-round" style={{ fontSize: 16 }}>groups</span>
-                                                            </div>
+                                                        <div className="gx-name">
+                                                            <span className={`gx-name__icon${isSelected ? ' is-on' : ''}`}>
+                                                                <span className="material-icons-round">{team.isResuscitationTeam ? 'monitor_heart' : 'groups'}</span>
+                                                            </span>
                                                             <div>
                                                                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                                                                     <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>{team.name}</span>
                                                                     {team.isResuscitationTeam && (
-                                                                        <span title="Resuscitation (Code Blue) team" style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', padding: '2px 6px', borderRadius: 4, background: 'rgba(37,99,235,0.12)', color: '#2563eb', border: '1px solid rgba(37,99,235,0.28)' }}>Code blue</span>
+                                                                        <span className="gx-tag" title="Resuscitation (Code Blue) team" style={{ textTransform: 'uppercase', fontSize: 9 }}>Code blue</span>
                                                                     )}
                                                                 </div>
                                                                 {team.description && <div style={{ fontSize: 11, color: 'var(--text-muted)', maxWidth: 220, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{team.description}</div>}
@@ -1181,9 +1234,13 @@ export default function ProviderTeamsPage() {
 
                         {/* Detail / Create Panel */}
                         {showCreate && (
-                            <div className="fade-in card" style={{ position: 'sticky', top: 24 }}>
+                            <div className="fade-in card gx-mark-card" style={{ position: 'sticky', top: 24 }}>
+                                <span className="material-icons-round gx-mark" aria-hidden>group_add</span>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-                                    <h3 style={{ fontSize: 15, fontWeight: 700 }}>Create Team</h3>
+                                    <h3 style={{ fontSize: 15, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 10 }}>
+                                        <span className="gx-ico"><span className="material-icons-round">group_add</span></span>
+                                        Create Team
+                                    </h3>
                                     <button onClick={() => setShowCreate(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: 2 }}>
                                         <span className="material-icons-round" style={{ fontSize: 16 }}>close</span>
                                     </button>
@@ -1321,7 +1378,8 @@ export default function ProviderTeamsPage() {
                         )}
 
                         {selectedTeam && !showCreate && (
-                            <div className="fade-in card" style={{ position: 'sticky', top: 24 }}>
+                            <div className="fade-in card gx-mark-card" style={{ position: 'sticky', top: 24 }}>
+                                <span className="material-icons-round gx-mark" aria-hidden>diversity_3</span>
                                 {editingTeam ? (
                                     <>
                                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
@@ -1561,15 +1619,10 @@ export default function ProviderTeamsPage() {
                                                         onMouseEnter={e => { e.currentTarget.style.background = 'var(--surface-2)'; }}
                                                         onMouseLeave={e => { e.currentTarget.style.background = idx % 2 === 0 ? 'transparent' : 'var(--surface-2)'; }}
                                                     >
-                                                        <div style={{
-                                                            width: 28, height: 28, borderRadius: '50%',
-                                                            background: 'var(--helix-primary)',
-                                                            color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                                            fontSize: 10, fontWeight: 700, flexShrink: 0,
-                                                        }}>
+                                                        <span className="gx-avatar" style={{ width: 28, height: 28 }} aria-hidden>
                                                             {(member.firstName[0] || member.jobTitle[0] || 'M').toUpperCase()}
                                                             {(member.lastName[0] || '').toUpperCase()}
-                                                        </div>
+                                                        </span>
                                                         <div style={{ flex: 1, minWidth: 0 }}>
                                                             <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--text-primary)' }}>{member.firstName} {member.lastName}</div>
                                                             {member.jobTitle ? (

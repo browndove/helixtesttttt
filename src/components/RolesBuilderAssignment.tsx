@@ -54,6 +54,11 @@ import {
     rolesPageCacheKey,
 } from '@/lib/rolesAdminCache';
 import { appendFacilityIdForProxy } from '@/lib/facility-client';
+import '@/components/glass/glass-page.css';
+import '@/components/glass/glass-kit.css';
+import '@/components/glass/staff-glass.css';
+import { HeroKpi, HeroKpis } from '@/components/glass/hero';
+import { LadderBars, MiniBars, PulseLine, Ring } from '@/components/glass/kpi';
 
 type EscalationLevel = {
     level: number;
@@ -1780,11 +1785,12 @@ export default function RolesBuilderAssignment() {
         setAllowedUserIds: (ids: string[]) => void
     ) => {
         return (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 14 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', borderRadius: 'var(--radius-md)', background: 'var(--surface-2)', border: '1px solid var(--border-subtle)' }}>
-                    <div>
-                        <div style={{ fontSize: 13, fontWeight: 600 }}>Restricted Sign-in</div>
-                        <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 1 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 10 }}>
+                <div className={`gx-option${restricted ? ' is-on' : ''}`}>
+                    <span className="gx-option__icon"><span className="material-icons-round">lock_person</span></span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                        <div className="gx-option__title">Restricted Sign-in</div>
+                        <div className="gx-option__hint">
                             If enabled, only selected staff can sign into this facility role.
                         </div>
                     </div>
@@ -1803,7 +1809,7 @@ export default function RolesBuilderAssignment() {
                 </div>
 
                 {restricted && (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: '10px 12px', borderRadius: 'var(--radius-md)', background: 'rgba(59,130,246,0.04)', border: '1px solid rgba(59,130,246,0.15)' }}>
+                    <div className="gx-subpanel">
                         <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
                             Select staff members allowed to hold this role.
                         </div>
@@ -1825,7 +1831,7 @@ export default function RolesBuilderAssignment() {
                                 {allowedUserIds.map(uid => {
                                     const staff = staffOptions.find(s => s.id === uid);
                                     return (
-                                        <span key={uid} className="badge badge-info" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, paddingRight: 4 }}>
+                                        <span key={uid} className="gx-chip-tag">
                                             {staff?.label || uid}
                                             <button
                                                 type="button"
@@ -1884,10 +1890,10 @@ export default function RolesBuilderAssignment() {
             return Boolean(lvl.target?.trim());
         };
         return (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 16 }}>
-                <div style={{ marginBottom: 2 }}>
-                    <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 2 }}>Escalation Ladder</div>
-                    <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 4 }}>
+                <div style={{ marginBottom: 6 }}>
+                    <div className="gx-card-title" style={{ marginBottom: 4 }}><span className="material-icons-round">signal_cellular_alt</span>Escalation Ladder</div>
+                    <div style={{ fontSize: 11.5, color: 'var(--text-muted)', lineHeight: 1.45 }}>
                         Level 1 is always this role (cannot be changed). Use <strong style={{ fontWeight: 600, color: 'var(--text-secondary)' }}>Add escalation level</strong> for up to two more <strong style={{ fontWeight: 600, color: 'var(--text-secondary)' }}>Critical</strong> targets. The <strong style={{ fontWeight: 600, color: 'var(--text-secondary)' }}>last role</strong> in the chain has no timer — only roles above it do.
                     </div>
                 </div>
@@ -1904,13 +1910,13 @@ export default function RolesBuilderAssignment() {
                         <div key={ladderLevelReactKey(lvl, i)} style={{ display: 'flex', alignItems: 'stretch', gap: 10 }}>
                             {/* Level number + connector line */}
                             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: 28, flexShrink: 0 }}>
-                                <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 26, height: 26, borderRadius: '50%', background: 'var(--helix-primary)', color: '#fff', fontSize: 11, fontWeight: 700, flexShrink: 0, zIndex: 1 }}>{lvl.level}</span>
+                                <span className="gx-node gx-node--navy" style={{ width: 28, height: 28, fontSize: 11.5, marginTop: 8 }}>{lvl.level}</span>
                                 {i < sorted.length - 1 && (
-                                    <div style={{ width: 2, flex: 1, background: 'var(--border-default)', minHeight: 12 }} />
+                                    <div className="gx-rail" style={{ minHeight: 12 }} />
                                 )}
                             </div>
                             {/* Row content */}
-                            <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', marginBottom: i < sorted.length - 1 ? 0 : 0, borderRadius: 'var(--radius-md)', background: 'var(--surface-2)', border: '1px solid var(--border-subtle)', marginTop: i === 0 ? 0 : 4 }}>
+                            <div className="gx-level" style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', overflow: 'visible', marginTop: i === 0 ? 0 : 6 }}>
                                 {lvl.level === 1 && primaryName ? (
                                     <div
                                         style={{
@@ -1919,15 +1925,16 @@ export default function RolesBuilderAssignment() {
                                             padding: '0 10px',
                                             display: 'flex',
                                             alignItems: 'center',
-                                            border: '1px solid var(--border-default)',
-                                            borderRadius: 'var(--radius-md)',
-                                            background: 'var(--surface-3)',
-                                            color: 'var(--text-secondary)',
+                                            gap: 8,
+                                            borderRadius: 11,
+                                            background: 'linear-gradient(150deg, #f5f9ff, #e6f0fb)',
+                                            color: 'var(--text-primary)',
                                             fontSize: 13,
-                                            fontWeight: 600,
+                                            fontWeight: 650,
                                         }}
                                         title="Level 1 is fixed to this role"
                                     >
+                                        <span className="material-icons-round" style={{ fontSize: 15, color: '#2f6fb8' }}>lock</span>
                                         {primaryName}
                                     </div>
                                 ) : (
@@ -2001,11 +2008,10 @@ export default function RolesBuilderAssignment() {
                 {sorted.length < ESCALATION_LADDER_MAX_LEVELS && (
                     <button
                         type="button"
-                        className="btn btn-secondary btn-xs"
+                        className="gx-add-level"
                         onClick={handleAddLevel}
-                        style={{ alignSelf: 'flex-start', marginTop: 4 }}
                     >
-                        <span className="material-icons-round" style={{ fontSize: 13 }}>add</span>
+                        <span className="material-icons-round">add</span>
                         Add escalation level
                     </button>
                 )}
@@ -2015,30 +2021,18 @@ export default function RolesBuilderAssignment() {
 
     // --- Step indicators ---
     const renderStepIndicator = (currentStep: number, isCritical: boolean) => {
-
+        void isCritical;
+        const stepState = (step: number) => (currentStep === step ? ' is-current' : currentStep > step ? ' is-done' : '');
         return (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 0, marginBottom: 20 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <span style={{
-                        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                        width: 26, height: 26, borderRadius: '50%', fontSize: 12, fontWeight: 700,
-                        background: currentStep >= 1 ? 'var(--helix-primary)' : 'var(--surface-2)',
-                        color: currentStep >= 1 ? '#fff' : 'var(--text-muted)',
-                        border: `2px solid ${currentStep >= 1 ? 'var(--helix-primary)' : 'var(--border-default)'}`,
-                    }}>1</span>
-                    <span style={{ fontSize: 12, fontWeight: currentStep === 1 ? 700 : 500, color: currentStep === 1 ? 'var(--text-primary)' : 'var(--text-muted)' }}>Basic Info</span>
-                </div>
-                <div style={{ flex: '0 0 40px', height: 2, background: currentStep >= 2 ? 'var(--helix-primary)' : 'var(--border-subtle)', margin: '0 8px', borderRadius: 1 }} />
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <span style={{
-                        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                        width: 26, height: 26, borderRadius: '50%', fontSize: 12, fontWeight: 700,
-                        background: currentStep >= 2 ? 'var(--helix-primary)' : 'var(--surface-2)',
-                        color: currentStep >= 2 ? '#fff' : 'var(--text-muted)',
-                        border: `2px solid ${currentStep >= 2 ? 'var(--helix-primary)' : 'var(--border-default)'}`,
-                    }}>2</span>
-                    <span style={{ fontSize: 12, fontWeight: currentStep === 2 ? 700 : 500, color: currentStep === 2 ? 'var(--text-primary)' : 'var(--text-muted)' }}>Escalation Settings</span>
-                </div>
+            <div className="gx-stepbar" role="list" aria-label="Steps">
+                {[{ step: 1, label: 'Basic Info' }, { step: 2, label: 'Escalation Settings' }].map(({ step, label }) => (
+                    <span key={step} role="listitem" className={`gx-stepbar__item${stepState(step)}`} aria-current={currentStep === step ? 'step' : undefined}>
+                        <span className="gx-stepbar__num">
+                            {currentStep > step ? <span className="material-icons-round">check</span> : step}
+                        </span>
+                        {label}
+                    </span>
+                ))}
             </div>
         );
     };
@@ -2068,6 +2062,27 @@ export default function RolesBuilderAssignment() {
         );
     }
 
+    const roleStats = {
+        total: roles.length,
+        critical: roles.filter(r => r.priority === 'Critical').length,
+        withEscalation: roles.filter(r => (r.escalation_levels?.length || 0) > 0).length,
+        signedIn: roles.filter(r => Boolean(r.signed_in_user || r.signed_in_by)).length,
+        criticalWithoutChain: roles.filter(r => r.priority === 'Critical' && !(r.escalation_levels?.length)).length,
+        ...(() => {
+            const counts = new Map<string, number>();
+            for (const r of roles) {
+                const dept = (r.department || '').trim();
+                if (dept) counts.set(dept, (counts.get(dept) ?? 0) + 1);
+            }
+            const byDept = [...counts.entries()]
+                .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+                .slice(0, 6)
+                .map(([name, count]) => ({ name, count }));
+            return { departments: counts.size, byDept };
+        })(),
+    };
+    const showStat = (n: number) => (loading ? '—' : n.toLocaleString());
+
     return (
         <>
             {toast && (
@@ -2083,14 +2098,22 @@ export default function RolesBuilderAssignment() {
 
             {/* Edit Modal */}
             {editingRole && (
-                <div style={{ position: 'fixed', inset: 0, zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.4)' }}>
-                    <div className="fade-in card" style={{ width: 540, maxHeight: '85vh', overflow: 'auto', padding: '28px 28px 24px', boxShadow: '0 8px 32px rgba(0,0,0,0.18)' }} onClick={e => e.stopPropagation()}>
-                        <h3 style={{ fontSize: 16, marginBottom: 16 }}>Edit Role</h3>
+                <div className="gx-scrim gx-page">
+                    <div className="fade-in card gx-modal" style={{ width: 560, maxHeight: '88vh', overflow: 'auto', padding: '24px 26px 22px' }} onClick={e => e.stopPropagation()}>
+                        <span className="material-icons-round gx-form__mark" aria-hidden>badge</span>
+                        <div className="gx-form__head">
+                            <span className="gx-form__chip"><span className="material-icons-round">edit</span></span>
+                            <div style={{ minWidth: 0 }}>
+                                <h3 className="gx-form__title">Edit Role</h3>
+                                <p className="gx-form__sub">{editingRole.name}</p>
+                            </div>
+                        </div>
 
                         {renderStepIndicator(editStep, editMandatory)}
 
                         {editStep === 1 && (
                             <>
+                                <div className="gx-section"><span className="material-icons-round">badge</span>Details</div>
                                 <div style={{ marginBottom: 14 }}>
                                     <label className="label">Role Name</label>
                                     {editPrefix ? (
@@ -2145,25 +2168,27 @@ export default function RolesBuilderAssignment() {
                                     />
                                 </div>
 
+                                <div className="gx-section" style={{ marginTop: 18 }}><span className="material-icons-round">tune</span>Access &amp; behaviour</div>
                                 {renderSignInRestriction(editRestricted, setEditRestricted, editAllowedUserIds, setEditAllowedUserIds)}
 
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 20 }}>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderRadius: 'var(--radius-md)', background: editMandatory ? 'rgba(239,68,68,0.06)' : 'var(--surface-2)', border: `1px solid ${editMandatory ? 'rgba(239,68,68,0.25)' : 'var(--border-subtle)'}`, transition: 'all 0.2s' }}>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
+                                    <label className={`gx-option gx-option--critical${editMandatory ? ' is-on' : ''}`} style={{ cursor: 'pointer' }}>
                                         <input type="checkbox" className="checkbox" checked={editMandatory} onChange={() => setEditMandatory(!editMandatory)} />
+                                        <span className="gx-option__icon"><span className="material-icons-round">emergency</span></span>
                                         <div style={{ flex: 1 }}>
-                                            <div style={{ fontSize: 13, fontWeight: 600 }}>This role must always be filled</div>
-                                            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 1 }}>Require at least one person assigned and signed in at all times. Escalation chains are only available for Critical roles.</div>
+                                            <div className="gx-option__title">This role must always be filled</div>
+                                            <div className="gx-option__hint">Require at least one person assigned and signed in at all times. Escalation chains are only available for Critical roles.</div>
                                         </div>
-                                        <span className={`badge ${editMandatory ? 'badge-critical' : 'badge-neutral'}`} style={{ fontSize: 10, flexShrink: 0 }}>
+                                        <span className="gx-pill">
                                             {editMandatory ? 'Critical' : 'Standard'}
                                         </span>
-                                    </div>
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', borderRadius: 'var(--radius-md)', background: 'var(--surface-2)', border: '1px solid var(--border-subtle)' }}>
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1, minWidth: 0 }}>
-                                            <span className="material-icons-round" style={{ fontSize: 18, color: editIsTransferRole ? '#7c3aed' : 'var(--text-muted)', flexShrink: 0 }}>swap_horiz</span>
+                                    </label>
+                                    <div className={`gx-option${editIsTransferRole ? ' is-on' : ''}`}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flex: 1, minWidth: 0 }}>
+                                            <span className="gx-option__icon"><span className="material-icons-round">swap_horiz</span></span>
                                             <div style={{ minWidth: 0 }}>
-                                                <div style={{ fontSize: 13, fontWeight: 600 }}>Transfer role</div>
-                                                <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 1 }}>
+                                                <div className="gx-option__title">Transfer role</div>
+                                                <div className="gx-option__hint">
                                                     Marks this role for patient transfer workflows and enables it as an external contact.
                                                 </div>
                                             </div>
@@ -2182,7 +2207,7 @@ export default function RolesBuilderAssignment() {
                                     </div>
                                 </div>
 
-                                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+                                <div className="gx-form-actions" style={{ justifyContent: 'flex-end' }}>
                                     <button className="btn btn-secondary btn-sm" onClick={() => setEditingRole(null)}>Cancel</button>
                                         <>
                                             <button
@@ -2221,7 +2246,7 @@ export default function RolesBuilderAssignment() {
                                     buildRoleName(editPrefix, editName) || editingRole?.name,
                                 )}
 
-                                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginTop: 20 }}>
+                                <div className="gx-form-actions" style={{ marginTop: 18 }}>
                                     <button className="btn btn-secondary btn-sm" onClick={() => setEditStep(1)}>
                                         <span className="material-icons-round" style={{ fontSize: 14 }}>arrow_back</span>
                                         Back
@@ -2238,8 +2263,8 @@ export default function RolesBuilderAssignment() {
 
             {/* Confirm Delete Modal */}
             {confirmDelete && (
-                <div style={{ position: 'fixed', inset: 0, zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.4)' }} onClick={() => setConfirmDelete(null)}>
-                    <div className="fade-in card" style={{ width: 400, padding: '24px 28px', boxShadow: '0 8px 32px rgba(0,0,0,0.18)' }} onClick={e => e.stopPropagation()}>
+                <div className="gx-scrim gx-page" onClick={() => setConfirmDelete(null)}>
+                    <div className="fade-in card gx-modal" style={{ width: 400, padding: '24px 28px' }} onClick={e => e.stopPropagation()}>
                         <h3 style={{ fontSize: 16, marginBottom: 8 }}>Remove Role</h3>
                         <p style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 20, lineHeight: 1.5 }}>
                             Are you sure you want to remove <strong style={{ color: 'var(--text-primary)' }}>{confirmDelete.name}</strong>? This action cannot be undone.
@@ -2252,7 +2277,7 @@ export default function RolesBuilderAssignment() {
                 </div>
             )}
 
-            <div className="app-main" style={{ height: '100vh', maxHeight: '100vh', overflow: 'hidden' }}>
+            <div className="app-main gx-page" style={{ height: '100vh', maxHeight: '100vh', overflow: 'hidden' }}>
                 <TopBar
                     title="Roles"
                     subtitle="Role Management"
@@ -2277,11 +2302,69 @@ export default function RolesBuilderAssignment() {
                         background: 'var(--bg-900)',
                     }}
                 >
+                    {!showAddForm && (
+                    <HeroKpis label="Roles overview" mark="badge">
+                        <HeroKpi
+                            tone="navy"
+                            icon="badge"
+                            label="Total roles"
+                            value={showStat(roleStats.total)}
+                            art={roleStats.byDept.length > 0 ? (
+                                <MiniBars values={roleStats.byDept.map(d => d.count)} labels={roleStats.byDept.map(d => d.name)} />
+                            ) : undefined}
+                            foot={`Across ${roleStats.departments} department${roleStats.departments === 1 ? '' : 's'}`}
+                        />
+                        <HeroKpi
+                            tone="rose"
+                            icon="emergency"
+                            label="Critical"
+                            value={showStat(roleStats.critical)}
+                            art={<PulseLine />}
+                            foot={roleStats.total > 0 ? `${Math.round((roleStats.critical / roleStats.total) * 100)}% of roles are mandatory` : 'Mandatory, must be covered'}
+                        />
+                        <HeroKpi
+                            tone="sky"
+                            icon="device_hub"
+                            label="With escalation"
+                            value={showStat(roleStats.withEscalation)}
+                            art={<LadderBars total={roleStats.critical} missing={roleStats.criticalWithoutChain} />}
+                            foot={roleStats.criticalWithoutChain > 0
+                                ? `${roleStats.criticalWithoutChain} critical without a chain`
+                                : 'Every critical role has a chain'}
+                        />
+                        <HeroKpi
+                            tone="mint"
+                            icon="how_to_reg"
+                            label="Signed in now"
+                            value={showStat(roleStats.signedIn)}
+                            art={(
+                                <Ring pct={roleStats.total > 0 ? (roleStats.signedIn / roleStats.total) * 100 : 0} size={56}>
+                                    {roleStats.total > 0 ? `${Math.round((roleStats.signedIn / roleStats.total) * 100)}%` : '—'}
+                                </Ring>
+                            )}
+                            foot={`${roleStats.signedIn} of ${roleStats.total} roles covered`}
+                        />
+                    </HeroKpis>
+                    )}
 
                     {/* Add Role Multi-Step Form */}
                     {showAddForm && (
-                        <div className="fade-in card" style={{ marginBottom: 18, padding: '22px 24px', flexShrink: 0, maxHeight: '45vh', overflowY: 'auto' }}>
-                            <h4 style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>Create New Role</h4>
+                        <div className="fade-in card gx-form" style={{ marginBottom: 18, padding: '22px 24px', flexShrink: 0, maxHeight: 'min(62vh, 680px)', overflowY: 'auto' }}>
+                            <span className="material-icons-round gx-form__mark" aria-hidden>person_add</span>
+                            <div className="gx-form__head" style={{ justifyContent: 'space-between', flexWrap: 'wrap' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
+                                    <span className="gx-form__chip"><span className="material-icons-round">person_add</span></span>
+                                    <div style={{ minWidth: 0 }}>
+                                        <h4 className="gx-form__title">Create New Role</h4>
+                                        <p className="gx-form__sub">
+                                            {addStep === 3 ? 'Set who is alerted next if this role does not respond.' : 'Create a single custom role with its own settings.'}
+                                        </p>
+                                    </div>
+                                </div>
+                                {(addStep === 2 || addStep === 3) && (
+                                    <div style={{ marginBottom: -18 }}>{renderStepIndicator(addStep - 1, newRoleMandatory)}</div>
+                                )}
+                            </div>
 
                             {/* Step 0: Template Selection */}
                             {false && addStep === 0 && (
@@ -2350,7 +2433,7 @@ export default function RolesBuilderAssignment() {
                                                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: 26, flexShrink: 0 }}>
                                                     <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 24, height: 24, borderRadius: '50%', background: alreadyExists ? 'var(--surface-3)' : i === 0 ? 'var(--helix-primary)' : 'var(--surface-3)', color: alreadyExists ? 'var(--text-disabled)' : i === 0 ? '#fff' : 'var(--text-secondary)', fontSize: 10, fontWeight: 700, flexShrink: 0, zIndex: 1 }}>{i + 1}</span>
                                                     {i < selectedTemplate.roles.length - 1 && (
-                                                        <div style={{ width: 2, flex: 1, background: 'var(--border-default)', minHeight: 10 }} />
+                                                        <div style={{ width: 2, flex: 1, background: 'rgba(47, 111, 184, 0.2)', minHeight: 10, borderRadius: 2 }} />
                                                     )}
                                                 </div>
                                                 <div style={{ flex: 1, padding: '8px 14px', borderRadius: 'var(--radius-md)', background: alreadyExists ? 'transparent' : 'var(--surface-2)', border: `1px solid ${alreadyExists ? 'var(--border-subtle)' : 'var(--border-subtle)'}`, marginTop: i === 0 ? 0 : 4 }}>
@@ -2403,15 +2486,16 @@ export default function RolesBuilderAssignment() {
                             {/* Step 2: Custom Role — Basic Info */}
                             {addStep === 2 && (
                                 <>
-                                    <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 8, marginBottom: 16 }}>Create a single custom role with its own settings.</p>
+                                    <div className="gx-section"><span className="material-icons-round">badge</span>Details</div>
 
-                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 14 }}>
+                                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 14, marginBottom: 14 }}>
                                         <div>
                                             <label className="label">Role Name</label>
                                             <input
                                                 className="input"
                                                 value={newRoleName}
                                                 onChange={e => setNewRoleName(e.target.value)}
+                                                placeholder="e.g. Doctor On Duty - A&E"
                                                 style={{ fontSize: 13 }}
                                             />
                                         </div>
@@ -2441,9 +2525,10 @@ export default function RolesBuilderAssignment() {
                                         </div>
                                     </div>
 
+                                    <div className="gx-section" style={{ marginTop: 18 }}><span className="material-icons-round">tune</span>Access &amp; behaviour</div>
                                     {renderSignInRestriction(newRestricted, setNewRestricted, newAllowedUserIds, setNewAllowedUserIds)}
 
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderRadius: 'var(--radius-md)', background: newRoleExternalMessaging || newRoleIsTransferRole ? 'rgba(14,165,233,0.06)' : 'var(--surface-2)', border: `1px solid ${newRoleExternalMessaging || newRoleIsTransferRole ? 'rgba(14,165,233,0.22)' : 'var(--border-subtle)'}`, marginBottom: 14, transition: 'all 0.2s' }}>
+                                    <label className={`gx-option${newRoleExternalMessaging || newRoleIsTransferRole ? ' is-on' : ''}`} style={{ marginBottom: 10, cursor: newRoleIsTransferRole ? 'default' : 'pointer' }}>
                                         <input
                                             type="checkbox"
                                             className="checkbox"
@@ -2457,21 +2542,21 @@ export default function RolesBuilderAssignment() {
                                                 setNewRoleExternalMessaging(!newRoleExternalMessaging);
                                             }}
                                         />
-                                        <span className="material-icons-round" style={{ fontSize: 18, color: newRoleExternalMessaging || newRoleIsTransferRole ? '#0ea5e9' : 'var(--text-muted)', flexShrink: 0 }}>forum</span>
+                                        <span className="gx-option__icon"><span className="material-icons-round">forum</span></span>
                                         <div style={{ flex: 1 }}>
-                                            <div style={{ fontSize: 13, fontWeight: 600 }}>External communication</div>
-                                            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 1 }}>
+                                            <div className="gx-option__title">External communication</div>
+                                            <div className="gx-option__hint">
                                                 {newRoleIsTransferRole
                                                     ? 'Required for transfer roles so the contact appears in Explore.'
                                                     : 'Allow cross-facility messaging for this role when your facility has external communication enabled.'}
                                             </div>
                                         </div>
-                                        <span className={`badge ${newRoleExternalMessaging || newRoleIsTransferRole ? 'badge-info' : 'badge-neutral'}`} style={{ fontSize: 10, flexShrink: 0 }}>
+                                        <span className="gx-pill">
                                             {newRoleExternalMessaging || newRoleIsTransferRole ? 'On' : 'Off'}
                                         </span>
-                                    </div>
+                                    </label>
 
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderRadius: 'var(--radius-md)', background: newRoleIsTransferRole ? 'rgba(124,58,237,0.06)' : 'var(--surface-2)', border: `1px solid ${newRoleIsTransferRole ? 'rgba(124,58,237,0.22)' : 'var(--border-subtle)'}`, marginBottom: 14, transition: 'all 0.2s' }}>
+                                    <label className={`gx-option${newRoleIsTransferRole ? ' is-on' : ''}`} style={{ marginBottom: 10, cursor: 'pointer' }}>
                                         <input
                                             type="checkbox"
                                             className="checkbox"
@@ -2482,29 +2567,30 @@ export default function RolesBuilderAssignment() {
                                                 if (next) setNewRoleExternalMessaging(true);
                                             }}
                                         />
-                                        <span className="material-icons-round" style={{ fontSize: 18, color: newRoleIsTransferRole ? '#7c3aed' : 'var(--text-muted)', flexShrink: 0 }}>swap_horiz</span>
+                                        <span className="gx-option__icon"><span className="material-icons-round">swap_horiz</span></span>
                                         <div style={{ flex: 1 }}>
-                                            <div style={{ fontSize: 13, fontWeight: 600 }}>Transfer role</div>
-                                            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 1 }}>
+                                            <div className="gx-option__title">Transfer role</div>
+                                            <div className="gx-option__hint">
                                                 Marks this role for patient transfer workflows and enables it as an external contact.
                                             </div>
                                         </div>
-                                        <span className={`badge ${newRoleIsTransferRole ? 'badge-info' : 'badge-neutral'}`} style={{ fontSize: 10, flexShrink: 0 }}>
+                                        <span className="gx-pill">
                                             {newRoleIsTransferRole ? 'Yes' : 'No'}
                                         </span>
-                                    </div>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderRadius: 'var(--radius-md)', background: newRoleMandatory ? 'rgba(239,68,68,0.06)' : 'var(--surface-2)', border: `1px solid ${newRoleMandatory ? 'rgba(239,68,68,0.25)' : 'var(--border-subtle)'}`, marginBottom: 18, transition: 'all 0.2s' }}>
+                                    </label>
+                                    <label className={`gx-option gx-option--critical${newRoleMandatory ? ' is-on' : ''}`} style={{ marginBottom: 16, cursor: 'pointer' }}>
                                         <input type="checkbox" className="checkbox" checked={newRoleMandatory} onChange={() => setNewRoleMandatory(!newRoleMandatory)} />
+                                        <span className="gx-option__icon"><span className="material-icons-round">emergency</span></span>
                                         <div style={{ flex: 1 }}>
-                                            <div style={{ fontSize: 13, fontWeight: 600 }}>This role must always be filled</div>
-                                            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 1 }}>Marking as mandatory sets priority to Critical. Escalation chains are only available for Critical roles.</div>
+                                            <div className="gx-option__title">This role must always be filled</div>
+                                            <div className="gx-option__hint">Marking as mandatory sets priority to Critical. Escalation chains are only available for Critical roles.</div>
                                         </div>
-                                        <span className={`badge ${newRoleMandatory ? 'badge-critical' : 'badge-neutral'}`} style={{ fontSize: 10, flexShrink: 0 }}>
+                                        <span className="gx-pill">
                                             {newRoleMandatory ? 'Critical' : 'Standard'}
                                         </span>
-                                    </div>
+                                    </label>
 
-                                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                    <div className="gx-form-actions">
                                         <button className="btn btn-secondary btn-sm" onClick={resetAddForm}>
                                             <span className="material-icons-round" style={{ fontSize: 14 }}>arrow_back</span>
                                             Cancel
@@ -2535,13 +2621,14 @@ export default function RolesBuilderAssignment() {
                             {addStep === 3 && (
                                 <>
                                     {pendingNewRole ? (
-                                        <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 0, marginBottom: 12 }}>
-                                            Role <strong>{pendingNewRole.name}</strong> is created. Save escalation settings below (PUT policy + steps only).
-                                        </p>
+                                        <div className="gx-callout gx-callout--info" style={{ marginBottom: 14 }}>
+                                            <span className="material-icons-round">check_circle</span>
+                                            <span>Role <strong>{pendingNewRole.name}</strong> is created. Save escalation settings below (PUT policy + steps only).</span>
+                                        </div>
                                     ) : null}
                                     {renderEscalationLadder(newEscLevels, setNewEscLevels, buildRoleName('', newRoleName))}
 
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginTop: 20 }}>
+                                    <div className="gx-form-actions" style={{ marginTop: 18 }}>
                                         <button className="btn btn-secondary btn-sm" onClick={() => setAddStep(2)} disabled={addRoleSaving}>
                                             <span className="material-icons-round" style={{ fontSize: 14 }}>arrow_back</span>
                                             Back
@@ -2645,6 +2732,7 @@ export default function RolesBuilderAssignment() {
                                                 <tr
                                                     key={role.id}
                                                     onClick={() => { setSelectedId(role.id); setShowOtherChains(false); setShowSignIn(false); setSignInUserId(null); }}
+                                                    className="gx-row"
                                                     style={{ cursor: 'pointer' }}
                                                 >
                                                     <td
@@ -2660,8 +2748,13 @@ export default function RolesBuilderAssignment() {
                                                             borderBottom: '1px solid var(--border-subtle)',
                                                         }}
                                                     >
-                                                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'nowrap' }}>
-                                                            <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--text-primary)', whiteSpace: 'nowrap' }}>{role.name}</div>
+                                                        <div className="gx-name" style={{ flexWrap: 'nowrap' }}>
+                                                            <span className={`gx-name__icon${role.enabled ? '' : ' gx-name__icon--muted'}`}>
+                                                                <span className="material-icons-round">
+                                                                    {role.priority === 'Critical' ? 'emergency' : role.priority === 'High' ? 'priority_high' : 'badge'}
+                                                                </span>
+                                                            </span>
+                                                            <div style={{ fontWeight: 650, fontSize: 13, color: 'var(--text-primary)', whiteSpace: 'nowrap' }}>{role.name}</div>
                                                             {!role.enabled && <span className="badge badge-neutral" style={{ fontSize: 9 }}>Disabled</span>}
                                                             {chainCount > 1 && (
                                                                 <button
@@ -2739,8 +2832,11 @@ export default function RolesBuilderAssignment() {
                                                     <td style={{ padding: '12px 16px', textAlign: 'center', whiteSpace: 'nowrap', verticalAlign: 'middle', background: selectedId === role.id ? '#edf1f7' : '#ffffff', borderBottom: '1px solid var(--border-subtle)' }}>
                                                         {role.priority === 'Critical' ? (
                                                             role.escalation_levels?.length > 0 ? (
-                                                                <span className="badge badge-info" style={{ fontSize: 10 }}>
-                                                                    {role.escalation_levels.length} steps
+                                                                <span className="gx-steps" title={`${role.escalation_levels.length} escalation steps`}>
+                                                                    <span className="gx-steps__track" aria-hidden>
+                                                                        {role.escalation_levels.slice(0, 6).map((_, i) => <span key={i} className="gx-steps__dot" />)}
+                                                                    </span>
+                                                                    <span className="gx-steps__label">{role.escalation_levels.length} steps</span>
                                                                 </span>
                                                             ) : (
                                                                 <span style={{ fontSize: 11, color: 'var(--text-disabled)' }}>No policy</span>
@@ -2813,7 +2909,11 @@ export default function RolesBuilderAssignment() {
                                 }}
                             >
                                 {/* Role Header */}
-                                <div className="card" style={{ padding: '18px 20px' }}>
+                                <div className="card gx-mark-card gx-feature" style={{ padding: '18px 20px', flexShrink: 0 }}>
+                                    <span className="gx-feature__glow" aria-hidden />
+                                    <span className="material-icons-round gx-mark" aria-hidden>
+                                        {selectedRole.priority === 'Critical' ? 'emergency' : 'badge'}
+                                    </span>
                                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10, marginBottom: 14 }}>
                                         <div style={{ flex: 1, minWidth: 0 }}>
                                             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
@@ -2848,8 +2948,9 @@ export default function RolesBuilderAssignment() {
                                 </div>
 
                                 {/* Configuration Summary */}
-                                <div className="card" style={{ padding: '16px 20px' }}>
-                                    <h4 style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 12 }}>Configuration</h4>
+                                <div className="card gx-mark-card" style={{ padding: '16px 20px', flexShrink: 0 }}>
+                                    <span className="material-icons-round gx-mark" aria-hidden>tune</span>
+                                    <h4 className="gx-card-title" style={{ marginBottom: 12 }}><span className="material-icons-round">tune</span>Configuration</h4>
                                     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                                         {[
                                             { label: 'Priority', value: selectedRole.priority || 'Standard', icon: 'flag' },
@@ -2870,7 +2971,7 @@ export default function RolesBuilderAssignment() {
                                             },
                                         ].map(row => (
                                             <div key={row.label} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                                                <span className="material-icons-round" style={{ fontSize: 16, color: 'var(--text-muted)', width: 20 }}>{row.icon}</span>
+                                                <span className="gx-ico"><span className="material-icons-round">{row.icon}</span></span>
                                                 <span style={{ fontSize: 12, color: 'var(--text-muted)', width: 80 }}>{row.label}</span>
                                                 <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>{row.value}</span>
                                             </div>
@@ -2879,11 +2980,12 @@ export default function RolesBuilderAssignment() {
                                 </div>
 
                                 {/* Sign-in Assignment Summary */}
-                                <div className="card" style={{ padding: '16px 20px' }}>
-                                    <h4 style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 12 }}>Sign-in Assignment</h4>
+                                <div className="card gx-mark-card" style={{ padding: '16px 20px', flexShrink: 0 }}>
+                                    <span className="material-icons-round gx-mark" aria-hidden>how_to_reg</span>
+                                    <h4 className="gx-card-title" style={{ marginBottom: 12 }}><span className="material-icons-round">how_to_reg</span>Sign-in Assignment</h4>
                                     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                                         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
-                                            <span className="material-icons-round" style={{ fontSize: 16, color: 'var(--text-muted)', width: 20 }}>person_pin</span>
+                                            <span className="gx-ico"><span className="material-icons-round">person_pin</span></span>
                                             <div style={{ minWidth: 0 }}>
                                                 <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Currently signed in</div>
                                                 <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginTop: 1 }}>
@@ -2904,7 +3006,7 @@ export default function RolesBuilderAssignment() {
                                         </div>
 
                                         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
-                                            <span className="material-icons-round" style={{ fontSize: 16, color: 'var(--text-muted)', width: 20 }}>verified_user</span>
+                                            <span className="gx-ico"><span className="material-icons-round">verified_user</span></span>
                                             <div style={{ minWidth: 0 }}>
                                                 <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Allowed staff</div>
                                                 {(selectedRole.sign_in_allowed_user_ids || []).length > 0 ? (
@@ -2930,9 +3032,10 @@ export default function RolesBuilderAssignment() {
                                 </div>
 
                                 {/* Sign In Staff Action */}
-                                <div className="card" style={{ padding: '16px 20px' }}>
+                                <div className="card gx-mark-card" style={{ padding: '16px 20px', flexShrink: 0 }}>
+                                    <span className="material-icons-round gx-mark" aria-hidden style={{ fontSize: 80, bottom: -24 }}>login</span>
                                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: showSignIn ? 12 : 0 }}>
-                                        <h4 style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', margin: 0 }}>Sign In Staff</h4>
+                                        <h4 className="gx-card-title" style={{ margin: 0 }}><span className="material-icons-round">login</span>Sign In Staff</h4>
                                         <button
                                             className={`btn ${showSignIn ? 'btn-secondary' : 'btn-primary'} btn-xs`}
                                             onClick={() => { setShowSignIn(!showSignIn); setSignInUserId(null); }}
@@ -3019,8 +3122,8 @@ export default function RolesBuilderAssignment() {
                                     // Standard priority + not mandatory → no escalation
                                     if (selectedRole.priority !== 'Critical' && !selectedRole.mandatory) {
                                         return (
-                                            <div className="card" style={{ padding: '24px 20px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', background: 'var(--surface-2)', border: '1px dashed var(--border-subtle)', boxShadow: 'none' }}>
-                                                <span className="material-icons-round" style={{ fontSize: 28, color: 'var(--text-disabled)', marginBottom: 10 }}>notifications_off</span>
+                                            <div className="card gx-empty" style={{ flexShrink: 0 }}>
+                                                <span className="gx-empty__art"><span className="material-icons-round">notifications_off</span></span>
                                                 <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)' }}>Escalation Disabled</div>
                                                 <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4, maxWidth: 200, lineHeight: 1.4 }}>Only critical or mandatory roles can have escalation chains.</div>
                                             </div>
@@ -3044,8 +3147,8 @@ export default function RolesBuilderAssignment() {
                                             allChains.push({ source: selectedRole.name, sourceId: selectedRole.id, levels: selectedRole.escalation_levels.slice().sort((a, b) => a.level - b.level) });
                                         } else {
                                             return (
-                                                <div className="card" style={{ padding: '24px 20px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', background: 'var(--surface-2)', border: '1px dashed var(--border-subtle)', boxShadow: 'none' }}>
-                                                    <span className="material-icons-round" style={{ fontSize: 28, color: 'var(--text-disabled)', marginBottom: 10 }}>link_off</span>
+                                                <div className="card gx-empty" style={{ flexShrink: 0 }}>
+                                                    <span className="gx-empty__art"><span className="material-icons-round">link_off</span></span>
                                                     <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)' }}>No Escalation Policy</div>
                                                     <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4, maxWidth: 220, lineHeight: 1.4 }}>This role has no escalation policy configured yet. Create one in the Escalation Config page.</div>
                                                 </div>
@@ -3064,9 +3167,9 @@ export default function RolesBuilderAssignment() {
                                                 return (
                                                     <div key={ladderLevelReactKey(lvl, i)} style={{ display: 'flex', alignItems: 'stretch', gap: 10 }}>
                                                         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: 26, flexShrink: 0 }}>
-                                                            <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 24, height: 24, borderRadius: '50%', background: isCurrentRole ? 'var(--helix-primary)' : 'var(--surface-3)', color: isCurrentRole ? '#fff' : 'var(--text-secondary)', fontSize: 10, fontWeight: 700, flexShrink: 0, zIndex: 1 }}>{lvl.level}</span>
+                                                            <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 24, height: 24, borderRadius: '50%', background: isCurrentRole ? 'linear-gradient(145deg, #3a5480, #1b2a44)' : 'linear-gradient(145deg, #f3f8ff, #dceafa)', color: isCurrentRole ? '#fff' : '#2f6fb8', boxShadow: isCurrentRole ? '0 4px 10px -3px rgba(27, 42, 68, 0.5)' : 'inset 0 1px 0 #fff, 0 2px 5px -2px rgba(47, 111, 184, 0.35)', fontSize: 10, fontWeight: 700, flexShrink: 0, zIndex: 1 }}>{lvl.level}</span>
                                                             {i < arr.length - 1 && (
-                                                                <div style={{ width: 2, flex: 1, background: 'var(--border-default)', minHeight: 10 }} />
+                                                                <div style={{ width: 2, flex: 1, background: 'rgba(47, 111, 184, 0.2)', minHeight: 10, borderRadius: 2 }} />
                                                             )}
                                                         </div>
                                                         <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 12px', borderRadius: 'var(--radius-md)', background: isCurrentRole ? 'rgba(59,130,246,0.08)' : 'var(--surface-2)', border: `1px solid ${isCurrentRole ? 'rgba(59,130,246,0.25)' : 'var(--border-subtle)'}`, marginTop: i === 0 ? 0 : 4 }}>
@@ -3089,9 +3192,10 @@ export default function RolesBuilderAssignment() {
                                     return (
                                         <>
                                             {/* Primary escalation chain */}
-                                            <div className="card" style={{ padding: '16px 20px' }}>
-                                                <h4 style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 12 }}>
-                                                    Escalation Chain
+                                            <div className="card gx-mark-card" style={{ padding: '16px 20px', flexShrink: 0 }}>
+                                                <span className="material-icons-round gx-mark" aria-hidden>campaign</span>
+                                                <h4 className="gx-card-title" style={{ marginBottom: 12 }}>
+                                                    <span className="material-icons-round">campaign</span>Escalation Chain
                                                 </h4>
                                                 {allChains.length > 1 && (
                                                     <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -3105,7 +3209,7 @@ export default function RolesBuilderAssignment() {
 
                                             {/* Other chains indicator */}
                                             {otherChains.length > 0 && (
-                                                <div className="card" style={{ padding: '14px 20px' }}>
+                                                <div className="card" style={{ padding: '14px 20px', flexShrink: 0 }}>
                                                     <button
                                                         onClick={() => setShowOtherChains(prev => !prev)}
                                                         style={{
@@ -3146,8 +3250,9 @@ export default function RolesBuilderAssignment() {
                                 })()}
 
                                 {/* Quick Actions */}
-                                <div className="card" style={{ padding: '16px 20px' }}>
-                                    <h4 style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 12 }}>Actions</h4>
+                                <div className="card gx-mark-card" style={{ padding: '16px 20px', flexShrink: 0 }}>
+                                    <span className="material-icons-round gx-mark" aria-hidden style={{ fontSize: 80, bottom: -22 }}>bolt</span>
+                                    <h4 className="gx-card-title" style={{ marginBottom: 12 }}><span className="material-icons-round">bolt</span>Actions</h4>
                                     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                                         <button className="btn btn-secondary btn-sm" style={{ width: '100%', justifyContent: 'center' }} onClick={() => openEditModal(selectedRole)}>
                                             <span className="material-icons-round" style={{ fontSize: 14 }}>edit</span>Edit Role

@@ -52,6 +52,10 @@ export const API_ENDPOINTS = {
     `/api/proxy/internal/users/${encodeURIComponent(userId)}/unread-breakdown`,
   INTERNAL_USER_NOTIFICATION_DIAGNOSTICS: (userId: string) =>
     `/api/proxy/internal/users/${encodeURIComponent(userId)}/notification-diagnostics`,
+  INTERNAL_HELIX_SUPPORT_ROUTING: `/api/proxy/internal/helix-support/routing`,
+  INTERNAL_HELIX_SUPPORT_DEFAULT: `/api/proxy/internal/helix-support/default`,
+  INTERNAL_HELIX_SUPPORT_FACILITY: (facilityId: string) =>
+    `/api/proxy/internal/helix-support/facilities/${encodeURIComponent(facilityId)}`,
 
   // Departments
   DEPARTMENTS: `/api/proxy/departments`,

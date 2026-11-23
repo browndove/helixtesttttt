@@ -20,6 +20,7 @@ type NavGroup = {
 
 const IN_APP_LINKS: NavLink[] = [
     { label: 'Facilities', href: '/internal/dashboard' },
+    { label: 'Support routing', href: '/internal/support-routing' },
     { label: 'User support', href: '/internal/support' },
     { label: 'Downloads Analytics', href: '/internal/downloads' },
     { label: 'Feature Usage', href: '/internal/feature-usage' },

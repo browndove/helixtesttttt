@@ -11,6 +11,11 @@ import ImportHistoryLedger from '@/components/ImportHistoryLedger';
 import { MacVibrancyToast, MacVibrancyToastPortal } from '@/components/MacVibrancyToast';
 import { BulkImportErrorsSheet } from '@/components/BulkImportErrorsSheet';
 import { patientBulkImportToastHeadline } from '@/lib/bulk-import-toast';
+import { HeroKpi, HeroKpis, SplitBar } from '@/components/glass/hero';
+import { DotGrid, Ring } from '@/components/glass/kpi';
+import '@/components/glass/glass-page.css';
+import '@/components/glass/glass-kit.css';
+import '@/components/glass/staff-glass.css';
 
 /* ── Types ─────────────────────────────────────────────────── */
 
@@ -336,7 +341,28 @@ export default function PatientsDirectoryManagement() {
         }
     }, [departmentId, pageId, pageSize, search, showToast, statusFilter]);
 
+    /** Facility-wide totals for the header tiles: one page_size=1 request per status, independent of the table filters. */
+    const [statusTotals, setStatusTotals] = useState<{ all: number; admitted: number; discharged: number; outpatient: number } | null>(null);
+    const fetchStatusTotals = useCallback(async () => {
+        const count = async (status?: string) => {
+            const params = new URLSearchParams({ page_size: '1', page_id: '1' });
+            if (status) params.set('status', status);
+            const res = await fetch(`/api/proxy/patients?${params.toString()}`);
+            if (!res.ok) throw new Error('count failed');
+            return parsePaged(await res.json()).total;
+        };
+        try {
+            const [all, admitted, discharged, outpatient] = await Promise.all([
+                count(), count('admitted'), count('discharged'), count('outpatient'),
+            ]);
+            setStatusTotals({ all, admitted, discharged, outpatient });
+        } catch {
+            setStatusTotals(null);
+        }
+    }, []);
+
     useEffect(() => { fetchDepartments(); }, [fetchDepartments]);
+    useEffect(() => { void fetchStatusTotals(); }, [fetchStatusTotals]);
     useEffect(() => { fetchPatients(); }, [fetchPatients]);
 
     const computedTotalPages = useMemo(() => Math.max(1, totalPages), [totalPages]);
@@ -438,6 +464,7 @@ export default function PatientsDirectoryManagement() {
             if (outcome.shouldRefresh) {
                 setLoading(true);
                 fetchPatients();
+                void fetchStatusTotals();
             }
         } catch {
             setBulkResultCreated([]);
@@ -456,12 +483,58 @@ export default function PatientsDirectoryManagement() {
 
     const directoryMain = (
         <main style={{ flex: 1, overflow: 'auto', padding: '20px 24px', background: 'var(--bg-900)' }}>
-            <div className="card fade-in" style={{ marginBottom: 14, padding: '10px 14px', display: 'flex', gap: 10, alignItems: 'center' }}>
-                <CustomSelect value={departmentId} onChange={resetFilter(setDepartmentId)} options={[{ label: 'All Departments', value: 'all' }, ...departments.map(d => ({ label: d.name, value: d.id }))]} placeholder="All Departments" style={{ maxWidth: 240, width: '100%' }} />
-                <CustomSelect value={statusFilter} onChange={resetFilter(setStatusFilter)} options={[{ label: 'All Statuses', value: 'all' }, { label: 'Admitted', value: 'admitted' }, { label: 'Discharged', value: 'discharged' }, { label: 'Outpatient', value: 'outpatient' }]} placeholder="All Statuses" style={{ maxWidth: 180, width: '100%' }} />
-            </div>
+            {(() => {
+                const t = statusTotals;
+                const pct = (n: number) => (t && t.all > 0 ? Math.round((n / t.all) * 100) : 0);
+                const show = (n: number | undefined) => (t ? (n ?? 0).toLocaleString() : '—');
+                return (
+                    <HeroKpis label="Patients overview" mark="personal_injury">
+                        <HeroKpi
+                            tone="navy"
+                            icon="personal_injury"
+                            label="Total patients"
+                            value={show(t?.all)}
+                            art={t ? (
+                                <SplitBar
+                                    label={`${t.admitted} admitted, ${t.discharged} discharged, ${t.outpatient} outpatient`}
+                                    parts={[
+                                        { label: 'Admitted', n: t.admitted, color: '#2a9a74' },
+                                        { label: 'Outpatient', n: t.outpatient, color: '#f0a24a' },
+                                        { label: 'Discharged', n: t.discharged, color: '#9aa4b4' },
+                                    ]}
+                                />
+                            ) : undefined}
+                            foot={`Across ${departments.length} department${departments.length === 1 ? '' : 's'}`}
+                        />
+                        <HeroKpi
+                            tone="mint"
+                            icon="hotel"
+                            label="Admitted"
+                            value={show(t?.admitted)}
+                            art={<Ring pct={pct(t?.admitted ?? 0)} size={56}>{t ? `${pct(t.admitted)}%` : '—'}</Ring>}
+                            foot="Currently on a ward"
+                        />
+                        <HeroKpi
+                            tone="amber"
+                            icon="directions_walk"
+                            label="Outpatient"
+                            value={show(t?.outpatient)}
+                            art={<Ring pct={pct(t?.outpatient ?? 0)} size={56}>{t ? `${pct(t.outpatient)}%` : '—'}</Ring>}
+                            foot="Seen without admission"
+                        />
+                        <HeroKpi
+                            tone="sky"
+                            icon="logout"
+                            label="Discharged"
+                            value={show(t?.discharged)}
+                            art={<DotGrid pct={pct(t?.discharged ?? 0)} label={`${pct(t?.discharged ?? 0)}% discharged`} />}
+                            foot={t ? `${pct(t.discharged)}% of all patients` : 'Left the facility'}
+                        />
+                    </HeroKpis>
+                );
+            })()}
 
-            <div className="card fade-in" style={{ padding: 0, overflow: 'hidden' }}>
+            <div className="card fade-in gx-table-card" style={{ padding: 0, overflow: 'hidden' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                     <thead>
                         <tr style={{ borderBottom: '1px solid var(--border-default)' }}>
@@ -476,24 +549,29 @@ export default function PatientsDirectoryManagement() {
                     </thead>
                     <tbody>
                         {loading && (
-                            <tr><td colSpan={7} style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>
-                                <span className="material-icons-round" style={{ fontSize: 24, display: 'block', marginBottom: 8, color: 'var(--text-disabled)' }}>hourglass_empty</span>
-                                Loading patients...
+                            <tr><td colSpan={7} style={{ padding: 0 }}>
+                                <div className="gx-empty" style={{ color: 'var(--text-muted)', fontSize: 13 }}>
+                                    <span className="gx-empty__art"><span className="material-icons-round">hourglass_empty</span></span>
+                                    Loading patients...
+                                </div>
                             </td></tr>
                         )}
                         {!loading && patients.length === 0 && (
-                            <tr><td colSpan={7} style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>
-                                <span className="material-icons-round" style={{ fontSize: 28, display: 'block', marginBottom: 8, color: 'var(--text-disabled)' }}>person_off</span>
-                                No patients found
+                            <tr><td colSpan={7} style={{ padding: 0 }}>
+                                <div className="gx-empty" style={{ color: 'var(--text-muted)', fontSize: 13 }}>
+                                    <span className="material-icons-round gx-mark" aria-hidden>personal_injury</span>
+                                    <span className="gx-empty__art"><span className="material-icons-round">person_off</span></span>
+                                    No patients found
+                                </div>
                             </td></tr>
                         )}
                         {!loading && patients.map((p) => (
-                            <tr key={p.id} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+                            <tr key={p.id} className="gx-row" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
                                 <td style={tdStyle}>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                                        <div style={{ width: 30, height: 30, borderRadius: '50%', background: 'var(--helix-primary)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 700, flexShrink: 0 }}>
+                                        <span className="gx-avatar" aria-hidden>
                                             {p.first_name[0]}{p.last_name[0]}
-                                        </div>
+                                        </span>
                                         <div style={{ minWidth: 0 }}>
                                             <div style={{ fontWeight: 600, fontSize: 12.5, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                                                 {p.first_name} {p.last_name}
@@ -542,8 +620,9 @@ export default function PatientsDirectoryManagement() {
             </p>
 
             <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 0.6fr', gap: 20, marginBottom: 24 }}>
-                <div className="fade-in delay-1 card">
-                    <h3 style={{ marginBottom: 14 }}>Upload patient file</h3>
+                <div className="fade-in delay-1 card gx-mark-card">
+                    <span className="material-icons-round gx-mark" aria-hidden>cloud_upload</span>
+                    <h3 className="gx-card-title" style={{ marginBottom: 14 }}><span className="material-icons-round">upload_file</span>Upload patient file</h3>
                     <input
                         ref={fileInputRef}
                         type="file"
@@ -586,12 +665,11 @@ export default function PatientsDirectoryManagement() {
                     )}
                 </div>
 
-                <div className="fade-in delay-2 card">
-                    <h3 style={{ marginBottom: 14 }}>Download template</h3>
+                <div className="fade-in delay-2 card gx-mark-card">
+                    <span className="material-icons-round gx-mark" aria-hidden>description</span>
+                    <h3 className="gx-card-title" style={{ marginBottom: 14 }}><span className="material-icons-round">download</span>Download template</h3>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-subtle)', background: 'var(--surface-2)' }}>
-                        <div style={{ width: 36, height: 36, borderRadius: 9, background: 'rgba(74,111,165,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                            <span className="material-icons-round" style={{ fontSize: 18, color: '#4a6fa5' }}>person</span>
-                        </div>
+                        <span className="gx-name__icon"><span className="material-icons-round">person</span></span>
                         <div style={{ flex: 1 }}>
                             <div style={{ fontWeight: 600, fontSize: 13 }}>patient_bulk_upload.csv</div>
                             <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>first_name, last_name, dob, MRN, phone, email, admitted_date, status, gender, room, bed, unit, discharge_date</div>
@@ -681,41 +759,38 @@ export default function PatientsDirectoryManagement() {
                     />
                 </MacVibrancyToastPortal>
             )}
-            <div className="app-main">
+            <div className="app-main gx-page">
                 <TopBar
                     title="Patients"
                     subtitle={activeTab === 'directory' ? 'Patient directory' : 'Bulk upload'}
                     search={activeTab === 'directory' ? { placeholder: 'Search by name or MRN...', value: search, onChange: (v) => { setPageId(1); setSearch(v); } } : undefined}
                 />
 
-                <div style={{ display: 'flex', gap: 0, borderBottom: '1px solid var(--border-default)', padding: '0 24px', background: '#fff' }}>
-                    {([
-                        ['directory', 'groups', 'Patient directory'],
-                        ['bulk', 'upload_file', 'Bulk upload'],
-                    ] as const).map(([id, icon, label]) => (
-                        <button
-                            key={id}
-                            type="button"
-                            onClick={() => setActiveTab(id)}
-                            style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: 6,
-                                padding: '10px 16px',
-                                fontSize: 13,
-                                fontWeight: activeTab === id ? 600 : 500,
-                                color: activeTab === id ? 'var(--helix-primary)' : 'var(--text-muted)',
-                                background: 'transparent',
-                                border: 'none',
-                                borderBottom: activeTab === id ? '2px solid var(--helix-primary)' : '2px solid transparent',
-                                cursor: 'pointer',
-                                transition: 'all 0.2s',
-                            }}
-                        >
-                            <span className="material-icons-round" style={{ fontSize: 16 }}>{icon}</span>
-                            {label}
-                        </button>
-                    ))}
+                <div className="sx-tabs-wrap" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+                    <div className="sx-tabs" role="tablist" aria-label="Patient sections">
+                        {([
+                            ['directory', 'groups', 'Patient directory'],
+                            ['bulk', 'upload_file', 'Bulk upload'],
+                        ] as const).map(([id, icon, label]) => (
+                            <button
+                                key={id}
+                                type="button"
+                                role="tab"
+                                aria-selected={activeTab === id}
+                                className={`sx-tab${activeTab === id ? ' is-active' : ''}`}
+                                onClick={() => setActiveTab(id)}
+                            >
+                                <span className="sx-tab__icon"><span className="material-icons-round">{icon}</span></span>
+                                {label}
+                            </button>
+                        ))}
+                    </div>
+                    {activeTab === 'directory' && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                            <CustomSelect value={departmentId} onChange={resetFilter(setDepartmentId)} options={[{ label: 'All Departments', value: 'all' }, ...departments.map(d => ({ label: d.name, value: d.id }))]} placeholder="All Departments" style={{ width: 220 }} />
+                            <CustomSelect value={statusFilter} onChange={resetFilter(setStatusFilter)} options={[{ label: 'All Statuses', value: 'all' }, { label: 'Admitted', value: 'admitted' }, { label: 'Discharged', value: 'discharged' }, { label: 'Outpatient', value: 'outpatient' }]} placeholder="All Statuses" style={{ width: 170 }} />
+                        </div>
+                    )}
                 </div>
 
                 {activeTab === 'directory' ? directoryMain : bulkMain}
