@@ -37,6 +37,9 @@ import JoinRequestsPanel, { fetchPendingJoinCount } from '@/components/staff/Joi
 import DirectoryReportsPanel, { fetchOpenDirectoryReportCount } from '@/components/staff/DirectoryReportsPanel';
 import DirectoryReviewsPanel, { fetchOpenDirectoryReviewCount } from '@/components/staff/DirectoryReviewsPanel';
 import { parseBulkNeedsReviewCount } from '@/lib/directory-reviews';
+import { pickStaffPhotoUrl } from '@/lib/staff-photo';
+import { parseCareUnits, type CareUnit } from '@/lib/care-units';
+import AddStaffForm from '@/components/staff/AddStaffForm';
 
 const STAFF_PAGE_CACHE_TTL_MS = 120_000;
 const STAFF_CACHE_LIST = STAFF_CACHE_LIST_KEY;
@@ -143,33 +146,6 @@ function asRecord(v: unknown): Record<string, unknown> | null {
 }
 
 const STAFF_DEPT_NEST_KEYS = ['user', 'profile', 'staff', 'staff_member', 'account', 'person'] as const;
-
-const STAFF_PHOTO_KEYS = [
-    'profile_url', 'avatar_url', 'photo_url', 'profile_picture', 'profile_picture_url', 'profile_photo',
-    'profile_photo_url', 'profile_image', 'profile_image_url', 'picture', 'picture_url', 'image_url', 'avatar', 'photo', 'image',
-] as const;
-
-/** Usable image URL (http(s), protocol-relative, root-relative or data:image), else ''. */
-function asPhotoUrl(v: unknown): string {
-    if (typeof v === 'string') {
-        const s = v.trim();
-        return /^(https?:)?\/\/|^\/(?!\/)|^data:image\//i.test(s) ? s : '';
-    }
-    const rec = asRecord(v);
-    return rec ? asPhotoUrl(rec.url ?? rec.src ?? rec.href) : '';
-}
-
-/** Profile picture from a staff row: known keys first, on the row and its nested user/profile objects. */
-function pickStaffPhotoUrl(r: Record<string, unknown>): string {
-    const sources = [r, ...STAFF_DEPT_NEST_KEYS.map(k => asRecord(r[k])).filter((x): x is Record<string, unknown> => !!x)];
-    for (const src of sources) {
-        for (const k of STAFF_PHOTO_KEYS) {
-            const url = asPhotoUrl(src[k]);
-            if (url) return url;
-        }
-    }
-    return '';
-}
 
 const STAFF_PHONE_KEYS = [
     'phone',
@@ -1283,11 +1259,11 @@ export default function StaffDirectoryManagement() {
     const [newEmployeeId, setNewEmployeeId] = useState('');
     /** Same as bulk `can_manage_schedule` — null until the admin chooses. */
     const [newCanManageSchedule, setNewCanManageSchedule] = useState<boolean | null>(null);
-    /**
-     * patient_access three-way for POST /staff/directory:
-     * yes | no | auto (omit field → backend decides from job category).
-     */
-    const [newPatientAccess, setNewPatientAccess] = useState<'yes' | 'no' | 'auto'>('auto');
+    /** patient_access for POST /staff/directory — null until the admin chooses Allow or Block. */
+    const [newPatientAccess, setNewPatientAccess] = useState<'yes' | 'no' | null>(null);
+    /** Care unit id, `not_applicable`, or '' (not set). Same values as self-join workstations. */
+    const [newPrimaryWorkstation, setNewPrimaryWorkstation] = useState('');
+    const [careUnits, setCareUnits] = useState<CareUnit[] | null>(null);
     const [directoryConflict, setDirectoryConflict] = useState<{
         reviewId: string;
         kind: string;
@@ -1547,7 +1523,8 @@ export default function StaffDirectoryManagement() {
         && Boolean(newLastName.trim())
         && Boolean(newDob.trim())
         && newCanManageSchedule !== null
-    ), [newFirstName, newLastName, newDob, newCanManageSchedule]);
+        && newPatientAccess !== null
+    ), [newFirstName, newLastName, newDob, newCanManageSchedule, newPatientAccess]);
 
     const addFormMissingFields = useMemo(() => {
         const missing: string[] = [];
@@ -1555,8 +1532,9 @@ export default function StaffDirectoryManagement() {
         if (!newLastName.trim()) missing.push('Last name');
         if (!newDob.trim()) missing.push('Date of birth');
         if (newCanManageSchedule === null) missing.push('Can manage schedule');
+        if (newPatientAccess === null) missing.push('Patient access');
         return missing;
-    }, [newFirstName, newLastName, newDob, newCanManageSchedule]);
+    }, [newFirstName, newLastName, newDob, newCanManageSchedule, newPatientAccess]);
 
     const formatMissingFieldsToast = useCallback((missing: string[]) => {
         if (missing.length === 0) return 'Please fill all required fields before adding staff';
@@ -1698,6 +1676,32 @@ export default function StaffDirectoryManagement() {
     useEffect(() => { void fetchStaff(); }, [fetchStaff]);
     useEffect(() => { void fetchInvites(); }, [fetchInvites]);
     useEffect(() => { fetchDepartments(); }, [fetchDepartments]);
+
+    useEffect(() => {
+        if (!showAddForm || careUnits !== null) return;
+        let canceled = false;
+        (async () => {
+            try {
+                const res = await fetch('/api/proxy/units', { credentials: 'include' });
+                const data = res.ok ? await res.json() : [];
+                if (!canceled) setCareUnits(parseCareUnits(data));
+            } catch {
+                if (!canceled) setCareUnits([]);
+            }
+        })();
+        return () => { canceled = true; };
+    }, [showAddForm, careUnits]);
+
+    const workstationOptions = useMemo(() => {
+        const units = [...(careUnits || [])].sort((a, b) => a.name.localeCompare(b.name));
+        return [
+            { label: 'Not applicable', value: 'not_applicable' },
+            ...units.map(u => {
+                const dept = u.department_name || (u.department_id ? deptIdToName.get(u.department_id.toLowerCase()) : '') || '';
+                return { label: dept ? `${u.name} · ${dept}` : u.name, value: u.id, triggerLabel: u.name };
+            }),
+        ];
+    }, [careUnits, deptIdToName]);
 
     useEffect(() => {
         if (editingSelected) return;
@@ -2019,8 +2023,11 @@ export default function StaffDirectoryManagement() {
             const middleName = newMiddleName.trim();
             if (middleName) body.middle_name = middleName;
             if (employeeId) body.employee_id = employeeId;
-            if (newPatientAccess === 'yes') body.patient_access = true;
-            if (newPatientAccess === 'no') body.patient_access = false;
+            body.patient_access = newPatientAccess === 'yes';
+            if (newPrimaryWorkstation) {
+                body.primary_workstation_id = newPrimaryWorkstation;
+                body.workstation_ids = [newPrimaryWorkstation];
+            }
 
             const res = await fetch(staffUrl(API_ENDPOINTS.STAFF_DIRECTORY), {
                 method: 'POST',
@@ -2097,7 +2104,7 @@ export default function StaffDirectoryManagement() {
                     ) || employeeId,
                     is_scheduler: created.is_scheduler ?? canManage,
                     patient_access: created.patient_access
-                        ?? (newPatientAccess === 'yes' ? true : newPatientAccess === 'no' ? false : created.patient_access),
+                        ?? newPatientAccess === 'yes',
                 }
                 : fallbackMember;
 
@@ -2109,7 +2116,8 @@ export default function StaffDirectoryManagement() {
             setNewDob('');
             setNewEmployeeId('');
             setNewCanManageSchedule(null);
-            setNewPatientAccess('auto');
+            setNewPatientAccess(null);
+            setNewPrimaryWorkstation('');
             setDirectoryConflict(null);
             const displayName = `${newFirstName} ${newLastName}`.trim() || 'Staff member';
             showToast(`${displayName} added to the directory`, 'success');
@@ -2322,7 +2330,11 @@ export default function StaffDirectoryManagement() {
             if (!res.ok) {
                 setStaff(prev => prev.map(s => s.id === id ? { ...s, is_scheduler: current } : s));
                 setSelected(prev => prev && prev.id === id ? { ...prev, is_scheduler: current } : prev);
-                showToast('Failed to update scheduler access', 'error');
+                const err = await res.json().catch(() => null) as { error?: string; message?: string; detail?: string } | null;
+                const reason = res.status === 404 || res.status === 405
+                    ? 'the server doesn’t accept this change yet'
+                    : err?.message || err?.detail || err?.error || `error ${res.status}`;
+                showToast(`Couldn’t update scheduler access: ${reason}`, 'error');
                 return;
             }
             showToast(
@@ -2830,106 +2842,39 @@ export default function StaffDirectoryManagement() {
 
                     {/* Add Staff Form — POST /staff/directory */}
                     {showAddForm && (
-                        <div className="fade-in card gx-form" style={{ marginBottom: 18, padding: '22px 24px' }}>
-                            <span className="material-icons-round gx-form__mark" aria-hidden>person_add</span>
-                            <div className="gx-form__head">
-                                <span className="gx-form__chip"><span className="material-icons-round">person_add</span></span>
-                                <div style={{ minWidth: 0 }}>
-                                    <h3 className="gx-form__title">New directory person</h3>
-                                    <p className="gx-form__sub">
-                                        Same core fields as bulk upload. They set email and password later from self-join or an invite.
-                                    </p>
-                                </div>
-                            </div>
-                            {directoryConflict ? (
-                                <div
-                                    style={{
-                                        marginBottom: 12,
-                                        padding: '10px 12px',
-                                        borderRadius: 10,
-                                        background: 'rgba(180, 35, 24, 0.06)',
-                                        border: '1px solid rgba(180, 35, 24, 0.18)',
-                                    }}
-                                >
-                                    <div style={{ fontSize: 12.5, fontWeight: 600, color: '#B42318', marginBottom: 4 }}>
-                                        Already in the directory{directoryConflict.name ? ` — ${directoryConflict.name}` : ''}
-                                    </div>
-                                    <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.45 }}>
-                                        {directoryConflict.problem}
-                                    </div>
-                                    {SHOW_DIRECTORY_REVIEW_UI ? (
-                                        <button
-                                            type="button"
-                                            className="btn btn-secondary btn-xs"
-                                            style={{ marginTop: 8 }}
-                                            onClick={() => {
-                                                setActiveTab('review');
-                                                setShowAddForm(false);
-                                                setDirectoryConflict(null);
-                                            }}
-                                        >
-                                            Open Directory Review
-                                        </button>
-                                    ) : null}
-                                </div>
-                            ) : null}
-                            <div className="gx-section"><span className="material-icons-round">badge</span>Person &amp; access</div>
-                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12, marginBottom: 14 }}>
-                                <div>
-                                    <label className="label">First Name *</label>
-                                    <input className="input" value={newFirstName} onChange={e => setNewFirstName(e.target.value)} placeholder="First name" style={{ fontSize: 12 }} />
-                                </div>
-                                <div>
-                                    <label className="label">Middle Name</label>
-                                    <input className="input" value={newMiddleName} onChange={e => setNewMiddleName(e.target.value)} placeholder="Optional" style={{ fontSize: 12 }} />
-                                </div>
-                                <div>
-                                    <label className="label">Last Name *</label>
-                                    <input className="input" value={newLastName} onChange={e => setNewLastName(e.target.value)} placeholder="Last name" style={{ fontSize: 12 }} />
-                                </div>
-                                <div>
-                                    <label className="label">Date of birth *</label>
-                                    <DatePicker value={newDob} onChange={setNewDob} placeholder="YYYY-MM-DD or DD/MM/YYYY" />
-                                </div>
-                                <div>
-                                    <label className="label">Employee ID</label>
-                                    <input className="input" value={newEmployeeId} onChange={e => setNewEmployeeId(e.target.value)} placeholder="Optional" style={{ fontSize: 12 }} />
-                                </div>
-                                <div>
-                                    <label className="label">Can manage schedule *</label>
-                                    <CustomSelect
-                                        value={newCanManageSchedule === null ? '' : newCanManageSchedule ? 'yes' : 'no'}
-                                        onChange={v => setNewCanManageSchedule(v === '' ? null : v === 'yes')}
-                                        options={[
-                                            { label: 'Yes', value: 'yes' },
-                                            { label: 'No', value: 'no' },
-                                        ]}
-                                        placeholder="-- Select --"
-                                    />
-                                </div>
-                                <div>
-                                    <label className="label">Patient access</label>
-                                    <CustomSelect
-                                        value={newPatientAccess}
-                                        onChange={v => setNewPatientAccess((v as 'yes' | 'no' | 'auto') || 'auto')}
-                                        options={[
-                                            { label: 'Decide from job category', value: 'auto' },
-                                            { label: 'Yes', value: 'yes' },
-                                            { label: 'No', value: 'no' },
-                                        ]}
-                                        placeholder="Decide from job category"
-                                    />
-                                    <div style={{ marginTop: 4, fontSize: 10.5, color: 'var(--text-muted)' }}>
-                                        Leave as “Decide from job category” unless you need to force Yes or No.
-                                    </div>
-                                </div>
-                            </div>
-                            <div className="gx-form-actions" style={{ justifyContent: 'flex-end' }}>
-                                <button className="btn btn-primary btn-sm" onClick={handleAdd} disabled={adding || !isAddFormComplete}>
-                                    <span className="material-icons-round" style={{ fontSize: 14 }}>{adding ? 'hourglass_empty' : 'person_add'}</span>{adding ? 'Adding...' : 'Add to directory'}
-                                </button>
-                            </div>
-                        </div>
+                        <AddStaffForm
+                            firstName={newFirstName}
+                            middleName={newMiddleName}
+                            lastName={newLastName}
+                            dob={newDob}
+                            employeeId={newEmployeeId}
+                            canManageSchedule={newCanManageSchedule}
+                            patientAccess={newPatientAccess}
+                            primaryWorkstation={newPrimaryWorkstation}
+                            onFirstName={setNewFirstName}
+                            onMiddleName={setNewMiddleName}
+                            onLastName={setNewLastName}
+                            onDob={setNewDob}
+                            onEmployeeId={setNewEmployeeId}
+                            onCanManageSchedule={setNewCanManageSchedule}
+                            onPatientAccess={setNewPatientAccess}
+                            onPrimaryWorkstation={setNewPrimaryWorkstation}
+                            workstationOptions={workstationOptions}
+                            workstationsLoading={careUnits === null}
+                            conflict={directoryConflict}
+                            onOpenReview={SHOW_DIRECTORY_REVIEW_UI ? () => {
+                                setActiveTab('review');
+                                setShowAddForm(false);
+                                setDirectoryConflict(null);
+                            } : undefined}
+                            missingFields={addFormMissingFields}
+                            adding={adding}
+                            onSubmit={handleAdd}
+                            onCancel={() => {
+                                setShowAddForm(false);
+                                setDirectoryConflict(null);
+                            }}
+                        />
                     )}
 
                     {/* Filters & Sort */}

@@ -188,6 +188,30 @@
   color: var(--accent);
 }
 
+.hx-kpi--static {
+  cursor: default;
+}
+
+.hx-kpi__hint {
+  font-size: 16px !important;
+  color: var(--faint);
+  cursor: help;
+  transition: color 0.15s;
+}
+
+.hx-kpi__hint:hover {
+  color: var(--accent);
+}
+
+.hx-kpi__extra {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  gap: 6px;
+  padding-top: 10px;
+  border-top: 1px dashed color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
 .hx-kpi--alert {
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(255, 241, 242, 0.9));
 }

@@ -1,0 +1,860 @@
+/* Analytics glass skin — KPI extras, illustrations, and the frosted card treatment
+   (icon-chip titles + faint watermark icons) applied to every analytics card. */
+
+/* ── KPI strip ─────────────────────────────────────────────── */
+
+.an-kpis .hx-kpi {
+  min-height: 176px;
+}
+
+.an-kpis .hx-kpi__value {
+  font-size: 30px;
+}
+
+.an-kpis .hx-kpi__foot {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.an-kpis .hx-kpi__nums {
+  max-width: 54%;
+  flex-shrink: 1;
+}
+
+.an-kpis .hx-kpi__chart {
+  flex: 0 1 auto;
+  max-width: 46%;
+}
+
+.an-kpis :is(.hx-minibars, .hx-ladder) {
+  width: 112px;
+}
+
+.an-kpis .an-spread {
+  width: 124px;
+}
+
+.an-kpis .hx-waffle {
+  grid-template-columns: repeat(10, 8px);
+  gap: 3px;
+}
+
+.an-kpis .hx-waffle > span {
+  width: 8px;
+  height: 8px;
+}
+
+.an-value--long {
+  font-size: 25px;
+  letter-spacing: -0.03em;
+}
+
+.an-stat {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.an-stat__value {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.an-stat__label {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.an-ring-label {
+  font-size: 12px;
+  font-weight: 700;
+}
+
+/* Box plot */
+.an-spread {
+  width: 100%;
+  max-width: 132px;
+  height: 56px;
+  overflow: visible;
+}
+
+.an-spread__axis {
+  stroke: color-mix(in srgb, var(--accent) 18%, transparent);
+  stroke-width: 1.5;
+  stroke-dasharray: 2 3;
+}
+
+.an-spread__whisker {
+  stroke: color-mix(in srgb, var(--accent) 55%, transparent);
+  stroke-width: 1.8;
+  stroke-linecap: round;
+}
+
+.an-spread__box {
+  fill: color-mix(in srgb, var(--accent) 18%, #fff);
+  stroke: var(--accent);
+  stroke-width: 1.6;
+  transform-origin: left center;
+  animation: anGrowX 0.7s var(--ease, ease) backwards;
+}
+
+.an-spread__median {
+  stroke: var(--accent);
+  stroke-width: 2.6;
+  stroke-linecap: round;
+}
+
+.an-spread__dot {
+  fill: var(--accent);
+}
+
+@keyframes anGrowX {
+  from { transform: scaleX(0.1); opacity: 0; }
+  to { transform: none; opacity: 1; }
+}
+
+/* 24h clock dial */
+.an-clock {
+  width: 66px;
+  height: 66px;
+  flex-shrink: 0;
+}
+
+.an-clock__face {
+  fill: rgba(255, 255, 255, 0.75);
+  stroke: color-mix(in srgb, var(--accent) 16%, transparent);
+  stroke-width: 1.5;
+}
+
+.an-clock__tick {
+  stroke: color-mix(in srgb, var(--accent) 30%, transparent);
+  stroke-width: 1;
+  stroke-linecap: round;
+}
+
+.an-clock__tick--major {
+  stroke: color-mix(in srgb, var(--accent) 60%, transparent);
+  stroke-width: 1.6;
+}
+
+.an-clock__arc {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 4;
+  stroke-linecap: round;
+  opacity: 0.85;
+}
+
+.an-clock__hand {
+  stroke: var(--navy, #1b2a44);
+  stroke-width: 2.6;
+  stroke-linecap: round;
+}
+
+.an-clock__hand--idle {
+  stroke: var(--faint);
+}
+
+.an-clock__hub {
+  fill: var(--navy, #1b2a44);
+}
+
+/* ── Cards: frosted glass + watermark ──────────────────────── */
+
+.analytics-page {
+  --an-blue: #2f6fb8;
+  --an-blue-soft: #eaf2fc;
+  --an-rose: #c2414b;
+  --an-rose-soft: #fdecee;
+  /* Helix analytics avoids purple: the original charts' violet series render in blue. */
+  --accent-violet: #4a8fd6;
+  /* Same idea for the original neon accents: map them onto Helix's calmer tones. */
+  --accent-primary: #2f6fb8;
+  --accent-green: #2a9a74;
+  --accent-red: #e0656b;
+  --accent-orange: #e5a73b;
+}
+
+/* Every analytics card (shared DashboardCard and the hand-built ones) shares these classes. */
+.analytics-page .bg-primary.rounded-\[18px\] {
+  background: var(--glass-bg-strong) !important;
+  border-color: var(--glass-border) !important;
+  border-radius: 24px !important;
+  box-shadow: var(--glass-shadow) !important;
+  transition: box-shadow 0.25s ease, transform 0.25s ease;
+}
+
+.analytics-page .bg-primary.rounded-\[18px\]:hover {
+  box-shadow: var(--glass-shadow-hover) !important;
+}
+
+/* Watermark: a faint rotated Material icon in the card corner, set with data-watermark. */
+.analytics-page [data-watermark] {
+  position: relative;
+  isolation: isolate;
+}
+
+.analytics-page [data-watermark]::after {
+  content: attr(data-watermark);
+  position: absolute;
+  z-index: -1;
+  right: 18px;
+  bottom: 14px;
+  font-family: 'Material Icons Round';
+  font-size: 104px;
+  line-height: 1;
+  font-weight: normal;
+  font-feature-settings: 'liga';
+  -webkit-font-feature-settings: 'liga';
+  color: var(--an-blue);
+  opacity: 0.055;
+  transform: rotate(-12deg);
+  pointer-events: none;
+}
+
+.analytics-page [data-watermark-tone='rose']::after {
+  color: var(--an-rose);
+  opacity: 0.07;
+}
+
+/* Soft corner glow behind each card's content */
+.analytics-page [data-watermark]::before {
+  content: '';
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  border-radius: inherit;
+  background: radial-gradient(280px 200px at 100% 0%, rgba(150, 195, 240, 0.26), transparent 70%);
+  pointer-events: none;
+}
+
+.analytics-page [data-watermark-tone='rose']::before {
+  background: radial-gradient(280px 200px at 100% 0%, rgba(240, 150, 160, 0.24), transparent 70%);
+}
+
+/* Title with icon chip */
+.an-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.an-title__chip {
+  width: 30px;
+  height: 30px;
+  border-radius: 10px;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--an-blue, #2f6fb8);
+  background: linear-gradient(150deg, #f4f9ff, var(--an-blue-soft, #eaf2fc));
+  border: 1px solid rgba(47, 111, 184, 0.12);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+.an-title__chip .material-icons-round {
+  font-size: 17px;
+}
+
+.an-title--rose .an-title__chip {
+  color: var(--an-rose, #c2414b);
+  background: linear-gradient(150deg, #fff6f7, var(--an-rose-soft, #fdecee));
+  border-color: rgba(194, 65, 75, 0.14);
+}
+
+.an-title > :last-child {
+  min-width: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .an-spread__box { animation: none; }
+}
+
+/* ── Type hierarchy inside cards ───────────────────────────────
+   Title (15/700 ink) → subtitle (12.5 muted, aligned to the title text)
+   → figures (tight, tabular) → body (13) → labels. */
+
+.analytics-page .an-title > :last-child {
+  font-size: 15px !important;
+  font-weight: 700 !important;
+  letter-spacing: -0.015em !important;
+  line-height: 1.25 !important;
+}
+
+.analytics-page .an-title + .text-\[14px\] {
+  font-size: 12.5px !important;
+  color: var(--text-muted) !important;
+  margin-left: 40px;
+  margin-top: -2px;
+}
+
+.analytics-page [data-watermark] .text-\[17px\]:not(.an-title > *) {
+  font-size: 14px !important;
+  letter-spacing: -0.01em !important;
+}
+
+.analytics-page [data-watermark] .text-\[14px\]:not(.an-title + *) {
+  font-size: 13px !important;
+}
+
+.analytics-page [data-watermark] :is(.text-\[32px\], .text-\[28px\], .text-\[21px\], .text-\[34px\], .text-\[40px\]) {
+  font-weight: 700 !important;
+  letter-spacing: -0.035em !important;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Inner stat tiles: frosted wells instead of flat grey boxes */
+.analytics-page [data-watermark] :is(.bg-tertiary, .bg-secondary):not(button) {
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.78), rgba(241, 245, 250, 0.72)) !important;
+  border-color: rgba(27, 42, 68, 0.06) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+/* ── Charts ───────────────────────────────────────────────── */
+
+.analytics-page .apexcharts-gridline {
+  stroke: rgba(27, 42, 68, 0.07);
+}
+
+.analytics-page :is(.apexcharts-xaxis-label, .apexcharts-yaxis-label) {
+  fill: #7b879b;
+  font-weight: 500;
+}
+
+.analytics-page .apexcharts-legend-text {
+  color: var(--text-secondary) !important;
+  font-weight: 600 !important;
+}
+
+.analytics-page .apexcharts-pie-area {
+  stroke: rgba(255, 255, 255, 0.95);
+  stroke-width: 2px;
+}
+
+/* Charts settle into place when they mount */
+@keyframes an-chart-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+
+.analytics-page .apexcharts-canvas {
+  animation: an-chart-in 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.analytics-page :is(.apexcharts-bar-area, .apexcharts-pie-area, .apexcharts-area, .apexcharts-rangebar-area) {
+  transition: opacity 0.2s ease, filter 0.2s ease;
+}
+
+/* Hovering one bar or slice quietly dims its neighbours */
+.analytics-page .apexcharts-series:has(.apexcharts-bar-area:hover) .apexcharts-bar-area:not(:hover),
+.analytics-page .apexcharts-bar-series:has(.apexcharts-bar-area:hover) .apexcharts-bar-area:not(:hover),
+.analytics-page .apexcharts-rangebar-series:has(.apexcharts-rangebar-area:hover) .apexcharts-rangebar-area:not(:hover),
+.analytics-page .apexcharts-pie:has(.apexcharts-pie-area:hover) .apexcharts-pie-area:not(:hover) {
+  opacity: 0.45;
+}
+
+.analytics-page .apexcharts-area-series .apexcharts-series .apexcharts-line {
+  filter: drop-shadow(0 3px 4px rgba(27, 42, 68, 0.12));
+}
+
+.analytics-page .apexcharts-xaxistooltip,
+.analytics-page .apexcharts-yaxistooltip {
+  display: none;
+}
+
+.analytics-page .apexcharts-xcrosshairs {
+  stroke: rgba(27, 42, 68, 0.22);
+  stroke-dasharray: 3 3;
+}
+
+.analytics-page .apexcharts-point-annotations text {
+  font-variant-numeric: tabular-nums;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .analytics-page .apexcharts-canvas { animation: none; }
+  .analytics-page :is(.apexcharts-bar-area, .apexcharts-pie-area, .apexcharts-area, .apexcharts-rangebar-area) { transition: none; }
+}
+
+/* Frosted glass tooltip for every analytics chart */
+.analytics-page .apexcharts-tooltip.apexcharts-theme-light {
+  background: rgba(255, 255, 255, 0.82);
+  border: 1px solid rgba(255, 255, 255, 0.9);
+  border-radius: 12px;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.8) inset, 0 14px 34px -12px rgba(27, 42, 68, 0.32);
+  backdrop-filter: blur(14px) saturate(1.4);
+  -webkit-backdrop-filter: blur(14px) saturate(1.4);
+  color: var(--text-primary);
+  transition: transform 0.12s ease, opacity 0.12s ease;
+}
+
+.analytics-page .apexcharts-tooltip.apexcharts-theme-light .apexcharts-tooltip-title {
+  background: transparent;
+  border-bottom: 1px solid rgba(27, 42, 68, 0.06);
+  font-weight: 700;
+  font-size: 12px;
+}
+
+.analytics-page .apexcharts-tooltip-text-y-value {
+  font-weight: 700;
+}
+
+/* ── In-card building blocks (ui.tsx) ──────────────────────── */
+
+.an-tone--blue  { --tone: #2f6fb8; --tone-soft: #eaf2fc; }
+.an-tone--mint  { --tone: #2a9a74; --tone-soft: #e6f5ef; }
+.an-tone--rose  { --tone: #c2414b; --tone-soft: #fcebed; }
+.an-tone--amber { --tone: #b9832a; --tone-soft: #fbf2e1; }
+.an-tone--slate { --tone: #4a5872; --tone-soft: #eef2f6; }
+
+.an-rowicon {
+  width: 36px;
+  height: 36px;
+  border-radius: 12px;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--tone);
+  background: linear-gradient(150deg, #fff, var(--tone-soft));
+  border: 1px solid color-mix(in srgb, var(--tone) 14%, transparent);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+.an-rowicon .material-icons-round { font-size: 18px; }
+
+.an-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 700;
+  line-height: 1.4;
+  white-space: nowrap;
+  color: var(--tone);
+  background: var(--tone-soft);
+  font-variant-numeric: tabular-nums;
+}
+
+.an-pill__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.an-meter {
+  display: block;
+  width: 100%;
+  height: 6px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--tone) 12%, transparent);
+}
+
+.an-meter__fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--tone) 70%, #fff), var(--tone));
+  transform-origin: left;
+  animation: anGrowX 0.8s var(--ease, ease) backwards;
+}
+
+.an-metric {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  padding: 11px 13px;
+  border-radius: 14px;
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.85), rgba(241, 245, 250, 0.75));
+  border: 1px solid rgba(27, 42, 68, 0.06);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+.an-metric__label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.an-metric__icon {
+  font-size: 14px !important;
+  color: var(--tone);
+}
+
+.an-metric__value {
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.an-callout {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 11px 13px;
+  border-radius: 14px;
+  background: linear-gradient(150deg, rgba(255, 255, 255, 0.7), var(--tone-soft));
+  border: 1px solid color-mix(in srgb, var(--tone) 16%, transparent);
+}
+
+.an-callout__icon {
+  font-size: 18px !important;
+  color: var(--tone);
+  margin-top: 1px;
+}
+
+.an-callout__text {
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: color-mix(in srgb, var(--tone) 55%, var(--text-primary));
+  font-weight: 500;
+}
+
+.an-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 28px 16px;
+  text-align: center;
+  border-radius: 16px;
+  background:
+    radial-gradient(240px 140px at 50% 30%, rgba(150, 195, 240, 0.18), transparent 70%),
+    rgba(255, 255, 255, 0.45);
+  border: 1px dashed rgba(47, 111, 184, 0.18);
+}
+
+.an-empty__badge {
+  position: relative;
+  width: 58px;
+  height: 58px;
+  margin-bottom: 6px;
+  border-radius: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #2f6fb8;
+  background: linear-gradient(150deg, #fff, #e3eefb);
+  box-shadow: 0 10px 24px -10px rgba(47, 111, 184, 0.45), inset 0 1px 0 #fff;
+}
+
+.an-empty__badge .material-icons-round { font-size: 28px; }
+
+.an-empty__ring {
+  position: absolute;
+  inset: -9px;
+  border-radius: 24px;
+  border: 1px dashed rgba(47, 111, 184, 0.25);
+}
+
+.an-empty__title {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.an-empty__hint {
+  max-width: 280px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-muted);
+}
+
+/* List rows */
+.an-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.an-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.6);
+  border: 1px solid rgba(27, 42, 68, 0.05);
+  transition: background 0.15s, box-shadow 0.2s;
+}
+
+.an-row:hover {
+  background: #fff;
+  box-shadow: 0 8px 20px -14px rgba(27, 42, 68, 0.35);
+}
+
+.an-row__main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.an-row__title {
+  font-size: 13.5px;
+  font-weight: 650;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.an-row__sub {
+  font-size: 11.5px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.an-row__end {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.an-rank {
+  width: 26px;
+  height: 26px;
+  border-radius: 9px;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--text-secondary);
+  background: rgba(27, 42, 68, 0.05);
+}
+
+.an-rank--1 { color: #fff; background: linear-gradient(150deg, #e98b8f, #c2414b); }
+.an-rank--2 { color: #fff; background: linear-gradient(150deg, #f0be6c, #b9832a); }
+.an-rank--3 { color: #fff; background: linear-gradient(150deg, #7fb0e6, #2f6fb8); }
+
+.an-bigstat {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.an-bigstat__value {
+  font-size: 30px;
+  font-weight: 750;
+  letter-spacing: -0.04em;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+}
+
+.an-bigstat__label {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.an-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 8px;
+}
+
+/* Hero figure at the top of a card */
+.an-hero {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  background:
+    radial-gradient(220px 120px at 100% 0%, rgba(120, 175, 235, 0.28), transparent 70%),
+    linear-gradient(150deg, #f4f9ff, #e3eefb);
+  border: 1px solid rgba(47, 111, 184, 0.12);
+}
+
+.an-hero__icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 14px;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  background: linear-gradient(145deg, #6fa4dd, #2f6fb8);
+  box-shadow: 0 8px 18px -8px rgba(47, 111, 184, 0.8), inset 0 1px 0 rgba(255, 255, 255, 0.35);
+}
+
+.an-hero__icon .material-icons-round { font-size: 22px; }
+
+.an-hero__label {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: #4a6f9c;
+}
+
+.an-hero__value {
+  font-size: 28px;
+  font-weight: 750;
+  letter-spacing: -0.04em;
+  line-height: 1.15;
+  color: #1b2a44;
+  font-variant-numeric: tabular-nums;
+}
+
+.an-hero__sub {
+  font-size: 12px;
+  color: #5f7799;
+}
+
+/* Filled / unfilled split bar */
+.an-split {
+  display: flex;
+  gap: 2px;
+  height: 8px;
+  width: 100%;
+  border-radius: 999px;
+  background: rgba(27, 42, 68, 0.05);
+  overflow: hidden;
+}
+
+.an-split__ok,
+.an-split__gap {
+  display: block;
+  height: 100%;
+  transition: width 0.12s linear;
+}
+
+.an-split__ok {
+  border-radius: 999px 0 0 999px;
+  background: linear-gradient(90deg, #6cc3a3, #2a9a74);
+}
+
+.an-split__gap {
+  border-radius: 0 999px 999px 0;
+  background: repeating-linear-gradient(135deg, #e98b8f 0 4px, #f3b3b6 4px 8px);
+}
+
+/* Segmented share bar + colour swatch for legends */
+.an-stack {
+  display: flex;
+  gap: 3px;
+  height: 14px;
+  width: 100%;
+}
+
+.an-stack > span {
+  display: block;
+  height: 100%;
+  min-width: 4px;
+  border-radius: 6px;
+  transition: width 0.12s linear;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35);
+}
+
+.an-swatch {
+  width: 12px;
+  height: 36px;
+  border-radius: 6px;
+  flex-shrink: 0;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.4);
+}
+
+/* Custom chart tooltip (rendered by ApexCharts as HTML) */
+.an-tip {
+  padding: 10px 12px;
+  min-width: 180px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.an-tip__title {
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: 6px;
+}
+
+.an-tip__row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  line-height: 1.7;
+}
+
+.an-tip__row b {
+  margin-left: auto;
+  padding-left: 12px;
+  color: var(--text-primary);
+}
+
+.an-tip__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.9);
+}
+
+.an-tip__foot {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid rgba(27, 42, 68, 0.07);
+  color: var(--text-muted);
+}
+
+/* Second line of a two-line axis category (counts under a role name) */
+.analytics-page .apexcharts-yaxis-label tspan:nth-child(2) {
+  fill: #7b879b;
+  font-weight: 500;
+  font-size: 11px;
+}
+
+/* KPI figures count up without the digits jittering in width */
+.an-count {
+  font-variant-numeric: tabular-nums;
+}
+
+.analytics-page .apexcharts-legend-series {
+  display: inline-flex !important;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Bar charts: the dimmed neighbours carry focus, so drop ApexCharts' column box */
+.analytics-page svg:has(.apexcharts-bar-series, .apexcharts-rangebar-series) .apexcharts-xcrosshairs {
+  display: none;
+}

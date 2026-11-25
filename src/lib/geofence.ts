@@ -21,7 +21,6 @@ export type PlaceResult = {
     kind: string;
     center: LatLng;
     bounds: [LatLng, LatLng] | null;
-    outline: LatLng[] | null;
 };
 
 const EARTH_RADIUS_M = 6371008.8;
@@ -144,65 +143,111 @@ export function zonesToGeoJson(zones: GeofenceZone[], facility: { id: string; na
     };
 }
 
-/* ── Place search (MapTiler geocoding) ───────────────────────── */
+/* ── Place search ────────────────────────────────────────────────
+ * Two providers, queried together: Mapbox Search Box knows named places (hospitals,
+ * clinics, schools), while MapTiler (OpenStreetMap) covers Ghana's suburbs and streets,
+ * which Mapbox's data mostly lacks. */
 
-type GeoJsonGeometry = { type?: string; coordinates?: unknown };
+/** Search is limited to these ISO country codes (Helix facilities are in Ghana). */
+export const SEARCH_COUNTRIES = 'gh';
+
+/** Minimal shape of a Mapbox Search Box `forward` feature that this page reads. */
+export type SearchFeatureLike = {
+    geometry?: { type?: string; coordinates?: unknown };
+    properties?: {
+        mapbox_id?: string;
+        name?: string;
+        full_address?: string;
+        place_formatted?: string;
+        feature_type?: string;
+        bbox?: number[];
+        poi_category?: string[];
+    };
+};
 
 /** Minimal shape of a MapTiler geocoding feature that this page reads. */
-export type GeocodingFeatureLike = {
+export type MapTilerFeatureLike = {
     id?: string | number;
     text?: string;
     place_name?: string;
-    place_type_name?: string[];
     place_type?: string[];
+    place_type_name?: string[];
     center?: number[];
     bbox?: number[];
-    geometry?: GeoJsonGeometry;
-    properties?: Record<string, unknown>;
 };
 
-/** Largest outer ring of a (Multi)Polygon GeoJSON geometry, as unclosed lat/lng points. */
-function outlineFromGeoJson(geo: GeoJsonGeometry | undefined): LatLng[] | null {
-    if (!geo || !Array.isArray(geo.coordinates)) return null;
-    const rings: unknown[] =
-        geo.type === 'Polygon' ? [geo.coordinates[0]]
-            : geo.type === 'MultiPolygon' ? (geo.coordinates as unknown[][]).map(poly => poly?.[0])
-                : [];
-    let best: LatLng[] | null = null;
-    let bestArea = 0;
-    for (const ring of rings) {
-        if (!Array.isArray(ring)) continue;
-        const pts = ring
-            .filter((c): c is [number, number] => Array.isArray(c) && typeof c[0] === 'number' && typeof c[1] === 'number')
-            .map(([lng, lat]) => [lat, lng] as LatLng);
-        if (pts.length > 1 && pts[0][0] === pts[pts.length - 1][0] && pts[0][1] === pts[pts.length - 1][1]) pts.pop();
-        if (pts.length < 3) continue;
-        const area = polygonAreaM2(pts);
-        if (area > bestArea) {
-            best = pts;
-            bestArea = area;
-        }
-    }
-    // Very large outlines (towns, regions) are not useful as a facility fence.
-    return best && bestArea <= 25_000_000 ? best : null;
+const KIND_LABELS: Record<string, string> = {
+    address: 'street', place: 'area', locality: 'area', neighbourhood: 'neighbourhood',
+    neighborhood: 'neighbourhood', county: 'district', municipality: 'town', poi: '',
+};
+
+/** bbox is [w, s, e, n]; points with no extent come back as a zero-size box. */
+function boundsFromBbox(bbox: unknown): [LatLng, LatLng] | null {
+    const bb = Array.isArray(bbox) && bbox.length === 4 && bbox.every(Number.isFinite) ? bbox as number[] : null;
+    return bb && (bb[0] !== bb[2] || bb[1] !== bb[3]) ? [[bb[1], bb[0]], [bb[3], bb[2]]] : null;
 }
 
-export function featuresToPlaces(features: GeocodingFeatureLike[]): PlaceResult[] {
+export function mapboxToPlaces(features: SearchFeatureLike[]): PlaceResult[] {
+    return features.flatMap((f, idx) => {
+        const coords = Array.isArray(f.geometry?.coordinates) ? f.geometry.coordinates as number[] : [];
+        const [lng, lat] = coords;
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) return [];
+        const p = f.properties || {};
+        const type = p.feature_type || '';
+        return [{
+            id: `mb-${p.mapbox_id || `${idx}-${lat},${lng}`}`,
+            name: p.name || 'Unnamed place',
+            address: p.place_formatted || p.full_address || '',
+            kind: (p.poi_category?.[0] || (KIND_LABELS[type] ?? type)).replace(/_/g, ' '),
+            center: [lat, lng] as LatLng,
+            bounds: boundsFromBbox(p.bbox),
+        }];
+    });
+}
+
+export function maptilerToPlaces(features: MapTilerFeatureLike[]): PlaceResult[] {
     return features.flatMap((f, idx) => {
         const [lng, lat] = Array.isArray(f.center) ? f.center : [NaN, NaN];
         if (!Number.isFinite(lat) || !Number.isFinite(lng)) return [];
         const full = f.place_name || '';
         const name = f.text || full.split(',')[0] || 'Unnamed place';
-        const bb = Array.isArray(f.bbox) && f.bbox.length === 4 && f.bbox.every(Number.isFinite) ? f.bbox : null;
+        const type = f.place_type?.[0] || '';
         return [{
-            id: String(f.id ?? `${idx}-${lat},${lng}`),
+            id: `mt-${f.id ?? `${idx}-${lat},${lng}`}`,
             name,
             address: full.startsWith(name) ? full.slice(name.length).replace(/^,\s*/, '') : full,
-            kind: (f.place_type_name?.[0] || f.place_type?.[0] || '').replace(/_/g, ' '),
+            kind: (KIND_LABELS[type] ?? f.place_type_name?.[0] ?? type).replace(/_/g, ' '),
             center: [lat, lng] as LatLng,
-            // bbox is [w, s, e, n]; points with no extent come back as a zero-size box.
-            bounds: bb && (bb[0] !== bb[2] || bb[1] !== bb[3]) ? [[bb[1], bb[0]], [bb[3], bb[2]]] as [LatLng, LatLng] : null,
-            outline: outlineFromGeoJson(f.geometry),
+            bounds: boundsFromBbox(f.bbox),
         }];
     });
+}
+
+const normName = (n: string) => n.toLowerCase().replace(/[^a-z0-9]+/g, '');
+
+/**
+ * Closest name match first (exact, then prefix, then the rest). On a tie, Mapbox's named
+ * places lead, then areas and streets, then other places. The same name within ~3 km is
+ * shown once.
+ */
+export function mergePlaces(query: string, mapbox: PlaceResult[], maptiler: PlaceResult[], limit = 8): PlaceResult[] {
+    const q = normName(query);
+    const match = (p: PlaceResult) => {
+        const n = normName(p.name);
+        return n === q ? 0 : n.startsWith(q) ? 1 : 2;
+    };
+    const isArea = (p: PlaceResult) => !!p.bounds || ['area', 'street', 'neighbourhood', 'district', 'town'].includes(p.kind);
+    const tagged = [
+        ...mapbox.map(p => ({ p, tier: isArea(p) ? 1 : 0 })),
+        ...maptiler.map(p => ({ p, tier: isArea(p) ? 1 : 2 })),
+    ];
+    // Array.sort is stable, so each provider's own relevance order survives within a tier.
+    tagged.sort((a, b) => match(a.p) - match(b.p) || a.tier - b.tier);
+    const out: PlaceResult[] = [];
+    for (const { p } of tagged) {
+        if (out.some(o => normName(o.name) === normName(p.name) && distanceM(o.center, p.center) < 3000)) continue;
+        out.push(p);
+        if (out.length >= limit) break;
+    }
+    return out;
 }

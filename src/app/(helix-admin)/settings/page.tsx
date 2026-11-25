@@ -12,7 +12,7 @@ import { formatGhanaPhoneInput, isValidGhanaPhone } from '@/lib/phone';
 import { MacVibrancyToast, MacVibrancyToastPortal } from '@/components/MacVibrancyToast';
 import CriticalAlertSoundPicker from '@/components/settings/CriticalAlertSoundPicker';
 import { readCriticalAlertSound } from '@/lib/critical-alert-sound';
-import { HeroKpi, HeroKpis, SplitBar } from '@/components/glass/hero';
+import { usePortalMode, writePortalMode, type PortalMode } from '@/lib/portal-mode';
 import '@/components/glass/glass-page.css';
 import '@/components/glass/glass-kit.css';
 import '@/components/glass/staff-glass.css';
@@ -220,6 +220,54 @@ function readConversationRetentionMonths(raw: unknown): RetentionMonths {
     return null;
 }
 
+function Field({ label, hint, optional, wide, invalid, children }: {
+    label: string;
+    hint?: string;
+    optional?: boolean;
+    wide?: boolean;
+    invalid?: boolean;
+    children: React.ReactNode;
+}) {
+    return (
+        <label className={`sg-field${wide ? ' sg-field--wide' : ''}${invalid ? ' is-invalid' : ''}`}>
+            <span className="sg-field__label">
+                {label}
+                {optional && <span className="sg-field__optional">Optional</span>}
+            </span>
+            {children}
+            {hint && <span className="sg-field__hint">{hint}</span>}
+        </label>
+    );
+}
+
+function PasswordInput({ value, onChange, placeholder, autoComplete }: {
+    value: string;
+    onChange: (v: string) => void;
+    placeholder: string;
+    autoComplete: string;
+}) {
+    const [shown, setShown] = useState(false);
+    return (
+        <span className="sg-input-wrap">
+            <input
+                className="sg-input"
+                type={shown ? 'text' : 'password'}
+                value={value}
+                onChange={e => onChange(e.target.value)}
+                placeholder={placeholder}
+                autoComplete={autoComplete}
+            />
+            <button type="button" className="sg-input-wrap__btn" onClick={() => setShown(v => !v)} aria-label={shown ? 'Hide password' : 'Show password'}>
+                <span className="material-icons-round">{shown ? 'visibility_off' : 'visibility'}</span>
+            </button>
+        </span>
+    );
+}
+
+const SETTINGS_TABS = ['account', 'portal', 'facility', 'security', 'team'] as const;
+type SettingsTab = (typeof SETTINGS_TABS)[number];
+const isSettingsTab = (v: string): v is SettingsTab => (SETTINGS_TABS as readonly string[]).includes(v);
+
 function retentionLabel(months: RetentionMonths): string {
     if (months === null) return 'Off';
     return months === 1 ? '1 month' : `${months} months`;
@@ -316,6 +364,27 @@ export default function SettingsPage() {
     const showToast = (message: string, variant: 'success' | 'error' | 'info' = 'success') => {
         setToast({ message, variant });
         setTimeout(() => setToast(null), 2500);
+    };
+
+    const [pwCurrent, setPwCurrent] = useState('');
+    const [pwNew, setPwNew] = useState('');
+    const [pwConfirm, setPwConfirm] = useState('');
+    const pwChecks = [
+        { label: 'At least 8 characters', ok: pwNew.length >= 8 },
+        { label: 'One uppercase letter', ok: /[A-Z]/.test(pwNew) },
+        { label: 'One number', ok: /\d/.test(pwNew) },
+        { label: 'One special character', ok: /[^A-Za-z0-9]/.test(pwNew) },
+    ];
+    const pwScore = pwChecks.filter(c => c.ok).length;
+
+    const portalMode = usePortalMode();
+    const changePortalMode = (mode: PortalMode) => {
+        if (mode === portalMode) return;
+        if (!writePortalMode(mode)) {
+            showToast('This browser blocked saving the setting.', 'error');
+            return;
+        }
+        showToast(mode === 'scheduling' ? 'Sidebar now shows scheduling pages only' : 'Sidebar now shows all Helix pages', 'success');
     };
 
     const savePersonalProfile = async () => {
@@ -895,6 +964,42 @@ export default function SettingsPage() {
     );
     const otherSessionsCount = useMemo(() => sessions.filter(s => !s.current).length, [sessions]);
 
+    /* ── Section menu (the open section lives in the URL hash, e.g. /settings#security) ── */
+    const [tab, setTab] = useState<SettingsTab>('account');
+    useEffect(() => {
+        const syncFromHash = () => {
+            const id = window.location.hash.slice(1);
+            if (isSettingsTab(id)) setTab(id);
+        };
+        syncFromHash();
+        window.addEventListener('hashchange', syncFromHash);
+        return () => window.removeEventListener('hashchange', syncFromHash);
+    }, []);
+    const selectTab = (id: SettingsTab) => {
+        setTab(id);
+        window.history.replaceState(null, '', `#${id}`);
+    };
+
+    const adminCount = admins.length;
+    const navItems: Array<{ id: SettingsTab; icon: string; label: string; meta: string; attention?: string }> = [
+        { id: 'account', icon: 'account_circle', label: 'Account', meta: 'Profile and password' },
+        { id: 'portal', icon: 'dashboard_customize', label: 'Portal view', meta: portalMode === 'full' ? 'Full Helix' : 'Scheduling' },
+        {
+            id: 'facility',
+            icon: 'domain',
+            label: 'Facility',
+            meta: loadingSecurity ? 'Loading…' : `Screenshots\u00a0${screenshotsAllowed ? 'on' : 'off'} · Retention\u00a0${retentionLabel(retentionMonths).toLowerCase().replace(/ /g, '\u00a0')}`,
+        },
+        {
+            id: 'security',
+            icon: 'shield',
+            label: 'Security',
+            meta: loadingSecurity ? 'Loading…' : `2FA ${twoFactor ? 'on' : 'off'} · ${visibleSessions.length} session${visibleSessions.length === 1 ? '' : 's'}`,
+            attention: !loadingSecurity && !twoFactor ? 'Two-factor authentication is off' : undefined,
+        },
+        { id: 'team', icon: 'group', label: 'Team', meta: loadingAdmins ? 'Loading…' : `${adminCount} admin${adminCount === 1 ? '' : 's'}` },
+    ];
+
     return (
         <>
             {toast && (
@@ -906,506 +1011,487 @@ export default function SettingsPage() {
             <div className="app-main gx-page st-page">
                 <TopBar title="Settings" subtitle="User & System Preferences" />
 
-                <main style={{ flex: 1, overflow: 'auto', padding: '28px 28px 56px', background: 'var(--bg-900)' }}>
-                    {(() => {
-                        const adminParts = [
-                            { label: 'Active', n: admins.filter(a => a.status === 'Active').length, color: '#2a9a74' },
-                            { label: 'Invited', n: admins.filter(a => a.status === 'Invited').length, color: '#5a92d6' },
-                            { label: 'Disabled', n: admins.filter(a => a.status === 'Disabled').length, color: '#9aa4b4' },
-                        ];
-                        const timeoutLabel: Record<string, string> = { '15': '15 min', '30': '30 min', '60': '1 hour', '120': '2 hours', never: 'never' };
-                        const retentionSteps = RETENTION_OPTIONS.filter(o => o.value !== null) as Array<{ value: 1 | 3 | 6; label: string }>;
-                        return (
-                            <div style={{ maxWidth: 880, margin: '0 auto' }}>
-                            <HeroKpis label="Settings overview" mark="settings">
-                                <HeroKpi
-                                    tone="navy"
-                                    icon="admin_panel_settings"
-                                    label="Facility admins"
-                                    value={loadingAdmins ? '—' : admins.length.toLocaleString()}
-                                    art={!loadingAdmins && admins.length > 0 ? (
-                                        <SplitBar label={adminParts.map(p => `${p.n} ${p.label.toLowerCase()}`).join(', ')} parts={adminParts} />
-                                    ) : undefined}
-                                    foot={loadingAdmins ? 'With access to this facility' : `${adminParts[0].n} active · ${adminParts[1].n} invited`}
-                                />
-                                <HeroKpi
-                                    tone="sky"
-                                    icon="devices"
-                                    label="Active sessions"
-                                    value={loadingSecurity ? '—' : visibleSessions.length.toLocaleString()}
-                                    art={(
-                                        <span className={`sx-radar${visibleSessions.length > 0 ? ' is-live' : ''}`} aria-hidden>
-                                            <span className="sx-radar__ring" />
-                                            <span className="sx-radar__ring sx-radar__ring--2" />
-                                            <span className="sx-radar__dot" />
+                <main className="sg-main">
+                    <div className="sg-layout">
+                        <aside className="sg-nav" aria-label="Settings sections">
+                            <div className="sg-nav__list" role="tablist" aria-orientation="vertical">
+                                {navItems.map(item => (
+                                    <button
+                                        key={item.id}
+                                        type="button"
+                                        role="tab"
+                                        id={`settings-tab-${item.id}`}
+                                        aria-selected={tab === item.id}
+                                        aria-controls="settings-panel"
+                                        className={`sg-nav__item${tab === item.id ? ' is-on' : ''}`}
+                                        onClick={() => selectTab(item.id)}
+                                    >
+                                        <span className="sg-nav__icon"><span className="material-icons-round">{item.icon}</span></span>
+                                        <span className="sg-nav__text">
+                                            <span className="sg-nav__label">{item.label}</span>
+                                            {item.meta ? <span className="sg-nav__meta">{item.meta}</span> : null}
                                         </span>
-                                    )}
-                                    foot={otherSessionsCount > 0 ? `${otherSessionsCount} other device${otherSessionsCount === 1 ? '' : 's'} signed in` : 'Only this device'}
-                                />
-                                <HeroKpi
-                                    tone={twoFactor ? 'mint' : 'rose'}
-                                    icon={twoFactor ? 'verified_user' : 'gpp_maybe'}
-                                    label="Two-factor"
-                                    value={loadingSecurity ? '—' : twoFactor ? 'On' : 'Off'}
-                                    art={(
-                                        <svg className="hx-shield st-shield" viewBox="0 0 64 64" aria-hidden>
-                                            <path d="M32 6 L52 14 V30 C52 44 43 53 32 58 C21 53 12 44 12 30 V14 Z" className="hx-shield__body" />
-                                            {twoFactor && <path d="M24 32 L30 38 L41 26" className="hx-shield__check" />}
-                                        </svg>
-                                    )}
-                                    foot={`Auto sign-out: ${timeoutLabel[sessionTimeout] ?? `${sessionTimeout} min`}`}
-                                />
-                                <HeroKpi
-                                    tone="amber"
-                                    icon="auto_delete"
-                                    label="Chat retention"
-                                    value={loadingSecurity ? '—' : retentionMonths === null ? 'Off' : (
-                                        <>
-                                            {retentionMonths}
-                                            <span style={{ marginLeft: 5, fontSize: 14, fontWeight: 650, letterSpacing: 0, color: 'var(--text-muted)' }}>
-                                                {retentionMonths === 1 ? 'month' : 'months'}
+                                        {item.attention ? <span className="sg-nav__dot" title={item.attention} aria-label={item.attention} /> : null}
+                                    </button>
+                                ))}
+                            </div>
+                            <button type="button" className="sg-nav__logout" onClick={handleLogout}>
+                                <span className="material-icons-round">logout</span>
+                                Log out
+                            </button>
+                        </aside>
+
+                        <div id="settings-panel" role="tabpanel" aria-labelledby={`settings-tab-${tab}`} className="sg-panel fade-in" key={tab}>
+                        {tab === 'account' && (
+                            <>
+                                {/* Profile */}
+                                <div className="settings-section gx-feature">
+                                    <span className="gx-feature__glow" aria-hidden />
+                                    <span className="material-icons-round gx-mark" aria-hidden>account_circle</span>
+                                    <div className="settings-section__header">
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                                            <div className="st-avatar">
+                                                {initials}
+                                            </div>
+                                            <div>
+                                                <h3 className="settings-section__title" style={{ fontSize: 15 }}>{displayName}</h3>
+                                                <p className="settings-section__desc">{email || 'No email on file'}</p>
+                                            </div>
+                                        </div>
+                                        <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                                            <span className="gx-tag">{userRole}</span>
+                                            {jobTitle && (
+                                                <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 6 }}>{jobTitle}</div>
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Password */}
+                                <div className="settings-section">
+                                    <span className="material-icons-round gx-mark" aria-hidden>password</span>
+                                    <div className="settings-section__header">
+                                        <div>
+                                            <h3 className="settings-section__title st-title"><span className="gx-ico"><span className="material-icons-round">password</span></span>Password</h3>
+                                            <p className="settings-section__desc">Choose a strong, unique password to keep your account secure.</p>
+                                        </div>
+                                    </div>
+                                    <div className="sg-form">
+                                        <Field label="Current password">
+                                            <PasswordInput value={pwCurrent} onChange={setPwCurrent} placeholder="Enter your current password" autoComplete="current-password" />
+                                        </Field>
+                                        <div className="sg-form__grid">
+                                            <Field label="New password">
+                                                <PasswordInput value={pwNew} onChange={setPwNew} placeholder="At least 8 characters" autoComplete="new-password" />
+                                            </Field>
+                                            <Field
+                                                label="Confirm new password"
+                                                hint={pwConfirm && pwConfirm !== pwNew ? 'Passwords don’t match' : undefined}
+                                                invalid={!!pwConfirm && pwConfirm !== pwNew}
+                                            >
+                                                <PasswordInput value={pwConfirm} onChange={setPwConfirm} placeholder="Type it again" autoComplete="new-password" />
+                                            </Field>
+                                        </div>
+                                        <div className="sg-strength" data-level={pwScore}>
+                                            <div className="sg-strength__bars" aria-hidden>
+                                                {[1, 2, 3, 4].map(n => <span key={n} className={n <= pwScore ? 'is-on' : undefined} />)}
+                                            </div>
+                                            <span className="sg-strength__label">{pwNew ? ['Too weak', 'Weak', 'Fair', 'Good', 'Strong'][pwScore] : 'Password strength'}</span>
+                                        </div>
+                                        <ul className="sg-checks" aria-label="Password requirements">
+                                            {pwChecks.map(c => (
+                                                <li key={c.label} className={c.ok ? 'is-ok' : undefined}>
+                                                    <span className="material-icons-round" aria-hidden>{c.ok ? 'check_circle' : 'radio_button_unchecked'}</span>
+                                                    {c.label}
+                                                </li>
+                                            ))}
+                                        </ul>
+                                        <div className="sg-form__actions">
+                                            <button
+                                                className="btn btn-primary btn-sm"
+                                                disabled={!pwCurrent || pwScore < 4 || pwNew !== pwConfirm}
+                                                onClick={() => showToast('Password updated')}
+                                            >
+                                                <span className="material-icons-round" style={{ fontSize: 14 }}>lock_reset</span>
+                                                Update password
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </>
+                        )}
+                        {tab === 'portal' && (
+                            <>
+                                {/* Portal view (per-browser, per-facility; see src/lib/portal-mode.ts) */}
+                                <div className="settings-section">
+                                    <span className="material-icons-round gx-mark" aria-hidden>dashboard_customize</span>
+                                    <div className="settings-section__header">
+                                        <div>
+                                            <h3 className="settings-section__title st-title"><span className="gx-ico"><span className="material-icons-round">dashboard_customize</span></span>Portal view</h3>
+                                            <p className="settings-section__desc">Choose which pages appear in the sidebar on this device.</p>
+                                        </div>
+                                    </div>
+                                    <div className="settings-row settings-row--wrap">
+                                        <div style={{ marginBottom: 12 }}>
+                                            <div className="settings-row__label">Show</div>
+                                            <div className="settings-row__desc">
+                                                {portalMode === 'full'
+                                                    ? 'Full Helix: every admin page, including escalation, patients and messaging.'
+                                                    : 'Scheduling: only the pages you need to run schedules (home, departments, roles, staff, scheduling, audit log). Other pages stay reachable by link.'}
+                                            </div>
+                                        </div>
+                                        <div className="settings-pill-group" role="radiogroup" aria-label="Portal view" style={{ alignSelf: 'flex-start' }}>
+                                            {([['full', 'Full Helix'], ['scheduling', 'Scheduling']] as const).map(([value, label]) => (
+                                                <button
+                                                    key={value}
+                                                    type="button"
+                                                    role="radio"
+                                                    aria-checked={portalMode === value}
+                                                    onClick={() => changePortalMode(value)}
+                                                    className={`settings-pill${portalMode === value ? ' active' : ''}`}
+                                                >
+                                                    {label}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+                                </div>
+                            </>
+                        )}
+                        {tab === 'facility' && (
+                            <>
+                                {/* Facility */}
+                                <div className="settings-section">
+                                    <span className="material-icons-round gx-mark" aria-hidden>domain</span>
+                                    <div className="settings-section__header">
+                                        <div>
+                                            <h3 className="settings-section__title st-title"><span className="gx-ico"><span className="material-icons-round">domain</span></span>Facility</h3>
+                                            <p className="settings-section__desc">Preferences that apply to every staff member at this facility.</p>
+                                        </div>
+                                    </div>
+                                    {loadingSecurity ? (
+                                        <div className="settings-row">
+                                            <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Loading facility…</span>
+                                        </div>
+                                    ) : !facilityId ? (
+                                        <div className="settings-row">
+                                            <span style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.55 }}>
+                                                Couldn&apos;t resolve your facility from your session. Use the facility switcher if your organization has one, or sign in again. If this persists, contact support.
                                             </span>
+                                        </div>
+                                    ) : (
+                                        <>
+                                            {/* screenshots (GET/PUT /facilities/{id} screenshots_allowed) */}
+                                            <div className="settings-row">
+                                                <div>
+                                                    <div className="settings-row__label">Screenshot capture</div>
+                                                    <div className="settings-row__desc">
+                                                        {savingScreenshots
+                                                            ? 'Saving…'
+                                                            : screenshotsAllowed
+                                                                ? 'Staff can capture screenshots in apps that respect this setting.'
+                                                                : 'Screenshot capture is blocked in apps that respect this setting.'}
+                                                    </div>
+                                                </div>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                                                    <span className={`badge ${screenshotsAllowed ? 'badge-success' : 'badge-neutral'}`} style={{ fontSize: 10 }}>
+                                                        {screenshotsAllowed ? 'Allowed' : 'Blocked'}
+                                                    </span>
+                                                    <label className="toggle">
+                                                        <input
+                                                            type="checkbox"
+                                                            checked={screenshotsAllowed}
+                                                            disabled={savingScreenshots}
+                                                            onChange={toggleScreenshotsAllowed}
+                                                        />
+                                                        <span className="toggle-slider" />
+                                                    </label>
+                                                </div>
+                                            </div>
+
+                                            {/* conversation retention */}
+                                            <div className="settings-row settings-row--wrap">
+                                                <div style={{ marginBottom: 12 }}>
+                                                    <div className="settings-row__label">Conversation retention</div>
+                                                    <div className="settings-row__desc">
+                                                        Choose how long inactive conversations are kept before Helix removes them from everyone’s inbox.
+                                                        Activity means messaging — the clock resets when someone sends a message.
+                                                    </div>
+                                                </div>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
+                                                    <div className="settings-pill-group" role="radiogroup" aria-label="Conversation retention period">
+                                                        {RETENTION_OPTIONS.map((opt) => {
+                                                            const selected = retentionMonths === opt.value;
+                                                            return (
+                                                                <button
+                                                                    key={String(opt.value)}
+                                                                    type="button"
+                                                                    role="radio"
+                                                                    aria-checked={selected}
+                                                                    disabled={savingRetention}
+                                                                    onClick={() => requestConversationRetentionChange(opt.value)}
+                                                                    className={`settings-pill${selected ? ' active' : ''}`}
+                                                                >
+                                                                    {opt.label}
+                                                                </button>
+                                                            );
+                                                        })}
+                                                    </div>
+                                                    {savingRetention && (
+                                                        <span style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>Saving…</span>
+                                                    )}
+                                                </div>
+                                            </div>
+
+                                            {/* critical alert sound */}
+                                            <div className="settings-row settings-row--wrap" style={{ alignItems: 'stretch' }}>
+                                                <div style={{ marginBottom: 14 }}>
+                                                    <div className="settings-row__label">Critical alert sound</div>
+                                                    <div className="settings-row__desc">
+                                                        Choose the alarm mobile staff hear for critical messages and escalations at this facility.
+                                                        Preview a sound before you switch. Until you pick one, phones use the default alarm.
+                                                        Code blue keeps its own sound.
+                                                    </div>
+                                                </div>
+                                                <CriticalAlertSoundPicker
+                                                    facilityId={facilityId}
+                                                    value={criticalAlertSound}
+                                                    onChange={setCriticalAlertSound}
+                                                    onNotify={showToast}
+                                                />
+                                            </div>
                                         </>
                                     )}
-                                    art={(
-                                        <span className="st-retention" role="img" aria-label={`Retention: ${retentionLabel(retentionMonths)}`}>
-                                            {retentionSteps.map((o, i) => (
-                                                <span
-                                                    key={o.value}
-                                                    title={o.label}
-                                                    className={retentionMonths !== null && o.value <= retentionMonths ? 'is-on' : undefined}
-                                                    style={{ height: `${40 + i * 30}%` }}
-                                                />
-                                            ))}
-                                        </span>
-                                    )}
-                                    foot={screenshotsAllowed ? 'Screenshots allowed' : 'Screenshots blocked'}
-                                />
-                            </HeroKpis>
-                            </div>
-                        );
-                    })()}
-
-                    <div className="fade-in" style={{ maxWidth: 880, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 20 }}>
-
-                        {/* Profile */}
-                        <div className="settings-section gx-feature">
-                            <span className="gx-feature__glow" aria-hidden />
-                            <span className="material-icons-round gx-mark" aria-hidden>account_circle</span>
-                            <div className="settings-section__header">
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-                                    <div className="st-avatar">
-                                        {initials}
+                                </div>
+                            </>
+                        )}
+                        {tab === 'security' && (
+                            <>
+                                {/* Security */}
+                                <div className="settings-section">
+                                    <span className="material-icons-round gx-mark" aria-hidden>shield</span>
+                                    <div className="settings-section__header">
+                                        <div>
+                                            <h3 className="settings-section__title st-title"><span className="gx-ico"><span className="material-icons-round">shield</span></span>Security</h3>
+                                            <p className="settings-section__desc">Protect your account and control how long sessions stay active.</p>
+                                        </div>
                                     </div>
-                                    <div>
-                                        <h3 className="settings-section__title" style={{ fontSize: 15 }}>{displayName}</h3>
-                                        <p className="settings-section__desc">{email || 'No email on file'}</p>
-                                    </div>
-                                </div>
-                                <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                                    <span className="gx-tag">{userRole}</span>
-                                    {jobTitle && (
-                                        <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 6 }}>{jobTitle}</div>
-                                    )}
-                                </div>
-                            </div>
-                        </div>
-
-                        {/* Facility */}
-                        <div className="settings-section">
-                            <span className="material-icons-round gx-mark" aria-hidden>domain</span>
-                            <div className="settings-section__header">
-                                <div>
-                                    <h3 className="settings-section__title st-title"><span className="gx-ico"><span className="material-icons-round">domain</span></span>Facility</h3>
-                                    <p className="settings-section__desc">Preferences that apply to every staff member at this facility.</p>
-                                </div>
-                            </div>
-                            {loadingSecurity ? (
-                                <div className="settings-row">
-                                    <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Loading facility…</span>
-                                </div>
-                            ) : !facilityId ? (
-                                <div className="settings-row">
-                                    <span style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.55 }}>
-                                        Couldn&apos;t resolve your facility from your session. Use the facility switcher if your organization has one, or sign in again. If this persists, contact support.
-                                    </span>
-                                </div>
-                            ) : (
-                                <>
-                                    {/* screenshots (GET/PUT /facilities/{id} screenshots_allowed) */}
                                     <div className="settings-row">
                                         <div>
-                                            <div className="settings-row__label">Screenshot capture</div>
+                                            <div className="settings-row__label">Two-factor authentication</div>
                                             <div className="settings-row__desc">
-                                                {savingScreenshots
-                                                    ? 'Saving…'
-                                                    : screenshotsAllowed
-                                                        ? 'Staff can capture screenshots in apps that respect this setting.'
-                                                        : 'Screenshot capture is blocked in apps that respect this setting.'}
+                                                {twoFactor ? 'Your account is protected with an extra verification step.' : 'Add an extra verification step when signing in.'}
                                             </div>
                                         </div>
                                         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                                            <span className={`badge ${screenshotsAllowed ? 'badge-success' : 'badge-neutral'}`} style={{ fontSize: 10 }}>
-                                                {screenshotsAllowed ? 'Allowed' : 'Blocked'}
+                                            <span className={`badge ${twoFactor ? 'badge-success' : 'badge-neutral'}`} style={{ fontSize: 10 }}>
+                                                {twoFactor ? 'Enabled' : 'Disabled'}
                                             </span>
                                             <label className="toggle">
-                                                <input
-                                                    type="checkbox"
-                                                    checked={screenshotsAllowed}
-                                                    disabled={savingScreenshots}
-                                                    onChange={toggleScreenshotsAllowed}
-                                                />
+                                                <input type="checkbox" checked={twoFactor} onChange={toggleTwoFactor} />
                                                 <span className="toggle-slider" />
                                             </label>
                                         </div>
                                     </div>
-
-                                    {/* conversation retention */}
-                                    <div className="settings-row settings-row--wrap">
-                                        <div style={{ marginBottom: 12 }}>
-                                            <div className="settings-row__label">Conversation retention</div>
-                                            <div className="settings-row__desc">
-                                                Choose how long inactive conversations are kept before Helix removes them from everyone’s inbox.
-                                                Activity means messaging — the clock resets when someone sends a message.
-                                            </div>
+                                    <div className="settings-row">
+                                        <div>
+                                            <div className="settings-row__label">Auto sign-out</div>
+                                            <div className="settings-row__desc">Sign out automatically after a period of inactivity.</div>
                                         </div>
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
-                                            <div className="settings-pill-group" role="radiogroup" aria-label="Conversation retention period">
-                                                {RETENTION_OPTIONS.map((opt) => {
-                                                    const selected = retentionMonths === opt.value;
-                                                    return (
-                                                        <button
-                                                            key={String(opt.value)}
-                                                            type="button"
-                                                            role="radio"
-                                                            aria-checked={selected}
-                                                            disabled={savingRetention}
-                                                            onClick={() => requestConversationRetentionChange(opt.value)}
-                                                            className={`settings-pill${selected ? ' active' : ''}`}
-                                                        >
-                                                            {opt.label}
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                            <div style={{ width: 150 }}>
+                                                <CustomSelect
+                                                    value={sessionTimeout}
+                                                    onChange={v => setSessionTimeout(v)}
+                                                    options={[
+                                                        { label: '15 minutes', value: '15' },
+                                                        { label: '30 minutes', value: '30' },
+                                                        { label: '1 hour', value: '60' },
+                                                        { label: '2 hours', value: '120' },
+                                                        { label: 'Never', value: 'never' },
+                                                    ]}
+                                                />
+                                            </div>
+                                            <button className="btn btn-primary btn-sm" onClick={saveSessionSettings} disabled={savingSecurity}>
+                                                {savingSecurity ? 'Saving…' : 'Save'}
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Active sessions */}
+                                <div className="settings-section">
+                                    <span className="material-icons-round gx-mark" aria-hidden>devices</span>
+                                    <div className="settings-section__header">
+                                        <div>
+                                            <h3 className="settings-section__title st-title"><span className="gx-ico"><span className="material-icons-round">devices</span></span>Active sessions</h3>
+                                            <p className="settings-section__desc">
+                                                Devices currently signed in to your account.
+                                                {!loadingSecurity && visibleSessions.length > 0 && ` ${visibleSessions.length} total.`}
+                                            </p>
+                                        </div>
+                                        {otherSessionsCount > 1 && (
+                                            <button className="btn btn-danger btn-sm" onClick={revokeAllOtherSessions} disabled={revokingAll}>
+                                                <span className="material-icons-round" style={{ fontSize: 13 }}>logout</span>
+                                                {revokingAll ? 'Revoking…' : `Revoke ${otherSessionsCount} others`}
+                                            </button>
+                                        )}
+                                    </div>
+                                    {loadingSecurity ? (
+                                        <div className="settings-row">
+                                            <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Loading sessions…</span>
+                                        </div>
+                                    ) : visibleSessions.length === 0 ? (
+                                        <div className="sg-empty">
+                                            <span className="material-icons-round" aria-hidden>devices_other</span>
+                                            No other devices are signed in.
+                                        </div>
+                                    ) : (
+                                        <ul className="sg-devices" style={visibleSessions.length > 6 ? { maxHeight: 380, overflowY: 'auto' } : undefined}>
+                                            {visibleSessions.map((s) => (
+                                                <li className={`sg-device${s.current ? ' is-current' : ''}`} key={s.id}>
+                                                    <span className="sg-device__icon">
+                                                        <span className="material-icons-round">{/iphone|android|mobile/i.test(s.device) ? 'phone_iphone' : 'laptop_mac'}</span>
+                                                    </span>
+                                                    <span className="sg-device__text">
+                                                        <span className="sg-device__name">
+                                                            {s.device}
+                                                            {s.current && <span className="sg-chip sg-chip--live">This device</span>}
+                                                        </span>
+                                                        <span className="sg-device__meta">{[s.location, s.time].filter(Boolean).join(' · ')}</span>
+                                                    </span>
+                                                    {!s.current && (
+                                                        <button type="button" className="sg-btn-danger" onClick={() => revokeSession(s.id)}>
+                                                            <span className="material-icons-round" aria-hidden>logout</span>
+                                                            Revoke
                                                         </button>
-                                                    );
-                                                })}
-                                            </div>
-                                            {savingRetention && (
-                                                <span style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>Saving…</span>
-                                            )}
+                                                    )}
+                                                </li>
+                                            ))}
+                                        </ul>
+                                    )}
+                                </div>
+                            </>
+                        )}
+                        {tab === 'team' && (
+                            <>
+                                {/* Team */}
+                                <div className="settings-section">
+                                    <span className="material-icons-round gx-mark" aria-hidden>groups</span>
+                                    <div className="settings-section__header">
+                                        <div>
+                                            <h3 className="settings-section__title st-title"><span className="gx-ico"><span className="material-icons-round">group</span></span>Team members</h3>
+                                            <p className="settings-section__desc">{admins.length} admin {admins.length === 1 ? 'user' : 'users'} with access to this facility.</p>
                                         </div>
+                                        {!showInvite && (
+                                            <button className="btn btn-primary btn-sm" onClick={() => setShowInvite(true)}>
+                                                <span className="material-icons-round" style={{ fontSize: 14 }}>person_add</span>
+                                                Invite admin
+                                            </button>
+                                        )}
                                     </div>
 
-                                    {/* critical alert sound */}
-                                    <div className="settings-row settings-row--wrap" style={{ alignItems: 'stretch' }}>
-                                        <div style={{ marginBottom: 14 }}>
-                                            <div className="settings-row__label">Critical alert sound</div>
-                                            <div className="settings-row__desc">
-                                                Choose the alarm mobile staff hear for critical messages and escalations at this facility.
-                                                Preview a sound before you switch. Until you pick one, phones use the default alarm.
-                                                Code blue keeps its own sound.
-                                            </div>
-                                        </div>
-                                        <CriticalAlertSoundPicker
-                                            facilityId={facilityId}
-                                            value={criticalAlertSound}
-                                            onChange={setCriticalAlertSound}
-                                            onNotify={showToast}
-                                        />
-                                    </div>
-                                </>
-                            )}
-                        </div>
-
-                        {/* Security */}
-                        <div className="settings-section">
-                            <span className="material-icons-round gx-mark" aria-hidden>shield</span>
-                            <div className="settings-section__header">
-                                <div>
-                                    <h3 className="settings-section__title st-title"><span className="gx-ico"><span className="material-icons-round">shield</span></span>Security</h3>
-                                    <p className="settings-section__desc">Protect your account and control how long sessions stay active.</p>
-                                </div>
-                                <button className="btn btn-secondary btn-sm" onClick={handleLogout}>
-                                    <span className="material-icons-round" style={{ fontSize: 13 }}>logout</span>
-                                    Log out
-                                </button>
-                            </div>
-                            <div className="settings-row">
-                                <div>
-                                    <div className="settings-row__label">Two-factor authentication</div>
-                                    <div className="settings-row__desc">
-                                        {twoFactor ? 'Your account is protected with an extra verification step.' : 'Add an extra verification step when signing in.'}
-                                    </div>
-                                </div>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                                    <span className={`badge ${twoFactor ? 'badge-success' : 'badge-neutral'}`} style={{ fontSize: 10 }}>
-                                        {twoFactor ? 'Enabled' : 'Disabled'}
-                                    </span>
-                                    <label className="toggle">
-                                        <input type="checkbox" checked={twoFactor} onChange={toggleTwoFactor} />
-                                        <span className="toggle-slider" />
-                                    </label>
-                                </div>
-                            </div>
-                            <div className="settings-row">
-                                <div>
-                                    <div className="settings-row__label">Auto sign-out</div>
-                                    <div className="settings-row__desc">Sign out automatically after a period of inactivity.</div>
-                                </div>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                    <div style={{ width: 150 }}>
-                                        <CustomSelect
-                                            value={sessionTimeout}
-                                            onChange={v => setSessionTimeout(v)}
-                                            options={[
-                                                { label: '15 minutes', value: '15' },
-                                                { label: '30 minutes', value: '30' },
-                                                { label: '1 hour', value: '60' },
-                                                { label: '2 hours', value: '120' },
-                                                { label: 'Never', value: 'never' },
-                                            ]}
-                                        />
-                                    </div>
-                                    <button className="btn btn-primary btn-sm" onClick={saveSessionSettings} disabled={savingSecurity}>
-                                        {savingSecurity ? 'Saving…' : 'Save'}
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-
-                        {/* Active sessions */}
-                        <div className="settings-section">
-                            <span className="material-icons-round gx-mark" aria-hidden>devices</span>
-                            <div className="settings-section__header">
-                                <div>
-                                    <h3 className="settings-section__title st-title"><span className="gx-ico"><span className="material-icons-round">devices</span></span>Active sessions</h3>
-                                    <p className="settings-section__desc">
-                                        Devices currently signed in to your account.
-                                        {!loadingSecurity && visibleSessions.length > 0 && ` ${visibleSessions.length} total.`}
-                                    </p>
-                                </div>
-                                {otherSessionsCount > 1 && (
-                                    <button className="btn btn-danger btn-sm" onClick={revokeAllOtherSessions} disabled={revokingAll}>
-                                        <span className="material-icons-round" style={{ fontSize: 13 }}>logout</span>
-                                        {revokingAll ? 'Revoking…' : `Revoke ${otherSessionsCount} others`}
-                                    </button>
-                                )}
-                            </div>
-                            {loadingSecurity ? (
-                                <div className="settings-row">
-                                    <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Loading sessions…</span>
-                                </div>
-                            ) : visibleSessions.length === 0 ? (
-                                <div className="settings-row">
-                                    <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>No active sessions found</span>
-                                </div>
-                            ) : (
-                                <div style={visibleSessions.length > 6 ? { maxHeight: 360, overflowY: 'auto' } : undefined}>
-                                    {visibleSessions.map((s) => (
-                                        <div className="settings-row" key={s.id}>
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
-                                                <span className={`gx-name__icon${s.current ? ' is-on' : ''}`}>
-                                                    <span className="material-icons-round">{s.device.includes('iPhone') ? 'phone_iphone' : 'laptop'}</span>
-                                                </span>
-                                                <div style={{ minWidth: 0 }}>
-                                                    <div className="settings-row__label" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                                                        {s.device}
-                                                        {s.current && <span className="gx-tag" style={{ fontSize: 9 }}>Current</span>}
-                                                    </div>
-                                                    <div className="settings-row__desc">{s.location} · {s.time}</div>
-                                                </div>
-                                            </div>
-                                            {!s.current && (
-                                                <button className="btn btn-danger btn-xs" onClick={() => revokeSession(s.id)} style={{ flexShrink: 0 }}>Revoke</button>
-                                            )}
-                                        </div>
-                                    ))}
-                                </div>
-                            )}
-                        </div>
-
-                        {/* Password */}
-                        <div className="settings-section">
-                            <span className="material-icons-round gx-mark" aria-hidden>password</span>
-                            <div className="settings-section__header">
-                                <div>
-                                    <h3 className="settings-section__title st-title"><span className="gx-ico"><span className="material-icons-round">password</span></span>Password</h3>
-                                    <p className="settings-section__desc">Choose a strong, unique password to keep your account secure.</p>
-                                </div>
-                            </div>
-                            <div style={{ padding: 22, display: 'flex', flexDirection: 'column', gap: 12 }}>
-                                <div>
-                                    <label className="label">Current Password</label>
-                                    <input className="input" type="password" placeholder="Enter current password" style={{ fontSize: 13 }} />
-                                </div>
-                                <div>
-                                    <label className="label">New Password</label>
-                                    <input className="input" type="password" placeholder="Enter new password" style={{ fontSize: 13 }} />
-                                </div>
-                                <div>
-                                    <label className="label">Confirm New Password</label>
-                                    <input className="input" type="password" placeholder="Confirm new password" style={{ fontSize: 13 }} />
-                                </div>
-                                <div style={{ fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.5 }}>
-                                    Password must be at least 8 characters with one uppercase, one number, and one special character.
-                                </div>
-                                <button className="btn btn-secondary btn-sm" style={{ alignSelf: 'flex-start' }} onClick={() => showToast('Password updated')}>
-                                    <span className="material-icons-round" style={{ fontSize: 14 }}>lock_reset</span>
-                                    Update Password
-                                </button>
-                            </div>
-                        </div>
-
-                        {/* Team */}
-                        <div className="settings-section">
-                            <span className="material-icons-round gx-mark" aria-hidden>groups</span>
-                            <div className="settings-section__header">
-                                <div>
-                                    <h3 className="settings-section__title st-title"><span className="gx-ico"><span className="material-icons-round">group</span></span>Team members</h3>
-                                    <p className="settings-section__desc">{admins.length} admin {admins.length === 1 ? 'user' : 'users'} with access to this facility.</p>
-                                </div>
-                                <button className="btn btn-primary btn-sm" onClick={() => setShowInvite(!showInvite)}>
-                                    <span className="material-icons-round" style={{ fontSize: 14 }}>{showInvite ? 'close' : 'person_add'}</span>
-                                    {showInvite ? 'Cancel' : 'Invite Admin'}
-                                </button>
-                            </div>
-
-                            {showInvite && (
-                                <div style={{
-                                    display: 'flex', flexDirection: 'column', gap: 10, padding: 18,
-                                    background: 'rgba(47, 111, 184, 0.05)', borderBottom: '1px solid rgba(27, 42, 68, 0.06)',
-                                }}>
-                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                                        <input
-                                            className="input"
-                                            placeholder="First name"
-                                            value={inviteFirstName}
-                                            onChange={e => setInviteFirstName(e.target.value)}
-                                            style={{ fontSize: 12 }}
-                                        />
-                                        <input
-                                            className="input"
-                                            placeholder="Last name"
-                                            value={inviteLastName}
-                                            onChange={e => setInviteLastName(e.target.value)}
-                                            style={{ fontSize: 12 }}
-                                        />
-                                    </div>
-                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                                        <input
-                                            className="input"
-                                            placeholder="Email address"
-                                            value={inviteEmail}
-                                            onChange={e => setInviteEmail(e.target.value)}
-                                            style={{ fontSize: 12 }}
-                                        />
-                                        <input
-                                            className="input"
-                                            placeholder="+233201234567"
-                                            value={invitePhone}
-                                            onChange={e => setInvitePhone(formatGhanaPhoneInput(e.target.value))}
-                                            style={{ fontSize: 12 }}
-                                        />
-                                    </div>
-                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 8 }}>
-                                        <input
-                                            className="input"
-                                            placeholder="Job title (e.g., Hospital Administrator)"
-                                            value={inviteJobTitle}
-                                            onChange={e => setInviteJobTitle(e.target.value)}
-                                            style={{ fontSize: 12 }}
-                                        />
-                                        <button
-                                            className="btn btn-primary btn-sm"
-                                            onClick={handleInviteAdmin}
-                                            disabled={invitingAdmin || !inviteFirstName.trim() || !inviteLastName.trim() || !inviteEmail.trim() || !invitePhone.trim()}
+                                    {showInvite && (
+                                        <form
+                                            className="sg-invite"
+                                            onSubmit={e => {
+                                                e.preventDefault();
+                                                void handleInviteAdmin();
+                                            }}
                                         >
-                                            <span className="material-icons-round" style={{ fontSize: 14 }}>send</span>
-                                            {invitingAdmin ? 'Sending...' : 'Send Invite'}
-                                        </button>
+                                            <div className="sg-invite__head">
+                                                <span className="sg-invite__title"><span className="material-icons-round" aria-hidden>person_add</span>Invite an admin</span>
+                                                <span className="sg-invite__note">They get admin access to this facility.</span>
+                                            </div>
+                                            <div className="sg-form__grid">
+                                                <Field label="First name">
+                                                    <input className="sg-input" value={inviteFirstName} onChange={e => setInviteFirstName(e.target.value)} placeholder="Ama" autoComplete="off" />
+                                                </Field>
+                                                <Field label="Last name">
+                                                    <input className="sg-input" value={inviteLastName} onChange={e => setInviteLastName(e.target.value)} placeholder="Mensah" autoComplete="off" />
+                                                </Field>
+                                                <Field label="Email">
+                                                    <input className="sg-input" type="email" value={inviteEmail} onChange={e => setInviteEmail(e.target.value)} placeholder="name@hospital.gov.gh" autoComplete="off" />
+                                                </Field>
+                                                <Field label="Phone" hint="Ghana number, e.g. +233 20 123 4567">
+                                                    <input className="sg-input" type="tel" value={invitePhone} onChange={e => setInvitePhone(formatGhanaPhoneInput(e.target.value))} placeholder="+233201234567" autoComplete="off" />
+                                                </Field>
+                                                <Field label="Job title" optional wide>
+                                                    <input className="sg-input" value={inviteJobTitle} onChange={e => setInviteJobTitle(e.target.value)} placeholder="e.g. Hospital Administrator" autoComplete="off" />
+                                                </Field>
+                                            </div>
+                                            <div className="sg-form__actions">
+                                                <button type="button" className="btn btn-ghost btn-sm" onClick={() => setShowInvite(false)}>Cancel</button>
+                                                <button
+                                                    type="submit"
+                                                    className="btn btn-primary btn-sm"
+                                                    disabled={invitingAdmin || !inviteFirstName.trim() || !inviteLastName.trim() || !inviteEmail.trim() || !invitePhone.trim()}
+                                                >
+                                                    <span className="material-icons-round" style={{ fontSize: 14 }}>send</span>
+                                                    {invitingAdmin ? 'Sending…' : 'Send invite'}
+                                                </button>
+                                            </div>
+                                        </form>
+                                    )}
+
+                                    <div className="sg-table" role="table" aria-label="Facility admins">
+                                        <div className="sg-table__row sg-table__row--head" role="row">
+                                            <span role="columnheader">Admin</span>
+                                            <span role="columnheader">Role</span>
+                                            <span role="columnheader">Status</span>
+                                            <span role="columnheader">Last sign-in</span>
+                                        </div>
+                                        <div className="sg-table__body" style={admins.length > 6 ? { maxHeight: 400, overflowY: 'auto' } : undefined}>
+                                            {loadingAdmins ? (
+                                                [0, 1, 2].map(n => (
+                                                    <div key={n} className="sg-table__row" role="row" aria-hidden>
+                                                        <span className="sg-person"><span className="sg-bone sg-bone--avatar" /><span className="sg-bone" style={{ width: '60%' }} /></span>
+                                                        <span className="sg-bone" style={{ width: 56 }} />
+                                                        <span className="sg-bone" style={{ width: 64 }} />
+                                                        <span className="sg-bone" style={{ width: 90 }} />
+                                                    </div>
+                                                ))
+                                            ) : admins.length === 0 ? (
+                                                <div className="sg-empty">
+                                                    <span className="material-icons-round" aria-hidden>group_off</span>
+                                                    No admins found for this facility.
+                                                </div>
+                                            ) : admins.map(admin => {
+                                                const adminInitials = admin.name.split(' ').filter(Boolean).map(w => w[0]).slice(0, 2).join('').toUpperCase();
+                                                const isSelf = currentUserId !== '' && admin.id === currentUserId;
+                                                const tone = { '--tone': roleColors[admin.role] || 'var(--text-muted)' } as React.CSSProperties;
+                                                return (
+                                                    <div key={admin.id} className="sg-table__row" role="row">
+                                                        <span className="sg-person" role="cell">
+                                                            <span className="sg-person__avatar" style={tone}>{adminInitials}</span>
+                                                            <span className="sg-person__text">
+                                                                <span className="sg-person__name">
+                                                                    {admin.name}
+                                                                    {isSelf && <span className="sg-chip">You</span>}
+                                                                </span>
+                                                                <span className="sg-person__sub">{admin.email}</span>
+                                                            </span>
+                                                        </span>
+                                                        <span role="cell"><span className="sg-role" style={tone}>{admin.role}</span></span>
+                                                        <span role="cell"><span className={`sg-status sg-status--${admin.status.toLowerCase()}`}>{admin.status}</span></span>
+                                                        <span role="cell" className="sg-table__muted">{admin.lastLogin}</span>
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+
+                                    <div style={{ padding: '14px 22px', borderTop: '1px solid rgba(27, 42, 68, 0.06)' }}>
+                                        <div className="gx-callout gx-callout--info" style={{ alignItems: 'flex-start', lineHeight: 1.5 }}>
+                                            <span className="material-icons-round" aria-hidden>info</span>
+                                            <span>
+                                            <strong>Role permissions:</strong> Super Admins have full access. Admins can manage staff and escalation. Editors can modify roles and settings. Viewers have read-only access.
+                                            </span>
+                                        </div>
                                     </div>
                                 </div>
-                            )}
-
-                            <div style={{ overflowX: 'auto', overflowY: admins.length > 6 ? 'auto' : 'visible', maxHeight: admins.length > 6 ? 360 : undefined }}>
-                                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                                    <thead>
-                                        <tr style={{ borderBottom: '1px solid var(--border-default)' }}>
-                                            <th style={{ position: 'sticky', top: 0, zIndex: 1, background: 'var(--surface-card)', padding: '10px 22px', fontSize: 10, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', textAlign: 'left' }}>User</th>
-                                            <th style={{ position: 'sticky', top: 0, zIndex: 1, background: 'var(--surface-card)', padding: '10px 22px', fontSize: 10, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', textAlign: 'left' }}>Role</th>
-                                            <th style={{ position: 'sticky', top: 0, zIndex: 1, background: 'var(--surface-card)', padding: '10px 22px', fontSize: 10, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', textAlign: 'left' }}>Status</th>
-                                            <th style={{ position: 'sticky', top: 0, zIndex: 1, background: 'var(--surface-card)', padding: '10px 22px', fontSize: 10, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', textAlign: 'left' }}>Last Login</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {loadingAdmins ? (
-                                            <tr>
-                                                <td colSpan={4} style={{ padding: '18px 22px', fontSize: 12, color: 'var(--text-muted)' }}>
-                                                    Loading facility admins...
-                                                </td>
-                                            </tr>
-                                        ) : admins.length === 0 ? (
-                                            <tr>
-                                                <td colSpan={4} style={{ padding: '18px 22px', fontSize: 12, color: 'var(--text-muted)' }}>
-                                                    No facility admins found
-                                                </td>
-                                            </tr>
-                                        ) : admins.map(admin => {
-                                            const adminInitials = admin.name.split(' ').filter(Boolean).map(w => w[0]).slice(0, 2).join('').toUpperCase();
-                                            const isSelf = currentUserId !== '' && admin.id === currentUserId;
-                                            return (
-                                                <tr key={admin.id} className="settings-table-row" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
-                                                    <td style={{ padding: '12px 22px' }}>
-                                                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                                                            <div style={{
-                                                                width: 30, height: 30, borderRadius: '50%',
-                                                                background: roleColors[admin.role] || 'var(--surface-3)',
-                                                                color: '#fff',
-                                                                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                                                fontSize: 10, fontWeight: 700, flexShrink: 0,
-                                                            }}>
-                                                                {adminInitials}
-                                                            </div>
-                                                            <div>
-                                                                <div style={{ fontSize: 12.5, fontWeight: 600 }}>
-                                                                    {admin.name}
-                                                                    {isSelf && <span style={{ fontSize: 9, color: 'var(--text-muted)', marginLeft: 4 }}>(You)</span>}
-                                                                </div>
-                                                                <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{admin.email}</div>
-                                                            </div>
-                                                        </div>
-                                                    </td>
-                                                    <td style={{ padding: '12px 22px' }}>
-                                                        <span style={{
-                                                            fontSize: 11, fontWeight: 600,
-                                                            color: roleColors[admin.role] || 'var(--text-secondary)',
-                                                            background: `${roleColors[admin.role] || 'var(--surface-3)'}15`,
-                                                            padding: '3px 8px', borderRadius: 8,
-                                                        }}>
-                                                            {admin.role}
-                                                        </span>
-                                                    </td>
-                                                    <td style={{ padding: '12px 22px' }}>
-                                                        <span className={`badge ${admin.status === 'Active' ? 'badge-success' : admin.status === 'Invited' ? 'badge-info' : 'badge-neutral'}`} style={{ fontSize: 10 }}>
-                                                            {admin.status}
-                                                        </span>
-                                                    </td>
-                                                    <td style={{ padding: '12px 22px', fontSize: 12, color: 'var(--text-muted)' }}>
-                                                        {admin.lastLogin}
-                                                    </td>
-                                                </tr>
-                                            );
-                                        })}
-                                    </tbody>
-                                </table>
-                            </div>
-
-                            <div style={{ padding: '14px 22px', borderTop: '1px solid rgba(27, 42, 68, 0.06)' }}>
-                                <div className="gx-callout gx-callout--info" style={{ alignItems: 'flex-start', lineHeight: 1.5 }}>
-                                    <span className="material-icons-round" aria-hidden>info</span>
-                                    <span>
-                                    <strong>Role permissions:</strong> Super Admins have full access. Admins can manage staff and escalation. Editors can modify roles and settings. Viewers have read-only access.
-                                    </span>
-                                </div>
-                            </div>
+                            </>
+                        )}
                         </div>
                     </div>
                 </main>

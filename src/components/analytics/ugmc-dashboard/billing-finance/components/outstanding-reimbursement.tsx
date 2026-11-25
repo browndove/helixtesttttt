@@ -1,0 +1,232 @@
+"use client";
+
+import * as React from "react";
+import Text from "@/components/analytics/text";
+import DashboardCard from "@/components/analytics/ugmc-dashboard/shared/dashboard-card";
+import FullscreenOverlay from "@/components/analytics/fullscreen-overlay";
+import { CardTitle } from "@/components/analytics/glass/illustrations";
+import { EmptyState, Pill, RowIcon } from "@/components/analytics/glass/ui";
+
+type DeptCoverageRow = {
+    name: string;
+    unfilled: number;
+    filled: number;
+    total: number;
+};
+
+type DepartmentMetricInput = {
+    department_name?: string;
+    filled_roles?: number;
+    total_roles?: number;
+};
+
+function num(v: unknown): number {
+    if (v === null || v === undefined || v === "") return 0;
+    const n = typeof v === "string" ? parseFloat(v) : Number(v);
+    return Number.isFinite(n) ? n : 0;
+}
+
+function truncateDeptName(name: string, max = 18): string {
+    if (name.length <= max) return name;
+    return `${name.slice(0, max - 1)}…`;
+}
+
+function buildDeptCoverageRows(departments?: DepartmentMetricInput[]): DeptCoverageRow[] {
+    if (!Array.isArray(departments) || !departments.length) return [];
+
+    return [...departments]
+        .map((d) => {
+            const total = Math.round(num(d.total_roles));
+            const filled = Math.min(Math.round(num(d.filled_roles)), total);
+            const unfilled = total > 0 ? Math.max(0, total - filled) : 0;
+            const name = String(d.department_name || "").trim();
+            if (!name || total <= 0) return null;
+            return { name, unfilled, filled, total };
+        })
+        .filter((row): row is DeptCoverageRow => row !== null)
+        .sort((a, b) => b.total - a.total)
+        .slice(0, 6);
+}
+
+function niceAxisMax(maxValue: number): number {
+    if (maxValue <= 0) return 20;
+    const step = maxValue <= 10 ? 2 : maxValue <= 25 ? 4 : 5;
+    return Math.ceil(maxValue / step) * step;
+}
+
+const MaximizeIcon = () => (
+    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16" fill="none">
+        <path d="M12.9502 3.23759C12.9502 3.06586 12.8819 2.90116 12.7605 2.77973C12.6391 2.65829 12.4744 2.59007 12.3026 2.59007H9.06504C8.89331 2.59007 8.72861 2.65829 8.60718 2.77973C8.48574 2.90116 8.41752 3.06586 8.41752 3.23759C8.41752 3.40933 8.48574 3.57402 8.60718 3.69546C8.72861 3.81689 8.89331 3.88511 9.06504 3.88511H10.7292L8.6053 6.01545C8.54461 6.07565 8.49644 6.14726 8.46357 6.22617C8.43069 6.30508 8.41377 6.38971 8.41377 6.47519C8.41377 6.56067 8.43069 6.64531 8.46357 6.72421C8.49644 6.80312 8.54461 6.87474 8.6053 6.93493C8.6655 6.99562 8.73711 7.04379 8.81602 7.07667C8.89493 7.10954 8.97956 7.12647 9.06504 7.12647C9.15052 7.12647 9.23516 7.10954 9.31406 7.07667C9.39297 7.04379 9.46459 6.99562 9.52478 6.93493L11.6551 4.80459V6.47519C11.6551 6.64692 11.7233 6.81162 11.8448 6.93306C11.9662 7.05449 12.1309 7.12271 12.3026 7.12271C12.4744 7.12271 12.6391 7.05449 12.7605 6.93306C12.8819 6.81162 12.9502 6.64692 12.9502 6.47519V3.23759ZM6.9347 8.60553C6.87451 8.54484 6.80289 8.49667 6.72398 8.4638C6.64508 8.43092 6.56044 8.414 6.47496 8.414C6.38948 8.414 6.30485 8.43092 6.22594 8.4638C6.14704 8.49667 6.07542 8.54484 6.01522 8.60553L3.88488 10.7294V9.06527C3.88488 8.89354 3.81666 8.72884 3.69523 8.60741C3.5738 8.48597 3.4091 8.41775 3.23736 8.41775C3.06563 8.41775 2.90093 8.48597 2.7795 8.60741C2.65806 8.72884 2.58984 8.89354 2.58984 9.06527V12.3029C2.58984 12.4746 2.65806 12.6393 2.7795 12.7607C2.90093 12.8822 3.06563 12.9504 3.23736 12.9504H6.47496C6.6467 12.9504 6.81139 12.8822 6.93283 12.7607C7.05426 12.6393 7.12248 12.4746 7.12248 12.3029C7.12248 12.1311 7.05426 11.9664 6.93283 11.845C6.81139 11.7236 6.6467 11.6553 6.47496 11.6553H4.80436L6.9347 9.52501C6.99539 9.46481 7.04356 9.3932 7.07644 9.31429C7.10931 9.23539 7.12624 9.15075 7.12624 9.06527C7.12624 8.97979 7.10931 8.89516 7.07644 8.81625C7.04356 8.73734 6.99539 8.66573 6.9347 8.60553Z" fill="currentColor" />
+    </svg>
+);
+
+const CloseIcon = () => (
+    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <line x1="18" y1="6" x2="6" y2="18" />
+        <line x1="6" y1="6" x2="18" y2="18" />
+    </svg>
+);
+
+interface OutstandingReimbursementProps {
+    data?: { department_metrics?: DepartmentMetricInput[] };
+}
+
+const OutstandingReimbursement: React.FC<OutstandingReimbursementProps> = ({ data }) => {
+    const [isMaximized, setIsMaximized] = React.useState(false);
+    const [animatedBars, setAnimatedBars] = React.useState<{ unfilled: number; filled: number }[]>([]);
+    const [animatedTotal, setAnimatedTotal] = React.useState(0);
+    const [isVisible, setIsVisible] = React.useState(false);
+
+    const deptRows = React.useMemo(
+        () => buildDeptCoverageRows(data?.department_metrics),
+        [data?.department_metrics]
+    );
+
+    const maxValue = React.useMemo(
+        () => niceAxisMax(Math.max(...deptRows.map((i) => i.total), 0)),
+        [deptRows]
+    );
+
+    const totalUnfilled = React.useMemo(
+        () => deptRows.reduce((sum, i) => sum + i.unfilled, 0),
+        [deptRows]
+    );
+
+
+    React.useEffect(() => {
+        setIsVisible(true);
+    }, []);
+
+    React.useEffect(() => {
+        if (!isVisible || !deptRows.length) {
+            setAnimatedBars([]);
+            setAnimatedTotal(0);
+            return;
+        }
+
+        const duration = 2500;
+        const startTime = Date.now();
+
+        const animate = () => {
+            const elapsed = Date.now() - startTime;
+            const progress = Math.min(elapsed / duration, 1);
+            const eased = 1 - Math.pow(1 - progress, 3);
+
+            setAnimatedBars(
+                deptRows.map((item) => ({
+                    unfilled: (item.unfilled / maxValue) * 100 * eased,
+                    filled: (item.filled / maxValue) * 100 * eased,
+                }))
+            );
+            setAnimatedTotal(Math.round(totalUnfilled * eased));
+
+            if (progress < 1) {
+                requestAnimationFrame(animate);
+            } else {
+                setAnimatedBars(
+                    deptRows.map((item) => ({
+                        unfilled: (item.unfilled / maxValue) * 100,
+                        filled: (item.filled / maxValue) * 100,
+                    }))
+                );
+                setAnimatedTotal(totalUnfilled);
+            }
+        };
+
+        requestAnimationFrame(animate);
+    }, [isVisible, deptRows, maxValue, totalUnfilled]);
+
+    const chartContent = (isModal: boolean = false) => (
+        <>
+            <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between" }}>
+                <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                    <CardTitle icon="domain" variant={isModal ? "body-lg-semibold" : "body-md-semibold"} className="font-bold">Dept. Coverage & Escalations</CardTitle>
+                    <Text variant="body-sm" color="text-secondary">
+                        Filled vs Unfilled Roles by Department
+                    </Text>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <Pill tone={totalUnfilled > 0 ? "rose" : "mint"} dot>
+                        {deptRows.length ? animatedTotal : "—"} unfilled
+                    </Pill>
+                    {!isModal && (
+                        <button
+                            onClick={() => setIsMaximized(true)}
+                            className="flex items-center justify-center size-[30px] bg-secondary rounded-[10px] cursor-pointer hover:bg-tertiary transition-colors"
+                            title="Maximize"
+                        >
+                            <MaximizeIcon />
+                        </button>
+                    )}
+                    {isModal && (
+                        <button
+                            onClick={() => setIsMaximized(false)}
+                            className="flex items-center justify-center size-[30px] bg-secondary rounded-[10px] cursor-pointer hover:bg-tertiary transition-colors"
+                            title="Close"
+                        >
+                            <CloseIcon />
+                        </button>
+                    )}
+                </div>
+            </div>
+
+            {deptRows.length === 0 ? (
+                <EmptyState icon="apartment" title="No department coverage yet" hint="Departments appear here once roles are assigned to them." />
+            ) : (
+                <div className="an-list flex-1 justify-between">
+                    {deptRows.map((dept, index) => {
+                        const coverage = dept.total > 0 ? (dept.filled / dept.total) * 100 : 0;
+                        const tone = coverage >= 80 ? "mint" : coverage >= 50 ? "amber" : "rose";
+                        return (
+                            <div key={dept.name} className="an-row" title={dept.name}>
+                                <RowIcon icon="apartment" tone={tone} />
+                                <div className="an-row__main">
+                                    <div className="flex items-center justify-between gap-2">
+                                        <span className="an-row__title">{truncateDeptName(dept.name, 28)}</span>
+                                        <span className="an-row__sub tabular-nums">
+                                            <strong className="text-text-primary">{dept.filled}</strong> of {dept.total} filled
+                                        </span>
+                                    </div>
+                                    {/* Bar length is on a shared scale (largest department = full width). */}
+                                    <span className="an-split" role="img" aria-label={`${dept.filled} filled, ${dept.unfilled} unfilled`}>
+                                        <span className="an-split__ok" style={{ width: `${animatedBars[index]?.filled || 0}%` }} />
+                                        <span className="an-split__gap" style={{ width: `${animatedBars[index]?.unfilled || 0}%` }} />
+                                    </span>
+                                </div>
+                                <div className="an-row__end">
+                                    <Pill tone={tone}>{Math.round(coverage)}%</Pill>
+                                </div>
+                            </div>
+                        );
+                    })}
+                </div>
+            )}
+
+            <div className="flex flex-wrap items-center gap-2">
+                <Pill tone="mint" dot>Filled</Pill>
+                <Pill tone="rose" dot>Unfilled</Pill>
+                <span className="text-[11.5px] text-text-tertiary">Bar length shows department size</span>
+            </div>
+        </>
+    );
+
+    return (
+        <>
+            <DashboardCard data-watermark="apartment" className="flex flex-col flex-1" padding="none" style={{ padding: 20, gap: 15 }}>
+                {chartContent(false)}
+            </DashboardCard>
+            {isMaximized && (
+                <FullscreenOverlay onClose={() => setIsMaximized(false)}>
+                    <div
+                        className="bg-primary rounded-[20px] w-full max-w-5xl max-h-[90vh] overflow-auto flex flex-col shadow-2xl"
+                        style={{ padding: 24, gap: 15 }}
+                    >
+                        {chartContent(true)}
+                    </div>
+                </FullscreenOverlay>
+            )}
+        </>
+    );
+};
+
+export default OutstandingReimbursement;

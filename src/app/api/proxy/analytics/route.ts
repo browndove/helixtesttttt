@@ -1,4 +1,4 @@
-import { getProxyHeaders } from '@/lib/proxy-auth';
+import { getProxyHeaders, hasInternalAdminSession } from '@/lib/proxy-auth';
 import { resolveFacilityId } from '@/lib/proxy-facility';
 import { NextRequest, NextResponse } from 'next/server';
 
@@ -7,7 +7,10 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3
 // GET /api/proxy/analytics — Fetch facility analytics
 export async function GET(req: NextRequest) {
     try {
-        const facilityId = await resolveFacilityId(req, API_BASE_URL);
+        const { searchParams } = new URL(req.url);
+        // Internal admins may target a facility explicitly (analytics report export).
+        const explicitFacilityId = hasInternalAdminSession(req) ? searchParams.get('facility_id')?.trim() || null : null;
+        const facilityId = explicitFacilityId || await resolveFacilityId(req, API_BASE_URL);
         if (!facilityId) {
             return NextResponse.json(
                 { error: 'Unable to resolve facility for current session. Please log in again.' },
@@ -15,7 +18,6 @@ export async function GET(req: NextRequest) {
             );
         }
 
-        const { searchParams } = new URL(req.url);
         const url = new URL(`${API_BASE_URL}/api/v1/facilities/${facilityId}/usage-metrics`);
 
         // Forward optional window — backend expects 'days' (Usage page sends ?days=)
@@ -26,6 +28,12 @@ export async function GET(req: NextRequest) {
         } else if (windowDays !== null && windowDays !== '') {
             url.searchParams.set('days', windowDays);
         }
+
+        // Analytics section sends an explicit range as RFC3339 UTC timestamps.
+        const from = searchParams.get('from');
+        const to = searchParams.get('to');
+        if (from) url.searchParams.set('from', from);
+        if (to) url.searchParams.set('to', to);
 
         console.log('[analytics] Request to:', url.toString());
 

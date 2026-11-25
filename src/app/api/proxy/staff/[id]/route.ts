@@ -146,8 +146,9 @@ export async function PUT(
     }
 }
 
-// PATCH /staff/{id} - Schedule access. The API reads `can_manage_schedule` (it ignores `is_scheduler`,
-// which is read-only and also true for admins).
+// PATCH /staff/{id} - Schedule access only. The API has no PATCH route; it is saved through
+// PUT /staff/{id} with just `can_manage_schedule` (omitted fields stay unchanged). `is_scheduler` is
+// read-only and also true for admins.
 export async function PATCH(
     req: NextRequest,
     { params }: { params: Promise<{ id: string }> }
@@ -164,10 +165,10 @@ export async function PATCH(
         if (upstream instanceof NextResponse) return upstream;
 
         const { url } = upstream;
-        console.log('Proxy patch staff member request to:', url);
+        console.log('Proxy schedule-access update request to:', url);
 
         const res = await fetch(url, {
-            method: 'PATCH',
+            method: 'PUT',
             headers: getProxyHeaders(req),
             body: JSON.stringify({ can_manage_schedule: value }),
         });
@@ -179,10 +180,12 @@ export async function PATCH(
         try {
             data = text ? JSON.parse(text) : {};
         } catch {
-            console.error('Failed to parse backend response as JSON');
+            // Plain-text replies (e.g. a router's "404 page not found") keep their real status
+            // so the UI can tell "route not deployed" apart from a bad request.
+            console.error('Backend schedule-access update returned non-JSON:', res.status, text.substring(0, 200));
             return NextResponse.json(
-                { error: 'Backend returned invalid response', details: text.substring(0, 200) },
-                { status: 502 }
+                { error: res.ok ? 'Backend returned invalid response' : text.trim().substring(0, 200) || `HTTP ${res.status}` },
+                { status: res.ok ? 502 : res.status }
             );
         }
 

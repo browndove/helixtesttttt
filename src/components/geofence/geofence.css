@@ -585,6 +585,9 @@
 .geo-fab:not(:disabled):hover { background: #fff; transform: translateY(-1px); }
 .geo-fab:disabled { opacity: 0.55; cursor: not-allowed; }
 .geo-fab--label { padding: 0 12px 0 8px; }
+.geo-fab.is-on { color: #fff; background: linear-gradient(145deg, #3a5480, #1b2a44); }
+.geo-fab.is-on:not(:disabled):hover { background: linear-gradient(145deg, #445f8d, #22355a); }
+.geo-compass { display: inline-flex; transition: transform 0.2s ease-out; color: #c2414b; }
 
 .geo-fab--primary {
   padding: 0 16px 0 12px;
@@ -692,10 +695,12 @@
 }
 
 /* ── Map markers + attribution ──────────────────────────────── */
-.geo-map .maplibregl-ctrl-attrib {
-  border-radius: 8px 0 0 0;
+.geo-map .mapboxgl-ctrl-bottom-left { margin: 0 0 6px 8px; }
+.geo-map .mapboxgl-ctrl-attrib.mapboxgl-compact {
   font-size: 10px;
-  background: rgba(255, 255, 255, 0.75);
+  background: rgba(255, 255, 255, 0.8);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
 }
 
 .geo-badge {

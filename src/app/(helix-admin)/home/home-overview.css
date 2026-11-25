@@ -83,7 +83,7 @@
 
 .home-overview-app-main .hx-hero {
   display: flex;
-  align-items: stretch;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 24px;
   padding: 4px 0 6px;
@@ -1135,7 +1135,8 @@
   align-items: flex-end;
   justify-content: center;
   min-width: 0;
-  padding-bottom: 6px;
+  /* Sits in its own band below the greeting/toolbar line; the taller header pushes the page down. */
+  margin: 80px 0 16px;
 }
 
 .home-overview-app-main .hx-search {
@@ -1378,7 +1379,7 @@
 
 @media (max-width: 1180px) {
   .home-overview-app-main .hx-hero { flex-wrap: wrap; }
-  .home-overview-app-main .hx-hero__mid { order: 3; flex-basis: 100%; justify-content: flex-start; }
+  .home-overview-app-main .hx-hero__mid { order: 3; flex-basis: 100%; justify-content: flex-start; margin: 0 0 6px; }
   .home-overview-app-main .hx-search { max-width: none; }
 }
 
@@ -1388,6 +1389,7 @@
   .home-overview-app-main .hx-hero { flex-direction: column; }
   .home-overview-app-main .hx-hero__right { align-items: stretch; flex-direction: column-reverse; }
   .home-overview-app-main .hx-toolbar { align-self: flex-start; }
+  .home-overview-app-main .hx-hero__mid { align-self: stretch; }
   .home-overview-app-main .hx-span-5,
   .home-overview-app-main .hx-span-4,
   .home-overview-app-main .hx-span-3 { grid-column: span 12; }
@@ -1406,4 +1408,34 @@
   .home-overview-app-main .hx-kpi:hover,
   .home-overview-app-main .hx-pulse:hover,
   .home-overview-app-main .hx-tile:hover { transform: none; }
+}
+
+/* ── KPI tiles: softer palette (Home only; shared glass-kit stays as is) ── */
+.home-overview-app-main .hx-kpis {
+  --bad: #b3505b;
+}
+
+.home-overview-app-main .hx-kpi--sky    { --accent: #4f85ad; --accent-soft: rgba(79, 133, 173, 0.12); --accent-glow: rgba(150, 190, 220, 0.3); }
+.home-overview-app-main .hx-kpi--indigo { --accent: #6670ab; --accent-soft: rgba(102, 112, 171, 0.12); --accent-glow: rgba(170, 178, 225, 0.3); }
+.home-overview-app-main .hx-kpi--mint   { --accent: #4e9580; --accent-soft: rgba(78, 149, 128, 0.13); --accent-glow: rgba(160, 210, 190, 0.3); }
+.home-overview-app-main .hx-kpi--amber  { --accent: #a98445; --accent-soft: rgba(169, 132, 69, 0.13); --accent-glow: rgba(225, 200, 150, 0.3); }
+.home-overview-app-main .hx-kpi--rose   { --accent: #b3606a; --accent-soft: rgba(179, 96, 106, 0.12); --accent-glow: rgba(230, 170, 178, 0.3); }
+
+/* Tinted icon chip instead of a saturated gradient with a coloured shadow */
+.home-overview-app-main .hx-kpi__icon {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, #fff);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
+.home-overview-app-main .hx-kpi__glow { opacity: 0.5; }
+.home-overview-app-main .hx-kpi:hover .hx-kpi__glow { opacity: 0.7; }
+
+.home-overview-app-main .hx-kpi.hx-kpi--alert {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(252, 244, 245, 0.92));
+}
+
+.home-overview-app-main .hx-ladder > span.is-ok { background: color-mix(in srgb, var(--navy) 55%, transparent); }
+.home-overview-app-main .hx-ladder > span.is-miss {
+  background: repeating-linear-gradient(-45deg, color-mix(in srgb, var(--bad) 80%, #fff) 0 3px, color-mix(in srgb, var(--bad) 30%, #fff) 3px 6px);
 }

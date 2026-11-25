@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Plus_Jakarta_Sans } from 'next/font/google';
 import './home-overview.css';
-import { HomeCalendarCard, HomeCommandSearch, HomeDeptMessagesCard, HomeNotesCard } from './HomeWidgets';
+import { HomeCommandSearch, HomeDeptMessagesCard } from './HomeWidgets';
 import { HomeKpiStrip } from './HomeKpis';
 import { parseBulkUploadHistoryResponse, type BulkUploadHistoryEntry } from '@/lib/bulk-upload-history';
 import {
@@ -13,11 +13,9 @@ import {
 } from '@/lib/fetch-all-escalation-policies';
 import { fetchAllStaffPayload } from '@/lib/fetch-all-staff';
 import { countCriticalRolesWithoutEscalation } from '@/lib/role-escalation-ladder';
-import { useTeamPresenceRoster } from '@/lib/useTeamPresenceRoster';
 import { generateDashboardPdf, type DashboardReportData } from '@/lib/generate-dashboard-report';
 type SimpleItem = Record<string, unknown>;
 type ActivityItem = { id: string; title: string; detail: string; time: string; tone?: 'default' | 'critical' | 'info' };
-type SignedInStaff = { id: string; name: string; initials: string; role: string; when: string; status: 'online' | 'recent' | 'away' };
 
 const plusJakarta = Plus_Jakarta_Sans({
     subsets: ['latin'],
@@ -36,8 +34,6 @@ type DeptMessageMixRow = {
 
 const DEPT_MIX_TONES: DeptMessageMixTone[] = ['m1', 'm2', 'm3', 'm4'];
 
-
-const TEAM_PRESENCE_MAX = 10;
 
 function buildDepartmentMessageMix(analytics: Record<string, unknown>): {
     rows: DeptMessageMixRow[];
@@ -167,15 +163,6 @@ function greetingByTime(at: Date): string {
     return 'Good evening';
 }
 
-function todayLabelLong(at: Date): string {
-    return at.toLocaleDateString('en-US', {
-        weekday: 'long',
-        month: 'short',
-        day: 'numeric',
-        year: 'numeric',
-    });
-}
-
 /** Wall clock that only renders after mount (server time zone would mismatch on hydration). */
 function useNow(intervalMs = 15_000): Date | null {
     const [now, setNow] = useState<Date | null>(null);
@@ -205,7 +192,7 @@ function summarizeImport(entry: BulkUploadHistoryEntry): ActivityItem {
 export default function HomePage() {
     const router = useRouter();
     const [loading, setLoading] = useState(true);
-    const [staffCount, setStaffCount] = useState(0);
+    const [, setStaffCount] = useState(0);
     const [patientCount, setPatientCount] = useState(0);
     const [failedImports24h, setFailedImports24h] = useState(0);
     const [teamsWithoutLeadCount, setTeamsWithoutLeadCount] = useState(0);
@@ -218,11 +205,6 @@ export default function HomePage() {
     const [criticalRoleFill, setCriticalRoleFill] = useState<{ filled: number; total: number; percent: number }>({ filled: 0, total: 0, percent: 0 });
     const [avgCriticalAckMinutes, setAvgCriticalAckMinutes] = useState(0);
     const [activeSessions, setActiveSessions] = useState(0);
-    const {
-        members: signedInStaff,
-        onlineCount,
-        loading: teamPresenceLoading,
-    } = useTeamPresenceRoster({ max: TEAM_PRESENCE_MAX });
     const [departmentMessageMix, setDepartmentMessageMix] = useState<DeptMessageMixRow[]>([]);
     const [departmentMessagesTotal, setDepartmentMessagesTotal] = useState(0);
     const [analyticsWindowDays, setAnalyticsWindowDays] = useState(30);
@@ -233,7 +215,7 @@ export default function HomePage() {
         total: 0,
         percent: 0,
     });
-    const [jobTitleBreakdown, setJobTitleBreakdown] = useState<{ title: string; count: number }[]>([]);
+    const [, setJobTitleBreakdown] = useState<{ title: string; count: number }[]>([]);
 
     const fetchHomeData = useCallback(async () => {
         setLoading(true);
@@ -427,7 +409,6 @@ export default function HomePage() {
     useEffect(() => { fetchHomeData(); }, [fetchHomeData]);
 
     const facilityShort = facilityName || 'Your facility';
-    const teamPresenceLoadingCombined = loading || teamPresenceLoading;
 
 
     const twoFactorPct = twoFactorAdoption.total > 0
@@ -436,47 +417,6 @@ export default function HomePage() {
     const ackMin = avgCriticalAckMinutes;
     const ackLabel = ackMin <= 0 ? '—' : ackMin < 1 ? '<1 min' : ackMin < 60 ? `${Math.round(ackMin)} min` : `${(ackMin / 60).toFixed(1)} hr`;
 
-    const healthRows = useMemo(() => [
-        {
-            icon: 'bolt',
-            label: 'Critical ack time',
-            value: loading ? '—' : ackLabel,
-            sub: '30 day avg.',
-            sem: ackMin > 0 && ackMin > 15 ? 'negative' as const : ackMin > 0 ? 'positive' as const : 'neutral' as const,
-        },
-        {
-            icon: 'lock',
-            label: '2FA adoption',
-            value: loading ? '—' : `${twoFactorPct}%`,
-            sub: `${twoFactorAdoption.enabled} / ${twoFactorAdoption.total} accounts`,
-            sem: twoFactorPct >= 80 ? 'positive' as const : twoFactorPct >= 50 ? 'neutral' as const : 'negative' as const,
-        },
-        {
-            icon: 'sync',
-            label: 'Data sync',
-            value: loading ? '—' : failedImports24h > 0 ? `${failedImports24h} failed` : 'Clean',
-            sub: 'Last 24 hours',
-            sem: failedImports24h > 0 ? 'negative' as const : 'positive' as const,
-        },
-        {
-            icon: 'devices',
-            label: 'Sessions',
-            value: loading ? '—' : activeSessions.toLocaleString(),
-            sub: 'Concurrent sign-ins',
-            sem: 'neutral' as const,
-        },
-    ], [loading, ackLabel, ackMin, twoFactorPct, twoFactorAdoption, failedImports24h, activeSessions]);
-
-    const quickActions = [
-        { label: 'New role', icon: 'badge', href: '/roles' },
-        { label: 'Invite staff', icon: 'person_add_alt', href: '/staff' },
-        { label: 'Teams', icon: 'diversity_3', href: '/provider-teams' },
-        { label: 'Escalation', icon: 'timeline', href: '/escalation' },
-        { label: 'Departments', icon: 'domain', href: '/departments' },
-        { label: 'Beds', icon: 'bed', href: '/beds' },
-        { label: 'Patients', icon: 'personal_injury', href: '/patients' },
-        { label: 'Audit log', icon: 'history', href: '/audit-log' },
-    ];
 
     const setupChecklist = [
         {
@@ -492,11 +432,6 @@ export default function HomePage() {
     const setupDone = setupChecklist.filter(c => c.done).length;
 
     const now = useNow();
-    const clockParts = now
-        ? now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true }).split(' ')
-        : ['--:--', ''];
-
-    const formatMetric = (n: number, suffix = '') => (loading ? '—' : `${n.toLocaleString()}${suffix}`);
 
     const handleDownloadReport = useCallback(() => {
         const reportData: DashboardReportData = {
@@ -545,22 +480,13 @@ export default function HomePage() {
         <div className={`app-main home-overview-app-main ${plusJakarta.className}`}>
             <main className="page">
                 <div className="dash">
-                    {/* ── Hero: greeting, clock, facility pulse ───────────────── */}
+                    {/* ── Hero: greeting, search, actions ─────────────────────── */}
                     <header className="hx-hero dash-reveal">
                         <div className="hx-hero__left">
                             <div className="hx-pill">
                                 <span className="material-icons-round">waving_hand</span>
                                 {now ? greetingByTime(now) : 'Welcome'}{firstName ? `, ${firstName}` : ''}
                             </div>
-                            <div className="hx-clock" aria-live="off">
-                                <span className="hx-clock__time">{clockParts[0]}</span>
-                                <span className="hx-clock__ampm">{clockParts[1]}</span>
-                            </div>
-                            <p className="hx-hero__date">
-                                {now ? todayLabelLong(now) : ' '}
-                                <span className="hx-dot" />
-                                {facilityShort}
-                            </p>
                         </div>
 
                         <div className="hx-hero__mid">
@@ -583,19 +509,6 @@ export default function HomePage() {
                                 </button>
                             </div>
 
-                            <button type="button" className="hx-pulse" onClick={() => router.push('/escalation')}>
-                                <span className={`hx-pulse__ring${criticalRoleFill.percent >= 90 ? ' hx-pulse__ring--ok' : ''}`}
-                                    style={{ ['--pct' as string]: `${loading ? 0 : criticalRoleFill.percent}` }}>
-                                    <span className="material-icons-round">shield</span>
-                                </span>
-                                <span className="hx-pulse__body">
-                                    <span className="hx-pulse__value">{formatMetric(criticalRoleFill.percent, '%')}</span>
-                                    <span className="hx-pulse__label">Critical coverage</span>
-                                    <span className="hx-pulse__meta">
-                                        {loading ? '—' : `${criticalRoleFill.filled} / ${criticalRoleFill.total} roles · target 90%`}
-                                    </span>
-                                </span>
-                            </button>
                         </div>
                     </header>
 
@@ -621,21 +534,31 @@ export default function HomePage() {
                             />
                         </div>
 
-                        <div className="hx-stack hx-span-4">
-                        <div className="hx-card">
+                        <div className="hx-card hx-span-4" aria-label="Recent activity">
                             <div className="hx-card__hd">
-                                <h2 className="hx-card__title">Quick access</h2>
+                                <h2 className="hx-card__title">Recent activity</h2>
+                                <button type="button" className="hx-chip-btn" onClick={() => router.push('/audit-log')}>Audit log</button>
                             </div>
-                            <div className="hx-tiles">
-                                {quickActions.map((a) => (
-                                    <button key={a.label} type="button" className="hx-tile" onClick={() => router.push(a.href)}>
-                                        <span className="hx-tile__icon"><span className="material-icons-round">{a.icon}</span></span>
-                                        <span className="hx-tile__label">{a.label}</span>
-                                    </button>
-                                ))}
-                            </div>
-                        </div>
-                        <HomeNotesCard />
+                            {recent.length === 0 ? (
+                                <p className="hx-empty">{loading ? 'Loading…' : 'No recent activity'}</p>
+                            ) : (
+                                <ul className="hx-rows">
+                                    {recent.map((item) => (
+                                        <li key={item.id} className={`hx-row hx-row--${item.tone || 'default'}`}>
+                                            <span className="hx-row__icon">
+                                                <span className="material-icons-round">
+                                                    {item.tone === 'critical' ? 'error_outline' : item.tone === 'info' ? 'upload_file' : 'history'}
+                                                </span>
+                                            </span>
+                                            <span className="hx-row__main">
+                                                <span className="hx-row__label">{item.title}</span>
+                                                <span className="hx-row__sub">{item.detail}</span>
+                                            </span>
+                                            <span className="hx-row__meta">{item.time}</span>
+                                        </li>
+                                    ))}
+                                </ul>
+                            )}
                         </div>
 
                         <div className="hx-card hx-span-3 hx-card--flex">
@@ -665,133 +588,6 @@ export default function HomePage() {
                                 </span>
                             </div>
                         </div>
-                    </section>
-
-                    {/* ── Bento row 2 ─────────────────────────────────────────── */}
-                    <section className="hx-grid dash-reveal">
-                        <div className="hx-card hx-span-5">
-                            <div className="hx-card__hd">
-                                <div>
-                                    <h2 className="hx-card__title">Team presence</h2>
-                                    <p className="hx-card__sub">
-                                        {teamPresenceLoadingCombined
-                                            ? '—'
-                                            : signedInStaff.length === 0
-                                                ? 'No recent activity'
-                                                : `${onlineCount} online · ${signedInStaff.length} most recent`}
-                                    </p>
-                                </div>
-                                <button type="button" className="hx-chip-btn" onClick={() => router.push('/staff')}>View all</button>
-                            </div>
-                            {teamPresenceLoadingCombined ? (
-                                <p className="hx-empty">Loading…</p>
-                            ) : signedInStaff.length === 0 ? (
-                                <p className="hx-empty">No staff activity recorded yet.</p>
-                            ) : (
-                                <ul className="hx-rows hx-rows--scroll">
-                                    {signedInStaff.map((s) => {
-                                        const on = s.status === 'online';
-                                        return (
-                                            <li key={s.id} className="hx-row">
-                                                <span className="hx-av">
-                                                    {s.initials}
-                                                    <span className={`hx-av__dot${on ? ' is-on' : ''}`} />
-                                                </span>
-                                                <span className="hx-row__main">
-                                                    <span className="hx-row__label">{s.name}</span>
-                                                    <span className="hx-row__sub">{s.role}</span>
-                                                </span>
-                                                <span className="hx-row__meta">{s.when}</span>
-                                            </li>
-                                        );
-                                    })}
-                                </ul>
-                            )}
-                        </div>
-
-                        <div className="hx-card hx-card--dark hx-span-4 hx-card--flex">
-                            <div className="hx-card__hd">
-                                <div>
-                                    <h2 className="hx-card__title">Staff breakdown</h2>
-                                    <p className="hx-card__sub">
-                                        {loading ? '—' : `${staffAccountMetric.total.toLocaleString()} staff · ${jobTitleBreakdown.length} role${jobTitleBreakdown.length === 1 ? '' : 's'}`}
-                                    </p>
-                                </div>
-                                <button type="button" className="hx-chip-btn hx-chip-btn--dark" onClick={() => router.push('/staff')}>Directory</button>
-                            </div>
-                            {loading ? (
-                                <p className="hx-empty">Loading…</p>
-                            ) : jobTitleBreakdown.length === 0 ? (
-                                <p className="hx-empty">No staff data available.</p>
-                            ) : (
-                                <div className="hx-columns" role="list">
-                                    {jobTitleBreakdown.slice(0, 5).map((row) => {
-                                        const maxCount = jobTitleBreakdown[0].count || 1;
-                                        const pct = staffAccountMetric.total > 0 ? Math.round((row.count / staffAccountMetric.total) * 100) : 0;
-                                        return (
-                                            <div key={row.title} className="hx-columns__col" role="listitem" title={`${row.title}: ${row.count} (${pct}%)`}>
-                                                <span className="hx-columns__val">{row.count}</span>
-                                                <span className="hx-columns__track">
-                                                    <span style={{ height: `${Math.max(6, Math.round((row.count / maxCount) * 100))}%` }} />
-                                                </span>
-                                                <span className="hx-columns__lab">{row.title}</span>
-                                            </div>
-                                        );
-                                    })}
-                                </div>
-                            )}
-                        </div>
-
-                        <div className="hx-card hx-span-3 hx-card--flex">
-                            <div className="hx-card__hd">
-                                <h2 className="hx-card__title">System checks</h2>
-                            </div>
-                            <ul className="hx-checks">
-                                {healthRows.map((r) => (
-                                    <li key={r.label} className={`hx-check hx-check--${r.sem}`}>
-                                        <span className="hx-check__icon"><span className="material-icons-round">{r.icon}</span></span>
-                                        <span className="hx-row__main">
-                                            <span className="hx-row__label">{r.label}</span>
-                                            <span className="hx-row__sub">{r.sub}</span>
-                                        </span>
-                                        <span className="hx-check__val">{r.value}</span>
-                                    </li>
-                                ))}
-                            </ul>
-                        </div>
-                    </section>
-
-                    {/* ── Recent activity ─────────────────────────────────────── */}
-                    <section className="hx-grid dash-reveal">
-                    <div className="hx-card hx-span-8" aria-label="Recent activity">
-                        <div className="hx-card__hd">
-                            <h2 className="hx-card__title">Recent activity</h2>
-                            <button type="button" className="hx-chip-btn" onClick={() => router.push('/audit-log')}>Audit log</button>
-                        </div>
-                        {recent.length === 0 ? (
-                            <p className="hx-empty">{loading ? 'Loading…' : 'No recent activity'}</p>
-                        ) : (
-                            <ul className="hx-rows">
-                                {recent.map((item) => (
-                                    <li key={item.id} className={`hx-row hx-row--${item.tone || 'default'}`}>
-                                        <span className="hx-row__icon">
-                                            <span className="material-icons-round">
-                                                {item.tone === 'critical' ? 'error_outline' : item.tone === 'info' ? 'upload_file' : 'history'}
-                                            </span>
-                                        </span>
-                                        <span className="hx-row__main">
-                                            <span className="hx-row__label">{item.title}</span>
-                                            <span className="hx-row__sub">{item.detail}</span>
-                                        </span>
-                                        <span className="hx-row__meta">{item.time}</span>
-                                    </li>
-                                ))}
-                            </ul>
-                        )}
-                    </div>
-                    <div className="hx-span-4 hx-stack">
-                        <HomeCalendarCard today={now} />
-                    </div>
                     </section>
 
                     <footer className="hx-foot dash-reveal">

@@ -1,8 +1,8 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type * as MapTiler from '@maptiler/sdk';
-import '@maptiler/sdk/dist/maptiler-sdk.css';
+import type { GeoJSONSource, Map as MapboxMap, MapMouseEvent, Marker } from 'mapbox-gl';
+import 'mapbox-gl/dist/mapbox-gl.css';
 import '@/components/glass/glass-page.css';
 import './geofence.css';
 import TopBar from '@/components/TopBar';
@@ -10,18 +10,22 @@ import { MacVibrancyToast, MacVibrancyToastPortal, macToastLeading } from '@/com
 import { API_ENDPOINTS } from '@/lib/config';
 import { appendFacilityIdForProxy, resolveClientFacilityId } from '@/lib/facility-client';
 import {
-    featuresToPlaces,
     formatArea,
     formatDistance,
     loadDraftZones,
+    mapboxToPlaces,
+    maptilerToPlaces,
+    mergePlaces,
     newZoneId,
     polygonAreaM2,
     polygonCentroid,
     polygonPerimeterM,
     saveDraftZones,
+    SEARCH_COUNTRIES,
     zonesToGeoJson,
-    type GeocodingFeatureLike,
     type GeofenceZone,
+    type MapTilerFeatureLike,
+    type SearchFeatureLike,
     type LatLng,
     type PlaceResult,
 } from '@/lib/geofence';
@@ -30,14 +34,57 @@ type Mode = 'idle' | 'drawing' | 'editing';
 type BaseLayer = 'map' | 'satellite';
 type Toast = { message: string; variant: 'success' | 'error' | 'info' };
 type Facility = { id: string; name: string };
-type SDK = typeof MapTiler;
+type SDK = typeof import('mapbox-gl').default;
 type LngLat = [number, number];
 
+const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN || '';
+/** Optional: MapTiler (OpenStreetMap) search fills in the suburbs and streets Mapbox lacks in Ghana. */
 const MAPTILER_KEY = process.env.NEXT_PUBLIC_MAPTILER_KEY || '';
+const STYLES: Record<BaseLayer, string> = {
+    map: 'mapbox://styles/mapbox/standard',
+    satellite: 'mapbox://styles/mapbox/standard-satellite',
+};
+
+/**
+ * Basemap look: a quiet blue-grey palette in the app's colours (hospital grounds tinted
+ * blue) so the zones stand out; 3D buildings only while the 3D view is on.
+ */
+function basemapConfig(base: BaseLayer, show3d: boolean): Record<string, string | number | boolean> {
+    const shared = {
+        lightPreset: 'day',
+        showTransitLabels: false,
+        showPedestrianRoads: false,
+        colorAdminBoundaries: '#9fb0c8',
+    };
+    if (base === 'satellite') return shared;
+    return {
+        ...shared,
+        show3dObjects: show3d,
+        colorLand: '#f3f5f8',
+        colorBuildings: '#e3e8ef',
+        colorGreenspace: '#e2ede5',
+        colorWater: '#cfdff0',
+        colorMedical: '#e8ecf1',
+        colorEducation: '#eceff3',
+        colorCommercial: '#eff1f4',
+        colorIndustrial: '#eaedf1',
+        colorRoads: '#ffffff',
+        colorTrunks: '#e8edf4',
+        colorMotorways: '#dbe3ee',
+        colorPlaceLabels: '#3a4658',
+        colorRoadLabels: '#6f7a8a',
+        backgroundPointOfInterestLabels: 'none',
+        colorModePointOfInterestLabels: 'single',
+        colorPointOfInterestLabels: '#7c8797',
+        densityPointOfInterestLabels: 2,
+    };
+}
 
 /** Ghana — most Helix facilities; replaced by the saved zones' bounds once there are any. */
 const DEFAULT_CENTER: LatLng = [7.95, -1.03];
 const DEFAULT_ZOOM = 6.2;
+/** Pitch used for the 3D view and when flying to a searched place. */
+const TILT = 55;
 
 const NAVY = '#1b2a44';
 const BLUE = '#2f6fb8';
@@ -57,6 +104,13 @@ function boundsOf(pts: LatLng[]): [LngLat, LngLat] {
 
 function Icon({ name, size }: { name: string; size?: number }) {
     return <span className="material-icons-round" aria-hidden style={size ? { fontSize: size } : undefined}>{name}</span>;
+}
+
+function placeIcon(place: PlaceResult): string {
+    if (place.kind === 'street') return 'add_road';
+    if (/hospital|clinic|health|medical|pharmacy/i.test(`${place.kind} ${place.name}`)) return 'local_hospital';
+    if (place.bounds || ['area', 'neighbourhood', 'district', 'town'].includes(place.kind)) return 'map';
+    return 'place';
 }
 
 function isTypingTarget(target: EventTarget | null): boolean {
@@ -92,15 +146,17 @@ async function resolveFacility(): Promise<Facility> {
 }
 
 /** Our sources/layers; re-added after every style swap because setStyle drops them. */
-function ensureLayers(map: MapTiler.Map): boolean {
+function ensureLayers(map: MapboxMap): boolean {
     if (map.getSource('geo-zones')) return false;
     map.addSource('geo-zones', { type: 'geojson', data: EMPTY_FC });
     map.addSource('geo-work', { type: 'geojson', data: EMPTY_FC });
     map.addSource('geo-guide', { type: 'geojson', data: EMPTY_FC });
-    map.addSource('geo-place', { type: 'geojson', data: EMPTY_FC });
+    // Standard styles expose slots: zones sit on the ground under labels and 3D buildings,
+    // the shape being drawn sits on top so it is never hidden.
     map.addLayer({
         id: 'geo-zones-fill',
         type: 'fill',
+        slot: 'middle',
         source: 'geo-zones',
         paint: {
             'fill-color': ['case', ['get', 'selected'], '#3d7fcc', '#5a92d6'],
@@ -111,6 +167,7 @@ function ensureLayers(map: MapTiler.Map): boolean {
     map.addLayer({
         id: 'geo-zones-glow',
         type: 'line',
+        slot: 'middle',
         source: 'geo-zones',
         layout: { 'line-join': 'round' },
         paint: {
@@ -124,6 +181,7 @@ function ensureLayers(map: MapTiler.Map): boolean {
     map.addLayer({
         id: 'geo-zones-line',
         type: 'line',
+        slot: 'middle',
         source: 'geo-zones',
         layout: { 'line-join': 'round' },
         paint: {
@@ -132,14 +190,9 @@ function ensureLayers(map: MapTiler.Map): boolean {
         },
     });
     map.addLayer({
-        id: 'geo-place-line',
-        type: 'line',
-        source: 'geo-place',
-        paint: { 'line-color': NAVY, 'line-width': 2, 'line-dasharray': [2, 2] },
-    });
-    map.addLayer({
         id: 'geo-work-fill',
         type: 'fill',
+        slot: 'top',
         source: 'geo-work',
         filter: ['==', ['geometry-type'], 'Polygon'],
         paint: { 'fill-color': BLUE, 'fill-opacity': 0.24 },
@@ -147,6 +200,7 @@ function ensureLayers(map: MapTiler.Map): boolean {
     map.addLayer({
         id: 'geo-work-line',
         type: 'line',
+        slot: 'top',
         source: 'geo-work',
         layout: { 'line-join': 'round', 'line-cap': 'round' },
         paint: { 'line-color': NAVY, 'line-width': 3 },
@@ -154,6 +208,7 @@ function ensureLayers(map: MapTiler.Map): boolean {
     map.addLayer({
         id: 'geo-guide-line',
         type: 'line',
+        slot: 'top',
         source: 'geo-guide',
         layout: { 'line-cap': 'round' },
         paint: { 'line-color': NAVY, 'line-width': 2, 'line-opacity': 0.7, 'line-dasharray': [2, 2] },
@@ -161,8 +216,8 @@ function ensureLayers(map: MapTiler.Map): boolean {
     return true;
 }
 
-function setData(map: MapTiler.Map | null, id: string, data: GeoJSON.GeoJSON) {
-    const src = map?.getSource(id) as MapTiler.GeoJSONSource | undefined;
+function setData(map: MapboxMap | null, id: string, data: GeoJSON.GeoJSON) {
+    const src = map?.getSource(id) as GeoJSONSource | undefined;
     src?.setData(data);
 }
 
@@ -180,16 +235,18 @@ export default function FacilityGeofence() {
     const mapEl = useRef<HTMLDivElement>(null);
     const stageRef = useRef<HTMLDivElement>(null);
     const sdkRef = useRef<SDK | null>(null);
-    const mapRef = useRef<MapTiler.Map | null>(null);
-    const badgeMarkers = useRef<MapTiler.Marker[]>([]);
-    const workMarkers = useRef<MapTiler.Marker[]>([]);
-    const pinMarker = useRef<MapTiler.Marker | null>(null);
+    const mapRef = useRef<MapboxMap | null>(null);
+    const badgeMarkers = useRef<Marker[]>([]);
+    const workMarkers = useRef<Marker[]>([]);
+    const pinMarker = useRef<Marker | null>(null);
 
     const [ready, setReady] = useState(false);
     /** Bumped on every style load so the data effects re-push into the fresh sources. */
     const [styleTick, setStyleTick] = useState(0);
-    const [mapError, setMapError] = useState(MAPTILER_KEY ? '' : 'missing-key');
+    const [mapError, setMapError] = useState(MAPBOX_TOKEN ? '' : 'missing-key');
     const [base, setBase] = useState<BaseLayer>('map');
+    const [pitched, setPitched] = useState(false);
+    const [bearing, setBearing] = useState(0);
     const [panelOpen, setPanelOpen] = useState(true);
     const [fullscreen, setFullscreen] = useState(false);
 
@@ -236,30 +293,29 @@ export default function FacilityGeofence() {
         if (!saveDraftZones(facility.id, zones)) notify('This browser blocked saving the draft.', 'error');
     }, [zones, loaded, facility, notify]);
 
-    /* ── Map bootstrap (the SDK touches window, so it loads client-side only) ── */
+    /* ── Map bootstrap (the library touches window, so it loads client-side only) ── */
     useEffect(() => {
-        if (!MAPTILER_KEY) return;
+        if (!MAPBOX_TOKEN) return;
         let cancelled = false;
-        let map: MapTiler.Map | null = null;
-        void import('@maptiler/sdk').then(sdk => {
+        let map: MapboxMap | null = null;
+        void import('mapbox-gl').then(({ default: mapboxgl }) => {
             if (cancelled || !mapEl.current) return;
-            sdkRef.current = sdk;
-            sdk.config.apiKey = MAPTILER_KEY;
-            map = new sdk.Map({
+            sdkRef.current = mapboxgl;
+            mapboxgl.accessToken = MAPBOX_TOKEN;
+            // Opens on the globe, then flies in once the draft is known (see the initial-fit effect).
+            map = new mapboxgl.Map({
                 container: mapEl.current,
-                style: sdk.MapStyle.STREETS.LIGHT,
+                style: STYLES.map,
+                config: { basemap: basemapConfig('map', false) },
+                projection: 'globe',
                 center: toLngLat(DEFAULT_CENTER),
-                zoom: DEFAULT_ZOOM,
-                navigationControl: false,
-                geolocateControl: false,
-                terrainControl: false,
-                scaleControl: false,
-                fullscreenControl: false,
-                projectionControl: false,
+                zoom: 1.6,
+                attributionControl: false,
                 doubleClickZoom: true,
             });
-            // A style swap (Map ↔ Satellite) can replace the style without a full 'style.load',
-            // so re-add our layers whenever style data arrives and they're missing.
+            map.addControl(new mapboxgl.AttributionControl({ compact: true }), 'bottom-left');
+            // A style swap (Map ↔ Satellite) drops our sources, so re-add them whenever style
+            // data arrives and they're missing.
             const restoreLayers = () => {
                 try {
                     if (ensureLayers(map!)) setStyleTick(t => t + 1);
@@ -270,6 +326,8 @@ export default function FacilityGeofence() {
             map.on('style.load', restoreLayers);
             map.on('styledata', restoreLayers);
             map.once('load', () => setReady(true));
+            map.on('pitchend', () => setPitched(map!.getPitch() > 5));
+            map.on('rotate', () => setBearing(map!.getBearing()));
             map.on('error', e => {
                 const status = (e?.error as { status?: number } | undefined)?.status;
                 if (status === 401 || status === 403) setMapError('bad-key');
@@ -288,25 +346,49 @@ export default function FacilityGeofence() {
         };
     }, []);
 
-    // Fit to the saved zones once both the map and the draft are ready.
+    // Fly in from the globe once both the map and the draft are ready.
     const didInitialFit = useRef(false);
     useEffect(() => {
         const map = mapRef.current;
         if (!ready || !loaded || !map || didInitialFit.current) return;
         didInitialFit.current = true;
         const all = zones.flatMap(z => z.points);
-        if (all.length) map.fitBounds(boundsOf(all), { padding: 80, maxZoom: 17.5, duration: 1400 });
+        if (all.length) map.fitBounds(boundsOf(all), { padding: 80, maxZoom: 17.5, duration: 2600, essential: true });
+        else map.flyTo({ center: toLngLat(DEFAULT_CENTER), zoom: DEFAULT_ZOOM, duration: 2600, curve: 1.6, essential: true });
     }, [ready, loaded, zones]);
 
+    const pitchedRef = useRef(false);
     const firstStyle = useRef(true);
     useEffect(() => {
         const map = mapRef.current;
-        const sdk = sdkRef.current;
-        if (!ready || !map || !sdk) return;
+        if (!ready || !map) return;
         if (firstStyle.current && base === 'map') { firstStyle.current = false; return; }
         firstStyle.current = false;
-        map.setStyle(base === 'satellite' ? sdk.MapStyle.HYBRID : sdk.MapStyle.STREETS.LIGHT);
+        // The typings mark the font options required; the runtime treats them as optional.
+        map.setStyle(STYLES[base], { config: { basemap: basemapConfig(base, pitchedRef.current) } } as unknown as Parameters<MapboxMap['setStyle']>[1]);
     }, [base, ready]);
+
+    // 3D buildings come and go with the tilt; flat, the map stays a clean plan view.
+    useEffect(() => {
+        pitchedRef.current = pitched;
+        const map = mapRef.current;
+        if (!ready || !map || base !== 'map') return;
+        try {
+            map.setConfigProperty('basemap', 'show3dObjects', pitched);
+        } catch {
+            // Style mid-swap; the next setStyle carries the right config.
+        }
+    }, [pitched, base, ready, styleTick]);
+
+    const toggleTilt = useCallback(() => {
+        const map = mapRef.current;
+        if (!map) return;
+        map.easeTo({ pitch: map.getPitch() > 5 ? 0 : TILT, duration: 900, essential: true });
+    }, []);
+
+    const resetNorth = useCallback(() => {
+        mapRef.current?.easeTo({ bearing: 0, pitch: 0, duration: 700, essential: true });
+    }, []);
 
     useEffect(() => {
         const onChange = () => {
@@ -361,7 +443,7 @@ export default function FacilityGeofence() {
     useEffect(() => {
         const map = mapRef.current;
         if (!ready || !map) return;
-        const onClick = (e: MapTiler.MapLayerMouseEvent) => {
+        const onClick = (e: MapMouseEvent) => {
             if (modeRef.current !== 'idle') return;
             const id = e.features?.[0]?.properties?.id;
             if (typeof id === 'string') selectRef.current(id, false);
@@ -411,6 +493,8 @@ export default function FacilityGeofence() {
         setEditPoints(null);
         setDraft([]);
         setMode('drawing');
+        // Trace on a flat, north-up map so clicks land where they look like they do.
+        mapRef.current?.easeTo({ pitch: 0, bearing: 0, duration: 600 });
     }, []);
 
     const cancelWork = useCallback(() => {
@@ -454,10 +538,10 @@ export default function FacilityGeofence() {
             return;
         }
         map.doubleClickZoom.disable();
-        const onClick = (e: MapTiler.MapMouseEvent) => {
+        const onClick = (e: MapMouseEvent) => {
             setDraft(prev => [...prev, [e.lngLat.lat, e.lngLat.lng]]);
         };
-        const onMove = (e: MapTiler.MapMouseEvent) => {
+        const onMove = (e: MapMouseEvent) => {
             const pts = draftRef.current;
             if (!pts.length) return;
             const cursor: LngLat = [e.lngLat.lng, e.lngLat.lat];
@@ -551,8 +635,8 @@ export default function FacilityGeofence() {
         setEditPoints(zone.points);
         setMode('editing');
         setConfirmDeleteId('');
-        focusZone(zone);
-    }, [focusZone]);
+        mapRef.current?.fitBounds(boundsOf(zone.points), { padding: 90, maxZoom: 18, pitch: 0, bearing: 0, duration: 1000, essential: true });
+    }, []);
 
     const saveEditing = useCallback(() => {
         if (!editPoints || !selectedId) return;
@@ -580,36 +664,57 @@ export default function FacilityGeofence() {
         return () => window.removeEventListener('keydown', onKey);
     }, [mode, cancelWork, finishDrawing, saveEditing]);
 
-    /* ── Search (MapTiler geocoding) ──────────────────────────── */
+    /* ── Search (Mapbox places + MapTiler suburbs/streets) ─────── */
     const runSearch = useCallback(async (q: string) => {
         const term = q.trim();
-        if (term.length < 3 || !MAPTILER_KEY) return;
+        if (term.length < 2 || !MAPBOX_TOKEN) return;
         const seq = ++searchSeq.current;
         setSearching(true);
         setSearchError('');
-        try {
-            const sdk = sdkRef.current ?? await import('@maptiler/sdk');
-            sdk.config.apiKey = MAPTILER_KEY;
-            const center = mapRef.current?.getCenter();
-            const res = await sdk.geocoding.forward(term, {
-                limit: 6,
-                ...(center ? { proximity: [center.lng, center.lat] as [number, number] } : {}),
+        const center = mapRef.current?.getCenter();
+        const near = center ? `${center.lng},${center.lat}` : `${DEFAULT_CENTER[1]},${DEFAULT_CENTER[0]}`;
+
+        const mapbox = async () => {
+            const params = new URLSearchParams({ q: term, limit: '6', language: 'en', country: SEARCH_COUNTRIES, proximity: near, access_token: MAPBOX_TOKEN });
+            const res = await fetch(`https://api.mapbox.com/search/searchbox/v1/forward?${params}`);
+            if (!res.ok) throw new Error(String(res.status));
+            return mapboxToPlaces(((await res.json()) as { features?: SearchFeatureLike[] }).features || []);
+        };
+        const maptiler = async () => {
+            if (!MAPTILER_KEY) return [];
+            // POIs are opt-in on MapTiler; they catch partial names ("37 military") that Mapbox misses.
+            const params = new URLSearchParams({
+                key: MAPTILER_KEY, limit: '10', language: 'en', country: SEARCH_COUNTRIES, proximity: near, autocomplete: 'true',
+                types: 'poi,neighbourhood,place,locality,municipality,county,address,road',
             });
+            const res = await fetch(`https://api.maptiler.com/geocoding/${encodeURIComponent(term)}.json?${params}`);
+            if (!res.ok) throw new Error(String(res.status));
+            return maptilerToPlaces(((await res.json()) as { features?: MapTilerFeatureLike[] }).features || []);
+        };
+
+        // Show whichever provider answers first, then merge in the other; only fail when both do.
+        let fromMapbox: PlaceResult[] = [];
+        let fromMaptiler: PlaceResult[] = [];
+        const show = () => {
             if (seq !== searchSeq.current) return;
-            setResults(featuresToPlaces((res?.features || []) as unknown as GeocodingFeatureLike[]));
+            setResults(mergePlaces(term, fromMapbox, fromMaptiler));
             setSearched(term);
-        } catch {
-            if (seq !== searchSeq.current) return;
+        };
+        const [a, b] = await Promise.allSettled([
+            mapbox().then(r => { fromMapbox = r; show(); }),
+            maptiler().then(r => { fromMaptiler = r; show(); }),
+        ]);
+        if (seq !== searchSeq.current) return;
+        if (a.status === 'rejected' && b.status === 'rejected') {
             setResults([]);
             setSearchError('Search isn’t responding. Try again in a moment.');
-        } finally {
-            if (seq === searchSeq.current) setSearching(false);
         }
+        setSearching(false);
     }, []);
 
     useEffect(() => {
         const term = query.trim();
-        if (term.length < 3 || term === searched) return;
+        if (term.length < 2 || term === searched) return;
         const t = setTimeout(() => void runSearch(term), 450);
         return () => clearTimeout(t);
     }, [query, searched, runSearch]);
@@ -619,12 +724,13 @@ export default function FacilityGeofence() {
         const map = mapRef.current;
         setPickedPlace(place);
         if (!sdk || !map) return;
-        const target = place.outline ? boundsOf(place.outline) : place.bounds ? [toLngLat(place.bounds[0]), toLngLat(place.bounds[1])] as [LngLat, LngLat] : null;
-        if (target) map.fitBounds(target, { padding: 90, maxZoom: 17.5, duration: 1800, essential: true });
-        else map.flyTo({ center: toLngLat(place.center), zoom: 16.5, duration: 1800, essential: true });
-        setData(map, 'geo-place', place.outline
-            ? { type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: ring(place.outline) } }
-            : EMPTY_FC);
+        // Areas and streets fit their extent; a single place gets a smooth fly-in. The current
+        // tilt is kept, so arrivals stay flat unless the 3D view is on.
+        if (place.bounds) {
+            map.fitBounds([toLngLat(place.bounds[0]), toLngLat(place.bounds[1])], { padding: 90, maxZoom: 17, duration: 2200, essential: true });
+        } else {
+            map.flyTo({ center: toLngLat(place.center), zoom: 17.2, duration: 2600, curve: 1.5, essential: true });
+        }
         pinMarker.current?.remove();
         pinMarker.current = new sdk.Marker({
             element: markerEl('geo-pin', '<span class="material-icons-round">place</span>'),
@@ -636,19 +742,7 @@ export default function FacilityGeofence() {
         setPickedPlace(null);
         pinMarker.current?.remove();
         pinMarker.current = null;
-        setData(mapRef.current, 'geo-place', EMPTY_FC);
     }, []);
-
-    const applyOutline = useCallback((place: PlaceResult) => {
-        if (!place.outline) return;
-        const now = new Date().toISOString();
-        const zone: GeofenceZone = { id: newZoneId(), name: place.name, points: place.outline, createdAt: now, updatedAt: now };
-        setZones(prev => [...prev, zone]);
-        setSelectedId(zone.id);
-        clearPlace();
-        setMode('idle');
-        notify('Outline added as a zone. Adjust it with Edit shape if needed.', 'success');
-    }, [clearPlace, notify]);
 
     /* ── Zone actions ─────────────────────────────────────────── */
     const renameZone = (id: string, name: string) => {
@@ -717,7 +811,7 @@ export default function FacilityGeofence() {
                                         onChange={e => setQuery(e.target.value)}
                                         placeholder="Search a place or address"
                                         aria-label="Search a place or address"
-                                        disabled={!MAPTILER_KEY}
+                                        disabled={!MAPBOX_TOKEN}
                                     />
                                     {searching ? <span className="geo-spin" aria-label="Searching" /> : query ? (
                                         <button type="button" className="geo-search__clear" aria-label="Clear search" onClick={() => { setQuery(''); setResults([]); setSearched(''); setSearchError(''); }}>
@@ -739,7 +833,7 @@ export default function FacilityGeofence() {
                                                     className={`geo-result${pickedPlace?.id === place.id ? ' is-active' : ''}`}
                                                     onClick={() => pickPlace(place)}
                                                 >
-                                                    <span className="geo-result__icon"><Icon name={place.outline ? 'pentagon' : 'place'} size={16} /></span>
+                                                    <span className="geo-result__icon"><Icon name={placeIcon(place)} size={16} /></span>
                                                     <span className="geo-result__text">
                                                         <span className="geo-result__name">{place.name}</span>
                                                         <span className="geo-result__addr">{[place.kind, place.address].filter(Boolean).join(' · ')}</span>
@@ -754,19 +848,12 @@ export default function FacilityGeofence() {
                                     <div className="geo-picked">
                                         <div className="geo-picked__name">{pickedPlace.name}</div>
                                         <p className="geo-note" style={{ margin: '2px 0 10px' }}>
-                                            {pickedPlace.outline
-                                                ? `This place has a mapped outline (${formatArea(polygonAreaM2(pickedPlace.outline))}). Use it, or draw your own.`
-                                                : 'Zoom in and trace your facility’s boundary.'}
+                                            {pickedPlace.bounds ? 'Zoom in to your facility, then trace its boundary.' : 'Trace your facility’s boundary around the pin.'}
                                         </p>
                                         <div className="geo-row">
-                                            {pickedPlace.outline ? (
-                                                <button type="button" className="geo-btn geo-btn--primary" onClick={() => applyOutline(pickedPlace)} disabled={mode !== 'idle'}>
-                                                    <Icon name="pentagon" size={16} /> Use outline
-                                                </button>
-                                            ) : null}
                                             <button
                                                 type="button"
-                                                className={`geo-btn${pickedPlace.outline ? '' : ' geo-btn--primary'}`}
+                                                className="geo-btn geo-btn--primary"
                                                 onClick={startDrawing}
                                                 disabled={mode !== 'idle' || !mapUsable}
                                             >
@@ -887,12 +974,12 @@ export default function FacilityGeofence() {
                                 <div className="geo-map-error">
                                     <span className="geo-map-error__art"><Icon name="map" size={28} /></span>
                                     <p className="geo-empty__title">
-                                        {mapError === 'missing-key' ? 'Map key needed' : mapError === 'bad-key' ? 'MapTiler rejected the key' : 'The map couldn’t load'}
+                                        {mapError === 'missing-key' ? 'Map token needed' : mapError === 'bad-key' ? 'Mapbox rejected the token' : 'The map couldn’t load'}
                                     </p>
                                     <p className="geo-note" style={{ margin: 0, maxWidth: '44ch', textAlign: 'center' }}>
                                         {mapError === 'load-failed'
                                             ? 'Check your connection and refresh the page.'
-                                            : <>Set <code>NEXT_PUBLIC_MAPTILER_KEY</code> in <code>.env.local</code> to a MapTiler Cloud key (allowed for this domain), then restart the dev server.</>}
+                                            : <>Set <code>NEXT_PUBLIC_MAPBOX_TOKEN</code> in <code>.env.local</code> to a Mapbox public token (allowed for this domain), then restart the dev server.</>}
                                     </p>
                                 </div>
                             ) : null}
@@ -908,6 +995,16 @@ export default function FacilityGeofence() {
                                         </button>
                                     ))}
                                 </div>
+                                <button
+                                    type="button"
+                                    className={`geo-fab geo-fab--label${pitched ? ' is-on' : ''}`}
+                                    onClick={toggleTilt}
+                                    disabled={!mapUsable || mode !== 'idle'}
+                                    aria-pressed={pitched}
+                                    title={pitched ? 'Flat view' : '3D view with buildings'}
+                                >
+                                    <Icon name="view_in_ar" size={18} /> 3D
+                                </button>
                             </div>
 
                             <div className="geo-ctl geo-ctl--tr">
@@ -955,6 +1052,11 @@ export default function FacilityGeofence() {
                             </div>
 
                             <div className="geo-ctl geo-ctl--br">
+                                {Math.abs(bearing) > 1 || pitched ? (
+                                    <button type="button" className="geo-fab" onClick={resetNorth} aria-label="Reset to north, flat" title="Reset to north, flat">
+                                        <span className="geo-compass" style={{ transform: `rotate(${-bearing}deg)` }}><Icon name="navigation" size={18} /></span>
+                                    </button>
+                                ) : null}
                                 <div className="geo-zoom">
                                     <button type="button" onClick={() => zoomBy(1)} aria-label="Zoom in" disabled={!mapUsable}><Icon name="add" size={20} /></button>
                                     <button type="button" onClick={() => zoomBy(-1)} aria-label="Zoom out" disabled={!mapUsable}><Icon name="remove" size={20} /></button>

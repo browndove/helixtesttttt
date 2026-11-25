@@ -14,6 +14,8 @@ export function KpiTile({
     watermark,
     onClick,
     alert,
+    hint,
+    extra,
 }: {
     tone: KpiTone;
     icon: string;
@@ -22,17 +24,25 @@ export function KpiTile({
     foot: ReactNode;
     chart: ReactNode;
     watermark: string;
-    onClick: () => void;
+    /** Omit for a read-only tile (no hover arrow, not focusable). */
+    onClick?: () => void;
     alert?: boolean;
+    /** Explanation shown on the info icon (read-only tiles). */
+    hint?: string;
+    /** Extra row under the value, e.g. a small stat strip. */
+    extra?: ReactNode;
 }) {
-    return (
-        <button type="button" className={`hx-kpi hx-kpi--${tone}${alert ? ' hx-kpi--alert' : ''}`} onClick={onClick}>
+    const className = `hx-kpi hx-kpi--${tone}${alert ? ' hx-kpi--alert' : ''}${onClick ? '' : ' hx-kpi--static'}`;
+    const content = (
+        <>
             <span className="hx-kpi__glow" aria-hidden />
             <span className="material-icons-round hx-kpi__mark" aria-hidden>{watermark}</span>
             <span className="hx-kpi__top">
                 <span className="hx-kpi__icon"><span className="material-icons-round">{icon}</span></span>
                 <span className="hx-kpi__label">{label}</span>
-                <span className="material-icons-round hx-kpi__go">arrow_outward</span>
+                {onClick
+                    ? <span className="material-icons-round hx-kpi__go">arrow_outward</span>
+                    : hint && <span className="material-icons-round hx-kpi__hint" title={hint} aria-label={hint}>info</span>}
             </span>
             <span className="hx-kpi__body">
                 <span className="hx-kpi__nums">
@@ -41,8 +51,11 @@ export function KpiTile({
                 </span>
                 <span className="hx-kpi__chart">{chart}</span>
             </span>
-        </button>
+            {extra && <span className="hx-kpi__extra">{extra}</span>}
+        </>
     );
+    if (!onClick) return <div className={className}>{content}</div>;
+    return <button type="button" className={className} onClick={onClick}>{content}</button>;
 }
 
 /* ── Illustrations / charts ─────────────────────────────────── */
@@ -93,7 +106,9 @@ export function Gauge({ pct, target = 80 }: { pct: number; target?: number }) {
     const r = 44;
     const len = Math.PI * r;
     const angle = (deg: number) => Math.PI * (1 - deg / 100);
-    const pt = (p: number, rr: number) => [60 + rr * Math.cos(angle(p)), 56 - rr * Math.sin(angle(p))];
+    // Rounded so server and client render identical attributes (no hydration mismatch).
+    const round = (v: number) => Math.round(v * 100) / 100;
+    const pt = (p: number, rr: number) => [round(60 + rr * Math.cos(angle(p))), round(56 - rr * Math.sin(angle(p)))];
     const [tx1, ty1] = pt(target, r - 9);
     const [tx2, ty2] = pt(target, r + 9);
     const [nx, ny] = pt(clamped, r - 14);
