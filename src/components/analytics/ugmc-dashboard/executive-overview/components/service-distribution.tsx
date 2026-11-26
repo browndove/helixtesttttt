@@ -6,7 +6,6 @@ import InfoTooltip from "@/components/analytics/info-tooltip";
 import RoleCoverageModal from "./RoleCoverageModal";
 import { tailwindTextColors } from "@/lib/analytics/theme-colors";
 import clsx from "clsx";
-import { CardTitle } from "@/components/analytics/glass/illustrations";
 
 const infoText = "Top departments by role count showing filled vs total positions and fill rate percentages.";
 
@@ -27,9 +26,9 @@ interface ServiceDistributionProps {
 }
 
 const STYLES: { color: string; bgColor: string; bubbleBg: string; textColor: keyof typeof tailwindTextColors; hexColor: string }[] = [
-    { color: "bg-accent-red", bgColor: "bg-[rgba(224,101,107,0.1)]", bubbleBg: "bg-[rgba(224,101,107,0.2)]", textColor: "accent-red", hexColor: "#e0656b" },
-    { color: "bg-accent-violet", bgColor: "bg-[rgba(74,143,214,0.1)]", bubbleBg: "bg-[rgba(74,143,214,0.2)]", textColor: "accent-violet", hexColor: "#4a8fd6" },
-    { color: "bg-accent-primary", bgColor: "bg-[rgba(47,111,184,0.1)]", bubbleBg: "bg-[rgba(47,111,184,0.2)]", textColor: "accent-primary", hexColor: "#2f6fb8" },
+    { color: "bg-accent-red", bgColor: "bg-[rgba(255,95,87,0.1)]", bubbleBg: "bg-[rgba(255,95,87,0.2)]", textColor: "accent-red", hexColor: "#ff5f57" },
+    { color: "bg-accent-violet", bgColor: "bg-[rgba(105,116,247,0.1)]", bubbleBg: "bg-[rgba(105,116,247,0.2)]", textColor: "accent-violet", hexColor: "#6974f7" },
+    { color: "bg-accent-primary", bgColor: "bg-[rgba(41,128,211,0.1)]", bubbleBg: "bg-[rgba(36,132,199,0.2)]", textColor: "accent-primary", hexColor: "#2484c7" },
 ];
 
 const ServiceDistribution = ({ departments = [] }: ServiceDistributionProps) => {
@@ -60,7 +59,7 @@ const ServiceDistribution = ({ departments = [] }: ServiceDistributionProps) => 
     }, [top3]);
 
     return (
-        <div data-watermark="shield"
+        <div
             className={clsx(
                 "@container min-w-0",
                 "box-border flex h-full min-h-0 w-full flex-col gap-4 bg-primary rounded-[18px] border border-black/[0.08]",
@@ -73,7 +72,9 @@ const ServiceDistribution = ({ departments = [] }: ServiceDistributionProps) => 
         >
             <div className="flex justify-between">
                 <div className="flex flex-col gap-0.5">
-                    <CardTitle icon="verified_user" variant="body-md-semibold">Role Coverage</CardTitle>
+                    <Text variant="body-md-semibold" color="text-primary">
+                        Role Coverage
+                    </Text>
                     <Text variant="body-sm" color="text-secondary">
                         Critical & standard role fill rates
                     </Text>

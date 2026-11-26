@@ -17,9 +17,9 @@ const ReadmissionGrid = () => {
 
 	const barChartOptions: ApexCharts.ApexOptions = {
 		chart: { type: "bar", height: isFullscreen ? 450 : 240, toolbar: { show: false }, zoom: { enabled: false } },
-		plotOptions: { bar: { columnWidth: "45%", borderRadius: 7, borderRadiusApplication: "end" } },
+		plotOptions: { bar: { columnWidth: "45%", borderRadius: 4, borderRadiusApplication: "end" } },
 		dataLabels: { enabled: false },
-		colors: ["#2f6fb8"],
+		colors: ["#2980D3"],
 		xaxis: {
 			categories: ["JAN", "FEB", "MAR", "APR", "MAY", "JUN"],
 			labels: { style: { fontFamily: "system-ui, -apple-system, sans-serif", fontWeight: 500, fontSize: "10px", colors: "var(--text-secondary)" } },
@@ -60,10 +60,10 @@ const ReadmissionGrid = () => {
 	);
 
 	const causeSpecificData = [
-		{ name: "Cardiac", percent: 4.3, cases: 19, color: "#e0656b" },
-		{ name: "Respiratory", percent: 2.1, cases: 9, color: "#2a9a74" },
-		{ name: "Surgical", percent: 3.8, cases: 13, color: "#e5a73b" },
-		{ name: "Neurological", percent: 4.3, cases: 19, color: "#2f6fb8" },
+		{ name: "Cardiac", percent: 4.3, cases: 19, color: "#FF5F57" },
+		{ name: "Respiratory", percent: 2.1, cases: 9, color: "#00C8B3" },
+		{ name: "Surgical", percent: 3.8, cases: 13, color: "#F5A623" },
+		{ name: "Neurological", percent: 4.3, cases: 19, color: "#2980D3" },
 		{ name: "Oncology", percent: 4.0, cases: 17, color: "#8F97F9" },
 	];
 
@@ -87,7 +87,7 @@ const ReadmissionGrid = () => {
 						height: 320,
 						padding: 15,
 						border: "1px solid transparent",
-						backgroundImage: "linear-gradient(var(--color-primary), var(--color-primary)), linear-gradient(155.87deg, #2f6fb8 6.04%, rgba(47,111,184, 0) 50%, rgba(21, 66, 109, 0.3) 93.96%)",
+						backgroundImage: "linear-gradient(var(--color-primary), var(--color-primary)), linear-gradient(155.87deg, #2980D3 6.04%, rgba(41, 128, 211, 0) 50%, rgba(21, 66, 109, 0.3) 93.96%)",
 						backgroundOrigin: "border-box",
 						backgroundClip: "padding-box, border-box",
 					}}
@@ -102,7 +102,7 @@ const ReadmissionGrid = () => {
 								chart: { type: 'donut' },
 								plotOptions: { pie: { startAngle: -90, endAngle: 90, donut: { size: '70%' } } },
 								dataLabels: { enabled: false },
-								fill: { colors: ['#2f6fb8', '#2f6fb81A'] },
+								fill: { colors: ['#2980D3', '#2980D31A'] },
 								legend: { show: false },
 								labels: ['Readmission', 'No Readmission'],
 								tooltip: { enabled: false },

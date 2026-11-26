@@ -6,11 +6,10 @@ import InfoTooltip from "@/components/analytics/info-tooltip";
 import dynamic from "next/dynamic";
 import { RiExpandDiagonalLine } from "react-icons/ri";
 import { GrContract } from "react-icons/gr";
+import { useTheme } from "next-themes";
 import clsx from "clsx";
 import FullscreenOverlay from "@/components/analytics/fullscreen-overlay";
 import { fillDailyMessageVolumePeriod } from "@/lib/analytics/daily-volume";
-import { CardTitle } from "@/components/analytics/glass/illustrations";
-import { barSheen, barWidth, glassTooltip } from "@/components/analytics/glass/chart-kit";
 
 const Chart = dynamic(() => import("react-apexcharts"), { ssr: false });
 
@@ -46,6 +45,7 @@ function niceMax(rawMax: number, ticks: number): number {
 const TICK_COUNT = 5;
 
 const DailyPatientFlow = ({ isFullscreen = false, onToggleFullscreen, dailyVolume = [] }: DailyPatientFlowProps) => {
+    const { resolvedTheme } = useTheme();
     const hasMounted = useRef(false);
 
     useEffect(() => { hasMounted.current = true; }, []);
@@ -87,6 +87,8 @@ const DailyPatientFlow = ({ isFullscreen = false, onToggleFullscreen, dailyVolum
         };
     }, [isFullscreen]);
 
+    const tooltipTheme = resolvedTheme === "dark" || resolvedTheme === "blue" ? "dark" : "light";
+
     const chartOptions: ApexCharts.ApexOptions = useMemo(() => ({
         chart: {
             type: "bar" as const,
@@ -101,18 +103,15 @@ const DailyPatientFlow = ({ isFullscreen = false, onToggleFullscreen, dailyVolum
                 dynamicAnimation: { enabled: false },
             },
         },
-        colors: ["#2f6fb8", "#e0656b"],
+        colors: ["#2980D3", "#FF5F57"],
         plotOptions: {
             bar: {
-                borderRadius: 6,
+                borderRadius: 10,
                 borderRadiusApplication: "end" as const,
                 borderRadiusWhenStacked: "last" as const,
-                columnWidth: barWidth(dayLabels.length),
+                columnWidth: "50%",
             },
         },
-        fill: barSheen(),
-        // Surface gap between the stacked segments
-        stroke: { show: true, width: 2, colors: ["rgba(255,255,255,0.95)"] },
         dataLabels: { enabled: false },
         xaxis: {
             categories: dayLabels,
@@ -120,7 +119,10 @@ const DailyPatientFlow = ({ isFullscreen = false, onToggleFullscreen, dailyVolum
             axisTicks: { show: false },
             labels: {
                 style: {
-                    fontSize: "11px",
+                    colors: "var(--text-secondary)",
+                    fontSize: "12px",
+                    fontWeight: 500,
+                    fontFamily: "system-ui, -apple-system, sans-serif",
                 },
             },
         },
@@ -131,28 +133,45 @@ const DailyPatientFlow = ({ isFullscreen = false, onToggleFullscreen, dailyVolum
             labels: {
                 formatter: (val: number) => Math.round(val).toString(),
                 style: {
-                    fontSize: "11px",
+                    colors: "var(--text-secondary)",
+                    fontSize: "12px",
+                    fontWeight: 500,
+                    fontFamily: "system-ui, -apple-system, sans-serif",
                 },
             },
         },
-        grid: { padding: { top: 4, right: 8, bottom: 2, left: 14 } },
-        legend: { show: false },
+        grid: {
+            show: true,
+            borderColor: "var(--bg-tertiary)",
+            strokeDashArray: 5,
+            padding: {
+                top: 4,
+                right: 8,
+                bottom: 2,
+                left: 14,
+            },
+            xaxis: {
+                lines: { show: false },
+            },
+            yaxis: {
+                lines: { show: true },
+            },
+        },
+        legend: {
+            show: false,
+        },
         tooltip: {
-            custom: ({ series, dataPointIndex }: { series: number[][]; dataPointIndex: number }) => {
-                const standard = Number(series[0]?.[dataPointIndex] ?? 0);
-                const critical = Number(series[1]?.[dataPointIndex] ?? 0);
-                return glassTooltip({
-                    title: dayLabels[dataPointIndex] ?? "",
-                    rows: [
-                        { color: "#2f6fb8", label: "Standard", value: standard.toLocaleString() },
-                        { color: "#e0656b", label: "Critical", value: critical.toLocaleString() },
-                    ],
-                    foot: `${(standard + critical).toLocaleString()} messages in total`,
-                });
+            theme: tooltipTheme,
+            style: {
+                fontSize: '12px',
+                fontFamily: "system-ui, -apple-system, sans-serif",
+            },
+            y: {
+                formatter: (val: number) => `${Math.round(val).toLocaleString()} messages`,
             },
         },
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }), [volKey, yAxisMax]);
+    }), [volKey, yAxisMax, tooltipTheme]);
 
     const chartSeries = useMemo(() => [
         {
@@ -178,7 +197,7 @@ const DailyPatientFlow = ({ isFullscreen = false, onToggleFullscreen, dailyVolum
             : { padding: "20px 24px 24px", boxSizing: "border-box" as const };
 
         return (
-            <div data-watermark="insights"
+            <div
                 className={clsx(
                     "group bg-primary rounded-[18px] border border-black/[0.08] flex min-w-0 w-full flex-col gap-0 overflow-hidden",
                     "transition-all duration-500",
@@ -189,7 +208,9 @@ const DailyPatientFlow = ({ isFullscreen = false, onToggleFullscreen, dailyVolum
                 {/* Header */}
                 <div className="flex justify-between gap-3">
                     <div className="flex flex-col gap-1">
-                        <CardTitle icon="show_chart" variant="body-md-semibold">Message Trends</CardTitle>
+                        <Text variant="body-md-semibold" color="text-primary">
+                            Message Trends
+                        </Text>
                         <Text variant="body-sm" color="text-secondary">
                             Critical vs standard messages — last 7 days
                         </Text>

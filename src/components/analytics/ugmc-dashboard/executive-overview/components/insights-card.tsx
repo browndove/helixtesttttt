@@ -5,7 +5,6 @@ import Text from "@/components/analytics/text";
 import InfoTooltip from "@/components/analytics/info-tooltip";
 import clsx from "clsx";
 import { responseMinutes } from "@/lib/analytics/distribution-metrics";
-import { CardTitle } from "@/components/analytics/glass/illustrations";
 
 const TOP_N = 5;
 
@@ -15,11 +14,11 @@ const infoText =
     "List shows each role’s median ack time on critical messages.";
 
 const SEGMENT_STYLES = [
-    { bar: "#2a9a74", bg: "rgba(42,154,116,0.1)", text: "#2a9a74" },
-    { bar: "#2f6fb8", bg: "rgba(47,111,184,0.1)", text: "#2f6fb8" },
-    { bar: "#e5a73b", bg: "rgba(255,202,87,0.2)", text: "#C68904" },
-    { bar: "#ec8f4f", bg: "rgba(255,146,87,0.1)", text: "#ec8f4f" },
-    { bar: "#e0656b", bg: "rgba(224,101,107,0.1)", text: "#e0656b" },
+    { bar: "#00C8B3", bg: "rgba(0,200,179,0.1)", text: "#089A8A" },
+    { bar: "#2980D3", bg: "rgba(41,128,211,0.1)", text: "#2980D3" },
+    { bar: "#FFCA57", bg: "rgba(255,202,87,0.2)", text: "#C68904" },
+    { bar: "#FF9257", bg: "rgba(255,146,87,0.1)", text: "#FF9257" },
+    { bar: "#FF5F57", bg: "rgba(255,95,87,0.1)", text: "#FF5F57" },
 ] as const;
 
 interface InsightsCardProps {
@@ -127,7 +126,7 @@ const InsightsCard = ({ data }: InsightsCardProps) => {
     const heroTime = formatAckTime(fastestMinutes);
 
     return (
-        <div data-watermark="emoji_events"
+        <div
             className={clsx(
                 "flex h-full min-h-0 w-full flex-col overflow-hidden rounded-[18px] border border-black/[0.08] bg-primary",
                 "transition-shadow duration-300",
@@ -140,15 +139,17 @@ const InsightsCard = ({ data }: InsightsCardProps) => {
             <div className="flex flex-col gap-3">
                 <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0 flex flex-col gap-0.5">
-                        <CardTitle icon="bolt" variant="body-md-semibold" className="font-bold">Fastest Average Acknowledgment</CardTitle>
+                        <Text variant="body-md-semibold" color="text-primary" className="font-bold">
+                            Fastest Average Acknowledgment
+                        </Text>
                         <Text variant="body-sm" color="text-secondary">
                             Top {TOP_N} roles · Avg critical ack
                         </Text>
                     </div>
                     <div className="flex shrink-0 items-center gap-1">
                         {topRoles.length > 0 ? (
-                            <div className="whitespace-nowrap rounded-[5px] bg-[#2f6fb81A] px-[7px] py-1">
-                                <span className="text-[12px] font-semibold tabular-nums text-[#2f6fb8]">
+                            <div className="whitespace-nowrap rounded-[5px] bg-[#2980D31A] px-[7px] py-1">
+                                <span className="text-[12px] font-semibold tabular-nums text-[#2980D3]">
                                     {topRoles.length} tracked
                                 </span>
                             </div>
@@ -164,7 +165,7 @@ const InsightsCard = ({ data }: InsightsCardProps) => {
                 ) : (
                     <>
                         <div className="flex flex-col gap-0.5">
-                            <span className="text-[28px] font-bold leading-none tabular-nums text-[#2f6fb8]">
+                            <span className="text-[28px] font-bold leading-none tabular-nums text-[#2980D3]">
                                 {heroTime}
                             </span>
                             <Text variant="body-sm" color="text-secondary">

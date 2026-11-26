@@ -5,12 +5,10 @@ import DashboardCard from "@/components/analytics/ugmc-dashboard/shared/dashboar
 import Text from "@/components/analytics/text";
 import { FaCalendar, FaExpandAlt, FaCompressAlt } from "react-icons/fa";
 import dynamic from "next/dynamic";
+import { useTheme } from "next-themes";
 import clsx from "clsx";
 import FullscreenOverlay from "@/components/analytics/fullscreen-overlay";
 import { responseMinutes } from "@/lib/analytics/distribution-metrics";
-import { CardTitle } from "@/components/analytics/glass/illustrations";
-import { barSheen, barWidth, glassTooltip } from "@/components/analytics/glass/chart-kit";
-import { shortRoleName, splitRoleName } from "@/lib/analytics/role-name";
 
 const Chart = dynamic(() => import("react-apexcharts"), { ssr: false });
 
@@ -49,10 +47,10 @@ const AppointmentCancellationBreakdown = ({ data }: { data: any }) => {
 		.slice(0, 4);
 
 	return (
-		<DashboardCard data-watermark="apartment" padding="none" className="flex flex-col" style={{ padding: 18, height: 380, gridColumn: 'span 4' }}>
+		<DashboardCard padding="none" className="flex flex-col" style={{ padding: 18, height: 380, gridColumn: 'span 4' }}>
 			<div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 16 }}>
 				<div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-					<CardTitle icon="domain" variant="body-md-semibold">Department Escalation Rates</CardTitle>
+					<Text variant="body-md-semibold" color="text-primary">Department Escalation Rates</Text>
 					<Text variant="body-sm" color="text-secondary">Top Escalated Departments</Text>
 				</div>
 			</div>
@@ -61,7 +59,7 @@ const AppointmentCancellationBreakdown = ({ data }: { data: any }) => {
 					<div key={index}>
 						<div className="flex items-center justify-between min-h-[48px]">
 							<Text variant="body-sm-semibold" color="text-primary" className="truncate pr-4">{dept.department_name}</Text>
-							<MiniDonut percentage={Math.round(deptRate(dept))} color="#e0656b" />
+							<MiniDonut percentage={Math.round(deptRate(dept))} color="#FF5F57" />
 						</div>
 						{index < depts.length - 1 && <div className="w-full h-px border-b border-tertiary" style={{ marginTop: 12 }} />}
 					</div>
@@ -86,34 +84,24 @@ const AppointmentCancellationChart = ({ isFullscreen = false, onToggleFullscreen
 		.sort((a: any, b: any) => ackMinutes(b) - ackMinutes(a))
 		.slice(0, 6);
 	const chartData = rolesList.map((d: any) => ackMinutes(d));
-	// Two-line labels: role, then its unit, so names stay readable instead of truncating mid-word.
-	const categories = rolesList.map((d: any) => {
-		const { role, unit } = splitRoleName(String(d.role_name ?? ''));
-		return unit ? [shortenRole(role), shortenRole(unit)] : shortenRole(role);
-	});
+	const categories = rolesList.map((d: any) => shortenRole(d.role_name));
 	const hasChartData = rolesList.length > 0;
 
+	const { resolvedTheme } = useTheme();
 
 	const chartOptions: ApexCharts.ApexOptions = {
 		chart: { type: 'bar', height: isFullscreen ? 450 : 280, toolbar: { show: false }, zoom: { enabled: false } },
-		colors: ['#e0656b'],
-		fill: barSheen(),
-		plotOptions: { bar: { borderRadius: 6, borderRadiusApplication: 'end', columnWidth: barWidth(categories.length), dataLabels: { position: 'top' } } },
-		dataLabels: {
-			enabled: true,
-			offsetY: -20,
-			formatter: (val: number) => `${val.toFixed(1)}m`,
-			style: { fontSize: '11px', fontWeight: 700, colors: ['#4a5872'] },
-		},
-		xaxis: { categories, labels: { rotate: 0, rotateAlways: false, trim: false, style: { fontSize: '11px' } } },
-		yaxis: { min: 0, tickAmount: 5, labels: { formatter: (val) => `${val.toFixed(1)}m` } },
-		tooltip: {
-			custom: ({ dataPointIndex }: { dataPointIndex: number }) =>
-				glassTooltip({
-					title: shortRoleName(String(rolesList[dataPointIndex]?.role_name ?? '')),
-					rows: [{ color: '#e0656b', label: 'Median acknowledgment', value: `${(chartData[dataPointIndex] ?? 0).toFixed(1)} min` }],
-				}),
-		},
+		colors: ['#ef4444'],
+		fill: { opacity: 0.7 },
+		stroke: { show: false, width: 0 },
+		plotOptions: { bar: { borderRadius: 4, columnWidth: '50%', barHeight: '100%', colors: { backgroundBarColors: [] } } },
+		dataLabels: { enabled: false },
+		grid: { borderColor: '#e5e7eb', strokeDashArray: 0, xaxis: { lines: { show: false } }, yaxis: { lines: { show: true } } },
+		xaxis: { categories, axisBorder: { show: false }, axisTicks: { show: false }, labels: { rotate: 0, rotateAlways: false, style: { fontFamily: "system-ui, -apple-system, sans-serif", fontWeight: 500, fontSize: '12px', colors: '#9ca3af' } } },
+		yaxis: { min: 0, tickAmount: 5, labels: { style: { fontFamily: "system-ui, -apple-system, sans-serif", fontWeight: 500, fontSize: '12px', colors: '#9ca3af' }, formatter: (val) => `${val.toFixed(1)}m` } },
+		tooltip: { enabled: true, theme: resolvedTheme === "dark" || resolvedTheme === "blue" ? "dark" : "light", style: { fontSize: '12px', fontFamily: "system-ui, -apple-system, sans-serif" },
+            y: { formatter: (val) => `${val.toFixed(1)} mins` }
+        },
 	};
 
 	const chartSeries = [{ name: 'Median acknowledgment time', data: chartData }];

@@ -4,15 +4,12 @@ import { useMemo } from "react";
 import dynamic from "next/dynamic";
 import DashboardCard from "@/components/analytics/ugmc-dashboard/shared/dashboard-card";
 import Text from "@/components/analytics/text";
+import { IoCheckmarkCircle, IoTime } from "react-icons/io5";
 import {
     fillDailyMessageVolumePeriod,
     fillDailyMessageVolumeRange,
 } from "@/lib/analytics/daily-volume";
 import { responseMinutes } from "@/lib/analytics/distribution-metrics";
-import { CardTitle } from "@/components/analytics/glass/illustrations";
-import { EmptyState, MetricTile } from "@/components/analytics/glass/ui";
-import { buildNiceYAxisScale } from "@/lib/analytics/nice-chart-axis";
-import { areaWash, endpointAnnotation, glassTooltip, smoothLine } from "@/components/analytics/glass/chart-kit";
 
 const Chart = dynamic(() => import("react-apexcharts"), { ssr: false });
 
@@ -91,7 +88,7 @@ export default function LabTestsVolume({ data }: { data?: any }) {
         ? aggregated.map((d: { value: number }) => d.value)
         : [];
     const maxValue = standardSeries.length ? Math.max(...standardSeries) : 0;
-    const yScale = buildNiceYAxisScale(maxValue > 0 ? maxValue * 1.1 : 0, 4);
+    const yAxisMax = maxValue > 0 ? Math.ceil(maxValue * 1.15) : 10;
     const pendingStandard = parsedDaily.length ? parsedDaily[parsedDaily.length - 1].value : 0;
     const labelStep = Math.max(1, Math.ceil(dateCategories.length / 6));
 
@@ -103,18 +100,27 @@ export default function LabTestsVolume({ data }: { data?: any }) {
             zoom: { enabled: false },
             sparkline: { enabled: false },
             background: "transparent",
+            foreColor: "var(--text-secondary)",
+            fontFamily: "system-ui, -apple-system, sans-serif",
         },
-        stroke: smoothLine(["#2f6fb8"]),
-        fill: areaWash(),
-        annotations: standardSeries.length
-            ? endpointAnnotation(dateCategories[dateCategories.length - 1], standardSeries[standardSeries.length - 1], "#2f6fb8", standardSeries[standardSeries.length - 1].toLocaleString())
-            : undefined,
+        stroke: { curve: "smooth", width: 3, colors: ["#2E8BDF"] },
+        fill: {
+            type: "gradient",
+            gradient: {
+                shade: "light",
+                type: "vertical",
+                shadeIntensity: 0.2,
+                opacityFrom: 0.55,
+                opacityTo: 0.1,
+                stops: [0, 100],
+            },
+        },
         dataLabels: { enabled: false },
-        markers: { size: useWeekly ? 4 : 0, colors: ["#2f6fb8"] },
+        markers: { size: useWeekly ? 4 : 0, hover: { size: 5 }, colors: ["#2E8BDF"] },
         xaxis: {
             categories: dateCategories,
             labels: {
-                style: { fontSize: "11px" },
+                style: { colors: "var(--text-secondary)", fontSize: "10px", fontFamily: "system-ui, -apple-system, sans-serif" },
                 hideOverlappingLabels: true,
                 formatter: (value: string, _timestamp?: number, opts?: any) => {
                     const idx = opts?.dataPointIndex ?? 0;
@@ -129,64 +135,84 @@ export default function LabTestsVolume({ data }: { data?: any }) {
         },
         yaxis: {
             min: 0,
-            max: yScale.max,
-            tickAmount: yScale.tickAmount,
+            max: yAxisMax,
+            tickAmount: 4,
             labels: {
-                style: { fontSize: "11px" },
+                style: { colors: "var(--text-secondary)", fontSize: "10px", fontFamily: "system-ui, -apple-system, sans-serif" },
                 formatter: (v) => String(Math.round(v)),
             },
         },
-        grid: { padding: { right: 18 } },
+        grid: {
+            borderColor: "var(--bg-tertiary)",
+            strokeDashArray: 4,
+            xaxis: { lines: { show: false } },
+            yaxis: { lines: { show: true } },
+        },
         tooltip: {
-            custom: ({ series, dataPointIndex }: { series: number[][]; dataPointIndex: number }) => {
-                const parsed = toDate(dateCategories[dataPointIndex] ?? "");
-                const title = !parsed
-                    ? String(dateCategories[dataPointIndex] ?? "")
-                    : useWeekly
-                      ? `Week of ${parsed.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`
-                      : parsed.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" });
-                return glassTooltip({
-                    title,
-                    rows: [{ color: "#2f6fb8", label: "Standard messages", value: Number(series[0]?.[dataPointIndex] ?? 0).toLocaleString() }],
-                });
+            enabled: true,
+            theme: "light",
+            x: {
+                formatter: (value: string) => {
+                    const parsed = toDate(value);
+                    if (!parsed) return value;
+                    if (useWeekly) {
+                        return `Week of ${parsed.toLocaleDateString("en-US", {
+                            month: "short",
+                            day: "numeric",
+                            year: "numeric",
+                        })}`;
+                    }
+                    return parsed.toLocaleDateString("en-US", {
+                        weekday: "short",
+                        month: "short",
+                        day: "numeric",
+                        year: "numeric",
+                    });
+                },
             },
         },
-        colors: ["#2f6fb8"],
+        colors: ["#2E8BDF"],
         legend: { show: false },
     };
 
-    const periodTotal = standardSeries.reduce((sum, v) => sum + (Number(v) || 0), 0);
     const series = [{ name: useWeekly ? "Weekly Standard Messages" : "Daily Standard Messages", data: standardSeries }];
 
     return (
-        <DashboardCard data-watermark="forum"
+        <DashboardCard
             padding="none"
             className="flex h-full min-h-0 w-full min-w-0 flex-col gap-3"
             style={{ padding: 18 }}
         >
-            <div className="flex flex-col gap-0.5">
-                <CardTitle icon="mail">
-                    {useWeekly ? "Standard Messages by Week" : "Standard Messages by Day"}
-                </CardTitle>
-                <Text variant="body-sm" color="text-secondary">Non-critical message volume</Text>
+            <Text variant="body-md-semibold" color="text-primary">
+                {useWeekly ? "Standard Messages by Week" : "Standard Messages by Day"}
+            </Text>
+
+            <div className="flex items-center gap-3">
+                <div className="rounded-[8px] bg-secondary px-3 py-2">
+                    <Text variant="body-sm" color="text-secondary">Median response time</Text>
+                    <div className="flex items-center gap-2">
+                        <Text variant="body-md-semibold" color="text-primary">{fmtMin(responseMinutes(data, "reply_all", ["avg_reply_response_minutes_all"]) ?? undefined)}</Text>
+                        <IoTime className="text-text-secondary" />
+                    </div>
+                </div>
+                <div className="rounded-[8px] bg-secondary px-3 py-2">
+                    <Text variant="body-sm" color="text-secondary">Latest Day Standard Messages</Text>
+                    <div className="flex items-center gap-2">
+                        <Text variant="body-md-semibold" color="text-primary">{pendingStandard}</Text>
+                        <IoCheckmarkCircle className="text-accent-primary" />
+                    </div>
+                </div>
             </div>
 
-            <div className="an-metrics">
-                <MetricTile
-                    icon="schedule"
-                    label="Median reply"
-                    value={fmtMin(responseMinutes(data, "reply_all", ["avg_reply_response_minutes_all"]) ?? undefined)}
-                    hint="Median time to reply to a message"
-                />
-                <MetricTile icon="today" tone="mint" label={useWeekly ? "Latest week" : "Latest day"} value={pendingStandard} />
-                <MetricTile icon="functions" tone="slate" label="Period total" value={periodTotal.toLocaleString()} />
-            </div>
-
-            <div className="flex min-h-[200px] w-full min-w-0 flex-1 flex-col lg:min-h-[220px]">
+            <div className="min-h-[200px] w-full min-w-0 flex-1 lg:min-h-[220px]">
                 {hasChartData ? (
                     <Chart options={options} series={series} type="area" height="100%" width="100%" />
                 ) : (
-                    <EmptyState icon="forum" title="No standard messages" hint="Non-critical message volume for this period will chart here." />
+                    <div className="flex h-full min-h-[200px] items-center justify-center rounded-[8px] border border-dashed border-tertiary bg-secondary/30 px-4">
+                        <Text variant="body-sm" color="text-secondary" className="text-center">
+                            No standard message volume for this period.
+                        </Text>
+                    </div>
                 )}
             </div>
         </DashboardCard>

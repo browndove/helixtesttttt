@@ -5,7 +5,6 @@ import DashboardCard from "@/components/analytics/ugmc-dashboard/shared/dashboar
 import Text from "@/components/analytics/text";
 import { HiMiniInformationCircle } from "react-icons/hi2";
 import { IoChevronDown } from "react-icons/io5";
-import { CardTitle } from "@/components/analytics/glass/illustrations";
 
 type EscalationRoleRow = {
     role_name?: string;
@@ -73,10 +72,10 @@ const RoleEscalationsTable = ({ data }: { data?: { top_escalated_roles?: Escalat
 	}, [data, selectedDomain]);
 
 	return (
-		<DashboardCard data-watermark="badge" padding="none" className="w-full flex flex-col" style={{ padding: 18, height: 440 }}>
+		<DashboardCard padding="none" className="w-full flex flex-col" style={{ padding: 18, height: 440 }}>
 			<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
 				<div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-					<CardTitle icon="notification_important" variant="body-md-semibold">Role Escalations</CardTitle>
+					<Text variant="body-md-semibold" color="text-primary">Role Escalations</Text>
 					<Text variant="body-sm" color="text-secondary">Tracking policy non-responders</Text>
 				</div>
 				<div className="relative">

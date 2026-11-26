@@ -8,7 +8,6 @@ import InfoTooltip from "@/components/analytics/info-tooltip";
 import clsx from "clsx";
 import { FaLightbulb } from "react-icons/fa6";
 import { type CallMetricsSlice, buildCallInsightSummary } from "./call-metrics-helpers";
-import { CardTitle } from "@/components/analytics/glass/illustrations";
 
 const infoText =
     "Outbound answer rate with top caller and unanswered volume. Bar shows the share of outbound sessions that connected.";
@@ -49,14 +48,16 @@ const OperatingRoomsUtilization: React.FC<OperatingRoomsUtilizationProps> = ({ c
     }, [isVisible, connectProgress]);
 
     return (
-        <DashboardCard data-watermark="call"
+        <DashboardCard
             className="flex flex-1 min-w-[280px] flex-col gap-4"
             onMouseEnter={() => setIsHovered(true)}
             onMouseLeave={() => setIsHovered(false)}
         >
             <div className="flex items-start justify-between">
                 <div className="flex flex-col gap-0.5">
-                    <CardTitle icon="lightbulb" variant="body-md-semibold">Calls Insight</CardTitle>
+                    <Text variant="body-md-semibold" color="text-primary">
+                        Calls Insight
+                    </Text>
                     <Text variant="body-sm" color="text-tertiary">
                         Connect rate and busiest callers.
                     </Text>

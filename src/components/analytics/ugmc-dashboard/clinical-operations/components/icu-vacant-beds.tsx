@@ -16,7 +16,6 @@ import {
     pickTypicalSeconds,
     typicalSecondsRange,
 } from "./call-metrics-helpers";
-import { CardTitle } from "@/components/analytics/glass/illustrations";
 
 const avgInfo = "Median duration of answered calls in the selected period.";
 const rangeInfo = "Middle 50% of answered call lengths (Q1 to Q3). Min and max show extremes.";
@@ -49,7 +48,7 @@ const ICUVacantBeds: React.FC<ICUVacantBedsProps> = ({ callMetrics }) => {
     }, []);
 
     return (
-        <DashboardCard data-watermark="timer" className="flex flex-col gap-[10px] h-full" padding="sm">
+        <DashboardCard className="flex flex-col gap-[10px] h-full" padding="sm">
             <div
                 className="flex flex-col gap-3 bg-tertiary rounded-[12px] p-4 transition-colors"
                 onMouseEnter={() => setIsAvgHovered(true)}
@@ -57,7 +56,9 @@ const ICUVacantBeds: React.FC<ICUVacantBedsProps> = ({ callMetrics }) => {
             >
                 <div className="flex justify-between items-start">
                     <div className="flex flex-col gap-0.5">
-                        <CardTitle icon="av_timer" variant="body-md-semibold">Avg Call Duration</CardTitle>
+                        <Text variant="body-md-semibold" color="text-primary">
+                            Avg Call Duration
+                        </Text>
                         <Text variant="body-sm" color="text-secondary">
                             Answered calls
                         </Text>
@@ -111,7 +112,9 @@ const ICUVacantBeds: React.FC<ICUVacantBedsProps> = ({ callMetrics }) => {
             >
                 <div className="flex justify-between items-start">
                     <div className="flex flex-col gap-0.5">
-                        <CardTitle icon="straighten" variant="body-md-semibold">Call Duration Range</CardTitle>
+                        <Text variant="body-md-semibold" color="text-primary">
+                            Call Duration Range
+                        </Text>
                         <Text variant="body-sm" color="text-secondary">
                             Typical range (Q1–Q3)
                         </Text>

@@ -8,14 +8,6 @@ import { RiExpandDiagonalLine } from "react-icons/ri";
 import { GrContract } from "react-icons/gr";
 import type { TransferMetricsData } from "@/lib/analytics/transfer-metrics";
 import { baseChartOptions, chartLabelStyle } from "./chart-theme";
-import { CardTitle } from "@/components/analytics/glass/illustrations";
-import { barSheen, glassTooltip } from "@/components/analytics/glass/chart-kit";
-
-const STATUS = [
-    { label: "Accepted", color: "#2a9a74" },
-    { label: "Declined", color: "#e0656b" },
-    { label: "Pending", color: "#e5a73b" },
-];
 
 const Chart = dynamic(() => import("react-apexcharts"), { ssr: false });
 
@@ -32,33 +24,24 @@ function buildOptions(isModal: boolean, max: number): ApexCharts.ApexOptions {
             type: "bar",
             height: isModal ? 500 : 280,
         },
-        colors: STATUS.map((s) => s.color),
-        fill: barSheen(),
+        colors: ["#00C8B3", "#FF5F57", "#FFCA57"],
         plotOptions: {
             bar: {
-                borderRadius: 8,
+                borderRadius: 4,
                 borderRadiusApplication: "end",
-                columnWidth: isModal ? "64px" : "44px",
+                columnWidth: "45%",
                 distributed: true,
-                dataLabels: { position: "top" },
-                colors: { backgroundBarColors: ["rgba(27,42,68,0.035)"], backgroundBarRadius: 8 },
             },
         },
-        dataLabels: {
-            enabled: true,
-            offsetY: -22,
-            formatter: (val: number) => Math.round(val).toLocaleString(),
-            style: { fontSize: "13px", fontWeight: 700, colors: ["#1b2a44"] },
-        },
         xaxis: {
-            categories: STATUS.map((s) => s.label),
+            categories: ["Accepted", "Declined", "Pending"],
             axisBorder: { show: false },
             axisTicks: { show: false },
-            labels: { style: { ...chartLabelStyle, fontSize: "12px", fontWeight: 600 } },
+            labels: { style: chartLabelStyle },
         },
         yaxis: {
             min: 0,
-            max: Math.max(Math.ceil((max * 1.15) / 4) * 4, 4),
+            max: Math.max(max, 4),
             tickAmount: 4,
             labels: {
                 style: chartLabelStyle,
@@ -67,16 +50,8 @@ function buildOptions(isModal: boolean, max: number): ApexCharts.ApexOptions {
         },
         legend: { show: false },
         tooltip: {
-            custom: ({ series, dataPointIndex }: { series: number[][]; dataPointIndex: number }) => {
-                const values = STATUS.map((_, i) => Number(series[0]?.[i] ?? 0));
-                const total = values.reduce((a, b) => a + b, 0);
-                const value = values[dataPointIndex] ?? 0;
-                return glassTooltip({
-                    title: STATUS[dataPointIndex]?.label ?? "",
-                    rows: [{ color: STATUS[dataPointIndex]?.color, label: "Requests", value: value.toLocaleString() }],
-                    foot: total > 0 ? `${Math.round((value / total) * 100)}% of all requests` : undefined,
-                });
-            },
+            ...baseChartOptions.tooltip,
+            y: { formatter: (val) => `${val} requests` },
         },
     };
 }
@@ -94,7 +69,9 @@ const TransferStatusChart = ({ data, loading }: TransferStatusChartProps) => {
         <>
             <div className="flex items-start justify-between">
                 <div className="flex flex-col gap-[2px]">
-                    <CardTitle icon="fact_check" variant={isModal ? "body-lg-semibold" : "body-md-semibold"} className="font-bold">Request Status</CardTitle>
+                    <Text variant={isModal ? "body-lg-semibold" : "body-md-semibold"} color="text-primary" className="font-bold">
+                        Request Status
+                    </Text>
                     <Text variant="body-sm" color="text-secondary">
                         Accepted, declined, and pending · Selected period
                     </Text>
@@ -126,7 +103,7 @@ const TransferStatusChart = ({ data, loading }: TransferStatusChartProps) => {
 
     return (
         <>
-            <DashboardCard data-watermark="local_hospital" className="flex flex-col gap-[15px]" padding="lg">
+            <DashboardCard className="flex flex-col gap-[15px]" padding="lg">
                 {chartContent(false)}
             </DashboardCard>
             {isMaximized && (

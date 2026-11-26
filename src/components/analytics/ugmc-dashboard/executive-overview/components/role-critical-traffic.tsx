@@ -6,7 +6,6 @@ import InfoTooltip from '@/components/analytics/info-tooltip';
 import { tailwindTextColors } from '@/lib/analytics/theme-colors';
 import clsx from 'clsx';
 import { responseMinutes } from '@/lib/analytics/distribution-metrics';
-import { CardTitle } from "@/components/analytics/glass/illustrations";
 
 const infoText =
     'Escalation index, critical message volume, and reply time by role. ' +
@@ -42,11 +41,11 @@ export interface RoleMetricTrafficItem {
 }
 
 const COLORS: { color: string; bgColor: string; textColor: keyof typeof tailwindTextColors }[] = [
-    { color: 'bg-[#4a8fd6]', bgColor: 'bg-[rgba(74,143,214,0.15)]', textColor: 'accent-violet' },
-    { color: 'bg-[#e5a73b]', bgColor: 'bg-[#e5a73b26]', textColor: 'accent-orange' },
-    { color: 'bg-accent-green', bgColor: 'bg-[rgba(42,154,116,0.15)]', textColor: 'accent-green' },
-    { color: 'bg-accent-primary', bgColor: 'bg-[rgba(47,111,184,0.15)]', textColor: 'accent-primary' },
-    { color: 'bg-accent-red', bgColor: 'bg-[rgba(224,101,107,0.15)]', textColor: 'accent-red' },
+    { color: 'bg-[#6974f7]', bgColor: 'bg-[rgba(105,116,247,0.15)]', textColor: 'accent-violet' },
+    { color: 'bg-[#e89b00]', bgColor: 'bg-[#E89B0026]', textColor: 'accent-orange' },
+    { color: 'bg-accent-green', bgColor: 'bg-[rgba(0,200,179,0.15)]', textColor: 'accent-green' },
+    { color: 'bg-accent-primary', bgColor: 'bg-[rgba(36,132,199,0.15)]', textColor: 'accent-primary' },
+    { color: 'bg-accent-red', bgColor: 'bg-[rgba(255,95,87,0.15)]', textColor: 'accent-red' },
 ];
 
 interface RoleCriticalTrafficProps {
@@ -106,7 +105,7 @@ const RoleCriticalTraffic = ({ roles = [] }: RoleCriticalTrafficProps) => {
     }, [topRoles, maxRate]);
 
     return (
-        <div data-watermark="badge"
+        <div
             className={clsx(
                 'box-border flex h-full min-h-0 w-full flex-col gap-0 bg-primary rounded-[18px] border border-black/[0.08]',
                 'transition-all duration-500',
@@ -117,7 +116,9 @@ const RoleCriticalTraffic = ({ roles = [] }: RoleCriticalTrafficProps) => {
             onMouseLeave={() => setIsHovered(false)}
         >
             <div className="flex items-center justify-between gap-2">
-                <CardTitle icon="priority_high" variant="body-md-semibold" className="min-w-0 truncate">Role critical traffic</CardTitle>
+                <Text variant="body-md-semibold" color="text-primary" className="min-w-0 truncate">
+                    Role critical traffic
+                </Text>
                 <InfoTooltip text={infoText} show={isHovered} />
             </div>
 

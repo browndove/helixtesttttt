@@ -22,7 +22,7 @@ const MortalityIndexChart = ({ isFullscreen = false, onToggleFullscreen }: { isF
 			zoom: { enabled: false },
 			animations: { enabled: true, speed: 800 },
 		},
-		colors: ["#2a9a74", "#e0656b"],
+		colors: ["#00C8B3", "#FF5F57"],
 		fill: {
 			type: "gradient",
 			opacity: [0.35, 0.35],
@@ -37,11 +37,11 @@ const MortalityIndexChart = ({ isFullscreen = false, onToggleFullscreen }: { isF
 				stops: [0, 100],
 			},
 		},
-		stroke: { curve: "smooth", width: [2.5, 2.5], colors: ["#2a9a74", "#e0656b"] },
+		stroke: { curve: "smooth", width: [2.5, 2.5], colors: ["#00C8B3", "#FF5F57"] },
 		markers: {
 			size: [4, 4],
 			colors: ["#FFFFFF", "#FFFFFF"],
-			strokeColors: ["#2a9a74", "#e0656b"],
+			strokeColors: ["#00C8B3", "#FF5F57"],
 			strokeWidth: 2,
 			hover: { size: 6 },
 		},
@@ -131,7 +131,7 @@ const MortalityRiskAgeGrid = () => {
 			type: "bar", toolbar: { show: false }, sparkline: { enabled: false }, zoom: { enabled: false },
 			animations: { enabled: true, speed: 1800, animateGradually: { enabled: true, delay: 200 }, dynamicAnimation: { enabled: true, speed: 500 } },
 		},
-		colors: ["#2f6fb8"],
+		colors: ["#2980D3"],
 		plotOptions: { bar: { horizontal: true, barHeight: "50%", borderRadius: 10, borderRadiusApplication: "end", borderRadiusWhenStacked: "last" } },
 		dataLabels: { enabled: false },
 		xaxis: {
@@ -148,11 +148,11 @@ const MortalityRiskAgeGrid = () => {
 	const ageMixSeries = [{ name: "Mortality ratio", data: [0.9, 1.7, 2.2, 0.4] }];
 
 	const highRiskCohorts = [
-		{ label: "Cardio-thoracic cases", percent: 34, cases: 19, color: "#2f6fb8" },
+		{ label: "Cardio-thoracic cases", percent: 34, cases: 19, color: "#2980D3" },
 		{ label: "Sepsis & shock", percent: 22, cases: 9, color: "#8F97F9" },
-		{ label: "High-risk seniors", percent: 44, cases: 13, color: "#e0656b" },
-		{ label: "Renal failure & dialysis", percent: 19, cases: 19, color: "#e5a73b" },
-		{ label: "Immunocompromised oncology", percent: 17, cases: 17, color: "#2a9a74" },
+		{ label: "High-risk seniors", percent: 44, cases: 13, color: "#FF5F57" },
+		{ label: "Renal failure & dialysis", percent: 19, cases: 19, color: "#F5A623" },
+		{ label: "Immunocompromised oncology", percent: 17, cases: 17, color: "#00C8B3" },
 	];
 
 	const [animatedCohorts, setAnimatedCohorts] = useState(highRiskCohorts.map(() => ({ percent: 0, cases: 0 })));

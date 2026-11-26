@@ -4,15 +4,13 @@ import * as React from "react";
 import Text from "@/components/analytics/text";
 import DashboardCard from "@/components/analytics/ugmc-dashboard/shared/dashboard-card";
 import clsx from "clsx";
-import { CardTitle } from "@/components/analytics/glass/illustrations";
-import { EmptyState, Meter, Pill, RowIcon } from "@/components/analytics/glass/ui";
-import { splitRoleName } from "@/lib/analytics/role-name";
 
 type RoleAssignment = {
     role_id?: string;
     department: string;
     roleName: string;
     priority: string;
+    priorityColor: string;
     filled: boolean;
 };
 
@@ -27,6 +25,7 @@ const ClaimsOwedByDepartment: React.FC<{ data?: any; onEditRole?: (role: any) =>
             department: role.department_name,
             roleName: role.role_name,
             priority: role.priority === "critical" ? "Critical" : "Standard",
+            priorityColor: role.priority === "critical" ? "var(--accent-red)" : "var(--accent-green)",
             filled: role.filled
         }));
 
@@ -46,54 +45,58 @@ const ClaimsOwedByDepartment: React.FC<{ data?: any; onEditRole?: (role: any) =>
 
         return selected.slice(0, 5);
     }, [data]);
-    const filled = Number(data?.filled_roles) || 0;
-    const total = Number(data?.total_roles) || 0;
-    const fillPct = total > 0 ? (filled / total) * 100 : 0;
-
     return (
-        <DashboardCard data-watermark="badge" className="flex flex-col flex-1 h-full" padding="none" style={{ padding: 20, gap: 14 }}>
+        <DashboardCard className="flex flex-col flex-1 h-full" padding="none" style={{ padding: 20, gap: 15 }}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                <CardTitle icon="assignment_ind" variant="body-md-semibold" className="font-bold">Role Assignment Status</CardTitle>
+                <Text variant="body-md-semibold" color="text-primary" className="font-bold">Role Assignment Status</Text>
                 <Text variant="body-sm" color="text-secondary">Across all departments</Text>
             </div>
-
-            <div className="flex flex-col gap-2">
-                <div className="an-bigstat">
-                    <span className="an-bigstat__value">{filled}<span style={{ color: 'var(--text-muted)', fontWeight: 600 }}>/{total}</span></span>
-                    <span className="an-bigstat__label">roles filled</span>
-                    <span className="ml-auto"><Pill tone={fillPct >= 70 ? 'mint' : 'amber'}>{Math.round(fillPct)}%</Pill></span>
+            <div className="flex-1 overflow-x-auto flex flex-col">
+                <div className="flex-1 border border-tertiary rounded-[10px] overflow-hidden">
+                    <table className="w-full" style={{ tableLayout: "fixed" }}>
+                        <colgroup>
+                            <col style={{ width: "25%" }} />
+                            <col style={{ width: "25%" }} />
+                            <col style={{ width: "25%" }} />
+                            <col style={{ width: "25%" }} />
+                        </colgroup>
+                        <thead>
+                            <tr className="bg-secondary border-b border-tertiary">
+                                <th className="text-left" style={{ padding: '16px 12px' }}><Text variant="body-md-semibold" color="text-primary" className="font-bold">Department</Text></th>
+                                <th className="text-left" style={{ padding: '16px 12px' }}><Text variant="body-md-semibold" color="text-primary" className="font-bold">Role Name</Text></th>
+                                <th className="text-left" style={{ padding: '16px 12px' }}><Text variant="body-md-semibold" color="text-primary" className="font-bold">Priority</Text></th>
+                                <th className="text-left" style={{ padding: '16px 12px' }}><Text variant="body-md-semibold" color="text-primary" className="font-bold">Status</Text></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {roleAssignments.map((role, index) => {
+                                const priorityBgColor = role.priorityColor === "var(--accent-red)" ? "rgba(248, 81, 73, 0.1)" : "rgba(63, 185, 80, 0.1)";
+                                const statusColor = role.filled ? "var(--accent-green)" : "var(--accent-red)";
+                                const statusBgColor = role.filled ? "rgba(63, 185, 80, 0.1)" : "rgba(248, 81, 73, 0.1)";
+                                return (
+                                    <tr
+                                        key={role.role_id || role.roleName}
+                                        className={clsx(
+                                            `${index % 2 === 1 ? "bg-secondary" : ""} ${index < roleAssignments.length - 1 ? "border-b border-tertiary" : ""}`,
+                                            "cursor-pointer hover:bg-secondary/50 transition-colors"
+                                        )}
+                                        onClick={() => onEditRole?.(role)}
+                                    >
+                                        <td style={{ padding: '16px 12px' }}><Text variant="body-sm" color="text-primary">{role.department}</Text></td>
+                                        <td style={{ padding: '16px 12px' }}><Text variant="body-sm" color="accent-primary">{role.roleName}</Text></td>
+                                        <td style={{ padding: '16px 12px' }}>
+                                            <span className="text-[14px] font-semibold rounded-[4px]" style={{ color: role.priorityColor, backgroundColor: priorityBgColor, padding: '4px 8px' }}>{role.priority}</span>
+                                        </td>
+                                        <td style={{ padding: '16px 12px' }}>
+                                            <span className="text-[14px] font-semibold rounded-[4px]" style={{ color: statusColor, backgroundColor: statusBgColor, padding: '4px 8px' }}>{role.filled ? 'Filled' : 'Unfilled'}</span>
+                                        </td>
+                                    </tr>
+                                );
+                            })}
+                        </tbody>
+                    </table>
                 </div>
-                <Meter pct={fillPct} tone={fillPct >= 70 ? 'mint' : 'amber'} label={`${filled} of ${total} roles filled`} />
             </div>
-
-            {roleAssignments.length === 0 ? (
-                <EmptyState icon="assignment_ind" title="No roles yet" hint="Roles appear here once they are set up for this facility." />
-            ) : (
-                <div className="an-list flex-1">
-                    {roleAssignments.map((role, index) => {
-                        const critical = role.priority === "Critical";
-                        const { role: roleTitle, unit } = splitRoleName(role.roleName);
-                        return (
-                            <div
-                                key={role.role_id || `${index}-${role.roleName}`}
-                                className={clsx("an-row", onEditRole && "cursor-pointer")}
-                                onClick={() => onEditRole?.(role)}
-                                title={role.roleName}
-                            >
-                                <RowIcon icon={critical ? "emergency" : "badge"} tone={critical ? "rose" : "blue"} />
-                                <div className="an-row__main">
-                                    <span className="an-row__title">{roleTitle}</span>
-                                    <span className="an-row__sub">{unit && unit !== role.department ? `${unit} · ${role.department}` : role.department}</span>
-                                </div>
-                                <div className="an-row__end">
-                                    <Pill tone={critical ? "rose" : "slate"}>{role.priority}</Pill>
-                                    <Pill tone={role.filled ? "mint" : "amber"} dot>{role.filled ? "Filled" : "Open"}</Pill>
-                                </div>
-                            </div>
-                        );
-                    })}
-                </div>
-            )}
         </DashboardCard>
     );
 };

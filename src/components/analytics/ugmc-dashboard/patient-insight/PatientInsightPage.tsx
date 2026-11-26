@@ -1,14 +1,13 @@
 "use client";
 
 import React from "react";
-import { ResponseKpis } from "@/components/analytics/glass/AnalyticsKpis";
-import { PatientCensusGrid, AppointmentGrid, DiagnosisGrid } from "./components";
+import { KPIGrid, PatientCensusGrid, AppointmentGrid, DiagnosisGrid } from "./components";
 
 const PatientInsightPage = ({ data, onViewMoreRoles }: { data: any; onViewMoreRoles?: () => void }) => {
 	return (
 		<div className="w-full flex flex-col" style={{ gap: 15 }}>
 			<div className="animate-slide-in-up" style={{ animationDelay: '100ms', opacity: 0, animationFillMode: 'forwards' }}>
-				<ResponseKpis data={data} />
+				<KPIGrid data={data} />
 			</div>
 			<div className="animate-slide-in-up" style={{ animationDelay: '200ms', opacity: 0, animationFillMode: 'forwards' }}>
 				<PatientCensusGrid data={data} />

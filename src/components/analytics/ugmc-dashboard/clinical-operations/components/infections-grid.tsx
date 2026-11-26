@@ -22,10 +22,10 @@ const InfectionsGrid = () => {
 			toolbar: { show: false }, sparkline: { enabled: false }, zoom: { enabled: false },
 			animations: { enabled: true, speed: 800 },
 		},
-		colors: ["#2f6fb8"],
+		colors: ["#2E7DD3"],
 		stroke: { curve: "smooth", width: 2.5 },
 		fill: { type: "gradient", opacity: 0.5, gradient: { shade: "light", type: "vertical", shadeIntensity: 0.2, opacityFrom: 0.5, opacityTo: 0.15, stops: [0, 100] } },
-		markers: { size: 4, colors: ["#FFFFFF"], strokeColors: ["#2f6fb8"], strokeWidth: 2, hover: { size: 6 } },
+		markers: { size: 4, colors: ["#FFFFFF"], strokeColors: ["#2E7DD3"], strokeWidth: 2, hover: { size: 6 } },
 		dataLabels: { enabled: false },
 		xaxis: {
 			categories: ["JAN", "FEB", "MAR", "APR", "MAY", "JUN"],

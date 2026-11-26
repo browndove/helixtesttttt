@@ -2,9 +2,9 @@
 
 import * as React from "react";
 import { useMemo } from "react";
-import { CallKpis } from "@/components/analytics/glass/AnalyticsKpis";
 import { normalizeCallMetricsFromUsage } from "@/lib/analytics/call-metrics";
 import {
+	CallKPIRow,
 	LabTestsVolume,
 	ImagingRadiology,
 	InboundCallsByDepartment,
@@ -21,7 +21,7 @@ const ClinicalOperationsPage = ({ data }: { data?: any }) => {
 
 	return (
 		<div className="w-full flex flex-col gap-[15px]">
-			<CallKpis data={data} />
+			<CallKPIRow data={data} />
 
 			{/* Outbound & inbound outcome charts */}
 			<div className="grid grid-cols-1 items-stretch gap-4 xl:grid-cols-2">

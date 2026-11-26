@@ -3,9 +3,6 @@
 import * as React from "react";
 import Text from "@/components/analytics/text";
 import DashboardCard from "@/components/analytics/ugmc-dashboard/shared/dashboard-card";
-import { CardTitle } from "@/components/analytics/glass/illustrations";
-import { Callout, EmptyState, Meter } from "@/components/analytics/glass/ui";
-import { shortRoleName, splitRoleName } from "@/lib/analytics/role-name";
 
 type EscalatedRoleRow = {
     role_id?: string;
@@ -95,51 +92,52 @@ const TopVendors: React.FC<{ data?: Record<string, unknown> }> = ({ data }) => {
         return 0;
     }, [root, rows]);
 
-    const topName = rows[0] ? shortRoleName(rows[0].name) : undefined;
-    const maxEscalations = Math.max(1, ...rows.map((r) => r.escalations));
+    const topName = rows[0]?.name;
 
     return (
-        <DashboardCard data-watermark="campaign" className="flex flex-col flex-1" padding="none" style={{ padding: 20, gap: 14 }}>
+        <DashboardCard className="flex flex-col flex-1" padding="none" style={{ padding: 20, gap: 10, height: 680 }}>
+            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                    <Text variant="body-md-semibold" color="text-primary" className="font-bold">Top Escalated Roles</Text>
+                    <Text variant="body-sm" color="text-secondary">By escalation count · current window</Text>
+                </div>
+            </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-                <CardTitle icon="trending_up" variant="body-md-semibold" className="font-bold">Top Escalated Roles</CardTitle>
-                <Text variant="body-sm" color="text-secondary">By escalation count · current window</Text>
+                <Text variant="body-sm" color="text-secondary">Total escalations (facility)</Text>
+                <span className="text-[32px] font-bold tabular-nums" style={{ color: "#0EAF9F" }}>{totalEscalations.toLocaleString()}</span>
             </div>
-
-            <div className="an-bigstat">
-                <span className="an-bigstat__value">{totalEscalations.toLocaleString()}</span>
-                <span className="an-bigstat__label">escalations across the facility</span>
-            </div>
-
-            {rows.length === 0 ? (
-                <EmptyState icon="verified" title="No escalations" hint="No role triggered an escalation in this period." />
-            ) : (
-                <div className="an-list flex-1">
-                    {rows.map((role) => {
-                        const { role: roleTitle, unit } = splitRoleName(role.name);
-                        const where = [unit, role.department !== "—" && role.department !== unit ? role.department : ""].filter(Boolean).join(" · ");
-                        return (
-                            <div key={`${role.rank}-${role.name}`} className="an-row" title={role.name}>
-                                <span className={`an-rank an-rank--${role.rank}`}>{role.rank}</span>
-                                <div className="an-row__main">
-                                    <div className="flex items-center justify-between gap-2">
-                                        <span className="an-row__title">{roleTitle}</span>
-                                        <span className="shrink-0 text-[13px] font-bold tabular-nums text-text-primary">{role.escalations}</span>
-                                    </div>
-                                    <Meter pct={(role.escalations / maxEscalations) * 100} tone={role.rank === 1 ? "rose" : "blue"} />
-                                    <span className="an-row__sub">
-                                        {where || "—"}{role.messages > 0 ? ` · ${role.messages.toLocaleString()} msgs` : ""}
-                                    </span>
+            <div className="flex-1" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                {rows.length === 0 && (
+                    <Text variant="body-sm" color="text-secondary" className="py-6 text-center">No escalation data for this period</Text>
+                )}
+                {rows.map((role) => (
+                    <div key={`${role.rank}-${role.name}`} className="bg-secondary rounded-[10px] flex items-center" style={{ padding: 16, minHeight: 71 }}>
+                        <div className="w-full" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
+                            <div className="flex-1 min-w-0" style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+                                <Text variant="heading-lg" color="text-tertiary" className="font-semibold shrink-0">{role.rank}</Text>
+                                <div className="flex-1 min-w-0" style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                                    <Text variant="body-md-semibold" color="text-primary" className="truncate">{role.name}</Text>
+                                    <Text variant="body-sm" color="text-tertiary">{role.department}</Text>
                                 </div>
                             </div>
-                        );
-                    })}
+                            <div className="shrink-0 flex flex-col items-end gap-1">
+                                <div className="rounded-[4px] bg-quaternary" style={{ padding: '0 8px' }}>
+                                    <Text variant="body-md-semibold" color="text-primary" className="tabular-nums">{role.escalations}</Text>
+                                </div>
+                                {role.messages > 0 && (
+                                    <Text variant="body-xs" color="text-tertiary" className="tabular-nums">{role.messages} msgs</Text>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+                ))}
+            </div>
+            {topName && rows.length > 0 && (
+                <div className="bg-[#0EAF9F1A] border border-[#0EAF9F33] rounded-[10px]" style={{ padding: 12 }}>
+                    <Text variant="body-md" color="none" style={{ color: "#0EAF9F" }} className="font-medium break-words overflow-wrap-anywhere">
+                        {topName} has the highest escalation count in this window. Review coverage and response protocols if needed.
+                    </Text>
                 </div>
-            )}
-
-            {topName && (
-                <Callout icon="tips_and_updates" tone="rose">
-                    <strong>{topName}</strong> escalates most in this window. Review its coverage and response protocol.
-                </Callout>
             )}
         </DashboardCard>
     );

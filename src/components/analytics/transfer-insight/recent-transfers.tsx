@@ -7,7 +7,6 @@ import { RiExpandDiagonalLine } from "react-icons/ri";
 import { GrContract } from "react-icons/gr";
 import type { TransferMetricsData } from "@/lib/analytics/transfer-metrics";
 import { TRANSFER_FACILITY_TOP_N } from "./chart-theme";
-import { CardTitle } from "@/components/analytics/glass/illustrations";
 
 type TransferByFacilityChartProps = {
     data: TransferMetricsData | null;
@@ -70,14 +69,16 @@ const TransferByFacilityChart = ({ data, loading }: TransferByFacilityChartProps
         <>
             <div className="flex items-start justify-between">
                 <div className="flex flex-col gap-[2px]">
-                    <CardTitle icon="apartment" variant={isModal ? "body-lg-semibold" : "body-md-semibold"} className="font-bold">Transfers by Facility</CardTitle>
+                    <Text variant={isModal ? "body-lg-semibold" : "body-md-semibold"} color="text-primary" className="font-bold">
+                        Transfers by Facility
+                    </Text>
                     <Text variant="body-sm" color="text-secondary">
                         Counterparty facilities · Selected period
                     </Text>
                 </div>
                 <div className="flex items-center gap-[10px]">
-                    <div className="rounded-[5px] bg-[#2f6fb81A] px-[7px] py-[4px]">
-                        <Text variant="body-sm-semibold" color="none" className="text-[#2f6fb8]">
+                    <div className="rounded-[5px] bg-[#2980D31A] px-[7px] py-[4px]">
+                        <Text variant="body-sm-semibold" color="none" className="text-[#2980D3]">
                             <span className="tabular-nums">{animatedTotal}</span> Total
                         </Text>
                     </div>
@@ -107,7 +108,7 @@ const TransferByFacilityChart = ({ data, loading }: TransferByFacilityChartProps
                 <>
                     <div className="flex flex-1 flex-col gap-[18px]">
                         {rows.map((item, index) => (
-                            <div key={item.counterparty_facility_id || `${index}-${item.counterparty_facility_name}`} className="flex items-center gap-[10px]">
+                            <div key={item.counterparty_facility_id} className="flex items-center gap-[10px]">
                                 <Text variant="body-xs" color="text-tertiary" className="w-[100px] shrink-0 truncate" title={item.counterparty_facility_name}>
                                     {item.counterparty_facility_name}
                                 </Text>
@@ -116,7 +117,7 @@ const TransferByFacilityChart = ({ data, loading }: TransferByFacilityChartProps
                                         className="h-full rounded-l-[5px] rounded-r-full transition-all duration-100"
                                         style={{
                                             width: `${animatedBars[index] || 0}%`,
-                                            background: "linear-gradient(90deg, #2f6fb8 0%, #4aa3d8 100%)",
+                                            background: "linear-gradient(90deg, #2980D3 0%, #00A3C8 100%)",
                                         }}
                                     />
                                 </div>
@@ -140,7 +141,7 @@ const TransferByFacilityChart = ({ data, loading }: TransferByFacilityChartProps
 
     return (
         <>
-            <DashboardCard data-watermark="local_hospital" className="flex h-full flex-col gap-[15px]" padding="lg">
+            <DashboardCard className="flex h-full flex-col gap-[15px]" padding="lg">
                 {chartContent(false)}
             </DashboardCard>
             {isMaximized && (

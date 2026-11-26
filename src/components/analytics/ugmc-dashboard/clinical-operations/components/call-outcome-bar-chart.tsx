@@ -24,9 +24,6 @@ import {
     sortOutboundRolesByVolume,
     truncateLabel,
 } from "./call-metrics-helpers";
-import { CardTitle } from "@/components/analytics/glass/illustrations";
-import { barSheen, glassTooltip } from "@/components/analytics/glass/chart-kit";
-import { shortRoleName } from "@/lib/analytics/role-name";
 
 const Chart = dynamic(() => import("react-apexcharts"), { ssr: false });
 
@@ -45,8 +42,8 @@ type ChartBuildResult = {
     summaryNegative: number;
 };
 
-function truncateCategory(name: string, max = 18): string {
-    return truncateLabel(shortRoleName(name), max);
+function truncateCategory(name: string, max = 14): string {
+    return truncateLabel(name, max);
 }
 
 function sumSeries(data: number[]): number {
@@ -232,23 +229,27 @@ const CallOutcomeBarChart: React.FC<CallOutcomeBarChartProps> = ({
                 type: "bar",
                 toolbar: { show: false },
                 zoom: { enabled: false },
-                background: "transparent",
+                animations: {
+                    enabled: true,
+                    speed: 500,
+                    animateGradually: { enabled: true, delay: 250 },
+                    dynamicAnimation: { enabled: true, speed: 500 },
+                },
             },
             colors:
                 chart.hasOutcomes || !isOutbound
-                    ? ["#2a9a74", "#e0656b"]
-                    : ["#2f6fb8"],
-            fill: barSheen(),
+                    ? ["var(--accent-green)", "var(--accent-red)"]
+                    : ["var(--accent-primary)"],
             plotOptions: {
                 bar: {
                     horizontal: false,
-                    columnWidth: chart.series.length > 1 ? "44px" : "26px",
-                    borderRadius: 6,
+                    columnWidth: "40px",
+                    borderRadius: 4,
                     borderRadiusApplication: "end",
                 },
             },
             dataLabels: { enabled: false },
-            stroke: { show: true, width: 2, colors: ["transparent"] },
+            stroke: { show: true, width: 3, colors: ["transparent"] },
             xaxis: {
                 categories: chart.categories,
                 axisBorder: { show: false },
@@ -256,7 +257,12 @@ const CallOutcomeBarChart: React.FC<CallOutcomeBarChartProps> = ({
                 labels: {
                     rotate: 0,
                     trim: true,
-                    style: { fontSize: "11px" },
+                    style: {
+                        colors: "var(--text-secondary)",
+                        fontSize: "10px",
+                        fontWeight: 500,
+                        fontFamily: "system-ui, -apple-system, sans-serif",
+                    },
                 },
             },
             yaxis: {
@@ -264,26 +270,36 @@ const CallOutcomeBarChart: React.FC<CallOutcomeBarChartProps> = ({
                 max: chart.chartYMax,
                 tickAmount: 4,
                 labels: {
-                    style: { fontSize: "11px" },
+                    style: {
+                        colors: "var(--text-secondary)",
+                        fontSize: "10px",
+                        fontWeight: 500,
+                    },
                 },
+            },
+            grid: {
+                borderColor: "var(--bg-tertiary)",
+                strokeDashArray: 4,
+                xaxis: { lines: { show: false } },
+                yaxis: { lines: { show: true } },
             },
             legend: {
                 show: chart.series.length > 1 || chart.series[0]?.name !== "Calls placed",
                 position: "bottom",
                 horizontalAlign: "center",
+                fontFamily: "system-ui, -apple-system, sans-serif",
+                fontSize: "11px",
+                fontWeight: 500,
+                labels: { colors: "var(--text-secondary)" },
             },
             tooltip: {
-                shared: true,
-                intersect: false,
-                custom: ({ series, dataPointIndex, w }: { series: number[][]; dataPointIndex: number; w: { globals: { colors: string[] } } }) =>
-                    glassTooltip({
-                        title: chart.fullNames[dataPointIndex] ?? chart.categories[dataPointIndex] ?? "",
-                        rows: chart.series.map((sr: { name: string }, i: number) => ({
-                            color: w.globals.colors[i],
-                            label: sr.name,
-                            value: `${Number(series[i]?.[dataPointIndex] ?? 0).toLocaleString()} calls`,
-                        })),
-                    }),
+                theme: "light",
+                fillSeriesColor: false,
+                style: { fontSize: "12px", fontFamily: "system-ui, -apple-system, sans-serif" },
+                x: {
+                    formatter: (_val, opts) => chart.fullNames[opts?.dataPointIndex ?? 0] ?? _val,
+                },
+                y: { formatter: (val) => `${val} calls` },
             },
         }),
         [chart, isOutbound]
@@ -317,7 +333,9 @@ const CallOutcomeBarChart: React.FC<CallOutcomeBarChartProps> = ({
     const panel = (chartHeightClass: string) => (
         <div className="flex h-full min-h-0 flex-col gap-4">
             <div className="flex items-start justify-between">
-                <CardTitle icon={isOutbound ? "call_made" : "call_received"}>{title}</CardTitle>
+                <Text variant="body-md-semibold" color="text-primary">
+                    {title}
+                </Text>
                 <div className="flex items-center gap-2">
                     {showLiveBadge ? (
                         <div className="flex items-center gap-1.5 rounded-[6px] bg-accent-primary/10 px-2 py-1">
@@ -389,7 +407,6 @@ const CallOutcomeBarChart: React.FC<CallOutcomeBarChartProps> = ({
     return (
         <>
             <DashboardCard
-                data-watermark={dimension === "role" ? "badge" : "domain"}
                 className="flex h-full min-h-0 min-w-[320px] flex-1 flex-col"
                 padding="lg"
                 onMouseEnter={() => setIsHovered(true)}
