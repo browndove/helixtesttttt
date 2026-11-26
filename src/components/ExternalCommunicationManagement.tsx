@@ -6,11 +6,6 @@ import CustomSelect from '@/components/CustomSelect';
 import { MacVibrancyToast, MacVibrancyToastPortal } from '@/components/MacVibrancyToast';
 import { appendFacilityIdForProxy } from '@/lib/facility-client';
 import { API_ENDPOINTS } from '@/lib/config';
-import { HeroKpi, HeroKpis, SplitBar } from '@/components/glass/hero';
-import { MiniBars, Ring } from '@/components/glass/kpi';
-import '@/components/glass/glass-page.css';
-import '@/components/glass/glass-kit.css';
-import '@/components/glass/staff-glass.css';
 
 type RoleRow = {
     id: string;
@@ -262,12 +257,11 @@ export default function ExternalCommunicationManagement() {
 
     if (loading) {
         return (
-                <div className="app-main gx-page">
+                <div className="app-main">
                     <TopBar title="External communication" subtitle="Cross-facility messaging for this facility" />
                     <main style={{ flex: 1, width: '100%', minWidth: 0, boxSizing: 'border-box', padding: '20px 24px 28px', background: 'var(--bg-900)' }}>
-                        <div className="card gx-empty" style={{ width: '100%', boxSizing: 'border-box', color: 'var(--text-muted)', fontSize: 13 }}>
-                            <span className="gx-empty__art"><span className="material-icons-round">hourglass_empty</span></span>
-                            Loading…
+                        <div className="card" style={{ padding: 24, width: '100%', boxSizing: 'border-box' }}>
+                            <div style={{ color: 'var(--text-muted)', fontSize: 14 }}>Loading…</div>
                         </div>
                     </main>
                 </div>
@@ -282,7 +276,7 @@ export default function ExternalCommunicationManagement() {
                 </MacVibrancyToastPortal>
             )}
 
-            <div className="app-main gx-page" style={{ minWidth: 0, flex: 1, display: 'flex', flexDirection: 'column' }}>
+            <div className="app-main" style={{ minWidth: 0, flex: 1, display: 'flex', flexDirection: 'column' }}>
                 <TopBar title="External communication" subtitle="Cross-facility role messaging for this facility" />
 
                 <main style={{
@@ -295,73 +289,23 @@ export default function ExternalCommunicationManagement() {
                     background: 'var(--bg-900)',
                 }}
                 >
-                    {(() => {
-                        const transfer = addedRoles.filter(r => r.is_transfer_role).length;
-                        const reachPct = roles.length > 0 ? Math.round((addedRoles.length / roles.length) * 100) : 0;
-                        const deptCounts = new Map<string, number>();
-                        for (const r of addedRoles) {
-                            const dept = r.department.trim();
-                            if (dept) deptCounts.set(dept, (deptCounts.get(dept) ?? 0) + 1);
-                        }
-                        const byDept = [...deptCounts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).slice(0, 6);
-                        return (
-                            <HeroKpis label="External communication overview" mark="forum">
-                                <HeroKpi
-                                    tone={draftFacilityEnabled ? 'mint' : 'amber'}
-                                    icon={draftFacilityEnabled ? 'wifi_tethering' : 'portable_wifi_off'}
-                                    label="Facility"
-                                    value={draftFacilityEnabled ? 'On' : 'Off'}
-                                    art={(
-                                        <span className={`sx-radar${draftFacilityEnabled ? ' is-live' : ''}`} aria-hidden>
-                                            <span className="sx-radar__ring" />
-                                            <span className="sx-radar__ring sx-radar__ring--2" />
-                                            <span className="sx-radar__dot" />
-                                        </span>
-                                    )}
-                                    foot={draftFacilityEnabled ? 'Open to participating facilities' : 'In-facility messaging only'}
-                                />
-                                <HeroKpi
-                                    tone="navy"
-                                    icon="badge"
-                                    label="Roles that can message out"
-                                    value={addedRoles.length.toLocaleString()}
-                                    art={<Ring pct={reachPct} size={56}>{roles.length > 0 ? `${reachPct}%` : '—'}</Ring>}
-                                    foot={`of ${roles.length} role${roles.length === 1 ? '' : 's'} in this facility`}
-                                />
-                                <HeroKpi
-                                    tone="sky"
-                                    icon="swap_horiz"
-                                    label="Transfer roles"
-                                    value={transfer.toLocaleString()}
-                                    art={addedRoles.length > 0 ? (
-                                        <SplitBar
-                                            label={`${transfer} transfer roles, ${addedRoles.length - transfer} added by hand`}
-                                            parts={[
-                                                { label: 'Transfer roles', n: transfer, color: '#2f6fb8' },
-                                                { label: 'Added by hand', n: addedRoles.length - transfer, color: 'rgba(47, 111, 184, 0.22)' },
-                                            ]}
-                                        />
-                                    ) : undefined}
-                                    foot="Included automatically"
-                                />
-                                <HeroKpi
-                                    tone="amber"
-                                    icon="domain"
-                                    label="Departments reached"
-                                    value={deptCounts.size.toLocaleString()}
-                                    art={byDept.length > 1 ? <MiniBars values={byDept.map(([, n]) => n)} labels={byDept.map(([d]) => d)} /> : undefined}
-                                    foot={deptCounts.size > 0 ? 'With at least one external role' : 'No roles added yet'}
-                                />
-                            </HeroKpis>
-                        );
-                    })()}
-
                     <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 20 }}>
 
-                        <div className="card gx-mark-card" style={{ padding: '20px 22px', width: '100%', maxWidth: '100%', minWidth: 0, boxSizing: 'border-box' }}>
-                            <span className="material-icons-round gx-mark" aria-hidden>forum</span>
+                        <div className="card" style={{ padding: '20px 22px', width: '100%', maxWidth: '100%', minWidth: 0, boxSizing: 'border-box' }}>
                             <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, marginBottom: 14 }}>
-                                <span className="gx-name__icon"><span className="material-icons-round">domain</span></span>
+                                <div style={{
+                                    width: 40,
+                                    height: 40,
+                                    borderRadius: 10,
+                                    background: 'rgba(14,165,233,0.1)',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    flexShrink: 0,
+                                }}
+                                >
+                                    <span className="material-icons-round" style={{ fontSize: 22, color: '#0ea5e9' }}>forum</span>
+                                </div>
                                 <div style={{ flex: 1, minWidth: 0 }}>
                                     <h2 style={{ fontSize: 16, fontWeight: 700, margin: 0, color: 'var(--text-primary)' }}>Facility</h2>
                                     <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: '6px 0 0', lineHeight: 1.5 }}>
@@ -375,9 +319,9 @@ export default function ExternalCommunicationManagement() {
                                 alignItems: 'center',
                                 justifyContent: 'space-between',
                                 padding: '12px 14px',
-                                borderRadius: 14,
-                                background: draftFacilityEnabled ? 'rgba(47,111,184,0.07)' : 'rgba(27,42,68,0.04)',
-                                transition: 'background 0.2s',
+                                borderRadius: 'var(--radius-md)',
+                                background: draftFacilityEnabled ? 'rgba(14,165,233,0.06)' : 'var(--surface-2)',
+                                border: `1px solid ${draftFacilityEnabled ? 'rgba(14,165,233,0.2)' : 'var(--border-subtle)'}`,
                             }}
                             >
                                 <div>
@@ -388,16 +332,38 @@ export default function ExternalCommunicationManagement() {
                                 </div>
                                 <button
                                     type="button"
-                                    className="gx-switch"
                                     aria-pressed={draftFacilityEnabled}
-                                    aria-label="Allow external communication"
                                     onClick={() => setDraftFacilityEnabled(!draftFacilityEnabled)}
-                                />
+                                    style={{
+                                        width: 44,
+                                        height: 24,
+                                        borderRadius: 12,
+                                        background: draftFacilityEnabled ? '#0ea5e9' : 'var(--border-default)',
+                                        border: 'none',
+                                        cursor: 'pointer',
+                                        position: 'relative',
+                                        transition: 'background 0.2s',
+                                        flexShrink: 0,
+                                    }}
+                                >
+                                    <span
+                                        style={{
+                                            width: 18,
+                                            height: 18,
+                                            borderRadius: 9,
+                                            background: '#fff',
+                                            position: 'absolute',
+                                            top: 3,
+                                            left: draftFacilityEnabled ? 23 : 3,
+                                            transition: 'left 0.2s',
+                                            boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+                                        }}
+                                    />
+                                </button>
                             </div>
 
                             {draftFacilityEnabled && externalRoleCount === 0 && (
-                                <div className="gx-callout" style={{ marginTop: 12 }}>
-                                    <span className="material-icons-round" aria-hidden>info</span>
+                                <div style={{ marginTop: 12, padding: '10px 12px', borderRadius: 'var(--radius-sm)', background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.25)', fontSize: 12, color: 'var(--text-secondary)' }}>
                                     Add at least one role in the list below before you can save with external communication on.
                                 </div>
                             )}
@@ -411,10 +377,7 @@ export default function ExternalCommunicationManagement() {
                                 transition: 'opacity 0.25s ease',
                             }}>
 
-                            <h2 style={{ fontSize: 16, fontWeight: 700, margin: '0 0 6px', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: 10 }}>
-                                <span className="gx-ico"><span className="material-icons-round">badge</span></span>
-                                External messaging roles
-                            </h2>
+                            <h2 style={{ fontSize: 16, fontWeight: 700, margin: '0 0 6px', color: 'var(--text-primary)' }}>External messaging roles</h2>
                             <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: '0 0 16px', lineHeight: 1.5 }}>
                                 Add duty roles that may send or receive cross-facility messages when this facility allows it. Transfer roles appear automatically with a tag. If external communication is on, keep at least one role with external messaging enabled.
                             </p>
@@ -464,22 +427,20 @@ export default function ExternalCommunicationManagement() {
                             {roles.length === 0 ? (
                                 <div style={{ fontSize: 13, color: 'var(--text-muted)', padding: '16px 0' }}>No roles found. Create roles under Setup → Roles first.</div>
                             ) : addedRoles.length === 0 ? (
-                                <div className="gx-empty" style={{ fontSize: 13, color: 'var(--text-muted)', borderRadius: 16, border: '1.5px dashed rgba(47,111,184,0.3)', background: 'rgba(47,111,184,0.04)' }}>
-                                    <span className="gx-empty__art"><span className="material-icons-round">forum</span></span>
+                                <div style={{ fontSize: 13, color: 'var(--text-muted)', padding: '20px 16px', textAlign: 'center', borderRadius: 'var(--radius-md)', border: '1px dashed var(--border-default)', background: 'var(--surface-2)' }}>
                                     No roles added yet. Choose a role above and click Add.
                                 </div>
                             ) : filteredAddedRoles.length === 0 ? (
                                 <div style={{ fontSize: 13, color: 'var(--text-muted)', padding: '16px 0' }}>No added roles match this search.</div>
                             ) : (
-                                <div style={{ border: '1px solid rgba(27,42,68,0.07)', borderRadius: 16, overflow: 'hidden', background: '#fff', boxShadow: '0 1px 2px rgba(27,42,68,0.04), 0 10px 22px -16px rgba(27,42,68,0.35)' }}>
-                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr minmax(100px, auto)', gap: 0, background: 'rgba(244,247,251,0.85)', fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', padding: '10px 14px' }}>
+                                <div style={{ border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)', overflow: 'hidden' }}>
+                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr minmax(100px, auto)', gap: 0, background: 'var(--surface-2)', fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', padding: '10px 14px' }}>
                                         <span>Role</span>
                                         <span style={{ textAlign: 'right' }}>Remove</span>
                                     </div>
                                     {filteredAddedRoles.map(r => (
                                         <div
                                             key={r.id}
-                                            className="gx-row"
                                             style={{
                                                 display: 'grid',
                                                 gridTemplateColumns: '1fr minmax(100px, auto)',
@@ -489,19 +450,27 @@ export default function ExternalCommunicationManagement() {
                                                 gap: 12,
                                             }}
                                         >
-                                            <div className="gx-name">
-                                                <span className="gx-name__icon"><span className="material-icons-round">{r.is_transfer_role ? 'swap_horiz' : 'badge'}</span></span>
-                                                <div style={{ minWidth: 0 }}>
+                                            <div>
                                                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                                                     <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>{r.name}</span>
                                                     {r.is_transfer_role ? (
-                                                        <span className="gx-tag">Transfer role</span>
+                                                        <span
+                                                            className="badge badge-info"
+                                                            style={{
+                                                                fontSize: 10,
+                                                                flexShrink: 0,
+                                                                background: 'rgba(124,58,237,0.12)',
+                                                                color: '#7c3aed',
+                                                                border: '1px solid rgba(124,58,237,0.28)',
+                                                            }}
+                                                        >
+                                                            Transfer role
+                                                        </span>
                                                     ) : null}
                                                 </div>
                                                 {r.department ? (
                                                     <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>{r.department}</div>
                                                 ) : null}
-                                                </div>
                                             </div>
                                             <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
                                                 {r.is_transfer_role ? (

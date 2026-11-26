@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { Check, GitMerge, Inbox, RotateCw, Wrench } from 'lucide-react';
 import { API_ENDPOINTS } from '@/lib/config';
 import { appendFacilityIdForProxy, resolveClientFacilityId } from '@/lib/facility-client';
 import {
@@ -20,6 +21,8 @@ import {
 import { cn } from '@/lib/utils';
 
 type Notify = (message: string, variant?: 'success' | 'error' | 'info') => void;
+
+const CARD = 'rounded-2xl bg-white ring-1 ring-slate-900/6 shadow-[inset_0_1px_0_rgba(255,255,255,0.9),0_1px_2px_rgba(15,23,42,0.05),0_8px_20px_-10px_rgba(15,23,42,0.10)]';
 
 async function resolveFacilityId(): Promise<string> {
     return (await resolveClientFacilityId()) || '';
@@ -42,11 +45,7 @@ export async function fetchOpenDirectoryReportCount(): Promise<number> {
 }
 
 function Bone({ className }: { className: string }) {
-    return <div className={cn('st-bone', className)} />;
-}
-
-function Icon({ name, size }: { name: string; size?: number }) {
-    return <span className="material-icons-round" aria-hidden style={size ? { fontSize: size } : undefined}>{name}</span>;
+    return <div className={cn('animate-pulse rounded-md bg-slate-100', className)} />;
 }
 
 function FieldInput({
@@ -61,20 +60,18 @@ function FieldInput({
     mono?: boolean;
 }) {
     return (
-        <label className="st-field">
-            <span className="st-field__label">{label}</span>
+        <label className="grid gap-1">
+            <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">{label}</span>
             <input
                 value={value}
                 onChange={e => onChange(e.target.value)}
-                className={cn('st-input', mono && 'st-input--mono')}
+                className={cn(
+                    'h-9 rounded-lg bg-white px-3 text-[13px] text-slate-900 ring-1 ring-slate-200 outline-none focus:ring-[#1E3A5F]/40',
+                    mono && 'font-mono text-[12.5px]',
+                )}
             />
         </label>
     );
-}
-
-function initialsOf(name: string): string {
-    const parts = name.trim().split(/\s+/).filter(Boolean);
-    return ((parts[0]?.[0] || '') + (parts.length > 1 ? parts[parts.length - 1][0] : '')).toUpperCase() || '?';
 }
 
 function RelatedRequestCard({
@@ -87,26 +84,38 @@ function RelatedRequestCard({
     onSelect: () => void;
 }) {
     return (
-        <button type="button" onClick={onSelect} className={cn('st-pick', selected && 'is-selected')} aria-pressed={selected}>
-            <div className="flex items-start justify-between gap-3">
-                <div className="flex min-w-0 items-start gap-3">
-                    <span className="st-avatar" aria-hidden>{initialsOf(personDisplayName(request))}</span>
-                    <div className="min-w-0">
-                        <div className="truncate text-[13.5px] font-semibold text-(--text-primary)">{personDisplayName(request)}</div>
-                        <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] text-(--text-muted)">
-                            {request.employeeId ? <span className="st-mono">{request.employeeId}</span> : null}
-                            {request.dob ? <span>DOB {request.dob}</span> : null}
-                            {request.jobTitle ? <span>{request.jobTitle}</span> : null}
-                            {request.department ? <span>{request.department}</span> : null}
-                        </div>
-                        {(request.email || request.phone) ? (
-                            <div className="mt-1 text-[12px] text-(--text-muted)">
-                                {[request.email, request.phone].filter(Boolean).join(' · ')}
-                            </div>
-                        ) : null}
+        <button
+            type="button"
+            onClick={onSelect}
+            className={cn(
+                'w-full rounded-xl px-3.5 py-3 text-left ring-1 transition',
+                selected
+                    ? 'bg-[#EFF4FA] ring-[#1E3A5F]/35'
+                    : 'bg-slate-50 ring-slate-200/80 hover:bg-white',
+            )}
+        >
+            <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                    <div className="truncate text-[13.5px] font-semibold text-slate-900">
+                        {personDisplayName(request)}
                     </div>
+                    <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[12px] text-slate-500">
+                        {request.employeeId ? <span className="font-mono text-[11.5px]">{request.employeeId}</span> : null}
+                        {request.dob ? <span>DOB {request.dob}</span> : null}
+                        {request.jobTitle ? <span>{request.jobTitle}</span> : null}
+                        {request.department ? <span>{request.department}</span> : null}
+                    </div>
+                    {(request.email || request.phone) ? (
+                        <div className="mt-1 text-[12px] text-slate-500">
+                            {[request.email, request.phone].filter(Boolean).join(' · ')}
+                        </div>
+                    ) : null}
                 </div>
-                {selected ? <span className="st-pill st-pill--navy"><Icon name="check" />Selected</span> : null}
+                {selected ? (
+                    <span className="shrink-0 rounded-full bg-[#1E3A5F] px-2 py-0.5 text-[10.5px] font-semibold text-white">
+                        Selected
+                    </span>
+                ) : null}
             </div>
         </button>
     );
@@ -138,54 +147,59 @@ function ReportCard({
     };
 
     return (
-        <article className="st-card gx-reveal">
-            <span className="material-icons-round gx-mark" aria-hidden>report_problem</span>
-            <div className="st-card__head">
-                <div className="st-card__id">
-                    <span className="gx-ico"><Icon name="manage_accounts" /></span>
-                    <div className="min-w-0">
-                        <h3 className="st-card__title">
-                            Wrong-person report
-                            {report.directory.hasAccount ? (
-                                <span className="st-pill st-pill--ok" style={{ marginLeft: 8, verticalAlign: 2 }}>
-                                    <Icon name="verified" />Directory person has an account
-                                </span>
-                            ) : null}
-                        </h3>
-                        <p className="st-card__sub">
-                            {report.note.trim()
-                                ? <>They said: <span className="text-(--text-primary)">“{report.note.trim()}”</span></>
-                                : 'Someone flagged this directory match as wrong.'}
-                            {when ? <span> · {when}</span> : null}
-                        </p>
+        <article className={cn(CARD, 'overflow-hidden')}>
+            <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-100 px-5 py-4">
+                <div className="min-w-0">
+                    <div className="text-[14px] font-semibold text-slate-900">
+                        Wrong-person report
+                        {report.directory.hasAccount ? (
+                            <span className="ml-2 rounded-full bg-emerald-50 px-2 py-0.5 text-[10.5px] font-semibold text-emerald-700 ring-1 ring-emerald-200">
+                                Directory person has an account
+                            </span>
+                        ) : null}
                     </div>
+                    <p className="mt-1 text-[12.5px] leading-5 text-slate-500">
+                        {report.note.trim()
+                            ? <>They said: <span className="text-slate-700">{report.note.trim()}</span></>
+                            : 'Someone flagged this directory match as wrong.'}
+                        {when ? <span className="text-slate-400"> · {when}</span> : null}
+                    </p>
                 </div>
             </div>
 
-            <div className="st-card__body">
-                <div className="st-well st-diff">
-                    <div className="st-diff__row st-diff__row--head">
-                        <div>Field</div>
-                        <div>They entered</div>
-                        <div>In the directory</div>
+            <div className="px-5 py-4">
+                <div className="overflow-hidden rounded-xl ring-1 ring-slate-200">
+                    <div className="grid grid-cols-[140px_1fr_1fr] border-b border-slate-100 bg-slate-50 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                        <div className="px-3 py-2">Field</div>
+                        <div className="px-3 py-2">They entered</div>
+                        <div className="px-3 py-2">In the directory</div>
                     </div>
                     {report.differences.map(diff => (
-                        <div key={diff.field} className={cn('st-diff__row', diff.differs && 'is-diff')}>
-                            <div className="st-diff__field">
-                                {diff.differs ? <span className="st-diff__flag" aria-label="Differs" /> : null}
-                                {fieldLabel(diff.field)}
+                        <div
+                            key={diff.field}
+                            className={cn(
+                                'grid grid-cols-[140px_1fr_1fr] border-b border-slate-100 last:border-b-0 text-[13px]',
+                                diff.differs ? 'bg-amber-50/70' : 'bg-white',
+                            )}
+                        >
+                            <div className="px-3 py-2.5 font-medium text-slate-500">{fieldLabel(diff.field)}</div>
+                            <div className={cn('px-3 py-2.5', diff.differs ? 'font-semibold text-slate-900' : 'text-slate-700')}>
+                                {diff.entered || '—'}
                             </div>
-                            <div>{diff.entered || '—'}</div>
-                            <div>{diff.directory || '—'}</div>
+                            <div className={cn('px-3 py-2.5', diff.differs ? 'font-semibold text-slate-900' : 'text-slate-700')}>
+                                {diff.directory || '—'}
+                            </div>
                         </div>
                     ))}
                 </div>
             </div>
 
             {report.relatedRequests.length > 0 ? (
-                <div className="st-card__section">
-                    <p className="st-label"><Icon name="how_to_reg" />Related pending signups</p>
-                    <p className="st-note" style={{ margin: '-4px 0 10px' }}>
+                <div className="border-t border-slate-100 px-5 py-4">
+                    <div className="mb-2 text-[12px] font-semibold text-slate-700">
+                        Related pending signups
+                    </div>
+                    <p className="mb-3 text-[12px] text-slate-500">
                         These join requests look like the same person. Pick one to merge into the directory record.
                     </p>
                     <div className="grid gap-2">
@@ -202,9 +216,11 @@ function ReportCard({
             ) : null}
 
             {(canCorrect || canMerge) ? (
-                <div className="st-card__section st-card__section--tint">
-                    <p className="st-label"><Icon name="edit" />Edit values before confirming (optional)</p>
-                    <div className="st-form-grid">
+                <div className="border-t border-slate-100 bg-[#F8FAFC] px-5 py-4">
+                    <div className="mb-3 text-[12px] font-semibold text-slate-700">
+                        Edit values before confirming (optional)
+                    </div>
+                    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                         <FieldInput label="First name" value={form.firstName} onChange={v => patch('firstName', v)} />
                         <FieldInput label="Middle name" value={form.middleName} onChange={v => patch('middleName', v)} />
                         <FieldInput label="Last name" value={form.lastName} onChange={v => patch('lastName', v)} />
@@ -214,15 +230,15 @@ function ReportCard({
                 </div>
             ) : null}
 
-            <div className="st-card__section st-actions">
+            <div className="flex flex-wrap items-center gap-2 border-t border-slate-100 px-5 py-4">
                 {canMerge ? (
                     <button
                         type="button"
                         disabled={busy || !requestId}
                         onClick={() => onResolve('merge', form, requestId)}
-                        className="st-btn st-btn--mint"
+                        className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-emerald-700 px-3 text-[12.5px] font-medium text-white shadow-[0_1px_2px_rgba(15,23,42,0.12)] transition hover:bg-emerald-800 disabled:opacity-60"
                     >
-                        <Icon name="call_merge" />
+                        <GitMerge className="h-3.5 w-3.5" strokeWidth={2} />
                         Merge into this record
                     </button>
                 ) : null}
@@ -231,20 +247,27 @@ function ReportCard({
                         type="button"
                         disabled={busy}
                         onClick={() => onResolve('correct_directory', form)}
-                        className="st-btn st-btn--primary"
+                        className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-[#1E3A5F] px-3 text-[12.5px] font-medium text-white shadow-[0_1px_2px_rgba(15,23,42,0.15)] transition hover:bg-[#172E4B] disabled:opacity-60"
                     >
-                        <Icon name="build" />
+                        <Wrench className="h-3.5 w-3.5" strokeWidth={2} />
                         Fix the directory record
                     </button>
                 ) : null}
                 {canDismiss ? (
-                    <button type="button" disabled={busy} onClick={() => onResolve('dismiss', form)} className="st-btn">
-                        <Icon name="check" />
+                    <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => onResolve('dismiss', form)}
+                        className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-white px-3 text-[12.5px] font-medium text-slate-700 ring-1 ring-slate-200 transition hover:bg-slate-50 disabled:opacity-60"
+                    >
+                        <Check className="h-3.5 w-3.5" strokeWidth={2} />
                         Dismiss
                     </button>
                 ) : null}
                 {report.directory.hasAccount && !canCorrect && !canMerge ? (
-                    <span className="st-note">This person already has an account — only dismiss is available.</span>
+                    <span className="text-[12px] text-slate-500">
+                        This person already has an account — only dismiss is available.
+                    </span>
                 ) : null}
             </div>
         </article>
@@ -376,65 +399,70 @@ export default function DirectoryReportsPanel({
     }, [facilityId, onNotify]);
 
     return (
-        <div className="st-stack">
-            <section className="gx-hero st-hero gx-reveal">
-                <span className="material-icons-round gx-hero__mark" aria-hidden>report_problem</span>
-                <div className="gx-hero__id">
-                    <span className="gx-hero__chip"><Icon name="report_problem" /></span>
+        <div className="grid gap-4">
+            <section className={cn(CARD, 'overflow-hidden')}>
+                <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-4">
                     <div className="min-w-0">
-                        <div className="gx-kicker">Staff Management</div>
-                        <h2 className="gx-title">
-                            Directory reports
-                            {!loading && reports.length > 0 ? <span className="st-count">{reports.length}</span> : null}
-                        </h2>
-                        <p className="gx-lede">
+                        <div className="flex items-center gap-2">
+                            <h2 className="text-[15px] font-semibold leading-6 text-slate-900">Directory reports</h2>
+                            {!loading && reports.length > 0 ? (
+                                <span className="rounded-full bg-[#1E3A5F] px-2 py-0.5 text-[11px] font-semibold text-white tabular-nums">
+                                    {reports.length}
+                                </span>
+                            ) : null}
+                        </div>
+                        <p className="mt-0.5 text-[12.5px] text-slate-500">
                             Compare what they entered with the directory record, then merge, fix, or dismiss.
                         </p>
                     </div>
-                </div>
-                <div className="st-hero__actions">
                     <button
                         type="button"
                         onClick={() => void load()}
                         disabled={loading}
                         aria-label="Refresh"
                         title="Refresh"
-                        className="st-btn st-iconbtn"
+                        className="flex h-8 w-8 items-center justify-center rounded-lg bg-white text-slate-500 ring-1 ring-slate-200 transition hover:text-slate-800 disabled:opacity-60"
                     >
-                        <Icon name="refresh" size={18} />
+                        <RotateCw className={cn('h-3.5 w-3.5', loading && 'animate-spin')} strokeWidth={2} />
                     </button>
                 </div>
             </section>
 
             {loading ? (
-                <div className="st-stack">
+                <div className="grid gap-4">
                     {[0, 1].map(key => (
-                        <div key={key} className="st-card" style={{ padding: 20 }}>
+                        <div key={key} className={cn(CARD, 'p-5')}>
                             <Bone className="h-4 w-40" />
-                            <Bone className="mt-4 h-32 w-full" />
-                            <Bone className="mt-4 h-9 w-48" />
+                            <Bone className="mt-4 h-32 w-full rounded-xl" />
+                            <Bone className="mt-4 h-10 w-48" />
                         </div>
                     ))}
                 </div>
             ) : error ? (
-                <section className="st-card st-empty">
-                    <div className="st-empty__art st-empty__art--bad"><Icon name="cloud_off" /></div>
-                    <p className="st-empty__title">{error}</p>
-                    <button type="button" onClick={() => void load()} className="st-btn">
-                        <Icon name="refresh" /> Try again
+                <section className={cn(CARD, 'px-5 py-10 text-center')}>
+                    <div className="text-[13.5px] font-medium text-slate-800">{error}</div>
+                    <button
+                        type="button"
+                        onClick={() => void load()}
+                        className="mt-3 h-8 rounded-lg bg-white px-3 text-[12.5px] font-medium text-slate-700 ring-1 ring-slate-200 hover:bg-slate-50"
+                    >
+                        Try again
                     </button>
                 </section>
             ) : reports.length === 0 ? (
-                <section className="st-card st-empty gx-reveal">
-                    <span className="material-icons-round gx-mark" aria-hidden>verified_user</span>
-                    <div className="st-empty__art"><Icon name="verified_user" /></div>
-                    <p className="st-empty__title">No one has reported a wrong directory match.</p>
-                    <p className="st-empty__text">
+                <section className={cn(CARD, 'px-5 py-14 text-center')}>
+                    <span className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-50 text-slate-400 ring-1 ring-slate-200">
+                        <Inbox className="h-5 w-5" strokeWidth={1.8} />
+                    </span>
+                    <div className="mt-4 text-[14px] font-semibold text-slate-900">
+                        No one has reported a wrong directory match.
+                    </div>
+                    <p className="mx-auto mt-1 max-w-md text-[12.5px] leading-5 text-slate-500">
                         When someone taps “Not me” during self-join, the comparison shows up here.
                     </p>
                 </section>
             ) : (
-                <div className="st-stack">
+                <div className="grid gap-4">
                     {reports.map(report => (
                         <ReportCard
                             key={report.id}

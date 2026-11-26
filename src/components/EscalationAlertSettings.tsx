@@ -44,11 +44,6 @@ import {
     rolesPageCacheKey,
 } from '@/lib/rolesAdminCache';
 import { appendFacilityIdForProxy } from '@/lib/facility-client';
-import '@/components/glass/glass-page.css';
-import '@/components/glass/glass-kit.css';
-import '@/components/glass/staff-glass.css';
-import { HeroKpi, HeroKpis } from '@/components/glass/hero';
-import { MiniBars, PulseLine, Ring } from '@/components/glass/kpi';
 
 type EscalationLevel = {
     level: number;
@@ -706,7 +701,7 @@ export default function EscalationAlertSettings() {
         return (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                 <div style={{ marginBottom: 4 }}>
-                    <div className="gx-card-title" style={{ marginBottom: 4 }}><span className="material-icons-round">signal_cellular_alt</span>Escalation Ladder</div>
+                    <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 2 }}>Escalation Ladder</div>
                     <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
                         {opts?.lockFirstLevelRole
                             ? 'Level 1 defaults to the policy role. You can remove all levels and re-add; when re-added, the primary role appears first.'
@@ -728,15 +723,15 @@ export default function EscalationAlertSettings() {
                         <div key={ladderLevelReactKey(lvl, i)} style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
                             {/* Level indicator */}
                             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: 30, flexShrink: 0, paddingTop: 10 }}>
-                                <span className="gx-node" style={{ width: 30, height: 30, fontSize: 12, background: levelColor(i) }}>{lvl.level}</span>
-                                {i < sorted.length - 1 && <div className="gx-rail" style={{ minHeight: 40 }} />}
+                                <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 28, height: 28, borderRadius: '50%', background: levelColor(i), color: '#fff', fontSize: 12, fontWeight: 700, zIndex: 1 }}>{lvl.level}</span>
+                                {i < sorted.length - 1 && <div style={{ width: 2, height: 16, background: 'var(--border-default)' }} />}
                             </div>
                             {/* Level card */}
-                            <div className="gx-level" style={{ overflow: 'visible' }}>
+                            <div style={{ flex: 1, border: '1px solid var(--border-default)', borderRadius: 'var(--radius-md)', background: 'var(--surface-card)', overflow: 'hidden' }}>
                                 {/* Role selector */}
-                                <div style={{ padding: '12px 12px 10px' }}>
+                                <div style={{ padding: '10px 12px', borderBottom: '1px solid var(--border-subtle)' }}>
                                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-                                        <span style={{ fontSize: 10.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', color: levelColor(i) }}>
+                                        <span style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)' }}>
                                             {lockPrimary ? `Level ${lvl.level} — Role (primary default)` : `Level ${lvl.level} — Target Role`}
                                         </span>
                                         <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, position: 'relative' }}>
@@ -747,7 +742,7 @@ export default function EscalationAlertSettings() {
                                                     value={levelRoleSearch[lvl.level] || ''}
                                                     onChange={e => setLevelRoleSearch(prev => ({ ...prev, [lvl.level]: e.target.value }))}
                                                     placeholder="Search roles..."
-                                                    style={{ width: '100%', minWidth: 240, maxWidth: 420, height: 30, fontSize: 11.5, padding: '0 10px', borderRadius: 10 }}
+                                                    style={{ width: '100%', minWidth: 280, maxWidth: 420, height: 26, fontSize: 11, padding: '0 8px' }}
                                                 />
                                                 {roleQuery && (
                                                     <div style={{
@@ -758,12 +753,12 @@ export default function EscalationAlertSettings() {
                                                         minWidth: 380,
                                                         maxHeight: 220,
                                                         overflowY: 'auto',
-                                                        background: 'rgba(255,255,255,0.98)',
-                                                        border: '1px solid rgba(27, 42, 68, 0.08)',
-                                                        borderRadius: 14,
-                                                        boxShadow: '0 18px 40px -12px rgba(27, 42, 68, 0.3)',
+                                                        background: 'var(--surface-card)',
+                                                        border: '1px solid var(--border-default)',
+                                                        borderRadius: 'var(--radius-md)',
+                                                        boxShadow: '0 8px 18px rgba(0,0,0,0.14)',
                                                         zIndex: 20,
-                                                        padding: 5,
+                                                        padding: 4,
                                                     }}>
                                                         {autoCompleteMatches.length === 0 ? (
                                                             <div style={{ padding: '8px 10px', fontSize: 11, color: 'var(--text-muted)' }}>No matching roles</div>
@@ -806,8 +801,8 @@ export default function EscalationAlertSettings() {
                                         </div>
                                     </div>
                                     {lockPrimary && (
-                                        <div className="gx-selected">
-                                            <span className="gx-ico"><span className="material-icons-round">lock</span></span>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', borderRadius: 'var(--radius-sm)', background: 'var(--surface-2)', border: '1px solid var(--border-subtle)' }}>
+                                            <span className="material-icons-round" style={{ fontSize: 18, color: levelColor(i) }}>lock</span>
                                             <div style={{ flex: 1, minWidth: 0 }}>
                                                 <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>{lvl.target || '(select Role in previous step)'}</div>
                                                 <div style={{ fontSize: 10.5, color: 'var(--text-muted)' }}>Primary defaults here when present; you may remove and re-add levels.</div>
@@ -815,8 +810,8 @@ export default function EscalationAlertSettings() {
                                         </div>
                                     )}
                                     {!lockPrimary && lvl.target ? (
-                                        <div className="gx-selected">
-                                            <span className="gx-ico"><span className="material-icons-round">person</span></span>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', borderRadius: 'var(--radius-sm)', background: 'var(--surface-2)', border: '1px solid var(--border-subtle)' }}>
+                                            <span className="material-icons-round" style={{ fontSize: 18, color: levelColor(i) }}>person</span>
                                             <div style={{ flex: 1, minWidth: 0 }}>
                                                 <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>{lvl.target}</div>
                                                 {(() => { const r = allRolesForSelect.find(r => r.name === lvl.target); return r?.description ? <div style={{ fontSize: 11, color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.description}</div> : null; })()}
@@ -830,8 +825,12 @@ export default function EscalationAlertSettings() {
                                             {filteredAvailable.length === 0 ? (
                                                 <div style={{ padding: '12px', textAlign: 'center', fontSize: 12, color: 'var(--text-muted)' }}>No more roles available</div>
                                             ) : filteredAvailable.map(r => (
-                                                <button key={r.name} type="button" className="gx-pick" onClick={() => { const u = levels.map(l => l.level === lvl.level ? { ...l, target: r.name, target_role_id: r.id } : l); setLevels(u); }}>
-                                                    <span className="gx-ico"><span className="material-icons-round">person_outline</span></span>
+                                                <button key={r.name} type="button" onClick={() => { const u = levels.map(l => l.level === lvl.level ? { ...l, target: r.name, target_role_id: r.id } : l); setLevels(u); }}
+                                                    style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 10px', borderRadius: 'var(--radius-sm)', background: 'transparent', border: '1px solid transparent', cursor: 'pointer', textAlign: 'left', transition: 'all 0.12s', width: '100%' }}
+                                                    onMouseEnter={e => { e.currentTarget.style.background = 'var(--surface-2)'; e.currentTarget.style.borderColor = 'var(--border-subtle)'; }}
+                                                    onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.borderColor = 'transparent'; }}
+                                                >
+                                                    <span className="material-icons-round" style={{ fontSize: 16, color: 'var(--text-muted)' }}>person_outline</span>
                                                     <div style={{ flex: 1, minWidth: 0 }}>
                                                         <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--text-primary)', whiteSpace: 'nowrap' }}>{r.name}</div>
                                                         {r.description && <div style={{ fontSize: 10.5, color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.description}</div>}
@@ -843,8 +842,7 @@ export default function EscalationAlertSettings() {
                                     ) : null}
                                 </div>
                                 {!showDelay ? (
-                                    <div className="gx-level__foot">
-                                        <span className="material-icons-round" style={{ fontSize: 14, color: 'var(--text-muted)' }}>flag</span>
+                                    <div style={{ padding: '8px 12px', background: 'var(--surface-2)', borderTop: '1px solid var(--border-subtle)' }}>
                                         <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
                                             {rowHasEscalationTarget(lvl, i)
                                                 ? 'Final role in chain — no timer.'
@@ -852,8 +850,8 @@ export default function EscalationAlertSettings() {
                                         </span>
                                     </div>
                                 ) : (
-                                    <div className="gx-level__foot">
-                                        <span className="material-icons-round" style={{ fontSize: 14, color: '#2f6fb8' }}>schedule</span>
+                                    <div style={{ padding: '8px 12px', display: 'flex', alignItems: 'center', gap: 8, background: 'var(--surface-2)' }}>
+                                        <span className="material-icons-round" style={{ fontSize: 14, color: 'var(--text-muted)' }}>schedule</span>
                                         <span style={{ fontSize: 11, color: 'var(--text-muted)', flexShrink: 0 }}>Delay:</span>
                                         <CustomSelect
                                             value={lvl.delay}
@@ -873,8 +871,8 @@ export default function EscalationAlertSettings() {
                     );
                 })}
                 {sorted.length < MAX_STEPS && (
-                    <button type="button" className="gx-add-level" onClick={addLevel}>
-                        <span className="material-icons-round">add</span>Add escalation level
+                    <button type="button" className="btn btn-secondary btn-xs" onClick={addLevel} style={{ alignSelf: 'flex-start', marginTop: 4 }}>
+                        <span className="material-icons-round" style={{ fontSize: 13 }}>add</span>Add escalation level
                     </button>
                 )}
                 {/* Duplicate warning */}
@@ -883,8 +881,8 @@ export default function EscalationAlertSettings() {
                     if (!escalationLevelsHaveConflictingTargets(targets, roleNameToIdLowerForEscalation)) return null;
                     const labels = findEscalationConflictingTargetLabels(targets, roleNameToIdLowerForEscalation);
                     return (
-                        <div className="gx-callout" style={{ marginTop: 4 }}>
-                            <span className="material-icons-round">warning</span>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderRadius: 'var(--radius-md)', background: 'rgba(234,179,8,0.08)', border: '1px solid rgba(234,179,8,0.25)', marginTop: 4 }}>
+                            <span className="material-icons-round" style={{ fontSize: 14, color: '#eab308' }}>warning</span>
                             <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>Conflicting roles in chain: <strong>{labels.join(', ')}</strong>. Each role should only appear once.</span>
                         </div>
                     );
@@ -901,7 +899,7 @@ export default function EscalationAlertSettings() {
         return (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                 <div style={{ marginBottom: 4 }}>
-                    <div className="gx-card-title" style={{ marginBottom: 4 }}><span className="material-icons-round">fact_check</span>Summary</div>
+                    <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 2 }}>Summary</div>
                     <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>Review the escalation chain for <strong>{name}</strong> before saving.</div>
                 </div>
 
@@ -910,10 +908,20 @@ export default function EscalationAlertSettings() {
                     {effective.map((lvl, i) => (
                         <div key={ladderLevelReactKey(lvl, i)} style={{ display: 'flex', alignItems: 'stretch', gap: 14 }}>
                             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: 36, flexShrink: 0 }}>
-                                <span className="gx-node" style={{ width: 32, height: 32, fontSize: 13, background: levelColor(i) }}>{lvl.level}</span>
-                                {i < sorted.length - 1 && <div className="gx-rail" style={{ minHeight: 16 }} />}
+                                <span style={{
+                                    display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                                    width: 32, height: 32, borderRadius: '50%',
+                                    background: levelColor(i), color: '#fff',
+                                    fontSize: 13, fontWeight: 700, zIndex: 1,
+                                    boxShadow: `0 2px 8px ${levelColor(i)}40`,
+                                }}>{lvl.level}</span>
+                                {i < sorted.length - 1 && <div style={{ width: 2, flex: 1, background: 'var(--border-default)', minHeight: 16 }} />}
                             </div>
-                            <div className="gx-level" style={{ padding: '10px 14px', marginTop: i > 0 ? 6 : 0 }}>
+                            <div style={{
+                                flex: 1, padding: '10px 14px', borderRadius: 'var(--radius-md)',
+                                background: 'var(--surface-card)', border: '1px solid var(--border-default)',
+                                marginTop: i > 0 ? 6 : 0,
+                            }}>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 2 }}>
                                     <span className="material-icons-round" style={{ fontSize: 16, color: levelColor(i) }}>person</span>
                                     <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>{lvl.target || '(not set)'}</span>
@@ -933,8 +941,8 @@ export default function EscalationAlertSettings() {
 
                 {/* Empty target warning */}
                 {effective.some(l => !l.target) && (
-                    <div className="gx-callout">
-                        <span className="material-icons-round">warning</span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderRadius: 'var(--radius-md)', background: 'rgba(234,179,8,0.08)', border: '1px solid rgba(234,179,8,0.25)' }}>
+                        <span className="material-icons-round" style={{ fontSize: 14, color: '#eab308' }}>warning</span>
                         <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>Some levels have no role assigned. Go back to fix this before saving.</span>
                     </div>
                 )}
@@ -948,7 +956,7 @@ export default function EscalationAlertSettings() {
         return (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 <div style={{ marginBottom: 2 }}>
-                    <div className="gx-card-title" style={{ marginBottom: 4 }}><span className="material-icons-round">signal_cellular_alt</span>Escalation Ladder</div>
+                    <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 2 }}>Escalation Ladder</div>
                     <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>When a message goes unacknowledged, it escalates through these roles.</div>
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
@@ -958,7 +966,7 @@ export default function EscalationAlertSettings() {
                                 <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 28, height: 28, borderRadius: '50%', background: levelColor(i), color: '#fff', fontSize: 12, fontWeight: 700, flexShrink: 0, zIndex: 1, boxShadow: `0 1px 4px ${levelColor(i)}30` }}>{lvl.level}</span>
                                 {i < sorted.length - 1 && <div style={{ width: 2, flex: 1, background: 'var(--border-default)', minHeight: 12 }} />}
                             </div>
-                            <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderRadius: 12, background: 'rgba(255,255,255,0.75)', border: '1px solid rgba(27, 42, 68, 0.06)', boxShadow: '0 1px 2px rgba(27, 42, 68, 0.04)', marginTop: i === 0 ? 0 : 4 }}>
+                            <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderRadius: 'var(--radius-md)', background: 'var(--surface-2)', border: '1px solid var(--border-subtle)', marginTop: i === 0 ? 0 : 4 }}>
                                 <span style={{ fontSize: 12.5, fontWeight: 600, flex: 1, color: 'var(--text-primary)' }}>{lvl.target}</span>
                                 {ladderRowShowsDelay(sorted, i, (_, idx) => Boolean(sorted[idx]?.target?.trim())) && lvl.delay ? (
                                     <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{i === 0 ? lvl.delay : `+${lvl.delay}`}</span>
@@ -973,19 +981,15 @@ export default function EscalationAlertSettings() {
 
     // --- Step indicator ---
     const renderSteps = (current: number, labels: string[]) => (
-        <div className="gx-stepbar" role="list" aria-label="Steps">
+        <div style={{ display: 'flex', alignItems: 'center', gap: 0, marginBottom: 20 }}>
             {labels.map((label, i) => (
-                <span
-                    key={label}
-                    role="listitem"
-                    className={`gx-stepbar__item${current === i ? ' is-current' : current > i ? ' is-done' : ''}`}
-                    aria-current={current === i ? 'step' : undefined}
-                >
-                    <span className="gx-stepbar__num">
-                        {current > i ? <span className="material-icons-round">check</span> : i + 1}
-                    </span>
-                    {label}
-                </span>
+                <div key={label} style={{ display: 'contents' }}>
+                    {i > 0 && <div style={{ flex: '0 0 30px', height: 2, background: current > i ? 'var(--helix-primary)' : 'var(--border-subtle)', margin: '0 4px', borderRadius: 1 }} />}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                        <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 22, height: 22, borderRadius: '50%', fontSize: 10, fontWeight: 700, background: current >= i ? 'var(--helix-primary)' : 'var(--surface-2)', color: current >= i ? '#fff' : 'var(--text-muted)', border: `2px solid ${current >= i ? 'var(--helix-primary)' : 'var(--border-default)'}` }}>{i + 1}</span>
+                        <span style={{ fontSize: 11, fontWeight: current === i ? 700 : 500, color: current === i ? 'var(--text-primary)' : 'var(--text-muted)', whiteSpace: 'nowrap' }}>{label}</span>
+                    </div>
+                </div>
             ))}
         </div>
     );
@@ -1031,16 +1035,9 @@ export default function EscalationAlertSettings() {
 
             {/* Edit Modal */}
             {editPolicyId && (
-                <div className="gx-scrim gx-page">
-                    <div className="fade-in card gx-modal" style={{ width: 580, maxHeight: '88vh', overflow: 'auto', padding: '24px 26px' }} onClick={e => e.stopPropagation()}>
-                        <span className="material-icons-round gx-form__mark" aria-hidden>notifications_active</span>
-                        <div className="gx-form__head">
-                            <span className="gx-form__chip"><span className="material-icons-round">edit_notifications</span></span>
-                            <div style={{ minWidth: 0 }}>
-                                <h3 className="gx-form__title">Edit Escalation Chain</h3>
-                                <p className="gx-form__sub">{editName}</p>
-                            </div>
-                        </div>
+                <div style={{ position: 'fixed', inset: 0, zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.4)' }}>
+                    <div className="fade-in card" style={{ width: 560, maxHeight: '85vh', overflow: 'auto', padding: '28px', boxShadow: '0 8px 32px rgba(0,0,0,0.18)' }} onClick={e => e.stopPropagation()}>
+                        <h3 style={{ fontSize: 16, marginBottom: 16 }}>Edit Escalation Chain</h3>
 
                         {renderSteps(editStep, ['Basic Info', 'Escalation Levels', 'Summary'])}
 
@@ -1051,16 +1048,16 @@ export default function EscalationAlertSettings() {
                                         <label className="label">Role Name</label>
                                         <input className="input" value={editName} readOnly disabled style={{ fontSize: 13 }} />
                                     </div>
-                                    <div className="gx-option gx-option--critical is-on">
-                                        <span className="gx-option__icon"><span className="material-icons-round">emergency</span></span>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderRadius: 'var(--radius-md)', background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.2)' }}>
+                                        <span className="material-icons-round" style={{ fontSize: 16, color: 'var(--danger)' }}>priority_high</span>
                                         <div style={{ flex: 1 }}>
-                                            <div className="gx-option__title">Priority: Critical</div>
-                                            <div className="gx-option__hint">Only Critical roles have escalation chains.</div>
+                                            <div style={{ fontSize: 13, fontWeight: 600 }}>Priority: Critical</div>
+                                            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 1 }}>Only Critical roles have escalation chains.</div>
                                         </div>
-                                        <span className="gx-pill">Critical</span>
+                                        <span className="badge badge-critical" style={{ fontSize: 10 }}>Critical</span>
                                     </div>
                                 </div>
-                                <div className="gx-form-actions" style={{ justifyContent: 'flex-end', marginTop: 18 }}>
+                                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 18 }}>
                                     <button className="btn btn-secondary btn-sm" onClick={closeEditModal}>Cancel</button>
                                     <button className="btn btn-primary btn-sm" onClick={() => setEditStep(1)}>
                                         Next: Levels <span className="material-icons-round" style={{ fontSize: 14 }}>arrow_forward</span>
@@ -1072,7 +1069,7 @@ export default function EscalationAlertSettings() {
                         {editStep === 1 && (
                             <>
                                 {renderLadder(editLevels, setEditLevels, { lockFirstLevelRole: true, primaryRoleName: editName })}
-                                <div className="gx-form-actions" style={{ marginTop: 18 }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginTop: 18 }}>
                                     <button className="btn btn-secondary btn-sm" onClick={() => setEditStep(0)}>
                                         <span className="material-icons-round" style={{ fontSize: 14 }}>arrow_back</span> Back
                                     </button>
@@ -1086,7 +1083,7 @@ export default function EscalationAlertSettings() {
                         {editStep === 2 && (
                             <>
                                 {renderSummary(editLevels, editName)}
-                                <div className="gx-form-actions" style={{ marginTop: 18 }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginTop: 18 }}>
                                     <button className="btn btn-secondary btn-sm" onClick={() => setEditStep(1)}>
                                         <span className="material-icons-round" style={{ fontSize: 14 }}>arrow_back</span> Back
                                     </button>
@@ -1102,8 +1099,8 @@ export default function EscalationAlertSettings() {
 
             {/* Delete Confirm */}
             {confirmDelete && (
-                <div className="gx-scrim gx-page">
-                    <div className="fade-in card gx-modal" style={{ width: 400, padding: '24px 28px' }} onClick={e => e.stopPropagation()}>
+                <div style={{ position: 'fixed', inset: 0, zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.4)' }}>
+                    <div className="fade-in card" style={{ width: 400, padding: '24px 28px', boxShadow: '0 8px 32px rgba(0,0,0,0.18)' }} onClick={e => e.stopPropagation()}>
                         <h3 style={{ fontSize: 16, marginBottom: 8 }}>Delete Escalation Chain</h3>
                         <p style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 20, lineHeight: 1.5 }}>
                             Are you sure you want to delete <strong style={{ color: 'var(--text-primary)' }}>{confirmDelete.chainName}</strong>? This will remove the escalation policy and all its steps. This action cannot be undone.
@@ -1116,7 +1113,7 @@ export default function EscalationAlertSettings() {
                 </div>
             )}
 
-            <div className="app-main gx-page" style={{ height: '100vh', maxHeight: '100vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+            <div className="app-main" style={{ height: '100vh', maxHeight: '100vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
                 <TopBar
                     title="Escalation Config"
                     subtitle="Manage escalation chains for Critical roles"
@@ -1189,78 +1186,19 @@ export default function EscalationAlertSettings() {
                     />
                     <div style={{ position: 'relative', zIndex: 1, flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
                     {/* Info banner */}
-                    {(() => {
-                        const criticalRoles = roles.filter(r => r.priority === 'Critical');
-                        const uncovered = criticalRoles.filter(r => !roleAlreadyHasEscalationConfig(r)).length;
-                        const coveredPct = criticalRoles.length > 0 ? ((criticalRoles.length - uncovered) / criticalRoles.length) * 100 : 0;
-                        const waits = chainGroups.map(c => Number(c.initial_timeout_seconds) || 0).filter(n => n > 0).sort((a, b) => a - b);
-                        const typicalWait = waits.length > 0 ? waits[Math.floor((waits.length - 1) / 2)] : 0;
-                        const waitBuckets = [...waits.reduce((m, n) => m.set(n, (m.get(n) ?? 0) + 1), new Map<number, number>())].slice(0, 8);
-                        const fmtWait = (sec: number) => (sec < 60 ? `${sec}s` : `${Math.round((sec / 60) * 10) / 10}m`);
-                        const ladderSizes = chainGroups.map(c => c.levels.length).sort((a, b) => b - a).slice(0, 8);
-                        const show = (n: number) => (loading ? '—' : n.toLocaleString());
-                        return (
-                            <HeroKpis label="Escalation overview" mark="notifications_active">
-                                <HeroKpi
-                                    tone="navy"
-                                    icon="device_hub"
-                                    label="Chains"
-                                    value={show(chainGroups.length)}
-                                    art={ladderSizes.length > 0 ? (
-                                        <MiniBars values={ladderSizes} labels={ladderSizes.map(n => `${n} level${n === 1 ? '' : 's'}`)} />
-                                    ) : undefined}
-                                    foot="Escalation ladders configured"
-                                />
-                                <HeroKpi
-                                    tone="rose"
-                                    icon="emergency"
-                                    label="Critical roles"
-                                    value={show(criticalRoles.length)}
-                                    art={<PulseLine />}
-                                    foot="Only critical roles escalate"
-                                />
-                                <HeroKpi
-                                    tone="sky"
-                                    icon="verified_user"
-                                    label="Covered"
-                                    value={show(criticalRoles.length - uncovered)}
-                                    art={(
-                                        <Ring pct={coveredPct} size={56}>
-                                            {criticalRoles.length > 0 ? `${Math.round(coveredPct)}%` : '—'}
-                                        </Ring>
-                                    )}
-                                    foot={uncovered > 0 ? `${uncovered} critical without a chain` : 'Every critical role has a chain'}
-                                />
-                                <HeroKpi
-                                    tone="amber"
-                                    icon="timer"
-                                    label="Escalates after"
-                                    value={loading ? '—' : waits.length > 0 ? fmtWait(typicalWait) : '—'}
-                                    art={waitBuckets.length > 1 ? (
-                                        <MiniBars values={waitBuckets.map(([, n]) => n)} labels={waitBuckets.map(([sec]) => `${fmtWait(sec)} wait`)} />
-                                    ) : undefined}
-                                    foot={waits.length === 0
-                                        ? 'No ladders yet'
-                                        : waits[0] === waits[waits.length - 1]
-                                            ? `Every chain waits ${fmtWait(waits[0])} unacknowledged`
-                                            : `Fastest ${fmtWait(waits[0])} · slowest ${fmtWait(waits[waits.length - 1])}`}
-                                />
-                            </HeroKpis>
-                        );
-                    })()}
+                    <div className="fade-in escalation-surface" style={{ flexShrink: 0, marginBottom: 18, padding: '14px 16px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-subtle)', background: 'rgba(255,255,255,0.7)' }}>
+                        <p style={{ fontSize: 13, color: 'var(--text-muted)', maxWidth: 740, margin: 0, lineHeight: 1.5 }}>
+                            Escalation chains are configured for <strong style={{ color: 'var(--text-secondary)' }}>Critical (Mandatory)</strong> roles only.
+                            When a message goes unacknowledged, it escalates through the role chain below.
+                        </p>
+                    </div>
 
                     {/* Create Form */}
                     {showCreate && (
                         <div style={{ flexShrink: 0, marginBottom: 18, maxHeight: 'min(70vh, 720px)', overflowY: 'auto', WebkitOverflowScrolling: 'touch' }}>
-                        <div className="fade-in card gx-form" style={{ padding: '22px 24px', maxWidth: 820 }}>
-                            <span className="material-icons-round gx-form__mark" aria-hidden>add_alert</span>
-                            <div className="gx-form__head" style={{ alignItems: 'flex-start' }}>
-                                <span className="gx-form__chip"><span className="material-icons-round">add_alert</span></span>
-                                <div style={{ minWidth: 0 }}>
-                                    <h4 className="gx-form__title">Create Escalation</h4>
-                                    <p className="gx-form__sub" style={{ maxWidth: '62ch' }}>Choose a Critical role as the primary level. Roles that already own a config in the list are hidden; roles that only appear in another chain can be selected if they are Critical.</p>
-                                </div>
-                            </div>
+                        <div className="fade-in card escalation-surface" style={{ padding: '22px 24px', maxWidth: 760 }}>
+                            <h4 style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>Create Escalation</h4>
+                            <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 16 }}>Choose a Critical role as the primary level. Roles that already own a config in the list are hidden; roles that only appear in another chain can be selected if they are Critical.</p>
 
                             {renderSteps(createStep, ['Basic Info', 'Escalation Levels', 'Summary'])}
 
@@ -1286,16 +1224,16 @@ export default function EscalationAlertSettings() {
                                                 </div>
                                             )}
                                         </div>
-                                        <div className="gx-option gx-option--critical is-on">
-                                            <span className="gx-option__icon"><span className="material-icons-round">emergency</span></span>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderRadius: 'var(--radius-md)', background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.2)' }}>
+                                            <span className="material-icons-round" style={{ fontSize: 16, color: 'var(--danger)' }}>priority_high</span>
                                             <div style={{ flex: 1 }}>
-                                                <div className="gx-option__title">Priority: Critical</div>
-                                                <div className="gx-option__hint">This role will be mandatory and set to Critical priority.</div>
+                                                <div style={{ fontSize: 13, fontWeight: 600 }}>Priority: Critical</div>
+                                                <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 1 }}>This role will be mandatory and set to Critical priority.</div>
                                             </div>
-                                            <span className="gx-pill">Critical</span>
+                                            <span className="badge badge-critical" style={{ fontSize: 10 }}>Critical</span>
                                         </div>
                                     </div>
-                                    <div className="gx-form-actions" style={{ justifyContent: 'flex-end', marginTop: 18 }}>
+                                    <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 18 }}>
                                         <button className="btn btn-secondary btn-sm" onClick={resetCreate}>Cancel</button>
                                         <button className="btn btn-primary btn-sm" onClick={() => setCreateStep(1)} disabled={!createPrimaryRoleId.trim() || rolesForEscalation.length === 0}>
                                             Next: Levels <span className="material-icons-round" style={{ fontSize: 14 }}>arrow_forward</span>
@@ -1307,7 +1245,7 @@ export default function EscalationAlertSettings() {
                             {createStep === 1 && (
                                 <>
                                     {renderLadder(newLevels, setNewLevels, { lockFirstLevelRole: Boolean(createPrimaryRoleId), primaryRoleName: roles.find(r => r.id === createPrimaryRoleId)?.name })}
-                                    <div className="gx-form-actions" style={{ marginTop: 18 }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginTop: 18 }}>
                                         <button className="btn btn-secondary btn-sm" onClick={() => setCreateStep(0)}>
                                             <span className="material-icons-round" style={{ fontSize: 14 }}>arrow_back</span> Back
                                         </button>
@@ -1321,7 +1259,7 @@ export default function EscalationAlertSettings() {
                             {createStep === 2 && (
                                 <>
                                     {renderSummary(newLevels, roles.find(r => r.id === createPrimaryRoleId)?.name || 'Role')}
-                                    <div className="gx-form-actions" style={{ marginTop: 18 }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginTop: 18 }}>
                                         <button className="btn btn-secondary btn-sm" onClick={() => setCreateStep(1)}>
                                             <span className="material-icons-round" style={{ fontSize: 14 }}>arrow_back</span> Back
                                         </button>
@@ -1367,6 +1305,8 @@ export default function EscalationAlertSettings() {
                                     overflow: 'hidden',
                                     display: 'flex',
                                     flexDirection: 'column',
+                                    border: '1px solid var(--border-default)',
+                                    boxShadow: '0 8px 26px rgba(15, 23, 42, 0.06)',
                                 }}
                             >
                                 <div
@@ -1383,7 +1323,7 @@ export default function EscalationAlertSettings() {
                                 >
                                     <table className="escalation-table" style={{ width: '100%', minWidth: 960, borderCollapse: 'collapse', tableLayout: 'fixed' }}>
                                     <thead>
-                                        <tr style={{ borderBottom: '1px solid rgba(27, 42, 68, 0.07)', position: 'sticky', top: 0, zIndex: 4, background: 'rgba(255,255,255,0.92)', backdropFilter: 'blur(6px)' }}>
+                                        <tr style={{ borderBottom: '1px solid var(--border-default)', position: 'sticky', top: 0, zIndex: 4, background: 'rgba(248,250,252,0.96)', backdropFilter: 'blur(4px)' }}>
                                             <th style={{ width: '33%', padding: '12px 16px', textAlign: 'left', fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Role</th>
                                             <th style={{ width: '27%', padding: '12px 16px', textAlign: 'left', fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Department</th>
                                             <th style={{ width: '10%', padding: '12px 16px', textAlign: 'center', fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Priority</th>
@@ -1401,32 +1341,20 @@ export default function EscalationAlertSettings() {
                                             </tr>
                                         ) : (
                                             filtered.map(chain => (
-                                                <tr key={chain.key} className="gx-row" onClick={() => setSelectedChainKey(chain.key)} style={{ cursor: 'pointer', background: selectedChainKey === chain.key ? '#eaf1fb' : undefined, borderBottom: '1px solid var(--border-subtle)', transition: 'background 0.16s ease' }}
+                                                <tr key={chain.key} onClick={() => setSelectedChainKey(chain.key)} style={{ cursor: 'pointer', background: selectedChainKey === chain.key ? '#eaf1fb' : undefined, borderBottom: '1px solid var(--border-subtle)', transition: 'background 0.16s ease' }}
                                                     onMouseEnter={e => { if (selectedChainKey !== chain.key) e.currentTarget.style.background = '#f7f9fc'; }}
                                                     onMouseLeave={e => { if (selectedChainKey !== chain.key) e.currentTarget.style.background = 'transparent'; }}
                                                 >
                                                     <td style={{ padding: '12px 16px' }}>
-                                                        <div className="gx-name">
-                                                            <span className={`gx-name__icon${chain.enabled ? '' : ' gx-name__icon--muted'}`}>
-                                                                <span className="material-icons-round">notifications_active</span>
-                                                            </span>
-                                                            <div style={{ minWidth: 0 }}>
-                                                                <div style={{ fontWeight: 650, fontSize: 13 }}>{chain.chainName}</div>
-                                                                <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2, maxWidth: 260, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{chain.description}</div>
-                                                            </div>
-                                                        </div>
+                                                        <div style={{ fontWeight: 600, fontSize: 13 }}>{chain.chainName}</div>
+                                                        <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2, maxWidth: 260, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{chain.description}</div>
                                                     </td>
                                                     <td style={{ padding: '12px 16px', fontSize: 12, color: chain.department ? 'var(--text-secondary)' : 'var(--text-disabled)' }}>{chain.department || 'Unassigned'}</td>
                                                     <td style={{ padding: '12px 16px', textAlign: 'center' }}>
                                                         <span className="badge badge-critical" style={{ fontSize: 10 }}>Critical</span>
                                                     </td>
                                                     <td style={{ padding: '12px 16px', textAlign: 'center' }}>
-                                                        <span className="gx-steps" title={`${chain.levels.length} levels`}>
-                                                            <span className="gx-steps__track" aria-hidden>
-                                                                {chain.levels.slice(0, 6).map((_, i) => <span key={i} className="gx-steps__dot" style={{ background: levelColor(i) }} />)}
-                                                            </span>
-                                                            <span className="gx-steps__label">{chain.levels.length}</span>
-                                                        </span>
+                                                        <span className="badge badge-info" style={{ fontSize: 10 }}>{chain.levels.length} levels</span>
                                                     </td>
                                                     <td style={{ padding: '12px 16px', textAlign: 'center' }}>
                                                         <span className="badge badge-neutral" style={{ fontSize: 10 }}>
@@ -1460,9 +1388,7 @@ export default function EscalationAlertSettings() {
                             {selectedChain && (
                                 <div className="fade-in" style={{ display: 'flex', flexDirection: 'column', gap: 16, minWidth: 0, minHeight: 0, maxHeight: '100%', overflowY: 'auto', WebkitOverflowScrolling: 'touch' }}>
                                     {/* Header */}
-                                    <div className="card gx-mark-card gx-feature" style={{ padding: '18px 20px', flexShrink: 0 }}>
-                                        <span className="gx-feature__glow" aria-hidden />
-                                        <span className="material-icons-round gx-mark" aria-hidden>notifications_active</span>
+                                    <div className="card" style={{ padding: '18px 20px' }}>
                                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10, marginBottom: 14 }}>
                                             <div style={{ flex: 1, minWidth: 0 }}>
                                                 <h3 style={{ fontSize: 16, fontWeight: 700, wordBreak: 'break-word', margin: 0 }}>{selectedChain.chainName}</h3>
@@ -1484,13 +1410,12 @@ export default function EscalationAlertSettings() {
 
                                     {/* Roles in this chain */}
                                     {selectedChain.roles.length > 0 && (
-                                        <div className="card gx-mark-card" style={{ padding: '16px 20px', flexShrink: 0 }}>
-                                            <span className="material-icons-round gx-mark" aria-hidden>groups</span>
-                                            <h4 className="gx-card-title" style={{ marginBottom: 10 }}><span className="material-icons-round">groups</span>Associated Roles</h4>
+                                        <div className="card" style={{ padding: '16px 20px' }}>
+                                            <h4 style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 10 }}>Associated Roles</h4>
                                             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                                                 {selectedChain.roles.map(r => (
-                                                    <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', borderRadius: 12, background: 'rgba(255,255,255,0.75)', border: '1px solid rgba(27, 42, 68, 0.06)' }}>
-                                                        <span className="gx-ico"><span className="material-icons-round">person</span></span>
+                                                    <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', borderRadius: 'var(--radius-sm)', background: 'var(--surface-2)', border: '1px solid var(--border-subtle)' }}>
+                                                        <span className="material-icons-round" style={{ fontSize: 15, color: 'var(--text-muted)' }}>person</span>
                                                         <div style={{ flex: 1, minWidth: 0 }}>
                                                             <div style={{ fontSize: 12.5, fontWeight: 600 }}>{r.name}</div>
                                                             {r.description && <div style={{ fontSize: 10.5, color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.description}</div>}
@@ -1503,15 +1428,13 @@ export default function EscalationAlertSettings() {
                                     )}
 
                                     {/* Escalation Ladder (read-only with colored circles) */}
-                                    <div className="card gx-mark-card" style={{ padding: '16px 20px', flexShrink: 0 }}>
-                                        <span className="material-icons-round gx-mark" aria-hidden>signal_cellular_alt</span>
+                                    <div className="card" style={{ padding: '16px 20px' }}>
                                         {renderLadderReadOnly(selectedChain.levels)}
                                     </div>
 
                                     {/* Quick Actions */}
-                                    <div className="card gx-mark-card" style={{ padding: '16px 20px', flexShrink: 0 }}>
-                                        <span className="material-icons-round gx-mark" aria-hidden style={{ fontSize: 80, bottom: -22 }}>bolt</span>
-                                        <h4 className="gx-card-title" style={{ marginBottom: 12 }}><span className="material-icons-round">bolt</span>Actions</h4>
+                                    <div className="card" style={{ padding: '16px 20px' }}>
+                                        <h4 style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 12 }}>Actions</h4>
                                         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                                             <button className="btn btn-secondary btn-sm" style={{ width: '100%', justifyContent: 'center' }} onClick={() => openEditChain(selectedChain)}>
                                                 <span className="material-icons-round" style={{ fontSize: 14 }}>edit</span>Edit Escalation

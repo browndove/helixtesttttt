@@ -8,9 +8,6 @@ import DatePicker from '@/components/DatePicker';
 import { parseBulkUploadHistoryResponse, type BulkUploadHistoryEntry } from '@/lib/bulk-upload-history';
 import ImportHistoryLedger from '@/components/ImportHistoryLedger';
 import './staff-bulk-import.css';
-import '@/components/glass/glass-page.css';
-import '@/components/glass/staff-glass.css';
-import '@/components/glass/staff-tabs-glass.css';
 import { MacVibrancyToast, MacVibrancyToastPortal } from '@/components/MacVibrancyToast';
 import { BulkImportErrorsSheet } from '@/components/BulkImportErrorsSheet';
 import { readCachedJson, writeCachedJson } from '@/lib/getJsonCache';
@@ -94,8 +91,6 @@ type StaffMember = {
     account_expires_on?: string;
     /** ISO timestamp — when the account was actually expired by the system. */
     account_expired_at?: string;
-    /** Profile picture URL, same field (and fallbacks) the leaderboard reads; used as-is. */
-    profile_url?: string;
 };
 
 type SortKey = 'first_name' | 'last_name' | 'employee_id' | 'dept' | 'job_title' | 'status' | 'last_seen' | 'response_order';
@@ -143,33 +138,6 @@ function asRecord(v: unknown): Record<string, unknown> | null {
 }
 
 const STAFF_DEPT_NEST_KEYS = ['user', 'profile', 'staff', 'staff_member', 'account', 'person'] as const;
-
-const STAFF_PHOTO_KEYS = [
-    'profile_url', 'avatar_url', 'photo_url', 'profile_picture', 'profile_picture_url', 'profile_photo',
-    'profile_photo_url', 'profile_image', 'profile_image_url', 'picture', 'picture_url', 'image_url', 'avatar', 'photo', 'image',
-] as const;
-
-/** Usable image URL (http(s), protocol-relative, root-relative or data:image), else ''. */
-function asPhotoUrl(v: unknown): string {
-    if (typeof v === 'string') {
-        const s = v.trim();
-        return /^(https?:)?\/\/|^\/(?!\/)|^data:image\//i.test(s) ? s : '';
-    }
-    const rec = asRecord(v);
-    return rec ? asPhotoUrl(rec.url ?? rec.src ?? rec.href) : '';
-}
-
-/** Profile picture from a staff row: known keys first, on the row and its nested user/profile objects. */
-function pickStaffPhotoUrl(r: Record<string, unknown>): string {
-    const sources = [r, ...STAFF_DEPT_NEST_KEYS.map(k => asRecord(r[k])).filter((x): x is Record<string, unknown> => !!x)];
-    for (const src of sources) {
-        for (const k of STAFF_PHOTO_KEYS) {
-            const url = asPhotoUrl(src[k]);
-            if (url) return url;
-        }
-    }
-    return '';
-}
 
 const STAFF_PHONE_KEYS = [
     'phone',
@@ -245,39 +213,6 @@ function pickEmployeeId(prev: StaffMember, fromApi: StaffMember): string {
     return '';
 }
 
-/** One face in the Total staff stack: profile picture when it loads, initials otherwise. */
-function StaffStackFace({ member }: { member: StaffMember }) {
-    const [failed, setFailed] = useState(false);
-    const name = [member.first_name, member.last_name].filter(Boolean).join(' ').trim() || 'Staff member';
-    const initials = `${(member.first_name || '').trim().charAt(0)}${(member.last_name || '').trim().charAt(0)}`.toUpperCase() || '?';
-    const url = member.profile_url && !failed ? member.profile_url : '';
-    return (
-        <span className="sx-faces__face" data-name={name} role={url ? undefined : 'img'} aria-label={url ? undefined : name}>
-            {url ? (
-                <img
-                    className="sx-faces__img"
-                    src={url}
-                    alt={name}
-                    width={32}
-                    height={32}
-                    loading="lazy"
-                    decoding="async"
-                    onError={() => setFailed(true)}
-                />
-            ) : initials}
-        </span>
-    );
-}
-
-/** Header sort affordance: blue arrow when this column sorts the list, faint hint on hover otherwise. */
-function renderSortMark(active: boolean, dir: 'asc' | 'desc') {
-    return (
-        <span className={`sx-sort${active ? ' is-active' : ''}`} aria-hidden>
-            <span className="material-icons-round">{active ? (dir === 'asc' ? 'arrow_upward' : 'arrow_downward') : 'unfold_more'}</span>
-        </span>
-    );
-}
-
 function renderEmployeeIdCell(employeeId: string) {
     if (employeeId) return employeeId;
     return (
@@ -321,7 +256,6 @@ function mergeStaffListRowIntoDetail(prev: StaffMember, fromList: StaffMember): 
         highest_qualification: (fromList.highest_qualification || '').trim() || prev.highest_qualification,
         dept,
         department_id: (fromList.department_id || '').trim() || prev.department_id,
-        profile_url: fromList.profile_url || prev.profile_url,
     };
 }
 
@@ -531,7 +465,6 @@ function parseStaffList(raw: unknown): StaffMember[] {
                 username: String(r.username || '').trim() || undefined,
                 last_seen: String(r.last_seen ?? '').trim() || undefined,
                 last_login_at: String(r.last_login_at || r.lastLoginAt || '').trim() || undefined,
-                profile_url: pickStaffPhotoUrl(r) || undefined,
                 source,
                 patient_access: Boolean(r.patient_access ?? r.can_access_patients ?? false),
                 is_scheduler: Boolean(r.is_scheduler ?? r.scheduler ?? r.can_schedule ?? false),
@@ -1115,7 +1048,7 @@ function getFacilityIdFromFacilityPayload(raw: unknown): string {
 
 /** Fixed widths for sticky cols 1–3 so horizontal `left` offsets match (Employee ID, First, Last). */
 const STAFF_STICKY_W1 = 112;
-const STAFF_STICKY_W2 = 168;
+const STAFF_STICKY_W2 = 128;
 const STAFF_STICKY_W3 = 144;
 
 const staffHeadCell: CSSProperties = {
@@ -1144,78 +1077,42 @@ const staffDetailActionBtn: CSSProperties = {
     alignItems: 'center',
     gap: 8,
     justifyContent: 'flex-start',
-    borderRadius: 12,
+    borderRadius: 8,
     fontSize: 12,
     fontWeight: 600,
-    padding: '9px 12px',
+    padding: '7px 12px',
     fontFamily: 'inherit',
     cursor: 'pointer',
-    border: '1px solid rgba(27, 42, 68, 0.07)',
-    background: 'rgba(255, 255, 255, 0.95)',
-    boxShadow: '0 1px 2px rgba(27, 42, 68, 0.04)',
-    color: '#16213a',
+    border: '1px solid #E5E7EB',
+    background: '#F9FAFB',
+    color: '#111827',
 };
 
 const staffDetailActionBtnDanger: CSSProperties = {
     ...staffDetailActionBtn,
-    background: 'rgba(194, 65, 75, 0.06)',
-    border: '1px solid rgba(194, 65, 75, 0.12)',
-    boxShadow: 'none',
-    color: '#b42318',
+    background: '#FEF2F2',
+    border: '1px solid #FECACA',
+    color: '#DC2626',
 };
 
 function StaffDetailFieldRow({
     icon,
     label,
     value,
-    copyable,
-    onCopy,
 }: {
     icon: string;
     label: string;
     value?: string | null;
-    copyable?: boolean;
-    onCopy?: (value: string) => void;
 }) {
     const display = (value ?? '').trim() || '—';
-    const canCopy = Boolean(copyable && display !== '—' && onCopy);
     return (
         <div className="staff-detail-field-row">
             <span className="material-icons-round staff-detail-field-icon" aria-hidden>
                 {icon}
             </span>
             <span className="staff-detail-field-label">{label}</span>
-            <span
-                className="staff-detail-field-value"
-                title={display === '—' ? undefined : display}
-                style={canCopy ? { display: 'inline-flex', alignItems: 'center', gap: 6, minWidth: 0 } : undefined}
-            >
-                <span style={canCopy ? { overflow: 'hidden', textOverflow: 'ellipsis' } : undefined}>
-                    {display}
-                </span>
-                {canCopy ? (
-                    <button
-                        type="button"
-                        aria-label={`Copy ${label}`}
-                        title={`Copy ${label}`}
-                        onClick={() => onCopy?.(display)}
-                        style={{
-                            flexShrink: 0,
-                            border: 'none',
-                            background: '#F3F4F6',
-                            color: '#6B7280',
-                            width: 24,
-                            height: 24,
-                            borderRadius: 6,
-                            display: 'grid',
-                            placeItems: 'center',
-                            cursor: 'pointer',
-                            padding: 0,
-                        }}
-                    >
-                        <span className="material-icons-round" style={{ fontSize: 14 }}>content_copy</span>
-                    </button>
-                ) : null}
+            <span className="staff-detail-field-value" title={display === '—' ? undefined : display}>
+                {display}
             </span>
         </div>
     );
@@ -1330,50 +1227,11 @@ export default function StaffDirectoryManagement() {
     const [departmentOptions, setDepartmentOptions] = useState<string[]>([]);
     const [deptIdToName, setDeptIdToName] = useState<Map<string, string>>(() => new Map());
     const fileInputRef = useRef<HTMLInputElement | null>(null);
-    const detailPanelRef = useRef<HTMLDivElement | null>(null);
     const toastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const { onlineIdSet, lastSeenByKey } = useFacilityPresence({ enabled: activeTab === 'directory' });
-
-    // The panel sits below the header card and toolbar, so a fixed viewport height runs off-screen.
-    // Fit it to the space left below its top edge; once it sticks while scrolling it grows back.
-    const selectedId = selected?.id;
-    useEffect(() => {
-        const panel = detailPanelRef.current;
-        if (!panel || activeTab !== 'directory') return;
-        const scroller = panel.closest('main');
-        let frame = 0;
-        const fit = () => {
-            cancelAnimationFrame(frame);
-            frame = requestAnimationFrame(() => {
-                const top = Math.max(0, panel.getBoundingClientRect().top);
-                const height = `${Math.max(320, window.innerHeight - top - 16)}px`;
-                panel.style.height = height;
-                panel.style.maxHeight = height;
-            });
-        };
-        fit();
-        scroller?.addEventListener('scroll', fit, { passive: true });
-        window.addEventListener('resize', fit);
-        return () => {
-            cancelAnimationFrame(frame);
-            scroller?.removeEventListener('scroll', fit);
-            window.removeEventListener('resize', fit);
-        };
-    }, [selectedId, activeTab, showAddForm, editingSelected]);
     const [loggedOutKeys, setLoggedOutKeys] = useState<Set<string>>(() => new Set());
     /** Internal support mode only — drives the Logged out filter pill (and related column). */
     const [loggedOutFilterEnabled, setLoggedOutFilterEnabled] = useState(false);
-    /** httpOnly support cookie is invisible to document.cookie — resolve via act-as API. */
-    const [internalSupportMode, setInternalSupportMode] = useState(false);
-
-    useEffect(() => {
-        let cancelled = false;
-        void (async () => {
-            const support = await isClientInternalSupportMode();
-            if (!cancelled) setInternalSupportMode(support);
-        })();
-        return () => { cancelled = true; };
-    }, []);
 
     useEffect(() => {
         if (activeTab !== 'directory') return;
@@ -1780,6 +1638,22 @@ export default function StaffDirectoryManagement() {
         void fetchBulkHistory();
     }, [activeTab, fetchBulkHistory]);
 
+    const bulkImportStats = useMemo(() => {
+        let failed = 0;
+        let issues = 0;
+        let ok = 0;
+        let conflictRows = 0;
+        for (const entry of bulkHistory) {
+            conflictRows += entry.errors.length;
+            if (entry.status === 'error') failed += 1;
+            else if (entry.warnings > 0 || entry.errors.length > 0) issues += 1;
+            else ok += 1;
+        }
+        const total = bulkHistory.length;
+        const successRate = total === 0 ? 0 : (ok / total) * 100;
+        return { total, failed, issues, ok, conflictRows, successRate };
+    }, [bulkHistory]);
+
     const handleBulkImport = async () => {
         if (!uploadedFile) return;
         setProcessing(true);
@@ -1972,20 +1846,6 @@ export default function StaffDirectoryManagement() {
             all: inviteSummary.all ?? local.all ?? staff.length,
         };
     }, [staff, inviteSummary]);
-
-    /**
-     * Faces for the Total staff stack, chosen from the whole loaded directory (not the table's sort/filter):
-     * up to 4 people with a picture, topped up with initials. Ordered by name so the stack never shuffles.
-     */
-    const stackFaces = useMemo(() => {
-        const byName = (a: StaffMember, b: StaffMember) =>
-            `${a.first_name} ${a.last_name}`.localeCompare(`${b.first_name} ${b.last_name}`, undefined, { sensitivity: 'base' })
-            || a.id.localeCompare(b.id);
-        const withPhoto = staff.filter(m => m.profile_url).sort(byName).slice(0, 4);
-        if (withPhoto.length >= 4) return withPhoto;
-        const rest = staff.filter(m => !m.profile_url).sort(byName).slice(0, 4 - withPhoto.length);
-        return [...withPhoto, ...rest];
-    }, [staff]);
 
     const loggedOutCount = useMemo(
         () => staffForList.filter(s => !isStaffOnline(s, onlineIdSet) && isStaffLoggedOut(s, loggedOutKeys)).length,
@@ -2312,25 +2172,23 @@ export default function StaffDirectoryManagement() {
         const member = staff.find(s => s.id === id);
         setStaff(prev => prev.map(s => s.id === id ? { ...s, is_scheduler: newVal } : s));
         setSelected(prev => prev && prev.id === id ? { ...prev, is_scheduler: newVal } : prev);
+        showToast(
+            newVal
+                ? `${member?.first_name} ${member?.last_name} can now schedule`
+                : `Scheduler access removed for ${member?.first_name} ${member?.last_name}`,
+            'success',
+        );
         try {
-            // Write `can_manage_schedule`; `is_scheduler` is read-only on the API (and true for admins).
             const res = await fetch(staffUrl(`/api/proxy/staff/${id}`), {
-                method: 'PATCH',
+                method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ can_manage_schedule: newVal }),
+                body: JSON.stringify({ is_scheduler: newVal }),
             });
             if (!res.ok) {
                 setStaff(prev => prev.map(s => s.id === id ? { ...s, is_scheduler: current } : s));
                 setSelected(prev => prev && prev.id === id ? { ...prev, is_scheduler: current } : prev);
                 showToast('Failed to update scheduler access', 'error');
-                return;
             }
-            showToast(
-                newVal
-                    ? `${member?.first_name} ${member?.last_name} can now schedule`
-                    : `Scheduler access removed for ${member?.first_name} ${member?.last_name}`,
-                'success',
-            );
         } catch {
             setStaff(prev => prev.map(s => s.id === id ? { ...s, is_scheduler: current } : s));
             setSelected(prev => prev && prev.id === id ? { ...prev, is_scheduler: current } : prev);
@@ -2405,6 +2263,9 @@ export default function StaffDirectoryManagement() {
                 department_id: selected.department_id || String(existing.department_id || '').trim() || undefined,
                 patient_access: Boolean(
                     existing.patient_access ?? existing.can_access_patients ?? selected.patient_access ?? false,
+                ),
+                is_scheduler: Boolean(
+                    existing.is_scheduler ?? existing.scheduler ?? existing.can_schedule ?? selected.is_scheduler ?? false,
                 ),
             };
             if (employeeId) payload.employee_id = employeeId;
@@ -2525,6 +2386,7 @@ export default function StaffDirectoryManagement() {
                 highest_qualification: trimmedHq || undefined,
                 department_id: resolvedDeptId || undefined,
                 patient_access: selected.patient_access,
+                is_scheduler: selected.is_scheduler,
                 ...(editAccountExpiresOn.trim()
                     ? { account_expires_on: editAccountExpiresOn.trim() }
                     : selected.account_expires_on
@@ -2642,7 +2504,7 @@ export default function StaffDirectoryManagement() {
                 </MacVibrancyToastPortal>
             )}
 
-            <div className="app-main gx-page">
+            <div className="app-main">
                 <TopBar
                     title="Staff Management"
                     subtitle={
@@ -2675,172 +2537,46 @@ export default function StaffDirectoryManagement() {
                 />
 
                 {/* Tabs */}
-                <div className="sx-tabs-wrap">
-                    <div className="sx-tabs" role="tablist" aria-label="Staff sections">
-                        {([
-                            ['directory', 'groups', 'Staff Directory'] as const,
-                            ['import', 'upload_file', 'Bulk Import'] as const,
-                            ...(SHOW_JOIN_REQUESTS_UI ? [['join', 'how_to_reg', 'Join Requests'] as const] : []),
-                            ...(SHOW_DIRECTORY_REVIEW_UI ? [['review', 'rule', 'Directory Review'] as const] : []),
-                            ...(SHOW_DIRECTORY_REPORTS_UI ? [['reports', 'report_problem', 'Directory Reports'] as const] : []),
-                        ]).map(([id, icon, label]) => {
-                            const count = id === 'join' ? pendingJoinCount : id === 'review' ? directoryReviewCount : id === 'reports' ? directoryReportCount : 0;
-                            return (
-                                <button
-                                    key={id}
-                                    type="button"
-                                    role="tab"
-                                    aria-selected={activeTab === id}
-                                    className={`sx-tab${activeTab === id ? ' is-active' : ''}`}
-                                    onClick={() => setActiveTab(id as StaffTab)}
-                                >
-                                    <span className="sx-tab__icon"><span className="material-icons-round">{icon}</span></span>
-                                    {label}
-                                    {count > 0 && <span className="sx-tab__count">{count}</span>}
-                                </button>
-                            );
-                        })}
-                    </div>
+                <div style={{ display: 'flex', gap: 0, borderBottom: '1px solid var(--border-default)', padding: '0 24px', background: '#fff' }}>
+                    {([
+                        ['directory', 'groups', 'Staff Directory'] as const,
+                        ['import', 'upload_file', 'Bulk Import'] as const,
+                        ...(SHOW_JOIN_REQUESTS_UI ? [['join', 'how_to_reg', 'Join Requests'] as const] : []),
+                        ...(SHOW_DIRECTORY_REVIEW_UI ? [['review', 'rule', 'Directory Review'] as const] : []),
+                        ...(SHOW_DIRECTORY_REPORTS_UI ? [['reports', 'report_problem', 'Directory Reports'] as const] : []),
+                    ]).map(([id, icon, label]) => (
+                        <button key={id} onClick={() => setActiveTab(id as StaffTab)}
+                            style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '10px 16px', fontSize: 13, fontWeight: activeTab === id ? 600 : 500, color: activeTab === id ? 'var(--helix-primary)' : 'var(--text-muted)', background: 'transparent', border: 'none', borderBottom: activeTab === id ? '2px solid var(--helix-primary)' : '2px solid transparent', cursor: 'pointer', transition: 'all 0.2s' }}>
+                            <span className="material-icons-round" style={{ fontSize: 16 }}>{icon}</span>{label}
+                            {id === 'join' && pendingJoinCount > 0 && (
+                                <span style={{ minWidth: 18, height: 18, padding: '0 5px', borderRadius: 999, background: '#1E3A5F', color: '#fff', fontSize: 11, fontWeight: 700, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontVariantNumeric: 'tabular-nums' }}>
+                                    {pendingJoinCount}
+                                </span>
+                            )}
+                            {id === 'review' && directoryReviewCount > 0 && (
+                                <span style={{ minWidth: 18, height: 18, padding: '0 5px', borderRadius: 999, background: '#1E3A5F', color: '#fff', fontSize: 11, fontWeight: 700, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontVariantNumeric: 'tabular-nums' }}>
+                                    {directoryReviewCount}
+                                </span>
+                            )}
+                            {id === 'reports' && directoryReportCount > 0 && (
+                                <span style={{ minWidth: 18, height: 18, padding: '0 5px', borderRadius: 999, background: '#1E3A5F', color: '#fff', fontSize: 11, fontWeight: 700, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontVariantNumeric: 'tabular-nums' }}>
+                                    {directoryReportCount}
+                                </span>
+                            )}
+                        </button>
+                    ))}
                 </div>
 
                 {activeTab === 'directory' ? (
-                <main style={{ flex: 1, minWidth: 0, overflow: 'auto', padding: '16px 24px 20px', background: 'var(--bg-900)' }}>
-
-                    {!showAddForm && (() => {
-                        const total = statusCounts.all ?? staff.length;
-                        const active = statusCounts.active ?? 0;
-                        const online = staff.filter(m => isStaffOnline(m, onlineIdSet)).length;
-                        const pendingParts = [
-                            { key: 'in_directory', label: 'In directory', n: statusCounts.in_directory ?? 0, color: '#9aa4b4' },
-                            { key: 'pending_approval', label: 'Pending approval', n: statusCounts.pending_approval ?? 0, color: '#b9832a' },
-                            { key: 'not_invited', label: 'Not invited', n: statusCounts.not_invited ?? 0, color: '#f0c27a' },
-                            { key: 'invited', label: 'Invited', n: statusCounts.invited ?? 0, color: '#f0a24a' },
-                            { key: 'invite_expired', label: 'Invite expired', n: statusCounts.invite_expired ?? 0, color: '#d9771f' },
-                        ];
-                        const notJoined = pendingParts.reduce((sum, part) => sum + part.n, 0);
-                        const activeBase = Math.max(total, active);
-                        const activePct = activeBase > 0 ? Math.min(100, Math.round((active / activeBase) * 100)) : 0;
-                        const faces = stackFaces;
-                        const moreFaces = Math.max(0, total - faces.length);
-                        const ringR = 22;
-                        const ringC = 2 * Math.PI * ringR;
-                        const show = (n: number) => (loading ? '—' : n.toLocaleString());
-                        return (
-                            <section className="sx-hero gx-reveal" aria-label="Staff overview">
-                                <span className="material-icons-round sx-hero__mark" aria-hidden>groups</span>
-                                <div className="sx-kpis">
-                                    {/* Total staff — real faces from the directory */}
-                                    <div className="sx-kpi sx-kpi--navy">
-                                        <span className="sx-kpi__glow" aria-hidden />
-                                        <span className="material-icons-round sx-kpi__mark" aria-hidden>groups</span>
-                                        <div className="sx-kpi__top">
-                                            <span className="sx-kpi__icon"><span className="material-icons-round">groups</span></span>
-                                            <span className="sx-kpi__label">Total staff</span>
-                                        </div>
-                                        <div className="sx-kpi__body">
-                                            <div className="sx-kpi__value">{show(total)}</div>
-                                            <div className="sx-faces" role="group" aria-label={`${total} people in the directory`}>
-                                                {faces.map(m => (
-                                                    <StaffStackFace key={`${m.id}:${m.profile_url || ''}`} member={m} />
-                                                ))}
-                                                {moreFaces > 0 && (
-                                                    <span className="sx-faces__face sx-faces__more" data-name={`${moreFaces} more`} aria-label={`${moreFaces} more`}>
-                                                        +{moreFaces}
-                                                    </span>
-                                                )}
-                                            </div>
-                                        </div>
-                                        <div className="sx-kpi__foot">In this facility&rsquo;s directory</div>
-                                    </div>
-
-                                    {/* Active — share of everyone */}
-                                    <div className="sx-kpi sx-kpi--mint">
-                                        <span className="sx-kpi__glow" aria-hidden />
-                                        <span className="material-icons-round sx-kpi__mark" aria-hidden>verified</span>
-                                        <div className="sx-kpi__top">
-                                            <span className="sx-kpi__icon"><span className="material-icons-round">verified</span></span>
-                                            <span className="sx-kpi__label">Active</span>
-                                        </div>
-                                        <div className="sx-kpi__body">
-                                            <div className="sx-kpi__value">{show(active)}</div>
-                                            <svg className="sx-ring" width={56} height={56} viewBox="0 0 56 56" role="img" aria-label={`${activePct}% of staff active`}>
-                                                <circle cx={28} cy={28} r={ringR} fill="none" stroke="rgba(42, 154, 116, 0.14)" strokeWidth={6} />
-                                                <circle
-                                                    cx={28} cy={28} r={ringR} fill="none" stroke="#2a9a74" strokeWidth={6} strokeLinecap="round"
-                                                    strokeDasharray={`${(activePct / 100) * ringC} ${ringC}`}
-                                                    transform="rotate(-90 28 28)"
-                                                />
-                                                <text x={28} y={32} textAnchor="middle" className="sx-ring__text">{loading ? '—' : `${activePct}%`}</text>
-                                            </svg>
-                                        </div>
-                                        <div className="sx-kpi__foot">Signed up and able to use Helix</div>
-                                    </div>
-
-                                    {/* Online now — live presence */}
-                                    <div className="sx-kpi sx-kpi--sky">
-                                        <span className="sx-kpi__glow" aria-hidden />
-                                        <span className="material-icons-round sx-kpi__mark" aria-hidden>wifi_tethering</span>
-                                        <div className="sx-kpi__top">
-                                            <span className="sx-kpi__icon"><span className="material-icons-round">wifi_tethering</span></span>
-                                            <span className="sx-kpi__label">Online now</span>
-                                        </div>
-                                        <div className="sx-kpi__body">
-                                            <div className="sx-kpi__value">{show(online)}</div>
-                                            <span className={`sx-radar${online > 0 ? ' is-live' : ''}`} aria-hidden>
-                                                <span className="sx-radar__ring" />
-                                                <span className="sx-radar__ring sx-radar__ring--2" />
-                                                <span className="sx-radar__dot" />
-                                            </span>
-                                        </div>
-                                        <div className="sx-kpi__foot">{loading ? 'Live sign-in activity' : `${online} of ${active} active staff`}</div>
-                                    </div>
-
-                                    {/* Not joined yet — where people are stuck */}
-                                    <div className="sx-kpi sx-kpi--amber">
-                                        <span className="sx-kpi__glow" aria-hidden />
-                                        <span className="material-icons-round sx-kpi__mark" aria-hidden>hourglass_top</span>
-                                        <div className="sx-kpi__top">
-                                            <span className="sx-kpi__icon"><span className="material-icons-round">hourglass_top</span></span>
-                                            <span className="sx-kpi__label">Not joined yet</span>
-                                        </div>
-                                        <div className="sx-kpi__body">
-                                            <div className="sx-kpi__value">{show(notJoined)}</div>
-                                        </div>
-                                        <div
-                                            className="sx-stack"
-                                            role="img"
-                                            aria-label={pendingParts.filter(part => part.n > 0).map(part => `${part.n} ${part.label.toLowerCase()}`).join(', ') || 'Everyone has joined'}
-                                        >
-                                            {notJoined > 0
-                                                ? pendingParts.filter(part => part.n > 0).map(part => (
-                                                    <span key={part.key} title={`${part.label}: ${part.n}`} style={{ flex: part.n, background: part.color }} />
-                                                ))
-                                                : <span style={{ flex: 1, background: 'rgba(42, 154, 116, 0.35)' }} />}
-                                        </div>
-                                        <div className="sx-kpi__foot">
-                                            {notJoined > 0
-                                                ? pendingParts.filter(part => part.n > 0).slice(0, 2).map(part => `${part.n} ${part.label.toLowerCase()}`).join(' · ')
-                                                : 'Everyone has joined'}
-                                        </div>
-                                    </div>
-                                </div>
-                            </section>
-                        );
-                    })()}
+                <main style={{ flex: 1, minWidth: 0, overflow: 'auto', padding: '20px 24px', background: 'var(--bg-900)' }}>
 
                     {/* Add Staff Form — POST /staff/directory */}
                     {showAddForm && (
-                        <div className="fade-in card gx-form" style={{ marginBottom: 18, padding: '22px 24px' }}>
-                            <span className="material-icons-round gx-form__mark" aria-hidden>person_add</span>
-                            <div className="gx-form__head">
-                                <span className="gx-form__chip"><span className="material-icons-round">person_add</span></span>
-                                <div style={{ minWidth: 0 }}>
-                                    <h3 className="gx-form__title">New directory person</h3>
-                                    <p className="gx-form__sub">
-                                        Same core fields as bulk upload. They set email and password later from self-join or an invite.
-                                    </p>
-                                </div>
-                            </div>
+                        <div className="fade-in card" style={{ marginBottom: 18, padding: '18px 20px' }}>
+                            <h3 style={{ fontSize: 14, marginBottom: 4 }}>New directory person</h3>
+                            <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 12 }}>
+                                Same core fields as bulk upload. They set email and password later from self-join or an invite.
+                            </p>
                             {directoryConflict ? (
                                 <div
                                     style={{
@@ -2873,8 +2609,7 @@ export default function StaffDirectoryManagement() {
                                     ) : null}
                                 </div>
                             ) : null}
-                            <div className="gx-section"><span className="material-icons-round">badge</span>Person &amp; access</div>
-                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12, marginBottom: 14 }}>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 12, marginBottom: 14 }}>
                                 <div>
                                     <label className="label">First Name *</label>
                                     <input className="input" value={newFirstName} onChange={e => setNewFirstName(e.target.value)} placeholder="First name" style={{ fontSize: 12 }} />
@@ -2924,17 +2659,15 @@ export default function StaffDirectoryManagement() {
                                     </div>
                                 </div>
                             </div>
-                            <div className="gx-form-actions" style={{ justifyContent: 'flex-end' }}>
-                                <button className="btn btn-primary btn-sm" onClick={handleAdd} disabled={adding || !isAddFormComplete}>
-                                    <span className="material-icons-round" style={{ fontSize: 14 }}>{adding ? 'hourglass_empty' : 'person_add'}</span>{adding ? 'Adding...' : 'Add to directory'}
-                                </button>
-                            </div>
+                            <button className="btn btn-primary btn-sm" onClick={handleAdd} disabled={adding || !isAddFormComplete}>
+                                <span className="material-icons-round" style={{ fontSize: 14 }}>{adding ? 'hourglass_empty' : 'person_add'}</span>{adding ? 'Adding...' : 'Add to directory'}
+                            </button>
                         </div>
                     )}
 
                     {/* Filters & Sort */}
-                    <div className="fade-in delay-1 sx-toolbar">
-                        <div style={{ minWidth: 190 }}>
+                    <div className="fade-in delay-1" style={{ display: 'flex', gap: 12, marginBottom: 16, alignItems: 'center', flexWrap: 'wrap' }}>
+                        <div style={{ minWidth: 240 }}>
                             <CustomSelect
                                 value={deptFilter}
                                 onChange={setDeptFilter}
@@ -2942,10 +2675,33 @@ export default function StaffDirectoryManagement() {
                                 placeholder="All Depts"
                             />
                         </div>
-                        <div className="sx-divider" />
+                        <div style={{ width: 1, height: 20, background: 'var(--border-subtle)' }} />
                         {!loading && onlineInFiltered > 0 && (
-                            <div className="sx-online" title="From live sign-in activity for this facility">
-                                <span className="sx-online__dot" aria-hidden />
+                            <div
+                                style={{
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: 6,
+                                    fontSize: 12,
+                                    fontWeight: 600,
+                                    color: '#166534',
+                                    background: 'rgba(34, 197, 94, 0.12)',
+                                    border: '1px solid rgba(34, 197, 94, 0.28)',
+                                    borderRadius: 8,
+                                    padding: '4px 10px',
+                                }}
+                                title="From live sign-in activity for this facility"
+                            >
+                                <span
+                                    style={{
+                                        width: 7,
+                                        height: 7,
+                                        borderRadius: '50%',
+                                        background: '#22c55e',
+                                        flexShrink: 0,
+                                    }}
+                                    aria-hidden
+                                />
                                 {onlineInFiltered} online now
                             </div>
                         )}
@@ -2960,25 +2716,65 @@ export default function StaffDirectoryManagement() {
                                     <button
                                         key={key}
                                         type="button"
-                                        className={`sx-chip${active ? ' is-active' : ''}`}
-                                        aria-pressed={active}
+                                        className="btn btn-secondary btn-xs"
                                         onClick={() => setStatusFilter(key)}
+                                        style={{
+                                            background: active ? '#edf1f7' : undefined,
+                                            borderColor: active ? 'var(--helix-primary)' : undefined,
+                                            color: active ? 'var(--helix-primary)' : undefined,
+                                            fontWeight: active ? 600 : 400,
+                                            display: 'inline-flex',
+                                            alignItems: 'center',
+                                            gap: 6,
+                                        }}
                                     >
                                         {label}
-                                        <span className="sx-chip__n">{count}</span>
+                                        <span
+                                            style={{
+                                                fontSize: 10,
+                                                fontWeight: 700,
+                                                lineHeight: 1,
+                                                padding: '2px 6px',
+                                                borderRadius: 999,
+                                                background: active ? 'rgba(37, 99, 235, 0.12)' : 'rgba(15, 23, 42, 0.06)',
+                                                color: active ? 'var(--helix-primary)' : 'var(--text-muted)',
+                                            }}
+                                        >
+                                            {count}
+                                        </span>
                                     </button>
                                 );
                             })}
                             {loggedOutFilterEnabled ? (
                                 <button
                                     type="button"
-                                    className={`sx-chip sx-chip--warn${statusFilter === 'logged_out' ? ' is-active' : ''}`}
-                                    aria-pressed={statusFilter === 'logged_out'}
+                                    className="btn btn-secondary btn-xs"
                                     onClick={() => setStatusFilter('logged_out')}
                                     title="Staff with no live mobile app session"
+                                    style={{
+                                        background: statusFilter === 'logged_out' ? '#FEF3C7' : undefined,
+                                        borderColor: statusFilter === 'logged_out' ? '#D97706' : undefined,
+                                        color: statusFilter === 'logged_out' ? '#92400E' : undefined,
+                                        fontWeight: statusFilter === 'logged_out' ? 600 : 400,
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: 6,
+                                    }}
                                 >
                                     Logged out
-                                    <span className="sx-chip__n">{loggedOutCount}</span>
+                                    <span
+                                        style={{
+                                            fontSize: 10,
+                                            fontWeight: 700,
+                                            lineHeight: 1,
+                                            padding: '2px 6px',
+                                            borderRadius: 999,
+                                            background: statusFilter === 'logged_out' ? 'rgba(146, 64, 14, 0.12)' : 'rgba(15, 23, 42, 0.06)',
+                                            color: statusFilter === 'logged_out' ? '#92400E' : 'var(--text-muted)',
+                                        }}
+                                    >
+                                        {loggedOutCount}
+                                    </span>
                                 </button>
                             ) : null}
                         </div>
@@ -3039,18 +2835,7 @@ export default function StaffDirectoryManagement() {
                         }}
                     >
                         {/* No fade-in/transform on this card — CSS animation breaks position:sticky masking during horizontal scroll */}
-                        <div className="card sx-table-card" style={{ padding: 0, overflow: 'hidden', minWidth: 0, maxWidth: '100%' }}>
-                            {selectedStaffIds.size > 0 && (
-                                <div className="sx-selbar" role="status">
-                                    <span className="sx-selbar__count">
-                                        <span className="material-icons-round">check_circle</span>
-                                        {selectedStaffIds.size} selected
-                                    </span>
-                                    <button type="button" className="sx-selbar__clear" onClick={() => setSelectedStaffIds(new Set())}>
-                                        Clear selection
-                                    </button>
-                                </div>
-                            )}
+                        <div className="card" style={{ padding: 0, overflow: 'hidden', minWidth: 0, maxWidth: '100%' }}>
                             <div
                                 className="table-wrapper staff-table-scroll"
                                 style={{ minWidth: 0, overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}
@@ -3064,7 +2849,7 @@ export default function StaffDirectoryManagement() {
                                                     width: 44,
                                                     minWidth: 44,
                                                     textAlign: 'center',
-                                                    background: '#f7f9fc',
+                                                    background: '#fafbfc',
                                                     borderBottom: '1px solid var(--border-default)',
                                                 }}
                                             >
@@ -3089,12 +2874,12 @@ export default function StaffDirectoryManagement() {
                                                     position: 'sticky',
                                                     left: 0,
                                                     zIndex: 5,
-                                                    background: '#f7f9fc',
+                                                    background: '#fafbfc',
                                                     borderBottom: '1px solid var(--border-default)',
                                                 }}
-                                                className="sx-th-sort" aria-sort={sortKey === 'employee_id' ? (sortDir === 'asc' ? 'ascending' : 'descending') : undefined} onClick={() => toggleSort('employee_id')}
+                                                onClick={() => toggleSort('employee_id')}
                                             >
-                                                Employee ID {renderSortMark(sortKey === 'employee_id', sortDir)}
+                                                Employee ID {sortKey === 'employee_id' && (sortDir === 'asc' ? '↑' : '↓')}
                                             </th>
                                             <th
                                                 style={{
@@ -3106,12 +2891,12 @@ export default function StaffDirectoryManagement() {
                                                     position: 'sticky',
                                                     left: STAFF_STICKY_W1,
                                                     zIndex: 5,
-                                                    background: '#f7f9fc',
+                                                    background: '#fafbfc',
                                                     borderBottom: '1px solid var(--border-default)',
                                                 }}
-                                                className="sx-th-sort" aria-sort={sortKey === 'first_name' ? (sortDir === 'asc' ? 'ascending' : 'descending') : undefined} onClick={() => toggleSort('first_name')}
+                                                onClick={() => toggleSort('first_name')}
                                             >
-                                                First Name {renderSortMark(sortKey === 'first_name', sortDir)}
+                                                First Name {sortKey === 'first_name' && (sortDir === 'asc' ? '↑' : '↓')}
                                             </th>
                                             <th
                                                 style={{
@@ -3123,40 +2908,40 @@ export default function StaffDirectoryManagement() {
                                                     position: 'sticky',
                                                     left: STAFF_STICKY_W1 + STAFF_STICKY_W2,
                                                     zIndex: 5,
-                                                    background: '#f7f9fc',
+                                                    background: '#fafbfc',
                                                     boxShadow: '4px 0 10px -4px rgba(15, 23, 42, 0.12)',
                                                     borderBottom: '1px solid var(--border-default)',
                                                 }}
-                                                className="sx-th-sort" aria-sort={sortKey === 'last_name' ? (sortDir === 'asc' ? 'ascending' : 'descending') : undefined} onClick={() => toggleSort('last_name')}
+                                                onClick={() => toggleSort('last_name')}
                                             >
-                                                Last Name {renderSortMark(sortKey === 'last_name', sortDir)}
+                                                Last Name {sortKey === 'last_name' && (sortDir === 'asc' ? '↑' : '↓')}
                                             </th>
-                                            <th style={{ ...staffHeadCell, minWidth: 220, whiteSpace: 'nowrap', background: '#f7f9fc', borderBottom: '1px solid var(--border-default)' }}>Email</th>
-                                            <th style={{ ...staffHeadCell, minWidth: 130, whiteSpace: 'nowrap', cursor: 'pointer', background: '#f7f9fc', borderBottom: '1px solid var(--border-default)' }} className="sx-th-sort" aria-sort={sortKey === 'job_title' ? (sortDir === 'asc' ? 'ascending' : 'descending') : undefined} onClick={() => toggleSort('job_title')}>Rank {renderSortMark(sortKey === 'job_title', sortDir)}</th>
-                                            <th style={{ ...staffHeadCell, minWidth: 160, whiteSpace: 'nowrap', cursor: 'pointer', background: '#f7f9fc', borderBottom: '1px solid var(--border-default)' }} className="sx-th-sort" aria-sort={sortKey === 'dept' ? (sortDir === 'asc' ? 'ascending' : 'descending') : undefined} onClick={() => toggleSort('dept')}>Department {renderSortMark(sortKey === 'dept', sortDir)}</th>
-                                            <th style={{ ...staffHeadCell, minWidth: 140, whiteSpace: 'nowrap', background: '#f7f9fc', borderBottom: '1px solid var(--border-default)' }}>Patient Access</th>
-                                            <th style={{ ...staffHeadCell, minWidth: 120, whiteSpace: 'nowrap', background: '#f7f9fc', borderBottom: '1px solid var(--border-default)' }}>Scheduler</th>
-                                            <th style={{ ...staffHeadCell, minWidth: 88, whiteSpace: 'nowrap', cursor: 'pointer', background: '#f7f9fc', borderBottom: '1px solid var(--border-default)' }} className="sx-th-sort" aria-sort={sortKey === 'status' ? (sortDir === 'asc' ? 'ascending' : 'descending') : undefined} onClick={() => toggleSort('status')}>Status {renderSortMark(sortKey === 'status', sortDir)}</th>
+                                            <th style={{ ...staffHeadCell, minWidth: 220, whiteSpace: 'nowrap', background: '#fafbfc', borderBottom: '1px solid var(--border-default)' }}>Email</th>
+                                            <th style={{ ...staffHeadCell, minWidth: 130, whiteSpace: 'nowrap', cursor: 'pointer', background: '#fafbfc', borderBottom: '1px solid var(--border-default)' }} onClick={() => toggleSort('job_title')}>Rank {sortKey === 'job_title' && (sortDir === 'asc' ? '↑' : '↓')}</th>
+                                            <th style={{ ...staffHeadCell, minWidth: 160, whiteSpace: 'nowrap', cursor: 'pointer', background: '#fafbfc', borderBottom: '1px solid var(--border-default)' }} onClick={() => toggleSort('dept')}>Department {sortKey === 'dept' && (sortDir === 'asc' ? '↑' : '↓')}</th>
+                                            <th style={{ ...staffHeadCell, minWidth: 140, whiteSpace: 'nowrap', background: '#fafbfc', borderBottom: '1px solid var(--border-default)' }}>Patient Access</th>
+                                            <th style={{ ...staffHeadCell, minWidth: 120, whiteSpace: 'nowrap', background: '#fafbfc', borderBottom: '1px solid var(--border-default)' }}>Scheduler</th>
+                                            <th style={{ ...staffHeadCell, minWidth: 88, whiteSpace: 'nowrap', cursor: 'pointer', background: '#fafbfc', borderBottom: '1px solid var(--border-default)' }} onClick={() => toggleSort('status')}>Status {sortKey === 'status' && (sortDir === 'asc' ? '↑' : '↓')}</th>
                                             {loggedOutKeys.size > 0 ? (
-                                                <th style={{ ...staffHeadCell, minWidth: 108, whiteSpace: 'nowrap', background: '#f7f9fc', borderBottom: '1px solid var(--border-default)' }} title="Mobile app session">Mobile</th>
+                                                <th style={{ ...staffHeadCell, minWidth: 108, whiteSpace: 'nowrap', background: '#fafbfc', borderBottom: '1px solid var(--border-default)' }} title="Mobile app session">Mobile</th>
                                             ) : null}
-                                            <th style={{ ...staffHeadCell, minWidth: 88, whiteSpace: 'nowrap', cursor: 'pointer', background: '#f7f9fc', borderBottom: '1px solid var(--border-default)' }} className="sx-th-sort" aria-sort={sortKey === 'last_seen' ? (sortDir === 'asc' ? 'ascending' : 'descending') : undefined} onClick={() => toggleSort('last_seen')}>Last seen {renderSortMark(sortKey === 'last_seen', sortDir)}</th>
-                                            <th style={{ ...staffHeadCell, width: 72, minWidth: 72, background: '#f7f9fc', borderBottom: '1px solid var(--border-default)' }} />
+                                            <th style={{ ...staffHeadCell, minWidth: 88, whiteSpace: 'nowrap', cursor: 'pointer', background: '#fafbfc', borderBottom: '1px solid var(--border-default)' }} onClick={() => toggleSort('last_seen')}>Last seen {sortKey === 'last_seen' && (sortDir === 'asc' ? '↑' : '↓')}</th>
+                                            <th style={{ ...staffHeadCell, width: 72, minWidth: 72, background: '#fafbfc', borderBottom: '1px solid var(--border-default)' }} />
                                         </tr>
                                     </thead>
                                     <tbody>
                                         {loading && filtered.length === 0 && (
                                             <tr>
-                                                <td colSpan={loggedOutKeys.size > 0 ? 13 : 12} className="sx-empty">
-                                                    <span className="sx-empty__art"><span className="material-icons-round">hourglass_empty</span></span>
+                                                <td colSpan={loggedOutKeys.size > 0 ? 13 : 12} style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--text-muted)', fontSize: 13 }}>
+                                                    <span className="material-icons-round" style={{ fontSize: 24, display: 'block', marginBottom: 8, opacity: 0.4 }}>hourglass_empty</span>
                                                     Loading staff from server...
                                                 </td>
                                             </tr>
                                         )}
                                         {!loading && fetchError && filtered.length === 0 && (
                                             <tr>
-                                                <td colSpan={loggedOutKeys.size > 0 ? 13 : 12} className="sx-empty">
-                                                    <span className="sx-empty__art" style={{ color: '#c2414b' }}><span className="material-icons-round">cloud_off</span></span>
+                                                <td colSpan={loggedOutKeys.size > 0 ? 13 : 12} style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--text-muted)', fontSize: 13 }}>
+                                                    <span className="material-icons-round" style={{ fontSize: 24, display: 'block', marginBottom: 8, color: 'var(--critical)' }}>cloud_off</span>
                                                     <div style={{ fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>Could not load staff</div>
                                                     <div style={{ marginBottom: 12 }}>The server is unreachable. Check your connection and try again.</div>
                                                     <button className="btn btn-primary btn-sm" onClick={() => { setLoading(true); fetchStaff(); }}>
@@ -3167,8 +2952,8 @@ export default function StaffDirectoryManagement() {
                                         )}
                                         {!loading && !fetchError && filtered.length === 0 && (
                                             <tr>
-                                                <td colSpan={loggedOutKeys.size > 0 ? 13 : 12} className="sx-empty">
-                                                    <span className="sx-empty__art"><span className="material-icons-round">person_search</span></span>
+                                                <td colSpan={loggedOutKeys.size > 0 ? 13 : 12} style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--text-muted)', fontSize: 13 }}>
+                                                    <span className="material-icons-round" style={{ fontSize: 24, display: 'block', marginBottom: 8, opacity: 0.4 }}>person_off</span>
                                                     {search || deptFilter !== 'all' || statusFilter !== 'all' ? 'No staff match your filters.' : 'No staff members yet. Add staff above to get started.'}
                                                 </td>
                                             </tr>
@@ -3176,7 +2961,7 @@ export default function StaffDirectoryManagement() {
                                         {paginatedFiltered.map(s => {
                                             const st = statusBadgeStyle(s.status, s);
                                             const isSelected = selected?.id === s.id;
-                                            const rowBg = isSelected ? '#eef4fb' : '#ffffff';
+                                            const rowBg = isSelected ? '#edf1f7' : '#ffffff';
                                             const online = isStaffOnline(s, onlineIdSet);
                                             const loggedOut = !online && isStaffLoggedOut(s, loggedOutKeys);
                                             const lastSeenLabel = formatLastSeenAgo(staffLastSeenMs(s, lastSeenByKey));
@@ -3225,7 +3010,7 @@ export default function StaffDirectoryManagement() {
                                                             borderBottom: '1px solid var(--border-subtle)',
                                                         }}
                                                     >
-                                                        {s.employee_id ? <span className="sx-empid">{renderEmployeeIdCell(s.employee_id)}</span> : renderEmployeeIdCell(s.employee_id)}
+                                                        {renderEmployeeIdCell(s.employee_id)}
                                                     </td>
                                                     <td
                                                         style={{
@@ -3244,13 +3029,7 @@ export default function StaffDirectoryManagement() {
                                                             borderBottom: '1px solid var(--border-subtle)',
                                                         }}
                                                     >
-                                                        <span className="sx-person">
-                                                            <span className="sx-avatar" aria-hidden>
-                                                                {`${(s.first_name || '').trim().charAt(0)}${(s.last_name || '').trim().charAt(0)}`.toUpperCase() || '?'}
-                                                                {online && <span className="sx-avatar__online" />}
-                                                            </span>
-                                                            <span className="sx-name">{s.first_name}</span>
-                                                        </span>
+                                                        {s.first_name}
                                                     </td>
                                                     <td
                                                         style={{
@@ -3273,32 +3052,29 @@ export default function StaffDirectoryManagement() {
                                                         {s.last_name}
                                                     </td>
                                                     <td style={{ ...staffBodyCell, minWidth: 220, maxWidth: 280, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 12, background: rowBg, borderBottom: '1px solid var(--border-subtle)' }}>
-                                                        {(s.email || '').trim()
-                                                            ? s.email
-                                                            : <span className="sx-muted"><span className="material-icons-round">mail_outline</span>No email</span>}
+                                                        {s.email}
                                                     </td>
                                                     <td style={{ ...staffBodyCell, minWidth: 130, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', background: rowBg, borderBottom: '1px solid var(--border-subtle)' }}>
                                                         {s.job_title}
                                                     </td>
                                                     <td style={{ ...staffBodyCell, minWidth: 160, maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', background: rowBg, borderBottom: '1px solid var(--border-subtle)' }}>
-                                                        {s.dept ? <span className="sx-dept"><span className="material-icons-round">apartment</span>{s.dept}</span> : <span className="sx-muted">—</span>}
+                                                        {s.dept}
                                                     </td>
                                                     <td style={{ ...staffBodyCell, minWidth: 140, background: rowBg, borderBottom: '1px solid var(--border-subtle)' }}>
-                                                        <div className={`sx-flag sx-flag--ok${s.patient_access ? ' is-on' : ''}`}>
-                                                            <span className="material-icons-round">{s.patient_access ? 'verified_user' : 'shield'}</span>
+                                                        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '3px 10px 3px 6px', borderRadius: 20, fontSize: 11, fontWeight: 600, background: s.patient_access ? 'rgba(34,139,34,0.08)' : 'rgba(120,120,120,0.08)', color: s.patient_access ? '#2d8a4e' : '#888', border: `1px solid ${s.patient_access ? 'rgba(34,139,34,0.18)' : 'rgba(120,120,120,0.15)'}` }}>
+                                                            <span className="material-icons-round" style={{ fontSize: 13 }}>{s.patient_access ? 'verified_user' : 'shield'}</span>
                                                             {s.patient_access ? 'Granted' : 'None'}
                                                         </div>
                                                     </td>
                                                     <td style={{ ...staffBodyCell, minWidth: 120, background: rowBg, borderBottom: '1px solid var(--border-subtle)' }}>
-                                                        <div className={`sx-flag${s.is_scheduler ? ' is-on' : ''}`}>
-                                                            <span className="material-icons-round">{s.is_scheduler ? 'event_available' : 'event_busy'}</span>
+                                                        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '3px 10px 3px 6px', borderRadius: 20, fontSize: 11, fontWeight: 600, background: s.is_scheduler ? 'rgba(37,99,235,0.08)' : 'rgba(120,120,120,0.08)', color: s.is_scheduler ? '#2563EB' : '#888', border: `1px solid ${s.is_scheduler ? 'rgba(37,99,235,0.18)' : 'rgba(120,120,120,0.15)'}` }}>
+                                                            <span className="material-icons-round" style={{ fontSize: 13 }}>{s.is_scheduler ? 'event_available' : 'event_busy'}</span>
                                                             {s.is_scheduler ? 'Yes' : 'No'}
                                                         </div>
                                                     </td>
                                                     <td style={{ ...staffBodyCell, minWidth: 120, background: rowBg, borderBottom: '1px solid var(--border-subtle)' }}>
                                                         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 4 }}>
-                                                            <span className="sx-status" style={{ background: st.bg, color: st.color }} title={neverSignedIn ? 'Account is set up but has never signed in' : undefined}>
-                                                                <span className="sx-status__dot" aria-hidden />
+                                                            <span className="badge" style={{ background: st.bg, color: st.color }} title={neverSignedIn ? 'Account is set up but has never signed in' : undefined}>
                                                                 {st.label}
                                                             </span>
                                                             {s.source ? (
@@ -3312,11 +3088,10 @@ export default function StaffDirectoryManagement() {
                                                         <td style={{ ...staffBodyCell, minWidth: 108, whiteSpace: 'nowrap', background: rowBg, borderBottom: '1px solid var(--border-subtle)' }}>
                                                             {loggedOut ? (
                                                                 <span
-                                                                    className="sx-status"
+                                                                    className="badge"
                                                                     title="No live mobile app session"
-                                                                    style={{ background: '#fff4e0', color: '#92400E' }}
+                                                                    style={{ background: '#FEF3C7', color: '#92400E' }}
                                                                 >
-                                                                    <span className="sx-status__dot" aria-hidden />
                                                                     Logged out
                                                                 </span>
                                                             ) : (
@@ -3326,7 +3101,11 @@ export default function StaffDirectoryManagement() {
                                                     ) : null}
                                                     <td style={{ ...staffBodyCell, minWidth: 76, background: rowBg, borderBottom: '1px solid var(--border-subtle)' }}>
                                                         <span
-                                                            className={`sx-seen${online ? ' is-online' : neverSignedIn || lastSeenLabel === 'Never' ? ' is-never' : ''}`}
+                                                            style={{
+                                                                fontSize: 11,
+                                                                fontWeight: online ? 600 : 500,
+                                                                color: online ? '#166534' : 'var(--text-muted)',
+                                                            }}
                                                             title={
                                                                 neverSignedIn
                                                                     ? 'Set up, never signed in'
@@ -3342,7 +3121,7 @@ export default function StaffDirectoryManagement() {
                                                         <div style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
                                                             <button
                                                                 type="button"
-                                                                className="sx-row-btn"
+                                                                className="btn btn-ghost btn-xs"
                                                                 title={inviteEmailTooltip(s)}
                                                                 disabled={sendingInvites || !canSendStaffInviteEmail(s)}
                                                                 onClick={e => {
@@ -3353,6 +3132,7 @@ export default function StaffDirectoryManagement() {
                                                                 <span
                                                                     className="material-icons-round"
                                                                     style={{
+                                                                        fontSize: 14,
                                                                         color: canSendStaffInviteEmail(s)
                                                                             ? 'var(--helix-primary)'
                                                                             : 'var(--text-disabled)',
@@ -3361,8 +3141,8 @@ export default function StaffDirectoryManagement() {
                                                                     mail
                                                                 </span>
                                                             </button>
-                                                            <button type="button" className="sx-row-btn" title="Remove staff" onClick={e => { e.stopPropagation(); requestRemove(s.id); }}>
-                                                                <span className="material-icons-round" style={{ color: '#c2414b' }}>delete_outline</span>
+                                                            <button type="button" className="btn btn-ghost btn-xs" onClick={e => { e.stopPropagation(); requestRemove(s.id); }}>
+                                                                <span className="material-icons-round" style={{ fontSize: 14, color: 'var(--text-muted)' }}>delete</span>
                                                             </button>
                                                         </div>
                                                     </td>
@@ -3372,19 +3152,21 @@ export default function StaffDirectoryManagement() {
                                     </tbody>
                                 </table>
                             </div>
-                            <div className="sx-foot">
+                            <div style={{ padding: '12px 20px', borderTop: '1px solid var(--border-subtle)', fontSize: 12, color: 'var(--text-muted)' }}>
                                 {loading ? 'Loading staff...' : (
-                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
                                         <span>
-                                            Showing <strong className="sx-foot__strong">{filtered.length === 0 ? 0 : (staffPage - 1) * staffPageSize + 1}–{Math.min(staffPage * staffPageSize, filtered.length)}</strong> of <strong className="sx-foot__strong">{filtered.length}</strong> staff
+                                            Showing {filtered.length === 0 ? 0 : (staffPage - 1) * staffPageSize + 1}
+                                            -
+                                            {Math.min(staffPage * staffPageSize, filtered.length)} of {filtered.length}
                                         </span>
-                                        <div className="sx-pager">
-                                            <button type="button" aria-label="Previous page" disabled={staffPage <= 1} onClick={() => setStaffPage(p => Math.max(1, p - 1))}>
-                                                <span className="material-icons-round">chevron_left</span>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                            <button className="btn btn-secondary btn-xs" disabled={staffPage <= 1} onClick={() => setStaffPage(p => Math.max(1, p - 1))}>
+                                                Prev
                                             </button>
-                                            <span className="sx-pager__label">Page {staffPage} of {staffTotalPages}</span>
-                                            <button type="button" aria-label="Next page" disabled={staffPage >= staffTotalPages} onClick={() => setStaffPage(p => Math.min(staffTotalPages, p + 1))}>
-                                                <span className="material-icons-round">chevron_right</span>
+                                            <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Page {staffPage} / {staffTotalPages}</span>
+                                            <button className="btn btn-secondary btn-xs" disabled={staffPage >= staffTotalPages} onClick={() => setStaffPage(p => Math.min(staffTotalPages, p + 1))}>
+                                                Next
                                             </button>
                                         </div>
                                     </div>
@@ -3395,8 +3177,7 @@ export default function StaffDirectoryManagement() {
                         {/* Staff detail — reference layout: pale pills, grouped sections, Helix signed-in role */}
                         {selected && (
                             <div
-                                ref={detailPanelRef}
-                                className={editingSelected ? 'staff-detail-panel sx-panel' : 'staff-detail-panel sx-panel slide-in-right'}
+                                className={editingSelected ? 'staff-detail-panel' : 'staff-detail-panel slide-in-right'}
                                 style={{
                                     alignSelf: 'start',
                                     position: 'sticky',
@@ -3425,9 +3206,9 @@ export default function StaffDirectoryManagement() {
                                             display: 'flex',
                                             alignItems: 'center',
                                             gap: 6,
-                                            padding: '12px 14px',
-                                            background: 'rgba(255, 255, 255, 0.92)',
-                                            borderBottom: '1px solid rgba(27, 42, 68, 0.06)',
+                                            padding: '10px 12px',
+                                            background: '#FFFFFF',
+                                            borderBottom: '1px solid #E5E7EB',
                                         }}
                                     >
                                         <p
@@ -3506,96 +3287,32 @@ export default function StaffDirectoryManagement() {
                                     aria-label="Staff profile details"
                                 >
                                 {!editingSelected && (
-                                <div className="sx-profile">
-                                    <span className="sx-profile__glow" aria-hidden />
-                                    <span className="material-icons-round sx-profile__mark" aria-hidden>badge</span>
-                                    <div style={{ padding: '16px 14px 10px', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 10 }}>
-                                        <span className="sx-avatar sx-avatar--lg" aria-hidden>
-                                            {`${(selected.first_name || '').trim().charAt(0)}${(selected.last_name || '').trim().charAt(0)}`.toUpperCase() || '?'}
-                                            {isStaffOnline(selected, onlineIdSet) && <span className="sx-avatar__online" />}
-                                        </span>
-                                        <div style={{ minWidth: 0, order: 3, flexBasis: '100%' }}>
-                                            <h3 style={{ fontSize: 17, fontWeight: 750, letterSpacing: '-0.02em', lineHeight: 1.2, margin: 0, color: '#16213a' }}>
+                                <div
+                                    style={{
+                                        background: '#FFFFFF',
+                                        borderRadius: 14,
+                                        border: '1px solid #E4E7EC',
+                                        boxShadow: '0 1px 2px rgba(15, 23, 42, 0.04)',
+                                    }}
+                                >
+                                    <div style={{ padding: '14px 14px 10px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
+                                        <div style={{ minWidth: 0, flex: 1 }}>
+                                            <h3 style={{ fontSize: 17, fontWeight: 700, letterSpacing: '-0.02em', lineHeight: 1.2, margin: 0, color: '#111827' }}>
                                                 {selected.first_name} {selected.last_name}
                                             </h3>
-                                            <div style={{ fontSize: 12, color: '#4a5872', marginTop: 3 }}>
+                                            <div style={{ fontSize: 12, color: '#6B7280', marginTop: 2 }}>
                                                 {selected.dept || 'Department'}{(editingSelected ? editEmployeeId : selected.employee_id) ? ` · ${editingSelected ? editEmployeeId : selected.employee_id}` : ''}
                                             </div>
-                                            {internalSupportMode ? (
-                                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
-                                                    <button
-                                                        type="button"
-                                                        disabled={!String(selected.user_id || '').trim()}
-                                                        title={selected.user_id || 'No user ID on this record'}
-                                                        onClick={() => {
-                                                            const value = String(selected.user_id || '').trim();
-                                                            if (!value) {
-                                                                showToast('No User ID on this record', 'error');
-                                                                return;
-                                                            }
-                                                            void navigator.clipboard.writeText(value).then(
-                                                                () => showToast('User ID copied', 'success'),
-                                                                () => showToast('Could not copy User ID', 'error'),
-                                                            );
-                                                        }}
-                                                        style={{
-                                                            display: 'inline-flex',
-                                                            alignItems: 'center',
-                                                            gap: 4,
-                                                            border: '1px solid #D0D7E2',
-                                                            borderRadius: 8,
-                                                            padding: '4px 8px',
-                                                            fontSize: 11,
-                                                            fontWeight: 600,
-                                                            fontFamily: 'inherit',
-                                                            background: '#F8FAFC',
-                                                            color: String(selected.user_id || '').trim() ? '#1E3A5F' : '#94A3B8',
-                                                            cursor: String(selected.user_id || '').trim() ? 'pointer' : 'not-allowed',
-                                                        }}
-                                                    >
-                                                        <span className="material-icons-round" style={{ fontSize: 13 }}>content_copy</span>
-                                                        Copy User ID
-                                                    </button>
-                                                    <button
-                                                        type="button"
-                                                        title={selected.id}
-                                                        onClick={() => {
-                                                            void navigator.clipboard.writeText(selected.id).then(
-                                                                () => showToast('Staff ID copied', 'success'),
-                                                                () => showToast('Could not copy Staff ID', 'error'),
-                                                            );
-                                                        }}
-                                                        style={{
-                                                            display: 'inline-flex',
-                                                            alignItems: 'center',
-                                                            gap: 4,
-                                                            border: '1px solid #D0D7E2',
-                                                            borderRadius: 8,
-                                                            padding: '4px 8px',
-                                                            fontSize: 11,
-                                                            fontWeight: 600,
-                                                            fontFamily: 'inherit',
-                                                            background: '#F8FAFC',
-                                                            color: '#1E3A5F',
-                                                            cursor: 'pointer',
-                                                        }}
-                                                    >
-                                                        <span className="material-icons-round" style={{ fontSize: 13 }}>content_copy</span>
-                                                        Copy Staff ID
-                                                    </button>
-                                                </div>
-                                            ) : null}
                                         </div>
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0, order: 2, marginLeft: 'auto', alignSelf: 'flex-start' }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
                                             <button
                                                 type="button"
                                                 onClick={() => setEditingSelected(true)}
                                                 style={{
                                                     display: 'inline-flex', alignItems: 'center', gap: 5,
-                                                    border: 'none', borderRadius: 10, padding: '7px 12px',
-                                                    fontSize: 12, fontWeight: 650, fontFamily: 'inherit',
-                                                    background: 'linear-gradient(145deg, #3a5480, #1b2a44)', color: '#fff', cursor: 'pointer',
-                                                    boxShadow: '0 6px 14px -6px rgba(27, 42, 68, 0.6)',
+                                                    border: 'none', borderRadius: 8, padding: '6px 12px',
+                                                    fontSize: 12, fontWeight: 600, fontFamily: 'inherit',
+                                                    background: '#1E3A5F', color: '#fff', cursor: 'pointer',
                                                 }}
                                             >
                                                 <span className="material-icons-round" style={{ fontSize: 14 }}>edit</span>
@@ -3605,61 +3322,57 @@ export default function StaffDirectoryManagement() {
                                                 type="button"
                                                 aria-label="Close"
                                                 onClick={() => { setEditingSelected(false); setSelected(null); }}
-                                                style={{ width: 30, height: 30, borderRadius: '50%', display: 'grid', placeItems: 'center', padding: 0, color: '#4a5872', background: 'rgba(255, 255, 255, 0.8)', border: 'none', cursor: 'pointer' }}
+                                                style={{ width: 30, height: 30, borderRadius: '50%', display: 'grid', placeItems: 'center', padding: 0, color: '#9CA3AF', background: '#F3F4F6', border: 'none', cursor: 'pointer' }}
                                             >
                                                 <span className="material-icons-round" style={{ fontSize: 18 }}>close</span>
                                             </button>
                                         </div>
                                     </div>
-                                    <div style={{ padding: '2px 14px 14px', display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                                    <div style={{ padding: '0 14px 12px', display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                                         {(() => {
                                             const st = statusBadgeStyle(selected.status, selected);
                                             return (
                                         <span
-                                            className="sx-status"
-                                            style={{ background: '#fff', color: st.color, boxShadow: '0 1px 2px rgba(27, 42, 68, 0.06)' }}
+                                            style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11, fontWeight: 600, padding: '4px 10px', borderRadius: 999, border: `1px solid ${st.color}`, background: st.bg, color: st.color }}
                                             title={
                                                 normalizeStaffStatus(selected.status) === 'active' && !hasSignedIn(selected)
                                                     ? 'Account is set up but has never signed in'
                                                     : undefined
                                             }
                                         >
-                                            <span className="sx-status__dot" aria-hidden />
+                                            <span style={{ width: 6, height: 6, borderRadius: '50%', background: st.color }} aria-hidden />
                                             {st.label}
                                         </span>
                                             );
                                         })()}
                                         {selected.source ? (
                                             <span
-                                                className="sx-pill"
+                                                style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11, fontWeight: 600, padding: '4px 10px', borderRadius: 999, background: '#F8FAFC', color: '#475569', border: '1px solid #E2E8F0' }}
                                                 title="How this person entered the directory"
                                             >
-                                                <span className="material-icons-round">login</span>
                                                 {SOURCE_LABELS[selected.source]}
                                             </span>
                                         ) : null}
                                         {!isStaffOnline(selected, onlineIdSet) && isStaffLoggedOut(selected, loggedOutKeys) ? (
                                             <span
                                                 title="No live mobile app session"
-                                                className="sx-pill sx-pill--warn"
+                                                style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11, fontWeight: 600, padding: '4px 10px', borderRadius: 999, border: '1px solid #FCD34D', background: '#FEF3C7', color: '#92400E' }}
                                             >
-                                                <span className="sx-status__dot" aria-hidden />
+                                                <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#D97706' }} aria-hidden />
                                                 Logged out
                                             </span>
                                         ) : null}
-                                        <span className="sx-pill sx-pill--blue" title={selected.job_title}>
-                                            <span className="material-icons-round">military_tech</span>
+                                        <span style={{ fontSize: 11, fontWeight: 600, padding: '4px 10px', borderRadius: 999, background: '#FEF9C3', color: '#854D0E', border: '1px solid #FDE047', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 160 }} title={selected.job_title}>
                                             {selected.job_title || 'Role'}
                                         </span>
                                         {detailSignedInRoleLoading ? (
-                                            <span className="sx-pill">Loading…</span>
+                                            <span style={{ fontSize: 11, fontWeight: 600, padding: '4px 10px', borderRadius: 999, background: '#F3F4F6', color: '#64748B', border: '1px solid #E5E7EB' }}>Loading…</span>
                                         ) : detailSignedInRole ? (
-                                            <span className="sx-pill sx-pill--blue" title={detailSignedInRole}>
-                                                <span className="material-icons-round">how_to_reg</span>
+                                            <span style={{ fontSize: 11, fontWeight: 600, padding: '4px 10px', borderRadius: 999, background: '#EDE9FE', color: '#5B21B6', border: '1px solid #C4B5FD', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 180 }} title={detailSignedInRole}>
                                                 {detailSignedInRole}
                                             </span>
                                         ) : (
-                                            <span className="sx-pill"><span className="material-icons-round" style={{ color: '#8a95a8' }}>person_off</span>Not signed in</span>
+                                            <span style={{ fontSize: 11, fontWeight: 600, padding: '4px 10px', borderRadius: 999, background: '#F8FAFC', color: '#64748B', border: '1px solid #E2E8F0' }}>Not signed in</span>
                                         )}
                                         {(() => {
                                             const expiryStr = selected.account_expires_on || '';
@@ -3669,7 +3382,7 @@ export default function StaffDirectoryManagement() {
                                             const isExpired = daysUntilExpiry <= 0;
                                             if (!isExpired && !isExpiringSoon) return null;
                                             return (
-                                                <span className="sx-pill sx-pill--bad">
+                                                <span style={{ fontSize: 11, fontWeight: 600, padding: '4px 10px', borderRadius: 999, background: '#FEE2E2', color: '#DC2626', border: '1px solid #FECACA' }}>
                                                     {isExpired ? 'Expired' : `${daysUntilExpiry} ${daysUntilExpiry === 1 ? 'day' : 'days'} left`}
                                                 </span>
                                             );
@@ -3680,11 +3393,10 @@ export default function StaffDirectoryManagement() {
                                 )}
 
                                 {/* Personal Information */}
-                                <div className="sx-section">
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-                                        <span className="material-icons-round sx-section__mark" aria-hidden>person</span>
-                                        <span className="gx-ico"><span className="material-icons-round">person</span></span>
-                                        <span className="sx-section__head" style={{ flex: 1 }}>Personal information</span>
+                                <div style={{ background: '#FFFFFF', borderRadius: 14, border: '1px solid #E4E7EC', boxShadow: '0 1px 2px rgba(15, 23, 42, 0.04)', padding: '12px 14px' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: editingSelected ? 10 : 6 }}>
+                                        <span className="material-icons-round" style={{ fontSize: 16, color: '#94A3B8' }}>person</span>
+                                        <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', color: '#9CA3AF', flex: 1 }}>PERSONAL INFORMATION</span>
                                         {!editingSelected && (
                                             <button
                                                 type="button"
@@ -3744,16 +3456,15 @@ export default function StaffDirectoryManagement() {
                                 </div>
 
                                 {/* Contact */}
-                                <div className="sx-section">
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-                                        <span className="material-icons-round sx-section__mark" aria-hidden>contact_mail</span>
-                                        <span className="gx-ico"><span className="material-icons-round">contact_mail</span></span>
-                                        <span className="sx-section__head" style={{ flex: 1 }}>Contact</span>
+                                <div style={{ background: '#FFFFFF', borderRadius: 14, border: '1px solid #E4E7EC', boxShadow: '0 1px 2px rgba(15, 23, 42, 0.04)', padding: '12px 14px' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+                                        <span className="material-icons-round" style={{ fontSize: 16, color: '#94A3B8' }}>contact_mail</span>
+                                        <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', color: '#9CA3AF' }}>CONTACT</span>
                                     </div>
                                     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                                         <div style={{ display: 'flex', alignItems: editingSelected || editingContactEmail ? 'stretch' : 'center', gap: 10, flexDirection: editingSelected || editingContactEmail ? 'column' : 'row' }}>
                                             <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0, flex: 1 }}>
-                                                <span className="material-icons-round" style={{ fontSize: 16, color: '#2f6fb8', opacity: 0.75, flexShrink: 0 }}>mail</span>
+                                                <span className="material-icons-round" style={{ fontSize: 16, color: '#94A3B8', flexShrink: 0 }}>mail</span>
                                                 {editingSelected ? (
                                                     <input
                                                         className="input"
@@ -3788,7 +3499,7 @@ export default function StaffDirectoryManagement() {
                                                             setEditingContactEmail(true);
                                                         }}
                                                         disabled={savingContactEmail}
-                                                        className="sx-link"
+                                                        style={{ flexShrink: 0, border: 'none', background: 'none', padding: '2px 4px', fontSize: 12, fontWeight: 600, color: savingContactEmail ? '#CBD5E1' : '#2563EB', cursor: savingContactEmail ? 'default' : 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap' }}
                                                     >
                                                         Edit
                                                     </button>
@@ -3819,7 +3530,7 @@ export default function StaffDirectoryManagement() {
                                         </div>
                                         {!editingSelected && (
                                         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                                            <span className="material-icons-round" style={{ fontSize: 16, color: '#2f6fb8', opacity: 0.75, flexShrink: 0 }}>phone</span>
+                                            <span className="material-icons-round" style={{ fontSize: 16, color: '#94A3B8', flexShrink: 0 }}>phone</span>
                                             <span style={{ fontSize: 13, fontWeight: 500, color: (selected.phone || '').trim() ? '#111827' : '#9CA3AF', fontStyle: (selected.phone || '').trim() ? 'normal' : 'italic', minWidth: 0, flex: 1 }}>
                                                 {(selected.phone || '').trim() || 'Not on file'}
                                             </span>
@@ -3827,7 +3538,7 @@ export default function StaffDirectoryManagement() {
                                                 type="button"
                                                 onClick={() => setPendingPhoneUpdate(true)}
                                                 disabled={requestPhoneUpdatePending}
-                                                className="sx-link"
+                                                style={{ flexShrink: 0, border: 'none', background: 'none', padding: '2px 4px', fontSize: 12, fontWeight: 600, color: requestPhoneUpdatePending ? '#CBD5E1' : '#2563EB', cursor: requestPhoneUpdatePending ? 'default' : 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap' }}
                                             >
                                                 {requestPhoneUpdatePending ? 'Sending…' : 'Update'}
                                             </button>
@@ -3858,9 +3569,9 @@ export default function StaffDirectoryManagement() {
                                                         width: '100%',
                                                         justifyContent: 'center',
                                                         marginTop: 2,
-                                                        borderRadius: 12,
+                                                        borderRadius: 8,
                                                         fontSize: 12,
-                                                        padding: '8px 12px',
+                                                        padding: '7px 12px',
                                                         opacity: inviteEnabled ? 1 : 0.42,
                                                         cursor: inviteEnabled && !sendingInvites ? 'pointer' : 'not-allowed',
                                                         color: inviteEnabled ? undefined : 'var(--text-disabled)',
@@ -3890,54 +3601,25 @@ export default function StaffDirectoryManagement() {
                                 </div>
 
                                 {/* Employment */}
-                                <div className="sx-section">
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-                                        <span className="material-icons-round sx-section__mark" aria-hidden>business_center</span>
-                                        <span className="gx-ico"><span className="material-icons-round">business_center</span></span>
-                                        <span className="sx-section__head" style={{ flex: 1 }}>Employment</span>
+                                <div style={{ background: '#FFFFFF', borderRadius: 14, border: '1px solid #E4E7EC', boxShadow: '0 1px 2px rgba(15, 23, 42, 0.04)', padding: '12px 14px' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: editingSelected ? 10 : 6 }}>
+                                        <span className="material-icons-round" style={{ fontSize: 16, color: '#94A3B8' }}>business_center</span>
+                                        <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', color: '#9CA3AF' }}>EMPLOYMENT</span>
                                     </div>
                                     {!editingSelected ? (
                                         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                                            {([
+                                            {[
                                                 { icon: 'badge', label: 'Employee ID', value: selected.employee_id },
-                                                ...(internalSupportMode
-                                                    ? [
-                                                        {
-                                                            icon: 'fingerprint',
-                                                            label: 'User ID',
-                                                            value: selected.user_id || '',
-                                                            copyable: true,
-                                                        },
-                                                        {
-                                                            icon: 'tag',
-                                                            label: 'Staff ID',
-                                                            value: selected.id,
-                                                            copyable: true,
-                                                        },
-                                                    ]
-                                                    : []),
                                                 { icon: 'apartment', label: 'Department', value: selected.dept },
                                                 { icon: 'workspace_premium', label: 'Title', value: selected.additional_title },
                                                 { icon: 'military_tech', label: 'Rank', value: selected.job_title },
                                                 { icon: 'school', label: 'Qualification', value: selected.highest_qualification },
-                                            ] as Array<{
-                                                icon: string;
-                                                label: string;
-                                                value?: string;
-                                                copyable?: boolean;
-                                            }>).map(row => (
+                                            ].map(row => (
                                                 <StaffDetailFieldRow
                                                     key={row.label}
                                                     icon={row.icon}
                                                     label={row.label}
                                                     value={row.value}
-                                                    copyable={Boolean(row.copyable)}
-                                                    onCopy={(value) => {
-                                                        void navigator.clipboard.writeText(value).then(
-                                                            () => showToast(`${row.label} copied`, 'success'),
-                                                            () => showToast(`Could not copy ${row.label}`, 'error'),
-                                                        );
-                                                    }}
                                                 />
                                             ))}
                                             {/* Account Expiry — inline editable */}
@@ -4028,14 +3710,13 @@ export default function StaffDirectoryManagement() {
 
                                 {/* Patient Access */}
                                 {!editingSelected && (
-                                <div className="sx-section">
-                                    <span className="material-icons-round sx-section__mark" aria-hidden style={{ fontSize: 70, bottom: -16 }}>health_and_safety</span>
-                                    <div className="sx-toggle">
-                                        <span className={`gx-option__icon`} style={selected.patient_access ? { color: '#fff', background: 'linear-gradient(145deg, #4fbf98, #2a9a74)', boxShadow: '0 6px 14px -6px rgba(42, 154, 116, 0.7)' } : undefined}>
-                                            <span className="material-icons-round">{selected.patient_access ? 'verified_user' : 'shield'}</span>
+                                <div style={{ background: '#FFFFFF', borderRadius: 14, border: '1px solid #E4E7EC', boxShadow: '0 1px 2px rgba(15, 23, 42, 0.04)', padding: '12px 14px' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                                        <span className="material-icons-round" style={{ fontSize: 18, color: selected.patient_access ? '#16A34A' : '#94A3B8' }}>
+                                            {selected.patient_access ? 'verified_user' : 'shield'}
                                         </span>
                                         <div style={{ flex: 1, minWidth: 0 }}>
-                                            <div style={{ fontSize: 13, fontWeight: 650, color: '#16213a' }}>Patient records</div>
+                                            <div style={{ fontSize: 12, fontWeight: 700, color: '#111827' }}>Patient records</div>
                                             <div style={{ fontSize: 11, color: '#6B7280' }}>
                                                 {selected.patient_access ? 'Access granted' : 'No access'}
                                             </div>
@@ -4043,7 +3724,11 @@ export default function StaffDirectoryManagement() {
                                         <button
                                             type="button"
                                             onClick={() => togglePatientAccess(selected.id, selected.patient_access)}
-                                            className={`sx-toggle__btn${selected.patient_access ? ' sx-toggle__btn--off' : ''}`}
+                                            style={{
+                                                flexShrink: 0, border: '1px solid #E5E7EB', borderRadius: 20,
+                                                padding: '5px 12px', fontSize: 11, fontWeight: 600, fontFamily: 'inherit',
+                                                cursor: 'pointer', background: '#fff', color: '#2563EB',
+                                            }}
                                         >
                                             {selected.patient_access ? 'Remove' : 'Grant'}
                                         </button>
@@ -4053,42 +3738,47 @@ export default function StaffDirectoryManagement() {
 
                                 {/* Scheduler */}
                                 {!editingSelected && (
-                                <div className="sx-section">
-                                    <span className="material-icons-round sx-section__mark" aria-hidden style={{ fontSize: 70, bottom: -16 }}>calendar_month</span>
-                                    <div className="sx-toggle">
-                                        <span className={`gx-option__icon`} style={selected.is_scheduler ? { color: '#fff', background: 'linear-gradient(145deg, #5a92d6, #2f6fb8)', boxShadow: '0 6px 14px -6px rgba(47, 111, 184, 0.7)' } : undefined}>
-                                            <span className="material-icons-round">{selected.is_scheduler ? 'event_available' : 'event_busy'}</span>
+                                <div style={{ background: '#FFFFFF', borderRadius: 14, border: '1px solid #E4E7EC', boxShadow: '0 1px 2px rgba(15, 23, 42, 0.04)', padding: '12px 14px' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                                        <span className="material-icons-round" style={{ fontSize: 18, color: selected.is_scheduler ? '#2563EB' : '#94A3B8' }}>
+                                            {selected.is_scheduler ? 'event_available' : 'event_busy'}
                                         </span>
                                         <div style={{ flex: 1, minWidth: 0 }}>
-                                            <div style={{ fontSize: 13, fontWeight: 650, color: '#16213a' }}>Scheduler</div>
+                                            <div style={{ fontSize: 12, fontWeight: 700, color: '#111827' }}>Scheduler</div>
                                             <div style={{ fontSize: 11, color: '#6B7280' }}>
-                                                {selected.role === 'admin'
-                                                    ? 'Admins can always manage schedules'
-                                                    : selected.is_scheduler ? 'Can create and manage schedules' : 'No scheduling access'}
+                                                {selected.is_scheduler ? 'Can create and manage schedules' : 'No scheduling access'}
                                             </div>
                                         </div>
-                                        {/* Admins always count as schedulers, so their access can't be switched off here. */}
-                                        {selected.role !== 'admin' && (
-                                            <button
-                                                type="button"
-                                                onClick={() => toggleScheduler(selected.id, selected.is_scheduler)}
-                                                className={`sx-toggle__btn${selected.is_scheduler ? ' sx-toggle__btn--off' : ''}`}
-                                            >
-                                                {selected.is_scheduler ? 'Remove' : 'Allow'}
-                                            </button>
-                                        )}
+                                        <button
+                                            type="button"
+                                            onClick={() => toggleScheduler(selected.id, selected.is_scheduler)}
+                                            style={{
+                                                flexShrink: 0, border: '1px solid #E5E7EB', borderRadius: 20,
+                                                padding: '5px 12px', fontSize: 11, fontWeight: 600, fontFamily: 'inherit',
+                                                cursor: 'pointer', background: '#fff', color: '#2563EB',
+                                            }}
+                                        >
+                                            {selected.is_scheduler ? 'Remove' : 'Allow'}
+                                        </button>
                                     </div>
                                 </div>
                                 )}
 
                                 {/* System Role */}
                                 {!editingSelected && (
-                                <div className="sx-section">
+                                <div
+                                    style={{
+                                        background: '#FFFFFF',
+                                        borderRadius: 14,
+                                        border: '1px solid #E4E7EC',
+                                        padding: '12px 14px',
+                                        boxShadow: '0 1px 2px rgba(15, 23, 42, 0.04)',
+                                    }}
+                                >
                                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-                                        <span className="material-icons-round sx-section__mark" aria-hidden>admin_panel_settings</span>
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                            <span className="gx-ico"><span className="material-icons-round">admin_panel_settings</span></span>
-                                            <span className="sx-section__head">System role</span>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                            <span className="material-icons-round" style={{ fontSize: 16, color: '#94A3B8' }}>shield</span>
+                                            <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', color: '#9CA3AF' }}>SYSTEM ROLE</span>
                                         </div>
                                         <span
                                             style={{
@@ -4097,14 +3787,14 @@ export default function StaffDirectoryManagement() {
                                                 letterSpacing: '0.05em',
                                                 padding: '3px 9px',
                                                 borderRadius: 20,
-                                                background: selected.role === 'admin' ? 'rgba(27, 42, 68, 0.1)' : 'rgba(42, 154, 116, 0.12)',
-                                                color: selected.role === 'admin' ? '#1b2a44' : '#17794f',
+                                                background: selected.role === 'admin' ? 'rgba(99, 102, 241, 0.14)' : 'rgba(52, 199, 89, 0.14)',
+                                                color: selected.role === 'admin' ? '#4338CA' : '#166534',
                                             }}
                                         >
                                             {selected.role === 'admin' ? 'Admin' : 'Staff'}
                                         </span>
                                     </div>
-                                    <div className="sx-seg">
+                                    <div style={{ display: 'flex', background: '#F3F4F6', borderRadius: 8, padding: 3, gap: 3 }}>
                                         {(['staff', 'admin'] as const).map(r => {
                                             const isActive = selected.role === r;
                                             const isAdmin = r === 'admin';
@@ -4126,7 +3816,7 @@ export default function StaffDirectoryManagement() {
                                                         border: 'none',
                                                         cursor: isActive ? 'default' : 'pointer',
                                                         background: isActive ? '#fff' : 'transparent',
-                                                        color: isActive ? (isAdmin ? '#1b2a44' : '#17794f') : '#8a95a8',
+                                                        color: isActive ? (isAdmin ? '#4338CA' : '#166534') : '#9CA3AF',
                                                         boxShadow: isActive ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
                                                         transition: 'all 0.18s ease',
                                                     }}
@@ -4145,11 +3835,18 @@ export default function StaffDirectoryManagement() {
                                 )}
 
                                 {!editingSelected && (
-                                <div className="sx-section">
-                                    <span className="material-icons-round sx-section__mark" aria-hidden>bolt</span>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-                                        <span className="gx-ico"><span className="material-icons-round">bolt</span></span>
-                                        <span className="sx-section__head">Actions</span>
+                                <div
+                                    style={{
+                                        background: '#FFFFFF',
+                                        borderRadius: 14,
+                                        border: '1px solid #E4E7EC',
+                                        padding: '12px 14px',
+                                        boxShadow: '0 1px 2px rgba(15, 23, 42, 0.04)',
+                                    }}
+                                >
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10 }}>
+                                        <span className="material-icons-round" style={{ fontSize: 16, color: '#94A3B8' }}>settings</span>
+                                        <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', color: '#9CA3AF' }}>ACTIONS</span>
                                     </div>
                                     <div style={{ display: 'flex', flexDirection: 'column', gap: 6, flexShrink: 0 }}>
                                         {(() => {
@@ -4218,7 +3915,7 @@ export default function StaffDirectoryManagement() {
                                                             <span style={{ fontSize: 11, fontWeight: 600, color: '#9CA3AF', letterSpacing: '0.04em' }}>
                                                                 Account status
                                                             </span>
-                                                            <div className="sx-seg">
+                                                            <div style={{ display: 'flex', gap: 4, background: '#F3F4F6', borderRadius: 8, padding: 3 }}>
                                                                 {ADMIN_PATCHABLE_STATUSES.map(status => {
                                                                     const active = selected.status === status;
                                                                     const st = statusBadgeStyle(status);
@@ -4308,11 +4005,11 @@ export default function StaffDirectoryManagement() {
                     </div>
                 </main>
                 ) : SHOW_JOIN_REQUESTS_UI && activeTab === 'join' ? (
-                <main style={{ flex: 1, minWidth: 0, overflow: 'auto', padding: '16px 24px 24px', background: 'var(--bg-900)' }}>
+                <main style={{ flex: 1, minWidth: 0, overflow: 'auto', padding: '20px 24px', background: 'var(--bg-900)' }}>
                     <JoinRequestsPanel onNotify={showToast} onCountChange={setPendingJoinCount} />
                 </main>
                 ) : SHOW_DIRECTORY_REVIEW_UI && activeTab === 'review' ? (
-                <main style={{ flex: 1, minWidth: 0, overflow: 'auto', padding: '16px 24px 24px', background: 'var(--bg-900)' }}>
+                <main style={{ flex: 1, minWidth: 0, overflow: 'auto', padding: '20px 24px', background: 'var(--bg-900)' }}>
                     <DirectoryReviewsPanel
                         onNotify={showToast}
                         onCountChange={(count) => {
@@ -4322,7 +4019,7 @@ export default function StaffDirectoryManagement() {
                     />
                 </main>
                 ) : SHOW_DIRECTORY_REPORTS_UI && activeTab === 'reports' ? (
-                <main style={{ flex: 1, minWidth: 0, overflow: 'auto', padding: '16px 24px 24px', background: 'var(--bg-900)' }}>
+                <main style={{ flex: 1, minWidth: 0, overflow: 'auto', padding: '20px 24px', background: 'var(--bg-900)' }}>
                     <DirectoryReportsPanel
                         onNotify={showToast}
                         onCountChange={setDirectoryReportCount}
@@ -4353,36 +4050,94 @@ export default function StaffDirectoryManagement() {
                 </main>
                 ) : (
                 /* Bulk Import Tab */
-                <main className="staff-bulk" style={{ flex: 1, minWidth: 0, overflow: 'auto', padding: '16px 24px 24px', background: 'var(--bg-900)' }}>
-                    <section className="gx-hero st-hero gx-reveal">
-                        <span className="material-icons-round gx-hero__mark" aria-hidden>upload_file</span>
-                        <div className="gx-hero__id">
-                            <span className="gx-hero__chip"><span className="material-icons-round">upload_file</span></span>
-                            <div style={{ minWidth: 0 }}>
-                                <div className="gx-kicker">Staff Management</div>
-                                <h2 className="gx-title">Bulk import</h2>
-                                <p className="gx-lede">
-                                    Add many people to the staff directory from one file. Staff finish their email and profile when they join.
-                                </p>
-                            </div>
-                        </div>
-                        <div className="st-hero__actions">
+                <main className="staff-bulk" style={{ flex: 1, minWidth: 0, overflow: 'auto', padding: '16px 24px 24px', background: '#f1f5f9' }}>
+                    <div className="fade-in staff-bulk__toolbar">
+                        <p className="staff-bulk__crumb">
+                            Staff Management / <strong>Bulk Import</strong>
+                        </p>
+                        <div className="staff-bulk__toolbar-actions">
                             <a
-                                className="st-btn"
+                                className="btn btn-secondary btn-sm"
                                 href="/templates/latest_bulk_upload.csv"
                                 download="staff-directory-template.csv"
                                 onClick={() => showToast('staff-directory-template.csv downloaded')}
                             >
-                                <span className="material-icons-round" aria-hidden>download</span>
-                                Download CSV template
+                                <span className="material-icons-round" style={{ fontSize: 16 }}>download</span>
+                                Download CSV Template
                             </a>
                         </div>
-                    </section>
+                    </div>
+
+                    <div className="fade-in delay-1 staff-bulk__metrics" aria-label="Import metrics">
+                        <div className="staff-bulk__metric">
+                            <div className="staff-bulk__metric-label">
+                                <span className="material-icons-round" aria-hidden>cloud_download</span>
+                                Total Uploads
+                            </div>
+                            <div className="staff-bulk__metric-value">
+                                {bulkHistoryLoading ? '—' : bulkImportStats.total}
+                            </div>
+                            <div className="staff-bulk__metric-sub">lifetime batches</div>
+                        </div>
+                        <div className="staff-bulk__metric">
+                            <div className="staff-bulk__metric-label">Sync Success Rate</div>
+                            {!bulkHistoryLoading && bulkImportStats.total > 0 ? (
+                                <span className="staff-bulk__metric-badge staff-bulk__metric-badge--ok">
+                                    <span className="staff-bulk__metric-badge-dot" aria-hidden />
+                                    {bulkImportStats.ok} Passed
+                                </span>
+                            ) : null}
+                            <div className="staff-bulk__metric-value">
+                                {bulkHistoryLoading || bulkImportStats.total === 0
+                                    ? '—'
+                                    : `${bulkImportStats.successRate.toFixed(1)}%`}
+                            </div>
+                            <div className="staff-bulk__metric-sub">strict schema</div>
+                        </div>
+                        <div className="staff-bulk__metric">
+                            <div className="staff-bulk__metric-label">Active Conflicts</div>
+                            {!bulkHistoryLoading ? (
+                                <span className="staff-bulk__metric-badge staff-bulk__metric-badge--bad">
+                                    <span className="staff-bulk__metric-badge-dot" aria-hidden />
+                                    {bulkImportStats.failed} Failed
+                                </span>
+                            ) : null}
+                            <div className="staff-bulk__metric-value">
+                                {bulkHistoryLoading ? '—' : bulkImportStats.conflictRows}
+                            </div>
+                            <div className="staff-bulk__metric-sub">row exceptions logged</div>
+                        </div>
+                        <div className="staff-bulk__metric">
+                            <div className="staff-bulk__metric-label">Import Health</div>
+                            <span
+                                className={[
+                                    'staff-bulk__metric-badge',
+                                    bulkHistoryLoading
+                                        ? 'staff-bulk__metric-badge--muted'
+                                        : bulkImportStats.failed > 0
+                                            ? 'staff-bulk__metric-badge--bad'
+                                            : 'staff-bulk__metric-badge--ok',
+                                ].join(' ')}
+                            >
+                                <span className="staff-bulk__metric-badge-dot" aria-hidden />
+                                {bulkHistoryLoading
+                                    ? 'Loading'
+                                    : bulkImportStats.failed > 0
+                                        ? 'Attention'
+                                        : 'Nominal'}
+                            </span>
+                            <div className="staff-bulk__metric-value" style={{ fontSize: 22, paddingTop: 4 }}>
+                                {bulkHistoryLoading ? '—' : `${bulkImportStats.issues} issues`}
+                            </div>
+                            <div className="staff-bulk__metric-sub">
+                                {bulkImportStats.ok} clean · {bulkImportStats.failed} failed
+                            </div>
+                        </div>
+                    </div>
 
                     <div className="fade-in delay-1 staff-bulk__panels">
                         <section className="staff-bulk__panel">
-                            <span className="material-icons-round gx-mark" aria-hidden>cloud_upload</span>
-                            <h3 className="staff-bulk__panel-title"><span className="gx-ico"><span className="material-icons-round">cloud_upload</span></span>Import records</h3>
+                            <h3 className="staff-bulk__panel-title">Import Records</h3>
                             <p className="staff-bulk__panel-desc">
                                 Upload a staff directory file. Names and directory fields only — staff add email and profile details later.
                             </p>
@@ -4458,11 +4213,11 @@ export default function StaffDirectoryManagement() {
                             </div>
                             {uploadedFile ? (
                                 <div className="staff-bulk__actions">
-                                    <button type="button" className="st-btn st-btn--primary" style={{ flex: 1, height: 38 }} disabled={processing} onClick={handleBulkImport}>
+                                    <button className="btn btn-primary" style={{ flex: 1, justifyContent: 'center' }} disabled={processing} onClick={handleBulkImport}>
                                         <span className="material-icons-round" style={{ fontSize: 16 }}>{processing ? 'hourglass_empty' : 'upload'}</span>
                                         {processing ? 'Importing…' : 'Import directory'}
                                     </button>
-                                    <button type="button" className="st-btn" style={{ height: 38 }} onClick={clearUploadedFile} disabled={processing}>
+                                    <button type="button" className="btn btn-secondary btn-sm" onClick={clearUploadedFile} disabled={processing}>
                                         <span className="material-icons-round" style={{ fontSize: 16 }}>close</span>
                                         Clear
                                     </button>
@@ -4471,8 +4226,7 @@ export default function StaffDirectoryManagement() {
                         </section>
 
                         <aside className="staff-bulk__panel">
-                            <span className="material-icons-round gx-mark" aria-hidden>table_chart</span>
-                            <h3 className="staff-bulk__panel-title"><span className="gx-ico"><span className="material-icons-round">table_chart</span></span>Data schema &amp; specs</h3>
+                            <h3 className="staff-bulk__panel-title">Data Schema &amp; Specs</h3>
                             <p className="staff-bulk__panel-desc">
                                 Column order for the CSV template. Keep the sheet short.
                             </p>
@@ -4498,62 +4252,172 @@ export default function StaffDirectoryManagement() {
                     </div>
 
                     {SHOW_DIRECTORY_REVIEW_UI && bulkNeedsReview > 0 ? (
-                        <section className="st-callout st-callout--info fade-in" style={{ marginBottom: 16, alignItems: 'center', padding: '14px 16px', borderRadius: 18, flexWrap: 'wrap' }}>
-                            <span className="material-icons-round" aria-hidden>rule</span>
-                            <div style={{ minWidth: 0, flex: '1 1 260px' }}>
-                                <strong style={{ fontSize: 13.5 }}>
+                        <section
+                            className="fade-in"
+                            style={{
+                                marginBottom: 16,
+                                borderRadius: 12,
+                                border: '1px solid #D7E0EC',
+                                background: '#F4F7FB',
+                                padding: '14px 16px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                                gap: 12,
+                                flexWrap: 'wrap',
+                            }}
+                        >
+                            <div style={{ minWidth: 0 }}>
+                                <div style={{ fontSize: 13.5, fontWeight: 700, color: '#1E3A5F' }}>
                                     {bulkNeedsReview} {bulkNeedsReview === 1 ? 'row needs' : 'rows need'} a directory decision
-                                </strong>
-                                <div style={{ marginTop: 2 }}>
+                                </div>
+                                <div style={{ marginTop: 2, fontSize: 12.5, color: '#64748b' }}>
                                     Same employee ID, same name and date of birth, or incomplete rows from this upload.
                                 </div>
                             </div>
-                            <button type="button" className="st-btn st-btn--primary" onClick={() => setActiveTab('review')}>
+                            <button
+                                type="button"
+                                className="btn btn-primary btn-sm"
+                                onClick={() => setActiveTab('review')}
+                            >
                                 Open Directory Review
-                                <span className="material-icons-round" aria-hidden>arrow_forward</span>
                             </button>
                         </section>
                     ) : null}
 
                     {bulkResultCreated.length > 0 && (
                         <section
-                            className="fade-in st-card staff-bulk-created"
+                            className="fade-in staff-bulk-created"
                             aria-label={`${bulkResultCreated.length} staff added`}
-                            style={{ marginBottom: 16 }}
+                            style={{ marginBottom: 24 }}
                         >
-                            <span className="material-icons-round gx-mark" aria-hidden>group_add</span>
-                            <div className="st-card__head">
-                                <div className="st-card__id">
-                                    <span className="staff-bulk-created__count" aria-hidden>{bulkResultCreated.length}</span>
+                            <div
+                                style={{
+                                    borderRadius: 14,
+                                    border: '1px solid rgba(11, 30, 59, 0.08)',
+                                    background: 'var(--surface-card)',
+                                    boxShadow: '0 1px 2px rgba(11, 30, 59, 0.04), 0 8px 24px rgba(11, 30, 59, 0.06)',
+                                    overflow: 'hidden',
+                                }}
+                            >
+                                <div
+                                    style={{
+                                        display: 'flex',
+                                        alignItems: 'flex-start',
+                                        gap: 12,
+                                        padding: '16px 18px',
+                                        background: 'linear-gradient(180deg, #f4f7fb 0%, #eef2f8 100%)',
+                                        borderBottom: '1px solid rgba(11, 30, 59, 0.06)',
+                                    }}
+                                >
+                                    <div
+                                        style={{
+                                            width: 40,
+                                            height: 40,
+                                            borderRadius: 10,
+                                            flexShrink: 0,
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            background: 'var(--helix-primary)',
+                                            color: '#fff',
+                                            fontSize: 15,
+                                            fontWeight: 700,
+                                            letterSpacing: '-0.02em',
+                                        }}
+                                        aria-hidden
+                                    >
+                                        {bulkResultCreated.length}
+                                    </div>
                                     <div style={{ minWidth: 0 }}>
-                                        <h3 className="st-card__title">Added to directory</h3>
-                                        <p className="st-card__sub">
+                                        <h3
+                                            style={{
+                                                margin: 0,
+                                                fontSize: 15,
+                                                fontWeight: 700,
+                                                color: 'var(--text-primary)',
+                                                letterSpacing: '-0.02em',
+                                            }}
+                                        >
+                                            Added to directory
+                                        </h3>
+                                        <p style={{ margin: '4px 0 0', fontSize: 12.5, lineHeight: 1.45, color: 'var(--text-muted)' }}>
                                             {bulkResultCreated.length === 1
                                                 ? 'One person was imported. They can finish email and profile details when they join.'
                                                 : `${bulkResultCreated.length} people were imported. They can finish email and profile details when they join.`}
                                         </p>
                                     </div>
                                 </div>
+                                <ul style={{ margin: 0, padding: 0, listStyle: 'none' }}>
+                                    {bulkResultCreated.map((raw, idx) => {
+                                        const { name, email, idShort } = summarizeBulkCreatedEntry(raw);
+                                        const initials = staffDisplayInitials(name);
+                                        const isLast = idx === bulkResultCreated.length - 1;
+                                        return (
+                                            <li
+                                                key={`created-${idx}-${email || name}`}
+                                                style={{
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    gap: 12,
+                                                    padding: '14px 18px',
+                                                    borderBottom: isLast ? 'none' : '1px solid var(--border-subtle)',
+                                                    background: '#fff',
+                                                }}
+                                            >
+                                                <div
+                                                    aria-hidden
+                                                    style={{
+                                                        width: 36,
+                                                        height: 36,
+                                                        borderRadius: '50%',
+                                                        flexShrink: 0,
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        justifyContent: 'center',
+                                                        background: '#e8eef5',
+                                                        color: 'var(--helix-primary)',
+                                                        fontSize: 12,
+                                                        fontWeight: 700,
+                                                        letterSpacing: '0.02em',
+                                                    }}
+                                                >
+                                                    {initials}
+                                                </div>
+                                                <div
+                                                    style={{
+                                                        flex: 1,
+                                                        minWidth: 0,
+                                                        fontWeight: 600,
+                                                        fontSize: 14,
+                                                        color: 'var(--text-primary)',
+                                                        lineHeight: 1.3,
+                                                    }}
+                                                >
+                                                    {name}
+                                                </div>
+                                                {idShort ? (
+                                                    <span
+                                                        style={{
+                                                            flexShrink: 0,
+                                                            fontSize: 12,
+                                                            fontWeight: 500,
+                                                            color: 'var(--text-muted)',
+                                                            fontVariantNumeric: 'tabular-nums',
+                                                        }}
+                                                    >
+                                                        {idShort}
+                                                    </span>
+                                                ) : null}
+                                            </li>
+                                        );
+                                    })}
+                                </ul>
                             </div>
-                            <ul className="st-list">
-                                {bulkResultCreated.map((raw, idx) => {
-                                    const { name, email, idShort } = summarizeBulkCreatedEntry(raw);
-                                    const initials = staffDisplayInitials(name);
-                                    return (
-                                        <li key={`created-${idx}-${email || name}`} className="st-row" style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                                            <span className="st-avatar" aria-hidden>{initials}</span>
-                                            <div style={{ flex: 1, minWidth: 0, fontWeight: 650, fontSize: 13.5, color: 'var(--text-primary)' }}>
-                                                {name}
-                                            </div>
-                                            {idShort ? <span className="st-mono">{idShort}</span> : null}
-                                        </li>
-                                    );
-                                })}
-                            </ul>
                         </section>
                     )}
 
-                    <div className="fade-in delay-3 staff-bulk__ledger">
+                    <div className="fade-in delay-3">
                         <ImportHistoryLedger
                             entries={bulkHistory}
                             loading={bulkHistoryLoading}
@@ -4562,7 +4426,7 @@ export default function StaffDirectoryManagement() {
                     </div>
 
                     <footer className="staff-bulk__foot">
-                        <span>Staff Directory · Bulk import</span>
+                        <span>Staff Directory · Import health: {bulkHistoryLoading ? '…' : bulkImportStats.failed > 0 ? 'Attention' : 'Nominal'}</span>
                         <div className="staff-bulk__foot-links">
                             <a href="/templates/latest_bulk_upload.csv" download="staff-directory-template.csv">
                                 CSV Specification

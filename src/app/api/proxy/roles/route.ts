@@ -18,7 +18,6 @@ type IncomingRoleBody = {
     sign_in_allowed_user_ids?: string[];
     external_messaging?: boolean;
     is_transfer_role?: boolean;
-    is_helix_health_support_role?: boolean;
     enabled?: boolean;
 };
 
@@ -180,9 +179,6 @@ export async function POST(req: NextRequest) {
         }
         if (Object.prototype.hasOwnProperty.call(body, 'is_transfer_role')) {
             payload.is_transfer_role = Boolean(body.is_transfer_role);
-        }
-        if (Object.prototype.hasOwnProperty.call(body, 'is_helix_health_support_role')) {
-            payload.is_helix_health_support_role = Boolean(body.is_helix_health_support_role);
         }
         if (Object.prototype.hasOwnProperty.call(body, 'enabled')) {
             payload.enabled = Boolean(body.enabled);

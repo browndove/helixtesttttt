@@ -54,25 +54,35 @@ export default function BedTile({
             <button
                 type="button"
                 onClick={onToggle}
-                className={`bl-bed bl-bed--${bed.status}${open ? ' is-open' : ''}`}
+                style={{
+                    width: '100%', textAlign: 'left', cursor: 'pointer',
+                    border: `1px solid ${open ? '#172033' : meta.border}`,
+                    background: meta.bg, borderRadius: 10, padding: '8px 9px 9px',
+                    display: 'flex', flexDirection: 'column', gap: 4, minHeight: 78,
+                }}
             >
-                <span className="material-icons-round bl-bed__mark" aria-hidden>
-                    {bed.status === 'occupied' ? 'hotel' : bed.status === 'blocked' ? 'block' : 'king_bed'}
+                <span style={{ fontSize: 8.5, fontWeight: 750, letterSpacing: '0.09em', color: meta.fg, opacity: 0.75 }}>
+                    {meta.label.toUpperCase()}
                 </span>
-                <span className="bl-bed__status">
-                    <span className="bl-bed__dot" />
-                    {bed.status === 'blocked' ? 'Unavailable' : meta.label}
+                <span style={{ fontSize: 19, fontWeight: 750, color: '#101828', lineHeight: '24px' }}>
+                    {bed.bed_number}
                 </span>
-                <span className="bl-bed__num">{bed.bed_number}</span>
-                {bed.bed_code && <span className="bl-bed__code">{bed.bed_code}</span>}
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 10.5, fontWeight: 600, color: meta.fg }}>
+                    <span style={{ width: 6, height: 6, borderRadius: '50%', background: meta.dot }} />
+                    {bed.bed_code || meta.label}
+                </span>
             </button>
 
             {open && (
                 <div
                     ref={panelRef}
-                    className="bl-pop"
+                    style={{
+                        position: 'absolute', top: 'calc(100% + 6px)', left: 0, zIndex: 40, width: 236,
+                        background: '#FFFFFF', border: '1px solid #E6EBF1', borderRadius: 12,
+                        boxShadow: '0 16px 36px rgba(16, 24, 40, 0.16)', overflow: 'hidden',
+                    }}
                 >
-                    <div style={{ padding: '10px 12px', borderBottom: '1px solid rgba(27, 42, 68, 0.06)', textAlign: 'center' }}>
+                    <div style={{ padding: '10px 12px', borderBottom: '1px solid #F1F4F8', textAlign: 'center' }}>
                         <span style={{ fontSize: 12.5, fontWeight: 700, color: '#101828' }}>
                             Bed {bed.bed_number}
                         </span>
@@ -92,10 +102,15 @@ export default function BedTile({
                                     type="button"
                                     disabled={!canEdit || active}
                                     onClick={() => onStatus(choice.status)}
-                                    className={`bl-pop__choice${active ? ' is-active' : ''}`}
+                                    style={{
+                                        display: 'flex', alignItems: 'center', gap: 9, width: '100%',
+                                        padding: '8px 8px', border: 'none', borderRadius: 8, textAlign: 'left',
+                                        background: active ? '#F6F8FB' : 'transparent',
+                                        cursor: !canEdit || active ? 'default' : 'pointer',
+                                    }}
                                 >
                                     <span style={{
-                                        width: 28, height: 28, borderRadius: 9, flexShrink: 0,
+                                        width: 24, height: 24, borderRadius: 7, flexShrink: 0,
                                         background: colors.bg, color: colors.fg,
                                         display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
                                     }}>
@@ -107,7 +122,7 @@ export default function BedTile({
                                     </span>
                                     {active && (
                                         <span style={{
-                                            width: 15, height: 15, borderRadius: '50%', background: '#1b2a44', flexShrink: 0,
+                                            width: 15, height: 15, borderRadius: '50%', background: '#172033', flexShrink: 0,
                                             display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
                                         }}>
                                             <CheckCircle2 size={11} strokeWidth={2.4} color="#FFFFFF" />
@@ -118,7 +133,7 @@ export default function BedTile({
                         })}
                     </div>
 
-                    <div style={{ padding: '9px 12px', borderTop: '1px solid rgba(27, 42, 68, 0.06)', background: 'rgba(27, 42, 68, 0.025)' }}>
+                    <div style={{ padding: '9px 12px', borderTop: '1px solid #F1F4F8', background: '#FCFDFE' }}>
                         <div style={{ fontSize: 11, color: '#98A2B3' }}>Last updated</div>
                         <div style={{ fontSize: 11.5, color: '#475467', marginTop: 1 }}>{formatStamp(bed.updated_at)}</div>
                         {bed.updated_by?.name && (
@@ -132,7 +147,7 @@ export default function BedTile({
                     {canEdit && (
                         <div style={{
                             display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                            padding: '10px 12px', borderTop: '1px solid rgba(27, 42, 68, 0.06)',
+                            padding: '9px 12px', borderTop: '1px solid #F1F4F8',
                         }}>
                             <button
                                 type="button"
@@ -151,7 +166,7 @@ export default function BedTile({
                                 style={{
                                     border: 'none', background: 'none', padding: 0, cursor: 'pointer',
                                     display: 'inline-flex', alignItems: 'center', gap: 5,
-                                    fontSize: 12, fontWeight: 650, color: '#2f6fb8',
+                                    fontSize: 12, fontWeight: 650, color: '#1D6FB8',
                                 }}
                             >
                                 <Pencil size={12.5} strokeWidth={2} /> Edit bed info

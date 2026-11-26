@@ -154,9 +154,6 @@ export async function PUT(
         if (Object.prototype.hasOwnProperty.call(body, 'is_transfer_role')) {
             payload.is_transfer_role = Boolean(body.is_transfer_role);
         }
-        if (Object.prototype.hasOwnProperty.call(body, 'is_helix_health_support_role')) {
-            payload.is_helix_health_support_role = Boolean(body.is_helix_health_support_role);
-        }
         console.log('[updateRole] Final outbound payload:', payload);
         const upstream = await buildTenantUpstreamUrl(req, API_BASE_URL, `/api/v1/roles/${id}`);
 

@@ -12,11 +12,6 @@ import { formatGhanaPhoneInput, isValidGhanaPhone } from '@/lib/phone';
 import { MacVibrancyToast, MacVibrancyToastPortal } from '@/components/MacVibrancyToast';
 import CriticalAlertSoundPicker from '@/components/settings/CriticalAlertSoundPicker';
 import { readCriticalAlertSound } from '@/lib/critical-alert-sound';
-import { HeroKpi, HeroKpis, SplitBar } from '@/components/glass/hero';
-import '@/components/glass/glass-page.css';
-import '@/components/glass/glass-kit.css';
-import '@/components/glass/staff-glass.css';
-import './settings-page.css';
 
 type Admin = {
     id: string;
@@ -903,98 +898,22 @@ export default function SettingsPage() {
                 </MacVibrancyToastPortal>
             )}
 
-            <div className="app-main gx-page st-page">
+            <div className="app-main">
                 <TopBar title="Settings" subtitle="User & System Preferences" />
 
                 <main style={{ flex: 1, overflow: 'auto', padding: '28px 28px 56px', background: 'var(--bg-900)' }}>
-                    {(() => {
-                        const adminParts = [
-                            { label: 'Active', n: admins.filter(a => a.status === 'Active').length, color: '#2a9a74' },
-                            { label: 'Invited', n: admins.filter(a => a.status === 'Invited').length, color: '#5a92d6' },
-                            { label: 'Disabled', n: admins.filter(a => a.status === 'Disabled').length, color: '#9aa4b4' },
-                        ];
-                        const timeoutLabel: Record<string, string> = { '15': '15 min', '30': '30 min', '60': '1 hour', '120': '2 hours', never: 'never' };
-                        const retentionSteps = RETENTION_OPTIONS.filter(o => o.value !== null) as Array<{ value: 1 | 3 | 6; label: string }>;
-                        return (
-                            <div style={{ maxWidth: 880, margin: '0 auto' }}>
-                            <HeroKpis label="Settings overview" mark="settings">
-                                <HeroKpi
-                                    tone="navy"
-                                    icon="admin_panel_settings"
-                                    label="Facility admins"
-                                    value={loadingAdmins ? '—' : admins.length.toLocaleString()}
-                                    art={!loadingAdmins && admins.length > 0 ? (
-                                        <SplitBar label={adminParts.map(p => `${p.n} ${p.label.toLowerCase()}`).join(', ')} parts={adminParts} />
-                                    ) : undefined}
-                                    foot={loadingAdmins ? 'With access to this facility' : `${adminParts[0].n} active · ${adminParts[1].n} invited`}
-                                />
-                                <HeroKpi
-                                    tone="sky"
-                                    icon="devices"
-                                    label="Active sessions"
-                                    value={loadingSecurity ? '—' : visibleSessions.length.toLocaleString()}
-                                    art={(
-                                        <span className={`sx-radar${visibleSessions.length > 0 ? ' is-live' : ''}`} aria-hidden>
-                                            <span className="sx-radar__ring" />
-                                            <span className="sx-radar__ring sx-radar__ring--2" />
-                                            <span className="sx-radar__dot" />
-                                        </span>
-                                    )}
-                                    foot={otherSessionsCount > 0 ? `${otherSessionsCount} other device${otherSessionsCount === 1 ? '' : 's'} signed in` : 'Only this device'}
-                                />
-                                <HeroKpi
-                                    tone={twoFactor ? 'mint' : 'rose'}
-                                    icon={twoFactor ? 'verified_user' : 'gpp_maybe'}
-                                    label="Two-factor"
-                                    value={loadingSecurity ? '—' : twoFactor ? 'On' : 'Off'}
-                                    art={(
-                                        <svg className="hx-shield st-shield" viewBox="0 0 64 64" aria-hidden>
-                                            <path d="M32 6 L52 14 V30 C52 44 43 53 32 58 C21 53 12 44 12 30 V14 Z" className="hx-shield__body" />
-                                            {twoFactor && <path d="M24 32 L30 38 L41 26" className="hx-shield__check" />}
-                                        </svg>
-                                    )}
-                                    foot={`Auto sign-out: ${timeoutLabel[sessionTimeout] ?? `${sessionTimeout} min`}`}
-                                />
-                                <HeroKpi
-                                    tone="amber"
-                                    icon="auto_delete"
-                                    label="Chat retention"
-                                    value={loadingSecurity ? '—' : retentionMonths === null ? 'Off' : (
-                                        <>
-                                            {retentionMonths}
-                                            <span style={{ marginLeft: 5, fontSize: 14, fontWeight: 650, letterSpacing: 0, color: 'var(--text-muted)' }}>
-                                                {retentionMonths === 1 ? 'month' : 'months'}
-                                            </span>
-                                        </>
-                                    )}
-                                    art={(
-                                        <span className="st-retention" role="img" aria-label={`Retention: ${retentionLabel(retentionMonths)}`}>
-                                            {retentionSteps.map((o, i) => (
-                                                <span
-                                                    key={o.value}
-                                                    title={o.label}
-                                                    className={retentionMonths !== null && o.value <= retentionMonths ? 'is-on' : undefined}
-                                                    style={{ height: `${40 + i * 30}%` }}
-                                                />
-                                            ))}
-                                        </span>
-                                    )}
-                                    foot={screenshotsAllowed ? 'Screenshots allowed' : 'Screenshots blocked'}
-                                />
-                            </HeroKpis>
-                            </div>
-                        );
-                    })()}
-
                     <div className="fade-in" style={{ maxWidth: 880, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 20 }}>
 
                         {/* Profile */}
-                        <div className="settings-section gx-feature">
-                            <span className="gx-feature__glow" aria-hidden />
-                            <span className="material-icons-round gx-mark" aria-hidden>account_circle</span>
+                        <div className="settings-section">
                             <div className="settings-section__header">
                                 <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-                                    <div className="st-avatar">
+                                    <div style={{
+                                        width: 52, height: 52, borderRadius: '50%',
+                                        background: 'var(--helix-primary)', color: '#fff',
+                                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                        fontSize: 18, fontWeight: 700, letterSpacing: '0.02em', flexShrink: 0,
+                                    }}>
                                         {initials}
                                     </div>
                                     <div>
@@ -1003,7 +922,7 @@ export default function SettingsPage() {
                                     </div>
                                 </div>
                                 <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                                    <span className="gx-tag">{userRole}</span>
+                                    <span className="badge badge-info" style={{ fontSize: 10 }}>{userRole}</span>
                                     {jobTitle && (
                                         <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 6 }}>{jobTitle}</div>
                                     )}
@@ -1013,10 +932,9 @@ export default function SettingsPage() {
 
                         {/* Facility */}
                         <div className="settings-section">
-                            <span className="material-icons-round gx-mark" aria-hidden>domain</span>
                             <div className="settings-section__header">
                                 <div>
-                                    <h3 className="settings-section__title st-title"><span className="gx-ico"><span className="material-icons-round">domain</span></span>Facility</h3>
+                                    <h3 className="settings-section__title">Facility</h3>
                                     <p className="settings-section__desc">Preferences that apply to every staff member at this facility.</p>
                                 </div>
                             </div>
@@ -1117,10 +1035,9 @@ export default function SettingsPage() {
 
                         {/* Security */}
                         <div className="settings-section">
-                            <span className="material-icons-round gx-mark" aria-hidden>shield</span>
                             <div className="settings-section__header">
                                 <div>
-                                    <h3 className="settings-section__title st-title"><span className="gx-ico"><span className="material-icons-round">shield</span></span>Security</h3>
+                                    <h3 className="settings-section__title">Security</h3>
                                     <p className="settings-section__desc">Protect your account and control how long sessions stay active.</p>
                                 </div>
                                 <button className="btn btn-secondary btn-sm" onClick={handleLogout}>
@@ -1173,10 +1090,9 @@ export default function SettingsPage() {
 
                         {/* Active sessions */}
                         <div className="settings-section">
-                            <span className="material-icons-round gx-mark" aria-hidden>devices</span>
                             <div className="settings-section__header">
                                 <div>
-                                    <h3 className="settings-section__title st-title"><span className="gx-ico"><span className="material-icons-round">devices</span></span>Active sessions</h3>
+                                    <h3 className="settings-section__title">Active sessions</h3>
                                     <p className="settings-section__desc">
                                         Devices currently signed in to your account.
                                         {!loadingSecurity && visibleSessions.length > 0 && ` ${visibleSessions.length} total.`}
@@ -1202,13 +1118,13 @@ export default function SettingsPage() {
                                     {visibleSessions.map((s) => (
                                         <div className="settings-row" key={s.id}>
                                             <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
-                                                <span className={`gx-name__icon${s.current ? ' is-on' : ''}`}>
-                                                    <span className="material-icons-round">{s.device.includes('iPhone') ? 'phone_iphone' : 'laptop'}</span>
+                                                <span className="material-icons-round" style={{ fontSize: 18, color: s.current ? 'var(--helix-primary)' : 'var(--text-muted)', flexShrink: 0 }}>
+                                                    {s.device.includes('iPhone') ? 'phone_iphone' : 'laptop'}
                                                 </span>
                                                 <div style={{ minWidth: 0 }}>
                                                     <div className="settings-row__label" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                                                         {s.device}
-                                                        {s.current && <span className="gx-tag" style={{ fontSize: 9 }}>Current</span>}
+                                                        {s.current && <span className="badge badge-info" style={{ fontSize: 9 }}>Current</span>}
                                                     </div>
                                                     <div className="settings-row__desc">{s.location} · {s.time}</div>
                                                 </div>
@@ -1224,10 +1140,9 @@ export default function SettingsPage() {
 
                         {/* Password */}
                         <div className="settings-section">
-                            <span className="material-icons-round gx-mark" aria-hidden>password</span>
                             <div className="settings-section__header">
                                 <div>
-                                    <h3 className="settings-section__title st-title"><span className="gx-ico"><span className="material-icons-round">password</span></span>Password</h3>
+                                    <h3 className="settings-section__title">Password</h3>
                                     <p className="settings-section__desc">Choose a strong, unique password to keep your account secure.</p>
                                 </div>
                             </div>
@@ -1256,10 +1171,9 @@ export default function SettingsPage() {
 
                         {/* Team */}
                         <div className="settings-section">
-                            <span className="material-icons-round gx-mark" aria-hidden>groups</span>
                             <div className="settings-section__header">
                                 <div>
-                                    <h3 className="settings-section__title st-title"><span className="gx-ico"><span className="material-icons-round">group</span></span>Team members</h3>
+                                    <h3 className="settings-section__title">Team members</h3>
                                     <p className="settings-section__desc">{admins.length} admin {admins.length === 1 ? 'user' : 'users'} with access to this facility.</p>
                                 </div>
                                 <button className="btn btn-primary btn-sm" onClick={() => setShowInvite(!showInvite)}>
@@ -1271,7 +1185,7 @@ export default function SettingsPage() {
                             {showInvite && (
                                 <div style={{
                                     display: 'flex', flexDirection: 'column', gap: 10, padding: 18,
-                                    background: 'rgba(47, 111, 184, 0.05)', borderBottom: '1px solid rgba(27, 42, 68, 0.06)',
+                                    background: 'var(--surface-2)', borderBottom: '1px solid var(--border-subtle)',
                                 }}>
                                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
                                         <input
@@ -1398,12 +1312,9 @@ export default function SettingsPage() {
                                 </table>
                             </div>
 
-                            <div style={{ padding: '14px 22px', borderTop: '1px solid rgba(27, 42, 68, 0.06)' }}>
-                                <div className="gx-callout gx-callout--info" style={{ alignItems: 'flex-start', lineHeight: 1.5 }}>
-                                    <span className="material-icons-round" aria-hidden>info</span>
-                                    <span>
+                            <div style={{ padding: '14px 22px', borderTop: '1px solid var(--border-subtle)', background: 'var(--surface-2)' }}>
+                                <div style={{ fontSize: 11.5, color: 'var(--text-secondary)', lineHeight: 1.5 }}>
                                     <strong>Role permissions:</strong> Super Admins have full access. Admins can manage staff and escalation. Editors can modify roles and settings. Viewers have read-only access.
-                                    </span>
                                 </div>
                             </div>
                         </div>
@@ -1413,16 +1324,24 @@ export default function SettingsPage() {
 
             {pendingRetention !== undefined && (
                 <div
-                    className="gx-scrim gx-page"
-                    style={{ zIndex: 1100 }}
+                    style={{
+                        position: 'fixed',
+                        inset: 0,
+                        zIndex: 1100,
+                        background: 'rgba(15, 23, 42, 0.35)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        padding: 20,
+                    }}
                     onClick={() => setPendingRetention(undefined)}
                 >
                     <div
-                        className="card gx-modal"
+                        className="card"
                         role="dialog"
                         aria-modal="true"
                         aria-labelledby="retention-confirm-title"
-                        style={{ width: 'min(440px, 100%)', padding: '20px 22px' }}
+                        style={{ width: 'min(440px, 100%)', padding: 18, boxShadow: '0 18px 48px rgba(15,23,42,0.18)' }}
                         onClick={(e) => e.stopPropagation()}
                     >
                         <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>

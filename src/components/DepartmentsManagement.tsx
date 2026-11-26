@@ -1,10 +1,7 @@
 'use client';
 
 import { useState, useEffect, useLayoutEffect, useCallback, useMemo, useRef } from 'react';
-import './departments-page.css';
-import '@/components/glass/glass-kit.css';
-import { BedStack, DotGrid, KpiTile, LadderBars, MiniBars, Ring } from '@/components/glass/kpi';
-import { deptIcon, unitIcon } from '@/lib/department-icons';
+import TopBar from '@/components/TopBar';
 import { DEPARTMENT_DESCRIPTION_MAX_LENGTH, DEPARTMENT_NAME_MAX_LENGTH, UNIT_DESCRIPTION_MAX_LENGTH } from '@/lib/departmentName';
 import {
     parseCareUnit,
@@ -35,6 +32,15 @@ import {
 const DEPTS_PAGE_CACHE_TTL_MS = 120_000;
 const DEPTS_CACHE_HOSPITAL = '/api/proxy/hospital';
 
+/** Lock main column to the viewport so only inner panes scroll (not the document). */
+const departmentsAppMainStyle = {
+    height: '100vh' as const,
+    minHeight: 0,
+    display: 'flex' as const,
+    flexDirection: 'column' as const,
+    overflow: 'hidden' as const,
+};
+
 type FloorItem = { id: string; name: string };
 type WardItem = { id: string; name: string };
 type UnitItem = CareUnit;
@@ -61,6 +67,15 @@ function unitBedLocationLabel(
         if (block) return block.name;
     }
     return 'No location';
+}
+
+function unitBedsSummary(unit: UnitItem): string {
+    if (unitIsUnmapped(unit)) return 'Unmapped';
+    const total = unit.bed_count || 0;
+    const available = unit.available_count || 0;
+    const rooms = unit.room_count || unit.rooms?.length || 0;
+    const roomBit = rooms > 0 ? `${rooms} room${rooms === 1 ? '' : 's'} · ` : '';
+    return `${roomBit}${total} bed${total === 1 ? '' : 's'} · ${available} free`;
 }
 
 function withTypedOption(options: { label: string; value: string }[], current: string) {
@@ -255,6 +270,10 @@ export default function DepartmentsManagement() {
             u.name.toLowerCase().includes(q),
         );
     }, [units, unitsSearch]);
+    const selectedDepartmentUnits = useMemo(() => {
+        if (!editingDept) return [];
+        return units.filter(u => String(u.department_id || '') === editingDept);
+    }, [units, editingDept]);
     const loadLayoutBlocks = useCallback(async (): Promise<Block[]> => {
         try {
             const url = await appendFacilityIdForProxy(`${API_ENDPOINTS.BLOCKS}?depth=full`);
@@ -1054,108 +1073,39 @@ export default function DepartmentsManagement() {
             || unitDetailFloor.trim().toLowerCase() !== editUnitLocation.floor.trim().toLowerCase()),
     );
 
-    const unitsByDept = useMemo(() => {
-        const map = new Map<string, UnitItem[]>();
-        for (const u of units) {
-            const key = String(u.department_id || '');
-            if (!key) continue;
-            map.set(key, [...(map.get(key) || []), u]);
-        }
-        return map;
-    }, [units]);
-
-    const facilityStats = useMemo(() => {
-        const inpatient = units.filter(u => u.has_inpatient_beds !== false);
-        const beds = inpatient.reduce(
-            (acc, u) => ({
-                total: acc.total + (u.bed_count || 0),
-                available: acc.available + (u.available_count || 0),
-                occupied: acc.occupied + (u.occupied_count || 0),
-                blocked: acc.blocked + (u.blocked_count || 0),
-            }),
-            { total: 0, available: 0, occupied: 0, blocked: 0 },
-        );
-        return {
-            inpatient: inpatient.length,
-            workstations: units.length - inpatient.length,
-            unmapped: inpatient.filter(u => unitIsUnmapped(u)).length,
-            beds,
-            occupancyPct: beds.total > 0 ? Math.round((beds.occupied / beds.total) * 100) : 0,
-            deptsWithUnits: departments.filter(d => (unitsByDept.get(d.id)?.length || 0) > 0).length,
-            topDepts: [...departments]
-                .map(d => ({ name: d.name, count: unitsByDept.get(d.id)?.length || 0 }))
-                .sort((a, b) => b.count - a.count)
-                .slice(0, 7),
-        };
-    }, [units, departments, unitsByDept]);
-
-    const deptBedTotals = (list: UnitItem[]) => list
-        .filter(u => u.has_inpatient_beds !== false)
-        .reduce(
-            (acc, u) => ({
-                total: acc.total + (u.bed_count || 0),
-                available: acc.available + (u.available_count || 0),
-                occupied: acc.occupied + (u.occupied_count || 0),
-                blocked: acc.blocked + (u.blocked_count || 0),
-            }),
-            { total: 0, available: 0, occupied: 0, blocked: 0 },
-        );
-
-    const openAddDepartment = () => {
-        setActiveTab('departments');
-        resetNewDepartmentForm();
-        setShowAddDept(true);
-    };
-    const openAddUnit = () => {
-        setActiveTab('units');
-        resetNewUnitForm();
-        setShowAddUnit(true);
-    };
-    const buildingOptions = (typedValue: string) => {
-        const listed = savedBuildings.map(block => ({ label: block.name, value: block.id }));
-        const typed = typedValue.trim();
-        if (typed && !savedBuildings.some(block => block.id === typed || block.name.trim().toLowerCase() === typed.toLowerCase())) {
-            return [{ label: typed, value: typed }, ...listed];
-        }
-        return listed;
-    };
-    const genderOptions = (current: string) => withTypedOption(
-        GENDER_RESTRICTIONS.map(value => ({ label: genderLabel(value), value })),
-        current,
-    );
-    const pickGender = (value: string) => {
-        const choices = GENDER_RESTRICTIONS.map(item => ({ label: genderLabel(item), value: item }));
-        const match = matchedOption(value, choices);
-        return match ? match.value : value;
-    };
-    const selectStyle = { width: '100%', height: 42, fontSize: 13 };
-
     if (loading) {
+        const shimmer = {
+            background: 'linear-gradient(90deg, var(--surface-2) 25%, var(--border-subtle) 50%, var(--surface-2) 75%)',
+            backgroundSize: '400% 100%',
+            animation: 'shimmer 1.4s ease infinite',
+            borderRadius: 'var(--radius-md)',
+        };
+        const line = (w: string, h = 12) => <div style={{ ...shimmer, width: w, height: h, marginBottom: 8 }} />;
         return (
-            <div className="app-main dp-page">
-                <main className="dp-main">
-                    <div className="dp-skel dp-skel--hero" />
-                    <div className="hx-kpis">
-                        {[1, 2, 3, 4].map(i => <div key={i} className="dp-skel dp-skel--kpi" />)}
-                    </div>
-                    <div className="dp-work">
-                        <div className="dp-skel dp-skel--list" />
-                        <div className="dp-skel dp-skel--detail" />
-                    </div>
-                </main>
-            </div>
+                <div className="app-main" style={departmentsAppMainStyle}>
+                    <TopBar title="Departments" subtitle="Floors and wards by department" />
+                    <main style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', padding: '20px 24px 24px', background: 'var(--bg-900)' }}>
+                        <div className="fade-in card" style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', padding: 0 }}>
+                            <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border-subtle)', flexShrink: 0 }}>
+                                {line('45%', 14)}
+                                <div style={{ display: 'grid', gridTemplateColumns: 'minmax(200px, 320px) 1fr', gap: 16, marginTop: 14 }}>
+                                    <div style={{ ...shimmer, height: 40 }} />
+                                    <div style={{ ...shimmer, height: 40 }} />
+                                </div>
+                            </div>
+                            <div style={{ flex: 1, minHeight: 0, display: 'grid', gridTemplateColumns: 'minmax(260px, 320px) 1fr', overflow: 'hidden' }}>
+                                <div style={{ borderRight: '1px solid var(--border-subtle)', padding: 12, display: 'flex', flexDirection: 'column', gap: 6, minHeight: 0, overflowY: 'auto' }}>
+                                    {[1, 2, 3, 4, 5, 6, 7, 8].map(i => <div key={i} style={{ ...shimmer, height: 48, borderRadius: 8 }} />)}
+                                </div>
+                                <div style={{ padding: 20, minHeight: 0, overflow: 'hidden' }}>
+                                    <div style={{ ...shimmer, height: '100%', minHeight: 280, borderRadius: 'var(--radius-md)' }} />
+                                </div>
+                            </div>
+                        </div>
+                    </main>
+                </div>
         );
     }
-
-    const isDeptTab = activeTab === 'departments';
-    const editDeptUnits = editDept ? (unitsByDept.get(editDept.id) || []) : [];
-    const editDeptBeds = deptBedTotals(editDeptUnits);
-    const editDeptOcc = editDeptBeds.total > 0 ? Math.round((editDeptBeds.occupied / editDeptBeds.total) * 100) : 0;
-    const editUnitOcc = editUnit && (editUnit.bed_count || 0) > 0
-        ? Math.round(typeof editUnit.occupancy_percent === 'number'
-            ? editUnit.occupancy_percent
-            : ((editUnit.occupied_count || 0) / (editUnit.bed_count || 1)) * 100)
-        : 0;
 
     return (
         <>
@@ -1165,585 +1115,701 @@ export default function DepartmentsManagement() {
                 </MacVibrancyToastPortal>
             )}
 
-            <div className="app-main dp-page">
-                <main className="dp-main">
-                    {/* ── Hero ───────────────────────────────────────────── */}
-                    <header className="dp-hero dp-reveal">
-                        <div className="dp-hero__id">
-                            <HospitalArt />
-                            <div className="dp-hero__text">
-                                <span className="dp-kicker">Facility structure</span>
-                                <h1 className="dp-title">Departments &amp; units</h1>
-                                <p className="dp-sub">Organise clinical departments, wards and workstations, and see bed capacity at a glance.</p>
-                            </div>
-                        </div>
-                        <div className="dp-hero__actions">
-                            <div className="dp-seg" role="tablist" aria-label="View">
-                                <button type="button" role="tab" aria-selected={isDeptTab} className={isDeptTab ? 'is-on' : ''} onClick={() => setActiveTab('departments')}>
-                                    <span className="material-icons-round">domain</span>
-                                    Departments
-                                    <span className="dp-seg__count">{departments.length}</span>
-                                </button>
-                                <button type="button" role="tab" aria-selected={!isDeptTab} className={!isDeptTab ? 'is-on' : ''} onClick={() => setActiveTab('units')}>
-                                    <span className="material-icons-round">meeting_room</span>
-                                    Units &amp; workstations
-                                    <span className="dp-seg__count">{units.length}</span>
-                                </button>
-                            </div>
-                            <button type="button" className="btn btn-primary dp-add" onClick={isDeptTab ? openAddDepartment : openAddUnit}>
-                                <span className="material-icons-round" style={{ fontSize: 18 }}>add</span>
-                                {isDeptTab ? 'New department' : 'New unit'}
-                            </button>
-                        </div>
-                    </header>
+            <div className="app-main" style={departmentsAppMainStyle}>
+                <TopBar title="Departments" subtitle="Manage departments for this facility" />
 
-                    {/* ── KPIs ───────────────────────────────────────────── */}
-                    <section className="hx-kpis dp-reveal" aria-label="Structure overview">
-                        <KpiTile
-                            tone="indigo"
-                            icon="domain"
-                            watermark="apartment"
-                            label="Departments"
-                            value={departments.length.toLocaleString()}
-                            foot={`${facilityStats.deptsWithUnits} with linked units`}
-                            chart={<MiniBars values={facilityStats.topDepts.map(d => d.count)} labels={facilityStats.topDepts.map(d => d.name)} />}
-                            onClick={() => setActiveTab('departments')}
-                        />
-                        <KpiTile
-                            tone="sky"
-                            icon="meeting_room"
-                            watermark="hub"
-                            label="Units & workstations"
-                            value={units.length.toLocaleString()}
-                            foot={`${facilityStats.inpatient} inpatient · ${facilityStats.workstations} workstation${facilityStats.workstations === 1 ? '' : 's'}`}
-                            chart={<DotGrid pct={units.length > 0 ? Math.round((facilityStats.inpatient / units.length) * 100) : 0} />}
-                            onClick={() => setActiveTab('units')}
-                        />
-                        <KpiTile
-                            tone="mint"
-                            icon="bed"
-                            watermark="king_bed"
-                            label="Mapped beds"
-                            value={facilityStats.beds.total.toLocaleString()}
-                            foot={`${facilityStats.beds.available} available · ${facilityStats.beds.blocked} out of service`}
-                            chart={(
-                                <Ring pct={facilityStats.occupancyPct} size={72}>
-                                    <span className="dp-ring-label">{facilityStats.occupancyPct}%<small>occupied</small></span>
-                                </Ring>
-                            )}
-                            onClick={() => setActiveTab('units')}
-                        />
-                        <KpiTile
-                            tone={facilityStats.unmapped > 0 ? 'amber' : 'mint'}
-                            icon={facilityStats.unmapped > 0 ? 'link_off' : 'verified'}
-                            watermark="map"
-                            label="Unmapped units"
-                            value={facilityStats.unmapped > 0 ? facilityStats.unmapped.toLocaleString() : 'All mapped'}
-                            foot={facilityStats.unmapped > 0 ? 'Inpatient units with no rooms or beds' : `${facilityStats.inpatient} inpatient units have beds`}
-                            chart={<LadderBars total={facilityStats.inpatient} missing={facilityStats.unmapped} />}
-                            onClick={() => setActiveTab('units')}
-                        />
-                    </section>
-
-                    {/* ── Workspace ─────────────────────────────────────── */}
-                    <section className="dp-work dp-reveal">
-                        <aside className="dp-list">
-                            <div className="dp-list__hd">
-                                <div className="dp-search">
-                                    <span className="material-icons-round">search</span>
-                                    <input
-                                        type="text"
-                                        placeholder={isDeptTab ? 'Search departments' : 'Search units & workstations'}
-                                        value={isDeptTab ? deptSearch : unitsSearch}
-                                        onChange={e => (isDeptTab ? setDeptSearch : setUnitsSearch)(e.target.value)}
-                                        aria-label="Search"
-                                    />
-                                    {(isDeptTab ? deptSearch : unitsSearch) ? (
-                                        <button type="button" onClick={() => (isDeptTab ? setDeptSearch : setUnitsSearch)('')} aria-label="Clear search">
-                                            <span className="material-icons-round">close</span>
-                                        </button>
-                                    ) : null}
-                                </div>
-                                <div className="dp-list__meta">
-                                    {isDeptTab
-                                        ? `${filteredDepartments.length} of ${departments.length} departments`
-                                        : `${filteredUnits.length} of ${units.length} units`}
-                                </div>
-                            </div>
-
-                            <div className="dp-list__scroll">
-                                {isDeptTab ? (
-                                    <>
-                                        {filteredDepartments.map(d => {
-                                            const linked = unitsByDept.get(d.id) || [];
-                                            const beds = deptBedTotals(linked);
-                                            const active = editingDept === d.id && !showAddDept;
-                                            return (
-                                                <button
-                                                    key={d.id}
-                                                    type="button"
-                                                    className={`dp-item${active ? ' is-on' : ''}`}
-                                                    onClick={() => { setShowAddDept(false); setEditingDept(d.id); }}
-                                                >
-                                                    <span className="dp-item__icon"><span className="material-icons-round">{deptIcon(d.name)}</span></span>
-                                                    <span className="dp-item__main">
-                                                        <span className="dp-item__name">{d.name}</span>
-                                                        <span className="dp-item__sub">{d.description || 'No description'}</span>
+                <main style={{
+                    flex: 1,
+                    minHeight: 0,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    overflow: 'hidden',
+                    padding: '20px 24px 24px',
+                    background: 'var(--bg-900)',
+                }}
+                >
+                    <div
+                        className="fade-in card"
+                        style={{
+                            flex: 1,
+                            minHeight: 0,
+                            width: '100%',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            overflow: 'hidden',
+                            padding: 0,
+                        }}
+                    >
+                        {/* Toolbar — column + gap avoids wrapped controls overlapping the search row */}
+                        <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border-subtle)', flexShrink: 0 }}>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+                                    {activeTab === 'departments' ? (
+                                        <>
+                                            <div style={{ fontSize: 13, color: 'var(--text-muted)', minWidth: 0 }}>
+                                                <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{departments.length}</span>
+                                                {' '}department{departments.length !== 1 ? 's' : ''}
+                                                {deptSearch.trim() ? (
+                                                    <span style={{ marginLeft: 8 }}>
+                                                        · <span style={{ fontWeight: 600, color: 'var(--text-secondary)' }}>{filteredDepartments.length}</span> shown
                                                     </span>
-                                                    <span className="dp-item__aside">
-                                                        <span className="dp-pill">{linked.length} unit{linked.length === 1 ? '' : 's'}</span>
-                                                        {beds.total > 0 && <span className="dp-item__beds">{beds.total} beds</span>}
-                                                    </span>
-                                                </button>
-                                            );
-                                        })}
-                                        {departments.length === 0 && (
-                                            <EmptyState icon="domain_add" title="No departments yet" body="Create your first department to start organising units." action={{ label: 'New department', onClick: openAddDepartment }} />
-                                        )}
-                                        {departments.length > 0 && filteredDepartments.length === 0 && (
-                                            <EmptyState icon="search_off" title="No matches" body="Try another search term." />
-                                        )}
-                                    </>
-                                ) : unitsLoading ? (
-                                    <div className="dp-list__loading">{[1, 2, 3, 4, 5].map(i => <div key={i} className="dp-skel dp-skel--row" />)}</div>
-                                ) : (
-                                    <>
-                                        {filteredUnits.map(u => {
-                                            const unmapped = unitIsUnmapped(u);
-                                            const active = editingUnit === u.id && !showAddUnit;
-                                            return (
-                                                <button
-                                                    key={u.id}
-                                                    type="button"
-                                                    className={`dp-item${active ? ' is-on' : ''}`}
-                                                    onClick={() => { setShowAddUnit(false); setEditingUnit(u.id); }}
-                                                >
-                                                    <span className="dp-item__icon"><span className="material-icons-round">{unitIcon(u.type, u.name, u.has_inpatient_beds !== false)}</span></span>
-                                                    <span className="dp-item__main">
-                                                        <span className="dp-item__name">{u.name}</span>
-                                                        <span className="dp-item__sub">
-                                                            {unitBedLocationLabel(u, layoutBlocks)}
-                                                            {u.type ? ` · ${wardTypeLabel(u.type)}` : ''}
-                                                        </span>
-                                                        {u.has_inpatient_beds === false ? (
-                                                            <span className="dp-item__tag">Workstation only</span>
-                                                        ) : unmapped ? (
-                                                            <span className="dp-item__tag dp-item__tag--warn">Unmapped · no beds yet</span>
-                                                        ) : (
-                                                            <span className="dp-item__cap">
-                                                                <BedStack compact available={u.available_count || 0} occupied={u.occupied_count || 0} blocked={u.blocked_count || 0} />
-                                                                <span>{u.available_count || 0}/{u.bed_count || 0} free</span>
-                                                            </span>
-                                                        )}
-                                                    </span>
-                                                </button>
-                                            );
-                                        })}
-                                        {units.length === 0 && (
-                                            <EmptyState icon="add_home_work" title="No units yet" body="Add wards, units or workstations to map beds and staffing." action={{ label: 'New unit', onClick: openAddUnit }} />
-                                        )}
-                                        {units.length > 0 && filteredUnits.length === 0 && (
-                                            <EmptyState icon="search_off" title="No matches" body="Try another search term." />
-                                        )}
-                                    </>
-                                )}
-                            </div>
-                        </aside>
-
-                        <section className="dp-detail">
-                            {isDeptTab ? (
-                                showAddDept ? (
-                                    <div className="dp-card dp-form-card fade-in">
-                                        <FormHeader icon="domain_add" title="New department" sub="Departments group your units and workstations." />
-                                        <div className="dp-field">
-                                            <div className="dp-field__lab">
-                                                <label htmlFor="new-dept-name">Department name *</label>
-                                                <span>{newDeptName.length}/{DEPARTMENT_NAME_MAX_LENGTH}</span>
+                                                ) : null}
                                             </div>
+                                            <button
+                                                type="button"
+                                                className="btn btn-primary btn-sm"
+                                                onClick={() => {
+                                                    if (showAddDept) resetNewDepartmentForm();
+                                                    setShowAddDept(!showAddDept);
+                                                }}
+                                                style={{ flexShrink: 0 }}
+                                            >
+                                                <span className="material-icons-round" style={{ fontSize: 14 }}>{showAddDept ? 'close' : 'add'}</span>
+                                                {showAddDept ? 'Cancel' : 'Add Department'}
+                                            </button>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <div style={{ fontSize: 13, color: 'var(--text-muted)', minWidth: 0 }}>
+                                                <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{units.length}</span>
+                                                {' '}unit/workstation{units.length !== 1 ? 's' : ''}
+                                                {unitsSearch.trim() ? (
+                                                    <span style={{ marginLeft: 8 }}>
+                                                        · <span style={{ fontWeight: 600, color: 'var(--text-secondary)' }}>{filteredUnits.length}</span> shown
+                                                    </span>
+                                                ) : null}
+                                            </div>
+                                            <button
+                                                type="button"
+                                                className="btn btn-primary btn-sm"
+                                                onClick={() => {
+                                                    if (showAddUnit) resetNewUnitForm();
+                                                    setShowAddUnit(!showAddUnit);
+                                                }}
+                                                style={{ flexShrink: 0 }}
+                                            >
+                                                <span className="material-icons-round" style={{ fontSize: 14 }}>{showAddUnit ? 'close' : 'add'}</span>
+                                                {showAddUnit ? 'Cancel' : 'Add Unit/workstation'}
+                                            </button>
+                                        </>
+                                    )}
+                                </div>
+
+                                {activeTab === 'departments' && showAddDept && (
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 12, alignSelf: 'stretch', maxWidth: 640 }}>
+                                        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
                                             <input
-                                                id="new-dept-name"
                                                 className="input"
-                                                placeholder="e.g. Accident & Emergency"
+                                                placeholder="Department name"
                                                 value={newDeptName}
                                                 maxLength={DEPARTMENT_NAME_MAX_LENGTH}
-                                                autoFocus
                                                 onChange={e => setNewDeptName(e.target.value.slice(0, DEPARTMENT_NAME_MAX_LENGTH))}
                                                 onKeyDown={e => e.key === 'Enter' && !e.shiftKey && addDepartment()}
+                                                style={{ fontSize: 13, flex: '1 1 220px', minWidth: 160, maxWidth: '100%', boxSizing: 'border-box' }}
+                                                aria-describedby="dept-name-limit-hint"
                                             />
+                                            <span style={{ fontSize: 11, color: 'var(--text-muted)', flexShrink: 0, fontVariantNumeric: 'tabular-nums' }} id="dept-name-limit-hint">
+                                                {newDeptName.length}/{DEPARTMENT_NAME_MAX_LENGTH}
+                                            </span>
+                                            <button type="button" className="btn btn-primary btn-sm" onClick={addDepartment} disabled={!newDeptName.trim()} style={{ flexShrink: 0 }}>Add</button>
                                         </div>
-                                        <div className="dp-field">
-                                            <div className="dp-field__lab">
-                                                <label htmlFor="new-dept-desc">Description</label>
-                                                <span>{newDeptDescription.length}/{DEPARTMENT_DESCRIPTION_MAX_LENGTH}</span>
+                                        <div>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, marginBottom: 6 }}>
+                                                <span className="label" style={{ marginBottom: 0 }}>Description</span>
+                                                <span style={{ fontSize: 11, color: 'var(--text-muted)', fontVariantNumeric: 'tabular-nums' }}>
+                                                    {newDeptDescription.length}/{DEPARTMENT_DESCRIPTION_MAX_LENGTH}
+                                                </span>
                                             </div>
                                             <textarea
-                                                id="new-dept-desc"
                                                 className="input"
-                                                rows={4}
-                                                placeholder="What does this department cover?"
                                                 value={newDeptDescription}
                                                 maxLength={DEPARTMENT_DESCRIPTION_MAX_LENGTH}
                                                 onChange={e => setNewDeptDescription(e.target.value.slice(0, DEPARTMENT_DESCRIPTION_MAX_LENGTH))}
+                                                rows={2}
+                                                style={{
+                                                    fontSize: 13,
+                                                    minHeight: 52,
+                                                    resize: 'vertical',
+                                                    boxSizing: 'border-box',
+                                                    width: '100%',
+                                                    maxWidth: '100%',
+                                                    minWidth: 0,
+                                                    overflowWrap: 'anywhere',
+                                                    wordBreak: 'break-word',
+                                                }}
                                             />
-                                        </div>
-                                        <div className="dp-actions">
-                                            <button type="button" className="btn btn-ghost" onClick={() => { resetNewDepartmentForm(); setShowAddDept(false); }}>Cancel</button>
-                                            <button type="button" className="btn btn-primary" onClick={addDepartment} disabled={!newDeptName.trim()}>
-                                                <span className="material-icons-round" style={{ fontSize: 17 }}>check</span>
-                                                Create department
-                                            </button>
                                         </div>
                                     </div>
-                                ) : editDept ? (
-                                    <div className="dp-stack fade-in" key={editDept.id}>
-                                        <div className="dp-feature">
-                                            <span className="material-icons-round dp-feature__mark" aria-hidden>{deptIcon(editDept.name)}</span>
-                                            <div className="dp-feature__top">
-                                                <span className="dp-feature__icon"><span className="material-icons-round">{deptIcon(editDept.name)}</span></span>
+                                )}
+
+                                <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                                    <button type="button" className={`btn btn-sm ${activeTab === 'departments' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setActiveTab('departments')}>
+                                        Departments
+                                    </button>
+                                    <button type="button" className={`btn btn-sm ${activeTab === 'units' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setActiveTab('units')}>
+                                        Unit/workstation
+                                    </button>
+                                </div>
+                                <div style={{ position: 'relative', width: '100%' }}>
+                                    <span className="material-icons-round" style={{
+                                        position: 'absolute',
+                                        left: 10,
+                                        top: '50%',
+                                        transform: 'translateY(-50%)',
+                                        fontSize: 18,
+                                        color: 'var(--text-muted)',
+                                        pointerEvents: 'none',
+                                        zIndex: 1,
+                                    }}>search</span>
+                                    <input
+                                        className="input"
+                                        type="text"
+                                        placeholder={activeTab === 'departments' ? 'Search by department…' : 'Search by unit/workstation…'}
+                                        value={activeTab === 'departments' ? deptSearch : unitsSearch}
+                                        onChange={e => (activeTab === 'departments' ? setDeptSearch : setUnitsSearch)(e.target.value)}
+                                        style={{ fontSize: 13, paddingLeft: 38, height: 40, width: '100%', boxSizing: 'border-box' }}
+                                    />
+                                    {(activeTab === 'departments' ? deptSearch : unitsSearch) ? (
+                                        <button
+                                            type="button"
+                                            onClick={() => (activeTab === 'departments' ? setDeptSearch : setUnitsSearch)('')}
+                                            style={{
+                                                position: 'absolute',
+                                                right: 8,
+                                                top: '50%',
+                                                transform: 'translateY(-50%)',
+                                                background: 'none',
+                                                border: 'none',
+                                                cursor: 'pointer',
+                                                padding: 4,
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                color: 'var(--text-muted)',
+                                                zIndex: 1,
+                                            }}
+                                        >
+                                            <span className="material-icons-round" style={{ fontSize: 18 }}>close</span>
+                                        </button>
+                                    ) : null}
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Master–detail: fills remaining viewport */}
+                        <div
+                            style={{
+                                flex: 1,
+                                minHeight: 0,
+                                display: activeTab === 'departments' ? 'grid' : 'none',
+                                gridTemplateColumns: 'minmax(280px, min(32vw, 380px)) 1fr',
+                                overflow: 'hidden',
+                            }}
+                        >
+                            <aside
+                                style={{
+                                    borderRight: '1px solid var(--border-subtle)',
+                                    background: 'var(--surface-2)',
+                                    minHeight: 0,
+                                    overflowY: 'auto',
+                                    padding: '10px 12px',
+                                    display: 'flex',
+                                    flexDirection: 'column',
+                                    gap: 4,
+                                }}
+                            >
+                                {filteredDepartments.map(d => (
+                                        <button
+                                        key={d.id}
+                                        type="button"
+                                            onClick={() => { setEditingDept(d.id); }}
+                                        style={{
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: 10,
+                                            padding: '10px 12px',
+                                            borderRadius: 'var(--radius-md)',
+                                            cursor: 'pointer',
+                                            textAlign: 'left',
+                                            width: '100%',
+                                            border: `1px solid ${editingDept === d.id ? 'var(--helix-primary)' : 'transparent'}`,
+                                            background: editingDept === d.id ? 'var(--surface-card)' : 'transparent',
+                                            boxShadow: editingDept === d.id ? '0 1px 3px rgba(30,58,95,0.08)' : 'none',
+                                            transition: 'all 0.15s',
+                                        }}
+                                    >
+                                        <span className="material-icons-round" style={{ fontSize: 18, color: editingDept === d.id ? 'var(--helix-primary)' : 'var(--text-muted)', flexShrink: 0 }}>domain</span>
+                                        <div style={{ flex: 1, minWidth: 0 }}>
+                                            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{d.name}</div>
+                                            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                                {d.description || 'Department'}
+                                            </div>
+                                        </div>
+                                    </button>
+                                ))}
+                                {departments.length === 0 && (
+                                    <div style={{ padding: 24, textAlign: 'center', fontSize: 13, color: 'var(--text-muted)' }}>No departments yet. Use Add Department above.</div>
+                                )}
+                                {departments.length > 0 && filteredDepartments.length === 0 && (
+                                    <div style={{ padding: 24, textAlign: 'center', fontSize: 13, color: 'var(--text-muted)' }}>
+                                        <span className="material-icons-round" style={{ fontSize: 28, display: 'block', marginBottom: 8, color: 'var(--text-disabled)' }}>search_off</span>
+                                        No matches — try another search
+                                    </div>
+                                )}
+                            </aside>
+
+                            <section style={{ minHeight: 0, overflowY: 'auto', padding: '20px 24px 28px', minWidth: 0, background: 'var(--surface-card)' }}>
+                                {editDept ? (
+                                    <div className="fade-in" key={editDept.id} style={{ minWidth: 0, maxWidth: '100%' }}>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, marginBottom: 20, flexWrap: 'wrap' }}>
+                                            <div style={{ flex: 1, minWidth: 0 }}>
+                                                <h2 style={{ fontSize: 20, fontWeight: 700, margin: 0, color: 'var(--text-primary)', letterSpacing: '-0.02em' }}>{editDept.name}</h2>
+                                                <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '6px 0 0' }}>Edit department details</p>
+                                            </div>
+                                            <button
+                                                type="button"
+                                                className="btn btn-danger btn-sm"
+                                                onClick={() => setPendingDelete({ kind: 'department', id: editDept.id, label: editDept.name })}
+                                            >
+                                                <span className="material-icons-round" style={{ fontSize: 14 }}>delete</span>
+                                                Remove department
+                                            </button>
+                                        </div>
+
+                                        <div className="card" style={{ padding: '16px 18px', margin: '0 0 24px', background: 'var(--surface-2)', border: '1px solid var(--border-subtle)', opacity: detailLoading ? 0.88 : 1, transition: 'opacity 0.15s', minWidth: 0, maxWidth: '100%', overflow: 'hidden' }}>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+                                                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Department details</div>
+                                                {detailLoading ? (
+                                                    <span style={{ fontSize: 11, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                                                        <span className="material-icons-round" style={{ fontSize: 14 }}>hourglass_empty</span>
+                                                        Loading…
+                                                    </span>
+                                                ) : null}
+                                            </div>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, marginBottom: 6 }}>
+                                                <label className="label" htmlFor="dept-detail-name" style={{ marginBottom: 0 }}>Name</label>
+                                                <span style={{ fontSize: 11, color: 'var(--text-muted)', fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>
+                                                    {detailName.length}/{DEPARTMENT_NAME_MAX_LENGTH}
+                                                </span>
+                                            </div>
+                                            <input
+                                                id="dept-detail-name"
+                                                className="input"
+                                                value={detailName}
+                                                maxLength={DEPARTMENT_NAME_MAX_LENGTH}
+                                                disabled={detailLoading || savingDeptDetails}
+                                                onChange={e => setDetailName(e.target.value.slice(0, DEPARTMENT_NAME_MAX_LENGTH))}
+                                                style={{ fontSize: 13, marginBottom: 12, boxSizing: 'border-box' }}
+                                            />
+                                            <label className="label" htmlFor="dept-detail-desc" style={{ marginBottom: 6 }}>Description</label>
+                                            <textarea
+                                                id="dept-detail-desc"
+                                                className="input"
+                                                value={detailDescription}
+                                                maxLength={DEPARTMENT_DESCRIPTION_MAX_LENGTH}
+                                                disabled={detailLoading || savingDeptDetails}
+                                                onChange={e => setDetailDescription(e.target.value.slice(0, DEPARTMENT_DESCRIPTION_MAX_LENGTH))}
+                                                rows={3}
+                                                style={{
+                                                    fontSize: 13,
+                                                    marginBottom: 8,
+                                                    minHeight: 72,
+                                                    resize: 'vertical',
+                                                    boxSizing: 'border-box',
+                                                    width: '100%',
+                                                    maxWidth: '100%',
+                                                    minWidth: 0,
+                                                    overflowWrap: 'anywhere',
+                                                    wordBreak: 'break-word',
+                                                }}
+                                            />
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
+                                                <span style={{ fontSize: 11, color: 'var(--text-muted)', fontVariantNumeric: 'tabular-nums' }}>
+                                                    {detailDescription.length}/{DEPARTMENT_DESCRIPTION_MAX_LENGTH}
+                                                </span>
                                                 <button
                                                     type="button"
-                                                    className="dp-icon-btn dp-icon-btn--danger"
-                                                    onClick={() => setPendingDelete({ kind: 'department', id: editDept.id, label: editDept.name })}
-                                                    title="Remove department"
-                                                    aria-label="Remove department"
+                                                    className="btn btn-primary btn-sm"
+                                                    onClick={updateDepartmentDetails}
+                                                    disabled={!deptDetailsDirty || savingDeptDetails || detailLoading}
                                                 >
-                                                    <span className="material-icons-round">delete_outline</span>
+                                                    {savingDeptDetails ? 'Saving…' : 'Save details'}
                                                 </button>
                                             </div>
-                                            <span className="dp-kicker">Department</span>
-                                            <h2 className="dp-feature__title">{editDept.name}</h2>
-                                            <p className="dp-feature__desc">{editDept.description || 'No description yet — add one below.'}</p>
-                                            <div className="dp-chips">
-                                                <span className="dp-chip"><span className="material-icons-round">meeting_room</span>{editDeptUnits.length} unit{editDeptUnits.length === 1 ? '' : 's'}</span>
-                                                <span className="dp-chip"><span className="material-icons-round">bed</span>{editDeptBeds.total} beds</span>
-                                                <span className="dp-chip dp-chip--ok"><span className="material-icons-round">check_circle</span>{editDeptBeds.available} available</span>
-                                            </div>
                                         </div>
 
-                                        <div className="dp-split">
-                                            <div className={`dp-card${detailLoading ? ' is-loading' : ''}`}>
-                                                <CardTitle icon="edit_note" title="Details" right={detailLoading ? <span className="dp-muted">Loading…</span> : null} />
-                                                <div className="dp-field">
-                                                    <div className="dp-field__lab">
-                                                        <label htmlFor="dept-detail-name">Name</label>
-                                                        <span>{detailName.length}/{DEPARTMENT_NAME_MAX_LENGTH}</span>
-                                                    </div>
-                                                    <input
-                                                        id="dept-detail-name"
-                                                        className="input"
-                                                        value={detailName}
-                                                        maxLength={DEPARTMENT_NAME_MAX_LENGTH}
-                                                        disabled={detailLoading || savingDeptDetails}
-                                                        onChange={e => setDetailName(e.target.value.slice(0, DEPARTMENT_NAME_MAX_LENGTH))}
-                                                    />
-                                                </div>
-                                                <div className="dp-field">
-                                                    <div className="dp-field__lab">
-                                                        <label htmlFor="dept-detail-desc">Description</label>
-                                                        <span>{detailDescription.length}/{DEPARTMENT_DESCRIPTION_MAX_LENGTH}</span>
-                                                    </div>
-                                                    <textarea
-                                                        id="dept-detail-desc"
-                                                        className="input"
-                                                        rows={4}
-                                                        value={detailDescription}
-                                                        maxLength={DEPARTMENT_DESCRIPTION_MAX_LENGTH}
-                                                        disabled={detailLoading || savingDeptDetails}
-                                                        onChange={e => setDetailDescription(e.target.value.slice(0, DEPARTMENT_DESCRIPTION_MAX_LENGTH))}
-                                                    />
-                                                </div>
-                                                <div className="dp-actions">
-                                                    {deptDetailsDirty && <span className="dp-dirty">Unsaved changes</span>}
-                                                    <button
-                                                        type="button"
-                                                        className="btn btn-primary"
-                                                        onClick={updateDepartmentDetails}
-                                                        disabled={!deptDetailsDirty || savingDeptDetails || detailLoading}
-                                                    >
-                                                        {savingDeptDetails ? 'Saving…' : 'Save changes'}
-                                                    </button>
-                                                </div>
+                                        <div className="card" style={{ padding: '16px 18px', margin: 0, background: 'var(--surface-2)', border: '1px solid var(--border-subtle)' }}>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+                                                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Department units/workstations</div>
+                                                <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{selectedDepartmentUnits.length}</span>
                                             </div>
-
-                                            <div className="dp-card dp-snap">
-                                                <CardTitle icon="donut_large" title="Bed snapshot" />
-                                                {editDeptBeds.total > 0 ? (
-                                                    <>
-                                                        <div className="dp-snap__ring">
-                                                            <Ring pct={editDeptOcc} size={124}>
-                                                                <span className="dp-ring-label dp-ring-label--lg">{editDeptOcc}%<small>occupied</small></span>
-                                                            </Ring>
+                                            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                                                {selectedDepartmentUnits.map(u => (
+                                                    <div key={u.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', background: 'var(--surface-card)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)' }}>
+                                                        <span className="material-icons-round" style={{ fontSize: 16, color: 'var(--helix-primary)', flexShrink: 0 }}>medical_services</span>
+                                                        <div style={{ flex: 1, minWidth: 0 }}>
+                                                            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{u.name}</div>
+                                                            {u.description ? (
+                                                                <div style={{ fontSize: 11, color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{u.description}</div>
+                                                            ) : null}
                                                         </div>
-                                                        <BedStack available={editDeptBeds.available} occupied={editDeptBeds.occupied} blocked={editDeptBeds.blocked} />
-                                                        <BedLegend {...editDeptBeds} />
-                                                    </>
-                                                ) : (
-                                                    <EmptyState icon="bed" title="No mapped beds" body="Beds appear here once this department's units have rooms." compact />
-                                                )}
-                                            </div>
-                                        </div>
-
-                                        <div className="dp-card">
-                                            <CardTitle
-                                                icon="meeting_room"
-                                                title="Units & workstations"
-                                                right={<span className="dp-pill">{editDeptUnits.length}</span>}
-                                            />
-                                            <div className="dp-unit-grid">
-                                                {editDeptUnits.map(u => (
-                                                    <div key={u.id} className="dp-unit-tile">
                                                         <button
                                                             type="button"
-                                                            className="dp-unit-tile__main"
-                                                            onClick={() => { setActiveTab('units'); setShowAddUnit(false); setEditingUnit(u.id); }}
-                                                        >
-                                                            <span className="dp-unit-tile__icon"><span className="material-icons-round">{unitIcon(u.type, u.name, u.has_inpatient_beds !== false)}</span></span>
-                                                            <span className="dp-unit-tile__name">{u.name}</span>
-                                                            <span className="dp-unit-tile__sub">{unitBedLocationLabel(u, layoutBlocks)}</span>
-                                                            {u.has_inpatient_beds === false ? (
-                                                                <span className="dp-item__tag">Workstation only</span>
-                                                            ) : unitIsUnmapped(u) ? (
-                                                                <span className="dp-item__tag dp-item__tag--warn">Unmapped</span>
-                                                            ) : (
-                                                                <span className="dp-item__cap">
-                                                                    <BedStack compact available={u.available_count || 0} occupied={u.occupied_count || 0} blocked={u.blocked_count || 0} />
-                                                                    <span>{u.available_count || 0}/{u.bed_count || 0}</span>
-                                                                </span>
-                                                            )}
-                                                        </button>
-                                                        <button
-                                                            type="button"
-                                                            className="dp-icon-btn dp-icon-btn--danger dp-unit-tile__del"
+                                                            className="btn btn-ghost btn-sm"
                                                             onClick={() => setPendingDelete({ kind: 'unit', id: u.id, label: u.name })}
                                                             title="Delete unit"
                                                             aria-label={`Delete ${u.name}`}
+                                                            style={{ color: 'var(--danger, #dc2626)' }}
                                                         >
-                                                            <span className="material-icons-round">delete_outline</span>
+                                                            <span className="material-icons-round" style={{ fontSize: 14 }}>delete</span>
                                                         </button>
                                                     </div>
                                                 ))}
-                                                <button type="button" className="dp-unit-tile dp-unit-tile--add" onClick={openAddUnit}>
-                                                    <span className="material-icons-round">add</span>
-                                                    New unit
+                                                {selectedDepartmentUnits.length === 0 ? (
+                                                    <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>No units linked to this department.</div>
+                                                ) : null}
+                                            </div>
+                                        </div>
+
+                                    </div>
+                                ) : (
+                                    <div
+                                        style={{
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            minHeight: 280,
+                                            padding: 32,
+                                            borderRadius: 'var(--radius-md)',
+                                            border: '1px dashed var(--border-default)',
+                                            background: 'var(--surface-2)',
+                                        }}
+                                    >
+                                        <div style={{ textAlign: 'center', maxWidth: 360, color: 'var(--text-muted)' }}>
+                                            <span className="material-icons-round" style={{ fontSize: 40, color: 'var(--text-disabled)', marginBottom: 12, display: 'block' }}>touch_app</span>
+                                            <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 6 }}>Choose a department</div>
+                                            <div style={{ fontSize: 13, lineHeight: 1.5 }}>Select a department on the left to edit details.</div>
+                                        </div>
+                                    </div>
+                                )}
+                            </section>
+                        </div>
+                        <div
+                            style={{
+                                flex: 1,
+                                minHeight: 0,
+                                display: activeTab === 'units' ? 'grid' : 'none',
+                                gridTemplateColumns: 'minmax(280px, min(32vw, 380px)) 1fr',
+                                overflow: 'hidden',
+                            }}
+                        >
+                            <aside
+                                style={{
+                                    borderRight: '1px solid var(--border-subtle)',
+                                    background: 'var(--surface-2)',
+                                    minHeight: 0,
+                                    overflowY: 'auto',
+                                    padding: '10px 12px',
+                                    display: 'flex',
+                                    flexDirection: 'column',
+                                    gap: 4,
+                                }}
+                            >
+                                {unitsLoading ? (
+                                    <div style={{ padding: 24, textAlign: 'center', fontSize: 13, color: 'var(--text-muted)' }}>Loading units…</div>
+                                ) : (
+                                    <>
+                                        {filteredUnits.map(u => (
+                                            <button
+                                                key={u.id}
+                                                type="button"
+                                                onClick={() => { setShowAddUnit(false); setEditingUnit(u.id); }}
+                                                style={{
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    gap: 10,
+                                                    padding: '10px 12px',
+                                                    borderRadius: 'var(--radius-md)',
+                                                    cursor: 'pointer',
+                                                    textAlign: 'left',
+                                                    width: '100%',
+                                                    border: `1px solid ${editingUnit === u.id ? 'var(--helix-primary)' : 'transparent'}`,
+                                                    background: editingUnit === u.id ? 'var(--surface-card)' : 'transparent',
+                                                    boxShadow: editingUnit === u.id ? '0 1px 3px rgba(30,58,95,0.08)' : 'none',
+                                                    transition: 'all 0.15s',
+                                                }}
+                                            >
+                                                <span className="material-icons-round" style={{ fontSize: 18, color: editingUnit === u.id ? 'var(--helix-primary)' : 'var(--text-muted)', flexShrink: 0 }}>medical_services</span>
+                                                <div style={{ flex: 1, minWidth: 0 }}>
+                                                    <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{u.name}</div>
+                                                    <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                                        {unitBedLocationLabel(u, layoutBlocks)}
+                                                        {u.type ? ` · ${wardTypeLabel(u.type)}` : ''}
+                                                        {u.has_inpatient_beds === false ? ' · Workstation only' : ''}
+                                                    </div>
+                                                    <div style={{
+                                                        fontSize: 11,
+                                                        marginTop: 3,
+                                                        fontWeight: 600,
+                                                        color: unitIsUnmapped(u) ? 'var(--text-muted)' : (u.capacity_color || 'var(--text-secondary)'),
+                                                        whiteSpace: 'nowrap',
+                                                        overflow: 'hidden',
+                                                        textOverflow: 'ellipsis',
+                                                    }}>
+                                                        {unitBedsSummary(u)}
+                                                        {!unitIsUnmapped(u) && unitCapacityLabel(u) ? ` · ${unitCapacityLabel(u)}` : ''}
+                                                    </div>
+                                                </div>
+                                            </button>
+                                        ))}
+                                        {units.length === 0 && !unitsLoading && (
+                                            <div style={{ padding: 24, textAlign: 'center', fontSize: 13, color: 'var(--text-muted)' }}>No units/workstations yet. Use Add Unit/workstation above.</div>
+                                        )}
+                                        {units.length > 0 && filteredUnits.length === 0 && (
+                                            <div style={{ padding: 24, textAlign: 'center', fontSize: 13, color: 'var(--text-muted)' }}>
+                                                <span className="material-icons-round" style={{ fontSize: 28, display: 'block', marginBottom: 8, color: 'var(--text-disabled)' }}>search_off</span>
+                                                No matches — try another search
+                                            </div>
+                                        )}
+                                    </>
+                                )}
+                            </aside>
+
+                            <section style={{ minHeight: 0, overflow: showAddUnit ? 'hidden' : 'auto', padding: '20px 24px 24px', minWidth: 0, background: 'var(--surface-card)', display: 'flex', flexDirection: 'column' }}>
+                                {showAddUnit ? (
+                                    <div className="fade-in" style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+                                        <h2 style={{ fontSize: 20, fontWeight: 700, margin: '0 0 16px', color: 'var(--text-primary)', letterSpacing: '-0.02em', flexShrink: 0 }}>Add unit/workstation</h2>
+                                        <div className="card" style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', padding: '18px 20px', margin: 0, width: '100%', background: 'var(--surface-2)', border: '1px solid var(--border-subtle)' }}>
+                                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 16, flexShrink: 0 }}>
+                                                <div>
+                                                    <span className="label" style={{ marginBottom: 6, display: 'block' }}>Building / block *</span>
+                                                    <CustomSelect
+                                                        value={newUnitBuilding}
+                                                        onChange={next => {
+                                                            const match = savedBuildings.find(block => block.id === next || block.name.trim().toLowerCase() === next.trim().toLowerCase());
+                                                            setNewUnitBuilding(match ? match.id : next);
+                                                            setNewUnitFloor('');
+                                                        }}
+                                                        options={(() => {
+                                                            const listed = savedBuildings.map(block => ({ label: block.name, value: block.id }));
+                                                            const typed = newUnitBuilding.trim();
+                                                            if (typed && !savedBuildings.some(block => block.id === typed || block.name.trim().toLowerCase() === typed.toLowerCase())) {
+                                                                return [{ label: typed, value: typed }, ...listed];
+                                                            }
+                                                            return listed;
+                                                        })()}
+                                                        placeholder="Select a building"
+                                                        allowCustom
+                                                        customEntryTitle="Custom building"
+                                                        customEntryHint="Not listed? Type here, then Enter."
+                                                        customPlaceholder="Type building — Enter"
+                                                        style={{ width: '100%', height: 40, fontSize: 13 }}
+                                                        maxH={280}
+                                                    />
+                                                </div>
+                                                <div>
+                                                    <span className="label" style={{ marginBottom: 6, display: 'block' }}>Floor *</span>
+                                                    <CustomSelect
+                                                        value={newUnitFloor}
+                                                        onChange={setNewUnitFloor}
+                                                        options={buildingFloorOptions}
+                                                        placeholder={newUnitBuilding.trim() ? 'Select a floor' : 'Select a building first'}
+                                                        disabled={!newUnitBuilding.trim()}
+                                                        allowCustom
+                                                        customEntryTitle="Custom floor"
+                                                        customEntryHint="Not listed? Type here, then Enter."
+                                                        customPlaceholder="Type floor — Enter"
+                                                        style={{ width: '100%', height: 40, fontSize: 13 }}
+                                                        maxH={280}
+                                                    />
+                                                </div>
+                                                <div>
+                                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, marginBottom: 6 }}>
+                                                        <label className="label" htmlFor="new-unit-name" style={{ marginBottom: 0 }}>Name *</label>
+                                                        <span style={{ fontSize: 11, color: 'var(--text-muted)', fontVariantNumeric: 'tabular-nums' }} id="unit-name-limit-hint">
+                                                            {newUnitName.length}/{DEPARTMENT_NAME_MAX_LENGTH}
+                                                        </span>
+                                                    </div>
+                                                    <input
+                                                        id="new-unit-name"
+                                                        className="input"
+                                                        placeholder="e.g. Labour & Delivery Unit"
+                                                        value={newUnitName}
+                                                        maxLength={DEPARTMENT_NAME_MAX_LENGTH}
+                                                        onChange={e => setNewUnitName(e.target.value.slice(0, DEPARTMENT_NAME_MAX_LENGTH))}
+                                                        onKeyDown={e => e.key === 'Enter' && !e.shiftKey && addUnit()}
+                                                        style={{ fontSize: 13, boxSizing: 'border-box', width: '100%' }}
+                                                        aria-describedby="unit-name-limit-hint"
+                                                    />
+                                                </div>
+                                                <div>
+                                                    <span className="label" style={{ marginBottom: 6, display: 'block' }}>Unit code</span>
+                                                    <input
+                                                        className="input"
+                                                        placeholder="Optional"
+                                                        value={newUnitCode}
+                                                        onChange={e => setNewUnitCode(e.target.value)}
+                                                        style={{ fontSize: 13, boxSizing: 'border-box', width: '100%' }}
+                                                    />
+                                                </div>
+                                                <div>
+                                                    <span className="label" style={{ marginBottom: 6, display: 'block' }}>Unit type</span>
+                                                    <CustomSelect
+                                                        value={newUnitType}
+                                                        onChange={setNewUnitType}
+                                                        options={unitTypeOptions(newUnitType)}
+                                                        placeholder="Select a type"
+                                                        allowCustom
+                                                        customEntryTitle="Custom type"
+                                                        customEntryHint="Not listed? Type here, then Enter."
+                                                        customPlaceholder="Type a type — Enter"
+                                                        style={{ width: '100%', height: 40, fontSize: 13 }}
+                                                        maxH={280}
+                                                    />
+                                                </div>
+                                                <div>
+                                                    <span className="label" style={{ marginBottom: 6, display: 'block' }}>Gender restriction</span>
+                                                    <CustomSelect
+                                                        value={newUnitGender}
+                                                        onChange={value => {
+                                                            const choices = GENDER_RESTRICTIONS.map(item => ({ label: genderLabel(item), value: item }));
+                                                            const match = matchedOption(value, choices);
+                                                            setNewUnitGender(match ? match.value : value);
+                                                        }}
+                                                        options={withTypedOption(
+                                                            GENDER_RESTRICTIONS.map(value => ({ label: genderLabel(value), value })),
+                                                            newUnitGender,
+                                                        )}
+                                                        placeholder="Select"
+                                                        allowCustom
+                                                        customEntryTitle="Custom gender"
+                                                        customEntryHint="Not listed? Type here, then Enter."
+                                                        customPlaceholder="Type gender — Enter"
+                                                        style={{ width: '100%', height: 40, fontSize: 13 }}
+                                                        maxH={240}
+                                                    />
+                                                </div>
+                                                <div style={{ gridColumn: '1 / -1' }}>
+                                                    <label
+                                                        htmlFor="new-unit-inpatient"
+                                                        style={{
+                                                            display: 'flex',
+                                                            alignItems: 'flex-start',
+                                                            gap: 10,
+                                                            padding: '12px 14px',
+                                                            borderRadius: 'var(--radius-md)',
+                                                            border: '1px solid var(--border-default)',
+                                                            background: 'var(--surface-card)',
+                                                            cursor: 'pointer',
+                                                        }}
+                                                    >
+                                                        <input
+                                                            id="new-unit-inpatient"
+                                                            type="checkbox"
+                                                            checked={newUnitHasInpatientBeds}
+                                                            onChange={e => setNewUnitHasInpatientBeds(e.target.checked)}
+                                                            style={{ marginTop: 2, width: 16, height: 16, accentColor: 'var(--helix-primary)' }}
+                                                        />
+                                                        <span>
+                                                            <span className="label" style={{ display: 'block', marginBottom: 2 }}>Has inpatient beds</span>
+                                                            <span style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.4 }}>
+                                                                When off, this unit/workstation is hidden from bed management but still available for staffing and join requests.
+                                                            </span>
+                                                        </span>
+                                                    </label>
+                                                </div>
+                                            </div>
+                                            <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', marginTop: 16 }}>
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, marginBottom: 6, flexShrink: 0 }}>
+                                                    <label className="label" htmlFor="new-unit-desc" style={{ marginBottom: 0 }}>Description</label>
+                                                    <span style={{ fontSize: 11, color: 'var(--text-muted)', fontVariantNumeric: 'tabular-nums' }}>
+                                                        {newUnitDescription.length}/{UNIT_DESCRIPTION_MAX_LENGTH}
+                                                    </span>
+                                                </div>
+                                                <textarea
+                                                    id="new-unit-desc"
+                                                    className="input"
+                                                    value={newUnitDescription}
+                                                    maxLength={UNIT_DESCRIPTION_MAX_LENGTH}
+                                                    onChange={e => setNewUnitDescription(e.target.value.slice(0, UNIT_DESCRIPTION_MAX_LENGTH))}
+                                                    style={{
+                                                        fontSize: 13,
+                                                        flex: 1,
+                                                        minHeight: 160,
+                                                        resize: 'none',
+                                                        boxSizing: 'border-box',
+                                                        width: '100%',
+                                                        maxWidth: '100%',
+                                                        minWidth: 0,
+                                                        overflowWrap: 'anywhere',
+                                                        wordBreak: 'break-word',
+                                                    }}
+                                                />
+                                            </div>
+                                            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 16, flexShrink: 0 }}>
+                                                <button
+                                                    type="button"
+                                                    className="btn btn-ghost btn-sm"
+                                                    onClick={() => { resetNewUnitForm(); setShowAddUnit(false); }}
+                                                    disabled={addingUnit}
+                                                >
+                                                    Cancel
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    className="btn btn-primary btn-sm"
+                                                    onClick={addUnit}
+                                                    disabled={!newUnitName.trim() || !newUnitBuilding.trim() || !newUnitFloor.trim() || addingUnit}
+                                                >
+                                                    {addingUnit ? 'Adding…' : 'Add unit/workstation'}
                                                 </button>
                                             </div>
                                         </div>
                                     </div>
-                                ) : (
-                                    <div className="dp-card"><EmptyState icon="touch_app" title="Choose a department" body="Select a department on the left to see its units and details." /></div>
-                                )
-                            ) : showAddUnit ? (
-                                <div className="dp-card dp-form-card fade-in">
-                                    <FormHeader icon="add_home_work" title="New unit or workstation" sub="Place it in a building and floor. New buildings and floors are created automatically." />
-                                    <div className="dp-grid2">
-                                        <div className="dp-field">
-                                            <div className="dp-field__lab"><span>Building / block *</span></div>
-                                            <CustomSelect
-                                                value={newUnitBuilding}
-                                                onChange={next => {
-                                                    const match = savedBuildings.find(block => block.id === next || block.name.trim().toLowerCase() === next.trim().toLowerCase());
-                                                    setNewUnitBuilding(match ? match.id : next);
-                                                    setNewUnitFloor('');
-                                                }}
-                                                options={buildingOptions(newUnitBuilding)}
-                                                placeholder="Select a building"
-                                                allowCustom
-                                                customEntryTitle="Custom building"
-                                                customEntryHint="Not listed? Type here, then Enter."
-                                                customPlaceholder="Type building — Enter"
-                                                style={selectStyle}
-                                                maxH={280}
-                                            />
-                                        </div>
-                                        <div className="dp-field">
-                                            <div className="dp-field__lab"><span>Floor *</span></div>
-                                            <CustomSelect
-                                                value={newUnitFloor}
-                                                onChange={setNewUnitFloor}
-                                                options={buildingFloorOptions}
-                                                placeholder={newUnitBuilding.trim() ? 'Select a floor' : 'Select a building first'}
-                                                disabled={!newUnitBuilding.trim()}
-                                                allowCustom
-                                                customEntryTitle="Custom floor"
-                                                customEntryHint="Not listed? Type here, then Enter."
-                                                customPlaceholder="Type floor — Enter"
-                                                style={selectStyle}
-                                                maxH={280}
-                                            />
-                                        </div>
-                                        <div className="dp-field dp-span2">
-                                            <div className="dp-field__lab">
-                                                <label htmlFor="new-unit-name">Name *</label>
-                                                <span>{newUnitName.length}/{DEPARTMENT_NAME_MAX_LENGTH}</span>
+                                ) : editUnit ? (
+                                    <div className="fade-in" key={editUnit.id} style={{ minWidth: 0, maxWidth: '100%' }}>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, marginBottom: 20, flexWrap: 'wrap' }}>
+                                            <div style={{ flex: 1, minWidth: 0 }}>
+                                                <h2 style={{ fontSize: 20, fontWeight: 700, margin: 0, color: 'var(--text-primary)', letterSpacing: '-0.02em' }}>{editUnit.name}</h2>
+                                                <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '6px 0 0' }}>Edit unit/workstation details</p>
                                             </div>
-                                            <input
-                                                id="new-unit-name"
-                                                className="input"
-                                                placeholder="e.g. Labour & Delivery Unit"
-                                                value={newUnitName}
-                                                maxLength={DEPARTMENT_NAME_MAX_LENGTH}
-                                                onChange={e => setNewUnitName(e.target.value.slice(0, DEPARTMENT_NAME_MAX_LENGTH))}
-                                                onKeyDown={e => e.key === 'Enter' && !e.shiftKey && addUnit()}
-                                            />
-                                        </div>
-                                        <div className="dp-field">
-                                            <div className="dp-field__lab"><span>Unit code</span></div>
-                                            <input className="input" placeholder="Optional" value={newUnitCode} onChange={e => setNewUnitCode(e.target.value)} />
-                                        </div>
-                                        <div className="dp-field">
-                                            <div className="dp-field__lab"><span>Unit type</span></div>
-                                            <CustomSelect
-                                                value={newUnitType}
-                                                onChange={setNewUnitType}
-                                                options={unitTypeOptions(newUnitType)}
-                                                placeholder="Select a type"
-                                                allowCustom
-                                                customEntryTitle="Custom type"
-                                                customEntryHint="Not listed? Type here, then Enter."
-                                                customPlaceholder="Type a type — Enter"
-                                                style={selectStyle}
-                                                maxH={280}
-                                            />
-                                        </div>
-                                        <div className="dp-field">
-                                            <div className="dp-field__lab"><span>Gender restriction</span></div>
-                                            <CustomSelect
-                                                value={newUnitGender}
-                                                onChange={value => setNewUnitGender(pickGender(value))}
-                                                options={genderOptions(newUnitGender)}
-                                                placeholder="Select"
-                                                allowCustom
-                                                customEntryTitle="Custom gender"
-                                                customEntryHint="Not listed? Type here, then Enter."
-                                                customPlaceholder="Type gender — Enter"
-                                                style={selectStyle}
-                                                maxH={240}
-                                            />
-                                        </div>
-                                        <InpatientSwitch id="new-unit-inpatient" checked={newUnitHasInpatientBeds} onChange={setNewUnitHasInpatientBeds} />
-                                        <div className="dp-field dp-span2">
-                                            <div className="dp-field__lab">
-                                                <label htmlFor="new-unit-desc">Description</label>
-                                                <span>{newUnitDescription.length}/{UNIT_DESCRIPTION_MAX_LENGTH}</span>
-                                            </div>
-                                            <textarea
-                                                id="new-unit-desc"
-                                                className="input"
-                                                rows={4}
-                                                value={newUnitDescription}
-                                                maxLength={UNIT_DESCRIPTION_MAX_LENGTH}
-                                                onChange={e => setNewUnitDescription(e.target.value.slice(0, UNIT_DESCRIPTION_MAX_LENGTH))}
-                                            />
-                                        </div>
-                                    </div>
-                                    <div className="dp-actions">
-                                        <button type="button" className="btn btn-ghost" onClick={() => { resetNewUnitForm(); setShowAddUnit(false); }} disabled={addingUnit}>Cancel</button>
-                                        <button
-                                            type="button"
-                                            className="btn btn-primary"
-                                            onClick={addUnit}
-                                            disabled={!newUnitName.trim() || !newUnitBuilding.trim() || !newUnitFloor.trim() || addingUnit}
-                                        >
-                                            <span className="material-icons-round" style={{ fontSize: 17 }}>check</span>
-                                            {addingUnit ? 'Adding…' : 'Create unit'}
-                                        </button>
-                                    </div>
-                                </div>
-                            ) : editUnit ? (
-                                <div className="dp-stack fade-in" key={editUnit.id}>
-                                    <div className="dp-feature">
-                                        <span className="material-icons-round dp-feature__mark" aria-hidden>{unitIcon(editUnit.type, editUnit.name, editUnit.has_inpatient_beds !== false)}</span>
-                                        <div className="dp-feature__top">
-                                            <span className="dp-feature__icon"><span className="material-icons-round">{unitIcon(editUnit.type, editUnit.name, editUnit.has_inpatient_beds !== false)}</span></span>
                                             <button
                                                 type="button"
-                                                className="dp-icon-btn dp-icon-btn--danger"
+                                                className="btn btn-danger btn-sm"
                                                 onClick={() => setPendingDelete({ kind: 'unit', id: editUnit.id, label: editUnit.name })}
-                                                title="Delete unit"
-                                                aria-label="Delete unit"
                                             >
-                                                <span className="material-icons-round">delete_outline</span>
+                                                <span className="material-icons-round" style={{ fontSize: 14 }}>delete</span>
+                                                Delete unit/workstation
                                             </button>
                                         </div>
-                                        <div className="dp-feature__row">
-                                            <div className="dp-feature__body">
-                                                <span className="dp-kicker">{editUnit.department_name || departments.find(d => d.id === editUnit.department_id)?.name || 'Unit / workstation'}</span>
-                                                <h2 className="dp-feature__title">{editUnit.name}</h2>
-                                                <p className="dp-feature__desc">
-                                                    <span className="material-icons-round">place</span>
-                                                    {unitBedLocationLabel(editUnit, layoutBlocks)}
-                                                </p>
-                                                <div className="dp-chips">
-                                                    {editUnit.has_inpatient_beds === false
-                                                        ? <span className="dp-chip"><span className="material-icons-round">desktop_windows</span>Workstation only</span>
-                                                        : <span className="dp-chip"><span className="material-icons-round">bed</span>Inpatient</span>}
-                                                    {editUnit.type ? <span className="dp-chip"><span className="material-icons-round">category</span>{wardTypeLabel(editUnit.type)}</span> : null}
-                                                    {editUnit.gender_restriction ? <span className="dp-chip"><span className="material-icons-round">wc</span>{genderLabel(editUnit.gender_restriction)}</span> : null}
-                                                    {editUnit.code ? <span className="dp-chip"><span className="material-icons-round">tag</span>{editUnit.code}</span> : null}
-                                                </div>
-                                            </div>
-                                            {editUnit.has_inpatient_beds !== false && !unitIsUnmapped(editUnit) && (
-                                                <div className="dp-feature__ring">
-                                                    <Ring pct={editUnitOcc} size={112}>
-                                                        <span className="dp-ring-label dp-ring-label--lg">{editUnitOcc}%<small>{unitCapacityLabel(editUnit) || 'occupied'}</small></span>
-                                                    </Ring>
-                                                </div>
-                                            )}
-                                        </div>
-                                    </div>
 
-                                    {editUnit.has_inpatient_beds !== false && (
-                                        unitIsUnmapped(editUnit) ? (
-                                            <div className="dp-card dp-callout">
-                                                <span className="dp-callout__icon"><span className="material-icons-round">link_off</span></span>
+                                        <div className="card" style={{ padding: '16px 18px', margin: 0, background: 'var(--surface-2)', border: '1px solid var(--border-subtle)', opacity: unitDetailLoading ? 0.88 : 1, transition: 'opacity 0.15s', minWidth: 0, maxWidth: '100%', overflow: 'hidden' }}>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+                                                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Unit/workstation details</div>
+                                                {unitDetailLoading ? (
+                                                    <span style={{ fontSize: 11, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                                                        <span className="material-icons-round" style={{ fontSize: 14 }}>hourglass_empty</span>
+                                                        Loading…
+                                                    </span>
+                                                ) : null}
+                                            </div>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, marginBottom: 6 }}>
+                                                <label className="label" htmlFor="unit-detail-name" style={{ marginBottom: 0 }}>Name</label>
+                                                <span style={{ fontSize: 11, color: 'var(--text-muted)', fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>
+                                                    {unitDetailName.length}/{DEPARTMENT_NAME_MAX_LENGTH}
+                                                </span>
+                                            </div>
+                                            <input
+                                                id="unit-detail-name"
+                                                className="input"
+                                                value={unitDetailName}
+                                                maxLength={DEPARTMENT_NAME_MAX_LENGTH}
+                                                disabled={unitDetailLoading || savingUnitDetails}
+                                                onChange={e => setUnitDetailName(e.target.value.slice(0, DEPARTMENT_NAME_MAX_LENGTH))}
+                                                style={{ fontSize: 13, marginBottom: 12, boxSizing: 'border-box' }}
+                                            />
+                                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12, marginBottom: 12 }}>
                                                 <div>
-                                                    <strong>No rooms or beds mapped yet</strong>
-                                                    <p>Add rooms and beds for this unit in Bed management to track capacity here.</p>
-                                                </div>
-                                                <a className="btn btn-secondary" href="/beds">Open Beds</a>
-                                            </div>
-                                        ) : (
-                                            <div className="dp-statgrid">
-                                                {[
-                                                    { label: 'Total beds', value: editUnit.bed_count || 0, icon: 'bed', tone: 'slate' },
-                                                    { label: 'Available', value: editUnit.available_count || 0, icon: 'check_circle', tone: 'ok' },
-                                                    { label: 'Occupied', value: editUnit.occupied_count || 0, icon: 'person', tone: 'occ' },
-                                                    { label: 'Out of service', value: editUnit.blocked_count || 0, icon: 'block', tone: 'oos' },
-                                                    ...(typeof editUnit.patient_count === 'number'
-                                                        ? [{ label: 'Patients', value: editUnit.patient_count, icon: 'personal_injury', tone: 'slate' }]
-                                                        : []),
-                                                ].map(stat => (
-                                                    <div key={stat.label} className={`dp-stat dp-stat--${stat.tone}`}>
-                                                        <span className="material-icons-round dp-stat__mark" aria-hidden>{stat.icon}</span>
-                                                        <span className="dp-stat__icon"><span className="material-icons-round">{stat.icon}</span></span>
-                                                        <span className="dp-stat__value">{stat.value}</span>
-                                                        <span className="dp-stat__label">{stat.label}</span>
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        )
-                                    )}
-
-                                    <div className="dp-split dp-split--wide">
-                                        <div className={`dp-card${unitDetailLoading ? ' is-loading' : ''}`}>
-                                            <CardTitle icon="edit_note" title="Details" right={unitDetailLoading ? <span className="dp-muted">Loading…</span> : null} />
-                                            <div className="dp-grid2">
-                                                <div className="dp-field dp-span2">
-                                                    <div className="dp-field__lab">
-                                                        <label htmlFor="unit-detail-name">Name</label>
-                                                        <span>{unitDetailName.length}/{DEPARTMENT_NAME_MAX_LENGTH}</span>
-                                                    </div>
-                                                    <input
-                                                        id="unit-detail-name"
-                                                        className="input"
-                                                        value={unitDetailName}
-                                                        maxLength={DEPARTMENT_NAME_MAX_LENGTH}
-                                                        disabled={unitDetailLoading || savingUnitDetails}
-                                                        onChange={e => setUnitDetailName(e.target.value.slice(0, DEPARTMENT_NAME_MAX_LENGTH))}
-                                                    />
-                                                </div>
-                                                <div className="dp-field">
-                                                    <div className="dp-field__lab"><span>Building / block</span></div>
+                                                    <span className="label" style={{ marginBottom: 6, display: 'block' }}>Building / block</span>
                                                     <CustomSelect
                                                         value={unitDetailBuilding}
                                                         onChange={next => {
@@ -1752,18 +1818,25 @@ export default function DepartmentsManagement() {
                                                             setUnitDetailFloor('');
                                                         }}
                                                         disabled={unitDetailLoading || savingUnitDetails}
-                                                        options={buildingOptions(unitDetailBuilding)}
+                                                        options={(() => {
+                                                            const listed = savedBuildings.map(block => ({ label: block.name, value: block.id }));
+                                                            const typed = unitDetailBuilding.trim();
+                                                            if (typed && !savedBuildings.some(block => block.id === typed || block.name.trim().toLowerCase() === typed.toLowerCase())) {
+                                                                return [{ label: typed, value: typed }, ...listed];
+                                                            }
+                                                            return listed;
+                                                        })()}
                                                         placeholder="Select a building"
                                                         allowCustom
                                                         customEntryTitle="Custom building"
                                                         customEntryHint="Not listed? Type here, then Enter."
                                                         customPlaceholder="Type building — Enter"
-                                                        style={selectStyle}
+                                                        style={{ width: '100%', height: 40, fontSize: 13 }}
                                                         maxH={280}
                                                     />
                                                 </div>
-                                                <div className="dp-field">
-                                                    <div className="dp-field__lab"><span>Floor</span></div>
+                                                <div>
+                                                    <span className="label" style={{ marginBottom: 6, display: 'block' }}>Floor</span>
                                                     <CustomSelect
                                                         value={unitDetailFloor}
                                                         onChange={setUnitDetailFloor}
@@ -1774,22 +1847,23 @@ export default function DepartmentsManagement() {
                                                         customEntryTitle="Custom floor"
                                                         customEntryHint="Not listed? Type here, then Enter."
                                                         customPlaceholder="Type floor — Enter"
-                                                        style={selectStyle}
+                                                        style={{ width: '100%', height: 40, fontSize: 13 }}
                                                         maxH={280}
                                                     />
                                                 </div>
-                                                <div className="dp-field">
-                                                    <div className="dp-field__lab"><span>Unit code</span></div>
+                                                <div>
+                                                    <span className="label" style={{ marginBottom: 6, display: 'block' }}>Unit code</span>
                                                     <input
                                                         className="input"
                                                         placeholder="Optional"
                                                         value={unitDetailCode}
                                                         disabled={unitDetailLoading || savingUnitDetails}
                                                         onChange={e => setUnitDetailCode(e.target.value)}
+                                                        style={{ fontSize: 13, boxSizing: 'border-box', width: '100%' }}
                                                     />
                                                 </div>
-                                                <div className="dp-field">
-                                                    <div className="dp-field__lab"><span>Unit type</span></div>
+                                                <div>
+                                                    <span className="label" style={{ marginBottom: 6, display: 'block' }}>Unit type</span>
                                                     <CustomSelect
                                                         value={unitDetailType}
                                                         onChange={setUnitDetailType}
@@ -1802,116 +1876,313 @@ export default function DepartmentsManagement() {
                                                         customEntryTitle="Custom type"
                                                         customEntryHint="Not listed? Type here, then Enter."
                                                         customPlaceholder="Type a type — Enter"
-                                                        style={selectStyle}
+                                                        style={{ width: '100%', height: 40, fontSize: 13 }}
                                                         maxH={280}
                                                     />
                                                 </div>
-                                                <div className="dp-field dp-span2">
-                                                    <div className="dp-field__lab"><span>Gender restriction</span></div>
+                                                <div>
+                                                    <span className="label" style={{ marginBottom: 6, display: 'block' }}>Gender restriction</span>
                                                     <CustomSelect
                                                         value={unitDetailGender}
-                                                        onChange={value => setUnitDetailGender(pickGender(value))}
+                                                        onChange={value => {
+                                                            const choices = GENDER_RESTRICTIONS.map(item => ({ label: genderLabel(item), value: item }));
+                                                            const match = matchedOption(value, choices);
+                                                            setUnitDetailGender(match ? match.value : value);
+                                                        }}
                                                         disabled={unitDetailLoading || savingUnitDetails}
-                                                        options={genderOptions(unitDetailGender)}
+                                                        options={withTypedOption(
+                                                            GENDER_RESTRICTIONS.map(value => ({ label: genderLabel(value), value })),
+                                                            unitDetailGender,
+                                                        )}
                                                         placeholder="Select"
                                                         allowCustom
                                                         customEntryTitle="Custom gender"
                                                         customEntryHint="Not listed? Type here, then Enter."
                                                         customPlaceholder="Type gender — Enter"
-                                                        style={selectStyle}
+                                                        style={{ width: '100%', height: 40, fontSize: 13 }}
                                                         maxH={240}
                                                     />
                                                 </div>
-                                                <InpatientSwitch
-                                                    id="unit-detail-inpatient"
-                                                    checked={unitDetailHasInpatientBeds}
-                                                    disabled={unitDetailLoading || savingUnitDetails}
-                                                    onChange={setUnitDetailHasInpatientBeds}
-                                                />
-                                                <div className="dp-field dp-span2">
-                                                    <div className="dp-field__lab">
-                                                        <label htmlFor="unit-detail-desc">Description</label>
-                                                        <span>{unitDetailDescription.length}/{UNIT_DESCRIPTION_MAX_LENGTH}</span>
-                                                    </div>
-                                                    <textarea
-                                                        id="unit-detail-desc"
-                                                        className="input"
-                                                        rows={3}
-                                                        value={unitDetailDescription}
-                                                        maxLength={UNIT_DESCRIPTION_MAX_LENGTH}
-                                                        disabled={unitDetailLoading || savingUnitDetails}
-                                                        onChange={e => setUnitDetailDescription(e.target.value.slice(0, UNIT_DESCRIPTION_MAX_LENGTH))}
-                                                    />
+                                                <div style={{ gridColumn: '1 / -1' }}>
+                                                    <label
+                                                        htmlFor="unit-detail-inpatient"
+                                                        style={{
+                                                            display: 'flex',
+                                                            alignItems: 'flex-start',
+                                                            gap: 10,
+                                                            padding: '12px 14px',
+                                                            borderRadius: 'var(--radius-md)',
+                                                            border: '1px solid var(--border-default)',
+                                                            background: 'var(--surface-card)',
+                                                            cursor: unitDetailLoading || savingUnitDetails ? 'not-allowed' : 'pointer',
+                                                            opacity: unitDetailLoading || savingUnitDetails ? 0.7 : 1,
+                                                        }}
+                                                    >
+                                                        <input
+                                                            id="unit-detail-inpatient"
+                                                            type="checkbox"
+                                                            checked={unitDetailHasInpatientBeds}
+                                                            disabled={unitDetailLoading || savingUnitDetails}
+                                                            onChange={e => setUnitDetailHasInpatientBeds(e.target.checked)}
+                                                            style={{ marginTop: 2, width: 16, height: 16, accentColor: 'var(--helix-primary)' }}
+                                                        />
+                                                        <span>
+                                                            <span className="label" style={{ display: 'block', marginBottom: 2 }}>Has inpatient beds</span>
+                                                            <span style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.4 }}>
+                                                                When off, this unit/workstation is hidden from bed management but still available for staffing and join requests.
+                                                            </span>
+                                                        </span>
+                                                    </label>
                                                 </div>
                                             </div>
-                                            <div className="dp-actions">
-                                                {unitDetailsDirty && <span className="dp-dirty">Unsaved changes</span>}
+                                            <label className="label" htmlFor="unit-detail-desc" style={{ marginBottom: 6 }}>Description</label>
+                                            <textarea
+                                                id="unit-detail-desc"
+                                                className="input"
+                                                value={unitDetailDescription}
+                                                maxLength={UNIT_DESCRIPTION_MAX_LENGTH}
+                                                disabled={unitDetailLoading || savingUnitDetails}
+                                                onChange={e => setUnitDetailDescription(e.target.value.slice(0, UNIT_DESCRIPTION_MAX_LENGTH))}
+                                                rows={3}
+                                                style={{
+                                                    fontSize: 13,
+                                                    marginBottom: 8,
+                                                    minHeight: 72,
+                                                    resize: 'vertical',
+                                                    boxSizing: 'border-box',
+                                                    width: '100%',
+                                                    maxWidth: '100%',
+                                                    minWidth: 0,
+                                                    overflowWrap: 'anywhere',
+                                                    wordBreak: 'break-word',
+                                                }}
+                                            />
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
+                                                <span style={{ fontSize: 11, color: 'var(--text-muted)', fontVariantNumeric: 'tabular-nums' }}>
+                                                    {unitDetailDescription.length}/{UNIT_DESCRIPTION_MAX_LENGTH}
+                                                </span>
                                                 <button
                                                     type="button"
-                                                    className="btn btn-primary"
+                                                    className="btn btn-primary btn-sm"
                                                     onClick={updateUnitDetails}
                                                     disabled={!unitDetailsDirty || savingUnitDetails || unitDetailLoading}
                                                 >
-                                                    {savingUnitDetails ? 'Saving…' : 'Save changes'}
+                                                    {savingUnitDetails ? 'Saving…' : 'Save details'}
                                                 </button>
                                             </div>
                                         </div>
 
-                                        {editUnit.has_inpatient_beds !== false && !unitIsUnmapped(editUnit) && (
-                                            <div className="dp-card">
-                                                <CardTitle icon="door_front" title="Rooms" right={<span className="dp-pill">{editUnit.rooms?.length || 0}</span>} />
-                                                <BedLegend
-                                                    total={editUnit.bed_count || 0}
-                                                    available={editUnit.available_count || 0}
-                                                    occupied={editUnit.occupied_count || 0}
-                                                    blocked={editUnit.blocked_count || 0}
-                                                />
-                                                <div className="dp-rooms">
-                                                    {(editUnit.rooms || []).map(room => (
-                                                        <div key={room.id} className="dp-room">
-                                                            <span className="dp-room__no">{room.number}</span>
-                                                            <span className="dp-room__main">
-                                                                <span className="dp-room__name">{room.name || `Room ${room.number}`}</span>
-                                                                <BedStack compact available={room.available_count} occupied={room.occupied_count} blocked={room.blocked_count} />
-                                                            </span>
-                                                            <span className="dp-room__beds">
-                                                                <span><strong>{room.available_count}</strong>/{room.bed_count}</span>
-                                                                <small>free</small>
-                                                            </span>
-                                                        </div>
-                                                    ))}
-                                                    {(editUnit.rooms?.length || 0) === 0 && (
-                                                        <p className="dp-muted">Room breakdown not returned for this unit.</p>
-                                                    )}
-                                                </div>
+                                        <div
+                                            style={{
+                                                padding: '18px 18px 16px',
+                                                margin: '16px 0 0',
+                                                background: 'linear-gradient(180deg, #FFFFFF 0%, #F8FAFC 100%)',
+                                                border: '1px solid rgba(15, 23, 42, 0.06)',
+                                                borderRadius: 16,
+                                                boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.95), 0 1px 2px rgba(15,23,42,0.04), 0 14px 32px -16px rgba(15,23,42,0.16)',
+                                                minWidth: 0,
+                                                maxWidth: '100%',
+                                            }}
+                                        >
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
+                                                <div style={{ fontSize: 11, fontWeight: 700, color: '#64748B', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Beds & rooms</div>
+                                                <span style={{
+                                                    fontSize: 11.5,
+                                                    fontWeight: 650,
+                                                    padding: '4px 10px',
+                                                    borderRadius: 999,
+                                                    background: unitIsUnmapped(editUnit) ? '#F1F5F9' : 'rgba(255,255,255,0.9)',
+                                                    color: unitIsUnmapped(editUnit) ? '#64748B' : (editUnit.capacity_color || '#475569'),
+                                                    boxShadow: unitIsUnmapped(editUnit)
+                                                        ? 'none'
+                                                        : 'inset 0 1px 0 rgba(255,255,255,0.9), 0 1px 2px rgba(15,23,42,0.06), 0 6px 14px -8px rgba(15,23,42,0.18)',
+                                                    border: '1px solid rgba(15, 23, 42, 0.06)',
+                                                }}>
+                                                    {unitIsUnmapped(editUnit)
+                                                        ? 'Unmapped'
+                                                        : [
+                                                            unitCapacityLabel(editUnit),
+                                                            typeof editUnit.occupancy_percent === 'number' ? `${Math.round(editUnit.occupancy_percent)}% occupied` : '',
+                                                        ].filter(Boolean).join(' · ') || unitBedsSummary(editUnit)}
+                                                </span>
                                             </div>
-                                        )}
+                                            {unitIsUnmapped(editUnit) ? (
+                                                <div style={{ fontSize: 13, color: 'var(--text-muted)', lineHeight: 1.45 }}>
+                                                    No rooms or beds mapped yet. Add them in Bed management.
+                                                </div>
+                                            ) : (
+                                                <>
+                                                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 12, marginBottom: (editUnit.rooms?.length || 0) ? 16 : 0, paddingTop: 2 }}>
+                                                        {[
+                                                            { label: 'Total', value: String(editUnit.bed_count || 0), color: '#0F172A', dot: '#94A3B8', float: false },
+                                                            { label: 'Available', value: String(editUnit.available_count || 0), color: '#059669', dot: '#10B981', float: true },
+                                                            { label: 'Occupied', value: String(editUnit.occupied_count || 0), color: '#1D4ED8', dot: '#3B82F6', float: false },
+                                                            { label: 'Out of service', value: String(editUnit.blocked_count || 0), color: '#64748B', dot: '#94A3B8', float: false },
+                                                            ...(typeof editUnit.patient_count === 'number'
+                                                                ? [{ label: 'Patients', value: String(editUnit.patient_count), color: '#0F172A', dot: '#64748B', float: false }]
+                                                                : []),
+                                                        ].map(stat => (
+                                                            <div
+                                                                key={stat.label}
+                                                                style={{
+                                                                    background: '#FFFFFF',
+                                                                    border: '1px solid rgba(15, 23, 42, 0.06)',
+                                                                    borderRadius: 14,
+                                                                    padding: '12px 14px 11px',
+                                                                    minWidth: 0,
+                                                                    transform: stat.float ? 'translateY(-3px)' : undefined,
+                                                                    boxShadow: stat.float
+                                                                        ? 'inset 0 1px 0 #fff, 0 2px 4px rgba(15,23,42,0.04), 0 16px 32px -14px rgba(15,23,42,0.18), 0 28px 48px -24px rgba(15,23,42,0.14)'
+                                                                        : 'inset 0 1px 0 rgba(255,255,255,0.9), 0 1px 2px rgba(15,23,42,0.05), 0 10px 22px -12px rgba(15,23,42,0.12)',
+                                                                }}
+                                                            >
+                                                                <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 8 }}>
+                                                                    <span
+                                                                        aria-hidden
+                                                                        style={{
+                                                                            width: 7,
+                                                                            height: 7,
+                                                                            borderRadius: '50%',
+                                                                            background: stat.dot,
+                                                                            boxShadow: `0 0 0 3px ${stat.dot}22`,
+                                                                            flexShrink: 0,
+                                                                        }}
+                                                                    />
+                                                                    <div style={{ fontSize: 10.5, fontWeight: 650, color: '#64748B', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                                                                        {stat.label}
+                                                                    </div>
+                                                                </div>
+                                                                <div style={{
+                                                                    fontSize: 28,
+                                                                    fontWeight: 650,
+                                                                    color: stat.color,
+                                                                    lineHeight: 1,
+                                                                    letterSpacing: '-0.03em',
+                                                                    fontVariantNumeric: 'tabular-nums',
+                                                                    textShadow: '0 1px 1px rgba(15,23,42,0.06)',
+                                                                }}>
+                                                                    {stat.value}
+                                                                </div>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                    {(editUnit.rooms?.length || 0) > 0 ? (
+                                                        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                                                            {editUnit.rooms.map(room => (
+                                                                <div
+                                                                    key={room.id}
+                                                                    style={{
+                                                                        padding: '13px 14px',
+                                                                        background: '#FFFFFF',
+                                                                        border: '1px solid rgba(15, 23, 42, 0.06)',
+                                                                        borderRadius: 14,
+                                                                        minWidth: 0,
+                                                                        boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.9), 0 1px 2px rgba(15,23,42,0.04), 0 8px 18px -12px rgba(15,23,42,0.12)',
+                                                                    }}
+                                                                >
+                                                                    <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
+                                                                        <div style={{ minWidth: 0 }}>
+                                                                            <div style={{ fontSize: 13.5, fontWeight: 650, color: '#0F172A' }}>
+                                                                                Room {room.number}{room.name ? ` · ${room.name}` : ''}
+                                                                            </div>
+                                                                            <div style={{ fontSize: 11.5, color: '#64748B', marginTop: 3 }}>
+                                                                                {room.bed_count} bed{room.bed_count === 1 ? '' : 's'}
+                                                                            </div>
+                                                                        </div>
+                                                                        <div style={{ display: 'flex', gap: 10, flexShrink: 0, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                                                                            {[
+                                                                                { label: 'available', value: room.available_count, color: '#059669', bg: '#ECFDF5' },
+                                                                                { label: 'occupied', value: room.occupied_count, color: '#1D4ED8', bg: '#EFF6FF' },
+                                                                                { label: 'out of service', value: room.blocked_count, color: '#64748B', bg: '#F8FAFC' },
+                                                                            ].map(chip => (
+                                                                                <span
+                                                                                    key={chip.label}
+                                                                                    style={{
+                                                                                        fontSize: 11.5,
+                                                                                        fontWeight: 650,
+                                                                                        fontVariantNumeric: 'tabular-nums',
+                                                                                        whiteSpace: 'nowrap',
+                                                                                        color: chip.color,
+                                                                                        background: chip.bg,
+                                                                                        border: '1px solid rgba(15, 23, 42, 0.05)',
+                                                                                        borderRadius: 999,
+                                                                                        padding: '4px 9px',
+                                                                                        boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.8), 0 1px 2px rgba(15,23,42,0.04)',
+                                                                                    }}
+                                                                                >
+                                                                                    {chip.value} {chip.label}
+                                                                                </span>
+                                                                            ))}
+                                                                        </div>
+                                                                    </div>
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    ) : null}
+                                                </>
+                                            )}
+                                        </div>
                                     </div>
-                                </div>
-                            ) : (
-                                <div className="dp-card"><EmptyState icon="touch_app" title="Choose a unit" body="Select a unit or workstation on the left to see beds and details." /></div>
-                            )}
-                        </section>
-                    </section>
+                                ) : (
+                                    <div
+                                        style={{
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            minHeight: 280,
+                                            padding: 32,
+                                            borderRadius: 'var(--radius-md)',
+                                            border: '1px dashed var(--border-default)',
+                                            background: 'var(--surface-2)',
+                                        }}
+                                    >
+                                        <div style={{ textAlign: 'center', maxWidth: 360, color: 'var(--text-muted)' }}>
+                                            <span className="material-icons-round" style={{ fontSize: 40, color: 'var(--text-disabled)', marginBottom: 12, display: 'block' }}>touch_app</span>
+                                            <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 6 }}>Choose a unit</div>
+                                            <div style={{ fontSize: 13, lineHeight: 1.5 }}>Select a unit on the left to edit details.</div>
+                                        </div>
+                                    </div>
+                                )}
+                            </section>
+                        </div>
+                    </div>
                 </main>
             </div>
-
             {pendingDelete ? (
                 <div
                     role="dialog"
                     aria-modal="true"
                     aria-labelledby="departments-delete-confirm-title"
-                    className="dp-modal"
+                    style={{
+                        position: 'fixed',
+                        inset: 0,
+                        zIndex: 2000,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        padding: 16,
+                        background: 'rgba(15, 23, 42, 0.45)',
+                        backdropFilter: 'blur(2px)',
+                    }}
                     onClick={() => setPendingDelete(null)}
                 >
-                    <div className="dp-modal__card" onClick={e => e.stopPropagation()}>
-                        <span className="dp-modal__icon"><span className="material-icons-round">delete_forever</span></span>
-                        <div id="departments-delete-confirm-title" className="dp-modal__title">
-                            Delete {pendingDelete.kind === 'department' ? 'department' : 'unit'}?
+                    <div
+                        className="card"
+                        style={{
+                            width: 'min(520px, 100%)',
+                            padding: '18px 18px 16px',
+                            background: 'var(--surface-card)',
+                            border: '1px solid var(--border-subtle)',
+                            boxShadow: '0 14px 32px rgba(2, 6, 23, 0.22)',
+                        }}
+                        onClick={e => e.stopPropagation()}
+                    >
+                        <div id="departments-delete-confirm-title" style={{ fontSize: 17, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 8 }}>
+                            Confirm deletion
                         </div>
-                        <p className="dp-modal__body">
+                        <p style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.5, margin: 0 }}>
                             {pendingDelete.kind === 'department' ? (
-                                <><strong>{pendingDelete.label}</strong> will be removed. This cannot be undone.</>
+                                <>Delete department <strong>{pendingDelete.label}</strong>? This cannot be undone.</>
                             ) : (() => {
                                 const unit = units.find(u => u.id === pendingDelete.id);
                                 const rooms = unit?.room_count || unit?.rooms?.length || 0;
@@ -1923,7 +2194,7 @@ export default function DepartmentsManagement() {
                                 ].filter(Boolean);
                                 return (
                                     <>
-                                        <strong>{pendingDelete.label}</strong> will be removed.
+                                        Delete unit <strong>{pendingDelete.label}</strong>?
                                         {parts.length > 0 ? <> This also deletes {parts.join(' and ')}.</> : null}
                                         {occupied > 0
                                             ? <> Free {occupied} occupied bed{occupied === 1 ? '' : 's'} first or delete will fail.</>
@@ -1932,9 +2203,11 @@ export default function DepartmentsManagement() {
                                 );
                             })()}
                         </p>
-                        <div className="dp-actions dp-actions--center">
-                            <button type="button" className="btn btn-secondary" onClick={() => setPendingDelete(null)}>Cancel</button>
-                            <button type="button" className="btn btn-danger" onClick={confirmPendingDelete} disabled={deleteInProgress}>
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 14 }}>
+                            <button type="button" className="btn btn-ghost btn-sm" onClick={() => setPendingDelete(null)}>
+                                Cancel
+                            </button>
+                            <button type="button" className="btn btn-danger btn-sm" onClick={confirmPendingDelete} disabled={deleteInProgress}>
                                 {deleteInProgress ? 'Deleting…' : 'Delete'}
                             </button>
                         </div>
@@ -1942,104 +2215,5 @@ export default function DepartmentsManagement() {
                 </div>
             ) : null}
         </>
-    );
-}
-
-/* ── Presentational helpers ─────────────────────────────────── */
-
-function HospitalArt() {
-    return (
-        <svg className="dp-art" viewBox="0 0 120 96" aria-hidden>
-            <defs>
-                <linearGradient id="dpArtA" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#ffffff" />
-                    <stop offset="100%" stopColor="#dfe7f1" />
-                </linearGradient>
-                <linearGradient id="dpArtB" x1="0" y1="0" x2="1" y2="1">
-                    <stop offset="0%" stopColor="#2c4266" />
-                    <stop offset="100%" stopColor="#1b2a44" />
-                </linearGradient>
-            </defs>
-            <ellipse cx="60" cy="88" rx="52" ry="6" fill="rgba(27,42,68,0.08)" />
-            <rect x="14" y="40" width="30" height="46" rx="6" fill="url(#dpArtA)" stroke="rgba(27,42,68,0.12)" />
-            <rect x="76" y="34" width="32" height="52" rx="6" fill="url(#dpArtA)" stroke="rgba(27,42,68,0.12)" />
-            <rect x="36" y="18" width="48" height="68" rx="8" fill="url(#dpArtB)" />
-            <rect x="52" y="26" width="16" height="16" rx="4" fill="#ffffff" />
-            <path d="M60 29 V39 M55 34 H65" stroke="#c2414b" strokeWidth="3" strokeLinecap="round" />
-            {[50, 60, 70].map(y => [44, 56, 68].map(x => (
-                <rect key={`${x}-${y}`} x={x} y={y} width="8" height="6" rx="1.5" fill="rgba(255,255,255,0.35)" />
-            )))}
-            <rect x="54" y="74" width="12" height="12" rx="2" fill="rgba(255,255,255,0.55)" />
-            {[48, 58, 68].map(y => <rect key={`l${y}`} x="20" y={y} width="18" height="5" rx="1.5" fill="rgba(27,42,68,0.12)" />)}
-            {[44, 54, 64, 74].map(y => <rect key={`r${y}`} x="82" y={y} width="20" height="5" rx="1.5" fill="rgba(27,42,68,0.12)" />)}
-        </svg>
-    );
-}
-
-function EmptyState({ icon, title, body, action, compact }: {
-    icon: string;
-    title: string;
-    body: string;
-    action?: { label: string; onClick: () => void };
-    compact?: boolean;
-}) {
-    return (
-        <div className={`dp-empty${compact ? ' dp-empty--compact' : ''}`}>
-            <span className="dp-empty__art"><span className="material-icons-round">{icon}</span></span>
-            <strong>{title}</strong>
-            <p>{body}</p>
-            {action && (
-                <button type="button" className="btn btn-primary btn-sm" onClick={action.onClick}>
-                    <span className="material-icons-round" style={{ fontSize: 16 }}>add</span>
-                    {action.label}
-                </button>
-            )}
-        </div>
-    );
-}
-
-function CardTitle({ icon, title, right }: { icon: string; title: string; right?: React.ReactNode }) {
-    return (
-        <div className="dp-card__hd">
-            <h3><span className="material-icons-round">{icon}</span>{title}</h3>
-            {right}
-        </div>
-    );
-}
-
-function FormHeader({ icon, title, sub }: { icon: string; title: string; sub: string }) {
-    return (
-        <div className="dp-form-hd">
-            <span className="dp-form-hd__icon"><span className="material-icons-round">{icon}</span></span>
-            <div>
-                <h2>{title}</h2>
-                <p>{sub}</p>
-            </div>
-        </div>
-    );
-}
-
-function InpatientSwitch({ id, checked, onChange, disabled }: { id: string; checked: boolean; onChange: (v: boolean) => void; disabled?: boolean }) {
-    return (
-        <label htmlFor={id} className={`dp-switch dp-span2${disabled ? ' is-disabled' : ''}`}>
-            <span className="dp-switch__icon"><span className="material-icons-round">{checked ? 'bed' : 'desktop_windows'}</span></span>
-            <span className="dp-switch__text">
-                <strong>Has inpatient beds</strong>
-                <span>When off, this unit is a workstation: hidden from bed management but still available for staffing and join requests.</span>
-            </span>
-            <input id={id} type="checkbox" checked={checked} disabled={disabled} onChange={e => onChange(e.target.checked)} />
-            <span className="dp-switch__track" aria-hidden><span /></span>
-        </label>
-    );
-}
-
-function BedLegend({ total, available, occupied, blocked }: { total: number; available: number; occupied: number; blocked: number }) {
-    return (
-        <div className="dp-legend">
-            <span><i className="is-occ" />{occupied} occupied</span>
-            <span><i className="is-free" />{available} available</span>
-            <span><i className="is-oos" />{blocked} out of service</span>
-            <span className="dp-legend__total">{total} total</span>
-        </div>
     );
 }

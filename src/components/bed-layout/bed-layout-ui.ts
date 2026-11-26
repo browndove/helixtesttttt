@@ -8,10 +8,9 @@ export const BED_STATUS_META: Record<BedStatus, { bg: string; fg: string; dot: s
 };
 
 export const card: CSSProperties = {
-    background: 'var(--glass-bg-strong)',
-    border: '1px solid var(--glass-border)',
-    boxShadow: 'var(--glass-shadow)',
-    borderRadius: 22,
+    background: '#FFFFFF',
+    border: '1px solid #E6EBF1',
+    borderRadius: 12,
 };
 
 export const fieldLabel: CSSProperties = {
@@ -28,11 +27,11 @@ export const input: CSSProperties = {
     width: '100%',
     height: 38,
     padding: '0 11px',
-    border: '1px solid rgba(27, 42, 68, 0.1)',
-    borderRadius: 11,
+    border: '1px solid #E1E7EF',
+    borderRadius: 8,
     fontSize: 13,
     color: '#172033',
-    background: 'rgba(255, 255, 255, 0.9)',
+    background: '#FFFFFF',
     outline: 'none',
 };
 
@@ -47,9 +46,8 @@ export const primaryButton: CSSProperties = {
     height: 38,
     padding: '0 16px',
     border: 'none',
-    borderRadius: 12,
-    background: 'linear-gradient(145deg, #2c4266, #1b2a44)',
-    boxShadow: 'inset 0 1px 0 rgba(255, 255, 255, 0.18), 0 8px 18px -8px rgba(27, 42, 68, 0.55)',
+    borderRadius: 8,
+    background: '#172033',
     color: '#FFFFFF',
     fontSize: 13,
     fontWeight: 650,
@@ -57,15 +55,13 @@ export const primaryButton: CSSProperties = {
     display: 'inline-flex',
     alignItems: 'center',
     gap: 6,
-    transition: 'transform 0.2s ease, box-shadow 0.2s ease',
 };
 
 export const secondaryButton: CSSProperties = {
     ...primaryButton,
-    background: 'rgba(255, 255, 255, 0.9)',
-    boxShadow: '0 1px 2px rgba(27, 42, 68, 0.06)',
+    background: '#FFFFFF',
     color: '#344054',
-    border: '1px solid rgba(27, 42, 68, 0.1)',
+    border: '1px solid #E1E7EF',
 };
 
 export const linkButton: CSSProperties = {
@@ -74,7 +70,7 @@ export const linkButton: CSSProperties = {
     padding: 0,
     fontSize: 12,
     fontWeight: 650,
-    color: '#2f6fb8',
+    color: '#1D6FB8',
     cursor: 'pointer',
 };
 

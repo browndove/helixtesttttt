@@ -48,7 +48,7 @@ export default function BedLayoutToolbar({
             onClick={onClick}
             disabled={disabled}
             style={{
-                width: 30, height: 32, border: '1px solid rgba(27, 42, 68, 0.1)', background: 'rgba(255, 255, 255, 0.9)',
+                width: 28, height: 30, border: '1px solid #E1E7EF', background: '#FFFFFF',
                 color: disabled ? '#C3CBD6' : '#475467', cursor: disabled ? 'default' : 'pointer',
                 display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
             }}
@@ -61,7 +61,7 @@ export default function BedLayoutToolbar({
         <div style={{ display: 'grid', gap: 10 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
                 <div style={{ position: 'relative', flex: 1, minWidth: 200, maxWidth: 320 }}>
-                    <Search size={13} strokeWidth={1.8} color="#7b879b" style={{ position: 'absolute', left: 11, top: 11, pointerEvents: 'none' }} />
+                    <Search size={13} strokeWidth={1.8} color="#9AA7B8" style={{ position: 'absolute', left: 10, top: 11, pointerEvents: 'none' }} />
                     <input
                         value={search}
                         onChange={e => { onSearch(e.target.value); onPage(1); }}
@@ -75,15 +75,15 @@ export default function BedLayoutToolbar({
                         value={String(pageSize)}
                         onChange={value => { onPageSize(Number(value)); onPage(1); }}
                         options={[10, 20, 50].map(size => ({ label: String(size), value: String(size) }))}
-                        style={{ height: 32, fontSize: 12, borderRadius: 11, border: '1px solid rgba(27, 42, 68, 0.1)' }}
+                        style={{ height: 30, fontSize: 12, borderRadius: 8, border: '1px solid #E1E7EF' }}
                     />
                 </div>
-                <div style={{ display: 'inline-flex', alignItems: 'center', borderRadius: 11, overflow: 'hidden', flexShrink: 0 }}>
+                <div style={{ display: 'inline-flex', alignItems: 'center', borderRadius: 8, overflow: 'hidden', flexShrink: 0 }}>
                     {pagerButton(page <= 1, () => onPage(page - 1), <ChevronLeft size={14} strokeWidth={2} />)}
                     <span style={{
-                        height: 32, padding: '0 12px', borderTop: '1px solid rgba(27, 42, 68, 0.1)', borderBottom: '1px solid rgba(27, 42, 68, 0.1)',
+                        height: 30, padding: '0 12px', borderTop: '1px solid #E1E7EF', borderBottom: '1px solid #E1E7EF',
                         display: 'inline-flex', alignItems: 'center', fontSize: 12, color: '#475467', whiteSpace: 'nowrap',
-                        background: 'rgba(255, 255, 255, 0.9)', fontWeight: 600,
+                        background: '#FFFFFF',
                     }}>
                         Page {page} of {pageCount}
                     </span>
@@ -105,7 +105,7 @@ export default function BedLayoutToolbar({
                         customEntryTitle="Status"
                         customEntryHint="Not listed? Type here, then Enter."
                         customPlaceholder="Type status — Enter"
-                        style={{ height: 34, fontSize: 12.5, borderRadius: 11, border: '1px solid rgba(27, 42, 68, 0.1)' }}
+                        style={{ height: 34, fontSize: 12.5, borderRadius: 8, border: '1px solid #E1E7EF' }}
                         maxH={240}
                     />
                 </div>
