@@ -18,6 +18,21 @@ const navSections = [
         title: 'Monitoring',
         items: [
             { icon: 'history', label: 'Audit Log', href: '/audit-log' },
+            { icon: 'insights', label: 'Analytics', href: '/analytics' },
+        ],
+    },
+];
+
+/** Sidebar inside the Analytics section (its own pages, separate from the admin portal nav). */
+export const analyticsNavSections = [
+    {
+        title: 'Analytics',
+        items: [
+            { icon: 'dashboard', label: 'Usage Summary', href: '/analytics' },
+            { icon: 'speed', label: 'Response Performance', href: '/analytics/response-performance' },
+            { icon: 'badge', label: 'Staffing & Coverage', href: '/analytics/staffing-coverage' },
+            { icon: 'swap_horiz', label: 'Transfer Insight', href: '/analytics/transfers' },
+            { icon: 'call', label: 'Call Insight', href: '/analytics/calls' },
         ],
     },
 ];

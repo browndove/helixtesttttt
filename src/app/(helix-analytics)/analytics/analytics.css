@@ -1,0 +1,166 @@
+/* Analytics section — layout rules from the standalone Analytics app, scoped so the
+   older /usage page keeps Helix's global .usage-* grid rules. */
+
+.analytics-page {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+  padding: 16px 24px 24px;
+  padding-bottom: max(24px, env(safe-area-inset-bottom));
+}
+
+
+.app-sidebar button.sidebar-nav-link {
+  width: 100%;
+  border: none;
+  background: transparent;
+  font-family: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.app-sidebar button.sidebar-nav-link:hover {
+  background: rgba(255, 255, 255, 0.75);
+}
+
+.analytics-page .dashboard-two-col {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
+  min-width: 0;
+  align-items: stretch;
+}
+.analytics-page .dashboard-two-col > * {
+  min-width: 0;
+  min-height: 0;
+}
+@media (min-width: 1280px) {
+  .analytics-page .dashboard-two-col {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .analytics-page .dashboard-two-col > * {
+    display: flex;
+    flex-direction: column;
+  }
+}
+
+/* KPI row — equal height per row; stack → 2-col → 4-col */
+.analytics-page .usage-kpi-grid {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 16px;
+  min-width: 0;
+}
+.analytics-page .usage-kpi-grid > * {
+  min-width: 0;
+  width: 100%;
+}
+@media (min-width: 640px) {
+  .analytics-page .usage-kpi-grid {
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+  .analytics-page .usage-kpi-grid > * {
+    flex: 1 1 calc(50% - 8px);
+    max-width: calc(50% - 8px);
+    width: auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+}
+@media (min-width: 1100px) {
+  .analytics-page .usage-kpi-grid {
+    flex-wrap: nowrap;
+  }
+  .analytics-page .usage-kpi-grid > * {
+    flex: 1 1 0;
+    max-width: none;
+  }
+}
+
+.analytics-page .usage-main-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  align-items: stretch;
+  min-width: 0;
+}
+.analytics-page .usage-main-grid__main {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.analytics-page .usage-main-grid__chart,
+.analytics-page .usage-main-grid__twocol,
+.analytics-page .usage-main-grid__full {
+  min-width: 0;
+}
+.analytics-page .usage-main-grid__sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+  position: static;
+}
+@media (min-width: 1100px) {
+  .analytics-page .usage-main-grid {
+    flex-direction: row;
+    align-items: flex-start;
+  }
+  .analytics-page .usage-main-grid__main {
+    flex: 1 1 0;
+  }
+  .analytics-page .usage-main-grid__sidebar {
+    flex: 0 0 320px;
+    max-width: 320px;
+    min-width: 260px;
+    align-self: stretch;
+  }
+  /* Last sidebar card follows the scroll and stretches to the bottom of the main column. */
+  .analytics-page .usage-sidebar-sticky {
+    position: sticky;
+    top: 86px;
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  .analytics-page .usage-sidebar-sticky > * {
+    flex: 1 1 auto;
+    min-height: 0;
+  }
+}
+
+
+/* Sidebar footer links: match the admin sidebar's nav items. */
+.analytics-footer-link {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 12px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.analytics-footer-link:hover {
+  background: #f5f7fa;
+  color: var(--text-primary);
+}
+
+.analytics-footer-link .material-icons-round {
+  font-size: 18px;
+  opacity: 0.55;
+}
