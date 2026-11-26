@@ -39,16 +39,12 @@ export function AnalyticsSidebarFooter() {
     const { openReport } = useAnalytics();
     return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            <button type="button" className="nav-item sidebar-nav-link" onClick={openReport}>
-                <span className="sidebar-nav-link__icon">
-                    <span className="material-icons-round">download</span>
-                </span>
+            <button type="button" className="nav-item analytics-footer-link" onClick={openReport}>
+                <span className="material-icons-round">download</span>
                 Generate report
             </button>
-            <Link href="/home" className="nav-item sidebar-nav-link">
-                <span className="sidebar-nav-link__icon">
-                    <span className="material-icons-round">arrow_back</span>
-                </span>
+            <Link href="/home" className="nav-item analytics-footer-link">
+                <span className="material-icons-round">arrow_back</span>
                 Back to Admin
             </Link>
         </div>

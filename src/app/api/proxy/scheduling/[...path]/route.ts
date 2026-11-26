@@ -5,12 +5,14 @@ import { buildTenantUpstreamUrl, mergeFacilityIntoBody } from '@/lib/proxy-upstr
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3000';
 
 /**
- * Pass-through for /api/v1/scheduling/* (settings, roster, targets, attendance, …).
- * Adds the session's facility_id to the query, and to JSON object bodies that don't set one.
+ * Pass-through for /api/v1/scheduling/clock-zones* (the Geofencing tab; the rest of
+ * Scheduling is not on this deployment). Adds the session's facility_id to the query,
+ * and to JSON object bodies that don't set one.
  */
 async function forward(req: NextRequest, params: Promise<{ path: string[] }>) {
     try {
         const { path } = await params;
+        if (path[0] !== 'clock-zones') return NextResponse.json({ error: 'Not found' }, { status: 404 });
         const query = Object.fromEntries(req.nextUrl.searchParams.entries());
         const upstream = await buildTenantUpstreamUrl(
             req,

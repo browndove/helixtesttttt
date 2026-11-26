@@ -883,7 +883,6 @@ export default function FacilityGeofence({ embedded = false }: { embedded?: bool
                         {/* ── Side panel ── */}
                         <aside className="geo-panel" aria-label="Geofence tools" hidden={!panelOpen}>
                             <section className="geo-card gx-reveal">
-                                <span className="material-icons-round gx-mark" aria-hidden>travel_explore</span>
                                 <div className="geo-card__title"><span className="gx-ico"><Icon name="travel_explore" /></span>Find your facility</div>
                                 <form
                                     className="geo-search"
@@ -955,7 +954,6 @@ export default function FacilityGeofence({ embedded = false }: { embedded?: bool
                             </section>
 
                             <section className="geo-card geo-card--grow gx-reveal">
-                                <span className="material-icons-round gx-mark" aria-hidden>share_location</span>
                                 <div className="geo-card__head">
                                     <div className="geo-card__title" style={{ margin: 0 }}>
                                         <span className="gx-ico"><Icon name="share_location" /></span>

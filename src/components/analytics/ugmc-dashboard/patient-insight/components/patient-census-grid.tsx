@@ -7,12 +7,11 @@ import dynamic from "next/dynamic";
 import { FaTriangleExclamation } from "react-icons/fa6";
 import { RiExpandDiagonalLine } from "react-icons/ri";
 import { GrContract } from "react-icons/gr";
+import { useTheme } from "next-themes";
 import FullscreenOverlay from "@/components/analytics/fullscreen-overlay";
 import clsx from "clsx";
 import { buildNiceYAxisScale } from "@/lib/analytics/nice-chart-axis";
 import { fillDailyMessageVolumePeriod, fillDailyMessageVolumeRange } from "@/lib/analytics/daily-volume";
-import { CardTitle } from "@/components/analytics/glass/illustrations";
-import { areaWash, endpointAnnotation, glassTooltip, smoothLine } from '@/components/analytics/glass/chart-kit';
 
 const Chart = dynamic(() => import("react-apexcharts"), { ssr: false });
 
@@ -33,9 +32,9 @@ const AlertIcon = () => (
 const PatientSatisfactionScore = ({ data }: { data: any }) => {
 	const satisfactionData = useMemo(
 		() => [
-			{ label: 'Critical Msgs', percentage: data?.critical_messages_rate_percent || 0, color: '#e0656b', scoreRange: 'Of total messages' },
-			{ label: 'Role Coverage', percentage: data?.role_fill_rate_percent || 0, color: '#2a9a74', scoreRange: 'Of required roles' },
-			{ label: 'Active Users', percentage: data?.active_users_rate_percent || 0, color: '#2f6fb8', scoreRange: 'Of total staff' },
+			{ label: 'Critical Msgs', percentage: data?.critical_messages_rate_percent || 0, color: '#FF5F57', scoreRange: 'Of total messages' },
+			{ label: 'Role Coverage', percentage: data?.role_fill_rate_percent || 0, color: '#00C8B3', scoreRange: 'Of required roles' },
+			{ label: 'Active Users', percentage: data?.active_users_rate_percent || 0, color: '#2980D3', scoreRange: 'Of total staff' },
 		],
 		[
 			data?.critical_messages_rate_percent,
@@ -88,20 +87,20 @@ const PatientSatisfactionScore = ({ data }: { data: any }) => {
 	}, [isVisible, targetScore, targetArcPercent, satisfactionData]);
 
 	return (
-		<DashboardCard data-watermark="stairs" padding="none" className="flex flex-col" style={{ padding: 18, height: 440, gridColumn: 'span 4' }}>
+		<DashboardCard padding="none" className="flex flex-col" style={{ padding: 18, height: 440, gridColumn: 'span 4' }}>
 			<div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, marginBottom: 16 }}>
-				<CardTitle icon="donut_large" variant="body-md-semibold">Escalation Overview</CardTitle>
+				<Text variant="body-md-semibold" color="text-primary">Escalation Overview</Text>
 				<Text variant="body-sm" color="text-secondary">Summary Profile</Text>
 			</div>
 			<div className="flex justify-center items-center relative h-[180px]">
 				<svg width="240" height="140" viewBox="0 0 240 140">
 					<defs>
 						<linearGradient id="donutGradient" x1="0%" y1="0%" x2="100%" y2="0%">
-							<stop offset="0%" stopColor="#2a9a74" />
-							<stop offset="100%" stopColor="#2f6fb8" />
+							<stop offset="0%" stopColor="#00C8B3" />
+							<stop offset="100%" stopColor="#2980D3" />
 						</linearGradient>
 					</defs>
-					<path d="M 30 120 A 90 90 0 0 1 210 120" fill="none" stroke="#2f6fb81A" strokeWidth={strokeWidth} strokeLinecap="butt" />
+					<path d="M 30 120 A 90 90 0 0 1 210 120" fill="none" stroke="#2980D31A" strokeWidth={strokeWidth} strokeLinecap="butt" />
 					<path d="M 30 120 A 90 90 0 0 1 210 120" fill="none" stroke="url(#donutGradient)" strokeWidth={strokeWidth} strokeLinecap="butt" strokeDasharray={`${circumference * animatedArc} ${circumference}`} className="transition-all duration-100" />
 				</svg>
 				<div className="absolute top-[85px] flex flex-col items-center">
@@ -136,6 +135,7 @@ const PatientSatisfactionScore = ({ data }: { data: any }) => {
 };
 
 const PatientCensusChart = ({ isFullscreen = false, onToggleFullscreen, data }: { isFullscreen?: boolean; onToggleFullscreen?: () => void; data?: any }) => {
+	const { resolvedTheme } = useTheme();
 	const [activeTab, setActiveTab] = useState<MessageVolumeTab>('all');
 
 	const dailyVolume = useMemo(() => {
@@ -190,17 +190,47 @@ const PatientCensusChart = ({ isFullscreen = false, onToggleFullscreen, data }: 
 				type: 'area',
 				toolbar: { show: false },
 				zoom: { enabled: false },
-				background: 'transparent',
+				animations: {
+					enabled: true,
+					speed: 1200,
+					animateGradually: { enabled: true, delay: 150 },
+				},
 			},
-			colors: ['#2f6fb8'],
-			fill: areaWash(),
-			stroke: smoothLine(['#2f6fb8']),
-			markers: { size: showMarkers && seriesData.length <= 10 ? 4 : 0, colors: ['#2f6fb8'] },
-			annotations: seriesData.length
-				? endpointAnnotation(categories[categories.length - 1], seriesData[seriesData.length - 1], '#2f6fb8', seriesData[seriesData.length - 1].toLocaleString())
-				: undefined,
+			colors: ['var(--accent-primary)'],
+			fill: {
+				type: 'gradient',
+				gradient: {
+					shade: 'light',
+					type: 'vertical',
+					shadeIntensity: 0.35,
+					gradientToColors: ['var(--accent-primary)'],
+					inverseColors: false,
+					opacityFrom: 0.45,
+					opacityTo: 0.05,
+					stops: [0, 100],
+				},
+			},
+			stroke: {
+				curve: 'smooth',
+				width: 3,
+				colors: ['var(--accent-primary)'],
+			},
+			markers: {
+				size: showMarkers ? 5 : 0,
+				colors: ['var(--bg-primary)'],
+				strokeColors: 'var(--accent-primary)',
+				strokeWidth: 2,
+				hover: { size: 7 },
+			},
 			dataLabels: { enabled: false },
-			grid: { padding: { left: 8, right: 20, top: 4, bottom: 0 } },
+			grid: {
+				show: true,
+				borderColor: 'var(--bg-tertiary)',
+				strokeDashArray: 4,
+				xaxis: { lines: { show: true } },
+				yaxis: { lines: { show: true } },
+				padding: { left: 8, right: 12, top: 4, bottom: 0 },
+			},
 			xaxis: {
 				categories,
 				tickAmount: Math.min(6, Math.max(categories.length - 1, 1)),
@@ -210,7 +240,12 @@ const PatientCensusChart = ({ isFullscreen = false, onToggleFullscreen, data }: 
 					rotate: 0,
 					rotateAlways: false,
 					hideOverlappingLabels: true,
-					style: { fontSize: '11px' },
+					style: {
+						fontFamily: 'system-ui, -apple-system, sans-serif',
+						fontWeight: 500,
+						fontSize: '11px',
+						colors: 'var(--text-secondary)',
+					},
 				},
 			},
 			yaxis: {
@@ -220,7 +255,12 @@ const PatientCensusChart = ({ isFullscreen = false, onToggleFullscreen, data }: 
 				forceNiceScale: false,
 				decimalsInFloat: 0,
 				labels: {
-					style: { fontSize: '11px' },
+					style: {
+						fontFamily: 'system-ui, -apple-system, sans-serif',
+						fontWeight: 500,
+						fontSize: '11px',
+						colors: 'var(--text-secondary)',
+					},
 					formatter: (val) => {
 						const step = yAxisScale.step;
 						const snapped = Math.round(val / step) * step;
@@ -232,16 +272,24 @@ const PatientCensusChart = ({ isFullscreen = false, onToggleFullscreen, data }: 
 				},
 			},
 			tooltip: {
-				custom: ({ series, dataPointIndex }: { series: number[][]; dataPointIndex: number }) => {
-					const row = dailyVolume[dataPointIndex];
-					const title = row?.day
-						? new Date(`${row.day}T00:00:00`).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })
-						: String(categories[dataPointIndex] ?? '');
-					return glassTooltip({ title, rows: [{ color: '#2f6fb8', label: 'Messages', value: Math.round(Number(series[0]?.[dataPointIndex] ?? 0)).toLocaleString() }] });
+				enabled: true,
+				theme: resolvedTheme === 'dark' || resolvedTheme === 'blue' ? 'dark' : 'light',
+				style: { fontSize: '12px', fontFamily: 'system-ui, -apple-system, sans-serif' },
+				x: {
+					formatter: (_val, opts) => {
+						const row = dailyVolume[opts?.dataPointIndex ?? 0];
+						if (!row?.day) return String(_val ?? '');
+						return new Date(`${row.day}T00:00:00`).toLocaleDateString('en-US', {
+							month: 'short',
+							day: 'numeric',
+							year: 'numeric',
+						});
+					},
 				},
+				y: { formatter: (val) => `${Math.round(val).toLocaleString()} messages` },
 			},
 		}),
-		[categories, yAxisScale, dailyVolume, showMarkers, seriesData]
+		[categories, yAxisScale, dailyVolume, resolvedTheme, showMarkers]
 	);
 
 	const chartSeries = [{ name: 'Messages', data: seriesData }];
@@ -257,7 +305,7 @@ const PatientCensusChart = ({ isFullscreen = false, onToggleFullscreen, data }: 
 		<>
 			<div className="flex flex-row items-start justify-between gap-3 mb-4">
 				<div className="flex flex-col gap-1 min-w-0">
-					<CardTitle icon="bar_chart" variant="body-md-semibold">Message Volume</CardTitle>
+					<Text variant="body-md-semibold" color="text-primary">Message Volume</Text>
 					<Text variant="body-sm" color="text-secondary">
 						All Departments ·{' '}
 						{data?.window_days ? `Last ${data.window_days} Days` : 'Daily Breakdown'}
@@ -320,7 +368,7 @@ const PatientCensusChart = ({ isFullscreen = false, onToggleFullscreen, data }: 
 	}
 
 	return (
-		<DashboardCard data-watermark="forum" padding="none" className="flex flex-col" style={{ padding: 18, height: 440, gridColumn: 'span 8' }}>{chartContent}</DashboardCard>
+		<DashboardCard padding="none" className="flex flex-col" style={{ padding: 18, height: 440, gridColumn: 'span 8' }}>{chartContent}</DashboardCard>
 	);
 };
 

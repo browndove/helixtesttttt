@@ -256,19 +256,33 @@ export default function Sidebar({
 
     return (
         <aside className="app-sidebar" style={{
+            background: '#ffffff',
+            borderRight: '1px solid var(--border-default)',
             display: 'flex',
             flexDirection: 'column',
             overflow: 'hidden',
         }}>
             {/* Brand */}
-            <div className="sidebar-brand">
+            <div style={{
+                padding: '22px 18px 18px',
+                borderBottom: '1px solid var(--border-default)',
+            }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 11 }}>
-                    <div className="sidebar-brand__logo">
+                    <div style={{
+                        width: 34,
+                        height: 34,
+                        borderRadius: 8,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        flexShrink: 0,
+                        overflow: 'hidden',
+                    }}>
                         <img
                             src="/brand-logo.svg"
                             alt="Helix logo"
-                            width={28}
-                            height={28}
+                            width={34}
+                            height={34}
                             style={{ width: '100%', height: '100%', objectFit: 'contain' }}
                         />
                     </div>
@@ -276,60 +290,62 @@ export default function Sidebar({
                         <div style={{ fontWeight: 700, fontSize: 14, letterSpacing: '-0.01em', color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                             {hospitalName}
                         </div>
-                        <div style={{ fontSize: 10.5, color: 'var(--text-muted)', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                        <div style={{ fontSize: 10.5, color: 'var(--text-muted)', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
                             {hospitalSubtitle}
                         </div>
                     </div>
                 </div>
                 {supportMode && (
                     <div style={{
-                        marginTop: 12,
-                        padding: '10px 12px',
-                        borderRadius: 14,
-                        background: 'var(--helix-primary)',
-                        color: '#fff',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 10,
-                        boxShadow: '0 6px 16px rgba(27,42,68,0.22)',
+                        marginTop: 10,
+                        padding: '8px 9px',
+                        borderRadius: 8,
+                        background: 'rgba(37,99,235,0.08)',
+                        border: '1px solid rgba(37,99,235,0.18)',
                     }}>
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                            <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', opacity: 0.65 }}>
-                                Support mode
-                            </div>
-                            <div style={{ fontSize: 11.5, marginTop: 2, lineHeight: 1.35, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                                {supportFacilityName || facilityName || 'Selected facility'}
-                            </div>
+                        <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#1d4ed8' }}>
+                            Support mode
                         </div>
-                        <button
-                            type="button"
-                            onClick={() => { void handleExitSupportMode(); }}
-                            disabled={endingSupportMode}
-                            style={{
-                                border: 'none',
-                                background: 'rgba(255,255,255,0.16)',
-                                color: '#fff',
-                                borderRadius: 9,
-                                fontSize: 11,
-                                fontWeight: 600,
-                                fontFamily: 'inherit',
-                                padding: '5px 10px',
-                                flexShrink: 0,
-                                cursor: endingSupportMode ? 'not-allowed' : 'pointer',
-                            }}
-                        >
-                            {endingSupportMode ? 'Exiting…' : 'Exit'}
-                        </button>
+                        <div style={{ fontSize: 11.5, color: 'var(--text-secondary)', marginTop: 2, lineHeight: 1.35 }}>
+                            Viewing as {supportFacilityName || facilityName || 'selected facility'}.
+                        </div>
+                        <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+                            <button
+                                type="button"
+                                onClick={() => { void handleExitSupportMode(); }}
+                                disabled={endingSupportMode}
+                                style={{
+                                    border: 'none',
+                                    background: '#1d4ed8',
+                                    color: '#fff',
+                                    borderRadius: 6,
+                                    fontSize: 10.5,
+                                    fontWeight: 600,
+                                    padding: '4px 7px',
+                                    cursor: endingSupportMode ? 'not-allowed' : 'pointer',
+                                }}
+                            >
+                                {endingSupportMode ? 'Exiting…' : 'Exit'}
+                            </button>
+                        </div>
                     </div>
                 )}
             </div>
 
             {/* Nav */}
-            <nav style={{ flex: 1, overflowY: 'auto', padding: '6px 10px 10px' }}>
+            <nav style={{ flex: 1, overflowY: 'auto', padding: '14px 10px' }}>
                 {sections.map((section, si) => (
-                    <div key={si} style={{ marginBottom: 18 }}>
+                    <div key={si} style={{ marginBottom: 22 }}>
                         {section.title && (
-                            <div className="sidebar-section-title">
+                            <div style={{
+                                padding: '0 8px',
+                                marginBottom: 6,
+                                fontSize: 10,
+                                fontWeight: 600,
+                                textTransform: 'uppercase',
+                                letterSpacing: '0.1em',
+                                color: 'var(--text-muted)',
+                            }}>
                                 {section.title}
                             </div>
                         )}
@@ -340,12 +356,36 @@ export default function Sidebar({
                                     key={item.href}
                                     href={item.href}
                                     prefetch
-                                    className="nav-item sidebar-nav-link"
-                                    data-active={active}
-                                    aria-current={active ? 'page' : undefined}
+                                    className="nav-item"
+                                    style={{
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: 10,
+                                        padding: '9px 12px',
+                                        borderRadius: 'var(--radius-md)',
+                                        marginBottom: 2,
+                                        fontSize: 13,
+                                        fontWeight: active ? 600 : 500,
+                                        color: active ? 'var(--helix-primary)' : 'var(--text-secondary)',
+                                        background: active ? '#f0f4f8' : 'transparent',
+                                        border: 'none',
+                                        textDecoration: 'none',
+                                    }}
+                                    onMouseEnter={(e) => {
+                                        if (!active) {
+                                            (e.currentTarget as HTMLElement).style.background = '#f5f7fa';
+                                            (e.currentTarget as HTMLElement).style.color = 'var(--text-primary)';
+                                        }
+                                    }}
+                                    onMouseLeave={(e) => {
+                                        if (!active) {
+                                            (e.currentTarget as HTMLElement).style.background = 'transparent';
+                                            (e.currentTarget as HTMLElement).style.color = 'var(--text-secondary)';
+                                        }
+                                    }}
                                 >
-                                    <span className="sidebar-nav-link__icon">
-                                        <span className="material-icons-round">{item.icon}</span>
+                                    <span className="material-icons-round" style={{ fontSize: 18, opacity: active ? 1 : 0.55 }}>
+                                        {item.icon}
                                     </span>
                                     {item.label}
                                 </Link>
@@ -359,48 +399,61 @@ export default function Sidebar({
             {footer && (
                 <div style={{
                     padding: '14px 18px',
-                    borderTop: '1px solid var(--border-subtle)',
+                    borderTop: '1px solid var(--border-default)',
                 }}>
                     {footer}
                 </div>
             )}
 
             {/* Profile Bar + menu */}
-            <div style={{ position: 'relative' }}>
+            <div style={{ position: 'relative', borderTop: '1px solid var(--border-default)' }}>
                 <button
                     type="button"
-                    className="sidebar-profile"
-                    data-active={isSettingsActive || profileMenuOpen}
                     onClick={() => setProfileMenuOpen(o => !o)}
+                    style={{
+                        width: '100%',
+                        padding: '12px 14px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 10,
+                        cursor: 'pointer',
+                        background: isSettingsActive ? '#f0f4f8' : 'transparent',
+                        border: 'none',
+                        outline: 'none',
+                        transition: 'background 0.15s',
+                    }}
+                    onMouseEnter={e => { if (!isSettingsActive) e.currentTarget.style.background = '#f5f7fa'; }}
+                    onMouseLeave={e => { if (!isSettingsActive && !profileMenuOpen) e.currentTarget.style.background = 'transparent'; }}
                 >
                     <div style={{
-                        width: 34, height: 34,
-                        borderRadius: 11,
-                        background: 'var(--helix-primary)',
-                        color: '#fff',
+                        width: 32, height: 32,
+                        borderRadius: '50%',
+                        background: isSettingsActive ? 'var(--helix-primary)' : 'var(--surface-3)',
+                        color: isSettingsActive ? '#fff' : 'var(--text-secondary)',
                         display: 'flex', alignItems: 'center', justifyContent: 'center',
                         fontSize: 12, fontWeight: 700, letterSpacing: '0.02em',
                         flexShrink: 0,
+                        transition: 'all 0.15s',
                     }}>
                         {initials}
                     </div>
                     <div style={{ flex: 1, minWidth: 0, textAlign: 'left' }}>
                         <div style={{
                             fontSize: 12.5, fontWeight: 600,
-                            color: 'var(--text-primary)',
+                            color: isSettingsActive ? 'var(--helix-primary)' : 'var(--text-primary)',
                             whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
                         }}>
                             {adminName}
                         </div>
                         <div style={{
-                            fontSize: 10.5, color: 'var(--text-muted)', fontWeight: 500,
+                            fontSize: 10, color: 'var(--text-muted)', fontWeight: 500,
                         }}>
                             {resolvedAdminRole}
                         </div>
                     </div>
                     <span className="material-icons-round" style={{
-                        fontSize: 17,
-                        color: isSettingsActive ? 'var(--helix-primary)' : 'var(--text-muted)',
+                        fontSize: 16,
+                        color: isSettingsActive ? 'var(--helix-primary)' : 'var(--text-disabled)',
                         flexShrink: 0,
                         transform: profileMenuOpen ? 'rotate(90deg)' : 'none',
                         transition: 'transform 0.15s',
@@ -417,33 +470,57 @@ export default function Sidebar({
                                 bottom: '100%',
                                 left: 8,
                                 right: 8,
-                                marginBottom: 2,
+                                marginBottom: 6,
                                 background: 'var(--surface-card)',
                                 border: '1px solid var(--border-default)',
-                                borderRadius: 14,
-                                boxShadow: '0 12px 32px rgba(27,42,68,0.18)',
+                                borderRadius: 'var(--radius-md)',
+                                boxShadow: '0 6px 18px rgba(15,23,42,0.18)',
                                 overflow: 'hidden',
                                 zIndex: 40,
                             }}
                         >
                             <button
                                 type="button"
-                                className="sidebar-menu-item"
                                 onClick={handleSettingsClick}
-                                style={{ borderBottom: '1px solid var(--border-subtle)' }}
+                                style={{
+                                    width: '100%',
+                                    padding: '10px 14px',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: 8,
+                                    border: 'none',
+                                    background: 'transparent',
+                                    cursor: 'pointer',
+                                    fontSize: 13,
+                                    color: 'var(--text-primary)',
+                                    borderBottom: '1px solid var(--border-subtle)',
+                                    textAlign: 'left',
+                                }}
+                                onMouseEnter={e => { e.currentTarget.style.background = 'var(--surface-2)'; }}
+                                onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
                             >
                                 <span className="material-icons-round" style={{ fontSize: 16 }}>settings</span>
                                 Settings
                             </button>
                             <button
                                 type="button"
-                                className="sidebar-menu-item"
                                 onClick={handleLogoutClick}
                                 disabled={loggingOut}
                                 style={{
+                                    width: '100%',
+                                    padding: '10px 14px',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: 8,
+                                    border: 'none',
+                                    background: 'transparent',
                                     cursor: loggingOut ? 'not-allowed' : 'pointer',
+                                    fontSize: 13,
                                     color: 'var(--critical)',
+                                    textAlign: 'left',
                                 }}
+                                onMouseEnter={e => { if (!loggingOut) e.currentTarget.style.background = 'var(--surface-2)'; }}
+                                onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
                             >
                                 <span className="material-icons-round" style={{ fontSize: 16 }}>logout</span>
                                 {loggingOut ? 'Logging out…' : 'Logout'}

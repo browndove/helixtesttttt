@@ -12,7 +12,6 @@ import {
     resolveCriticalAckMinutes,
     resolveReadMinutes,
 } from "@/lib/analytics/distribution-metrics";
-import { CardTitle } from "@/components/analytics/glass/illustrations";
 
 const infoText = "Median response and acknowledgment times for critical and non-critical messages.";
 
@@ -49,25 +48,25 @@ const LiveUpdates = ({ responseTimes }: LiveUpdatesProps) => {
             label: "Critical Ack Time",
             value: fmtMin(ackTypical),
             icon: <HiOutlineBellAlert className="w-[18px] h-[18px] text-accent-red" />,
-            bg: "bg-[rgba(224,101,107,0.1)]",
+            bg: "bg-[rgba(255,95,87,0.1)]",
         },
         {
             label: "Critical Read Time",
             value: fmtMin(readCriticalTypical),
             icon: <HiOutlineClock className="w-[18px] h-[18px] text-accent-primary" />,
-            bg: "bg-[rgba(47,111,184,0.1)]",
+            bg: "bg-[rgba(41,128,211,0.1)]",
         },
         {
             label: "Non-Critical Read Time",
             value: fmtMin(readStandardTypical),
             icon: <HiOutlineEnvelopeOpen className="w-[18px] h-[18px] text-accent-green" />,
-            bg: "bg-[rgba(42,154,116,0.1)]",
+            bg: "bg-[rgba(0,200,179,0.1)]",
         },
         {
             label: "Overall Read Time",
             value: fmtMin(readAllTypical),
             icon: <HiOutlineChartBar className="w-[18px] h-[18px] text-accent-violet" />,
-            bg: "bg-[rgba(74,143,214,0.1)]",
+            bg: "bg-[rgba(105,116,247,0.1)]",
         },
         {
             label: "Total Calls Made",
@@ -88,7 +87,7 @@ const LiveUpdates = ({ responseTimes }: LiveUpdatesProps) => {
     }, [items]);
 
     return (
-        <div data-watermark="schedule" 
+        <div 
             className={clsx(
                 "bg-primary rounded-[18px] flex flex-col overflow-hidden",
                 "transition-all duration-500",
@@ -101,7 +100,9 @@ const LiveUpdates = ({ responseTimes }: LiveUpdatesProps) => {
             {/* Header */}
             <div className="flex items-center justify-between relative z-10">
                 <div className="flex flex-col gap-0.5">
-                    <CardTitle icon="timer" variant="body-md-semibold">Response Times</CardTitle>
+                    <Text variant="body-md-semibold" color="text-primary">
+                        Response Times
+                    </Text>
                     <Text variant="body-sm" color="text-secondary">
                         Median acknowledgment & read times
                     </Text>

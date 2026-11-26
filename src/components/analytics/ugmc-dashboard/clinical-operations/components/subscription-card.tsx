@@ -36,10 +36,10 @@ const formatNumber = (num: number, decimals: number): string => {
 };
 
 const badgeGradients: Record<BadgeColor, string> = {
-    purple: "linear-gradient(145deg, #4a8fd6 6.35%, rgba(224,101,107, 0.50) 93.65%)",
-    teal: "linear-gradient(145deg, #2a9a74 6.35%, rgba(55, 161, 82, 0.50) 93.65%)",
-    coral: "linear-gradient(145deg, #e0656b 6.35%, rgba(224,101,107, 0.50) 93.65%)",
-    green: "linear-gradient(145deg, #ec8f4f 6.35%, rgba(255, 141, 40, 0.50) 93.65%)",
+    purple: "linear-gradient(145deg, #6974F7 6.35%, rgba(255, 95, 87, 0.50) 93.65%)",
+    teal: "linear-gradient(145deg, #00C8B3 6.35%, rgba(55, 161, 82, 0.50) 93.65%)",
+    coral: "linear-gradient(145deg, #F54239 6.35%, rgba(255, 95, 87, 0.50) 93.65%)",
+    green: "linear-gradient(145deg, #FF8D28 6.35%, rgba(255, 141, 40, 0.50) 93.65%)",
 };
 
 const SubscriptionCard: React.FC<SubscriptionCardProps> = ({

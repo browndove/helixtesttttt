@@ -69,7 +69,7 @@ export async function POST(req: NextRequest) {
         const employeeId = (body.employee_id || '').trim();
         if (middleName) payload.middle_name = middleName;
         if (employeeId) payload.employee_id = employeeId;
-        // The admin form always sends patient_access; other callers may omit it.
+        // Omit patient_access when the admin chose "Decide from job category".
         if (typeof body.patient_access === 'boolean') {
             payload.patient_access = body.patient_access;
         }

@@ -11,7 +11,6 @@ import {
     num,
     truncateLabel,
 } from "./call-metrics-helpers";
-import { CardTitle } from "@/components/analytics/glass/illustrations";
 
 const infoText = "Share of total call volume by initiating role for the selected period.";
 
@@ -154,19 +153,19 @@ const NurseToPatientRatio: React.FC<NurseToPatientRatioProps> = ({ callMetrics }
     }, [callMetrics?.by_outbound_role, callMetrics?.total_calls_made]);
 
     return (
-        <DashboardCard data-watermark="support_agent"
+        <DashboardCard
             className="flex flex-col gap-2 h-full"
             onMouseEnter={() => setIsHovered(true)}
             onMouseLeave={() => setIsHovered(false)}
         >
-            <CardTitle icon="pie_chart">
+            <Text variant="body-md-semibold" color="text-primary">
                 Call Share by Role
                 <InfoTooltip text={infoText} show={isHovered} />
-            </CardTitle>
+            </Text>
             <div className="flex flex-col gap-3 flex-1 justify-between">
                 {ratioData.length > 0 ? (
                     ratioData.map((item, index) => (
-                        <RatioItem key={`${index}-${item.department}`} {...item} delay={index * 150} />
+                        <RatioItem key={item.department} {...item} delay={index * 150} />
                     ))
                 ) : (
                     <div className="flex flex-1 items-center justify-center rounded-[10px] bg-secondary px-4 py-8">

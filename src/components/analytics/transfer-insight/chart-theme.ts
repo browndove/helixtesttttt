@@ -20,7 +20,8 @@ export function truncateChartLabel(label: string, maxLen = 26): string {
     return `${trimmed.slice(0, maxLen - 1)}…`;
 }
 
-const chartFont = "inherit";
+const chartFont =
+    'system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif';
 
 export const chartLabelStyle = {
     colors: "var(--text-secondary)",
@@ -43,14 +44,25 @@ export const roleChartAxisStyle = {
     fontFamily: chartFont,
 };
 
-export const ROLE_CHART_BAR_COLOR = "#2f6fb8";
+export const ROLE_CHART_BAR_COLOR = "#1A5FAD";
 
-/** Grid, motion and tooltip chrome come from the analytics house theme (glass/apex-theme.ts). */
 export const baseChartOptions: ApexOptions = {
     chart: {
         toolbar: { show: false },
         zoom: { enabled: false },
-        background: "transparent",
+        animations: { enabled: true, speed: 800 },
+        fontFamily: chartFont,
     },
     dataLabels: { enabled: false },
+    grid: {
+        show: true,
+        borderColor: "var(--bg-tertiary)",
+        strokeDashArray: 0,
+        xaxis: { lines: { show: false } },
+        yaxis: { lines: { show: true } },
+    },
+    tooltip: {
+        theme: "light",
+        style: { fontSize: "12px", fontFamily: chartFont },
+    },
 };

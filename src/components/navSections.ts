@@ -1,5 +1,3 @@
-import { SCHEDULING_MODE_HREFS, type PortalMode } from '@/lib/portal-mode';
-
 const navSections = [
     {
         title: 'Setup',
@@ -39,13 +37,5 @@ export const analyticsNavSections = [
         ],
     },
 ];
-
-/** Sidebar for the chosen portal view; Scheduling mode keeps only the pages scheduling needs. */
-export function sectionsForMode(mode: PortalMode) {
-    if (mode === 'full') return navSections;
-    return navSections
-        .map(section => ({ ...section, items: section.items.filter(item => SCHEDULING_MODE_HREFS.has(item.href)) }))
-        .filter(section => section.items.length > 0);
-}
 
 export default navSections;

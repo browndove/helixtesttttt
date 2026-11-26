@@ -54,7 +54,7 @@ const AnimatedValue = ({ value, className }: { value: string; className?: string
 	);
 };
 
-const PulseWaveIcon = ({ color = "#2f6fb81A" }: { color?: string }) => (
+const PulseWaveIcon = ({ color = "#2484C71A" }: { color?: string }) => (
 	<svg className="block" width="16.666666" height="16.666666" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
 		<path d="M2 10H5.3L6.9 6.4L9.2 13.6L10.9 10H14.2" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
 		<path d="M16.8 10H18" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />

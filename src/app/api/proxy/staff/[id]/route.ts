@@ -102,6 +102,9 @@ export async function PUT(
         if (body.is_doctor !== undefined) {
             forward.is_doctor = Boolean(body.is_doctor);
         }
+        if (body.is_scheduler !== undefined || body.scheduler !== undefined || body.can_schedule !== undefined) {
+            forward.is_scheduler = Boolean(body.is_scheduler ?? body.scheduler ?? body.can_schedule);
+        }
         if (body.account_expires_on) {
             forward.account_expires_on = String(body.account_expires_on).trim();
         }
@@ -135,57 +138,6 @@ export async function PUT(
             return NextResponse.json(
                 { error: 'Backend returned invalid response', details: text.substring(0, 200) },
                 { status: 502 }
-            );
-        }
-
-        return NextResponse.json(data, { status: res.status });
-    } catch (err) {
-        console.error('Proxy error:', err);
-        const message = err instanceof Error ? err.message : 'Unknown error';
-        return NextResponse.json({ error: 'Proxy error', details: message }, { status: 500 });
-    }
-}
-
-// PATCH /staff/{id} - Schedule access only. The API has no PATCH route; it is saved through
-// PUT /staff/{id} with just `can_manage_schedule` (omitted fields stay unchanged). `is_scheduler` is
-// read-only and also true for admins.
-export async function PATCH(
-    req: NextRequest,
-    { params }: { params: Promise<{ id: string }> }
-) {
-    try {
-        const { id } = await params;
-        const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
-        const value = body.can_manage_schedule ?? body.is_scheduler ?? body.scheduler ?? body.can_schedule;
-        if (typeof value !== 'boolean') {
-            return NextResponse.json({ error: 'can_manage_schedule must be true or false' }, { status: 400 });
-        }
-
-        const upstream = await buildTenantUpstreamUrl(req, API_BASE_URL, `/api/v1/staff/${id}`);
-        if (upstream instanceof NextResponse) return upstream;
-
-        const { url } = upstream;
-        console.log('Proxy schedule-access update request to:', url);
-
-        const res = await fetch(url, {
-            method: 'PUT',
-            headers: getProxyHeaders(req),
-            body: JSON.stringify({ can_manage_schedule: value }),
-        });
-
-        const text = await res.text();
-        console.log('Backend response status:', res.status);
-
-        let data;
-        try {
-            data = text ? JSON.parse(text) : {};
-        } catch {
-            // Plain-text replies (e.g. a router's "404 page not found") keep their real status
-            // so the UI can tell "route not deployed" apart from a bad request.
-            console.error('Backend schedule-access update returned non-JSON:', res.status, text.substring(0, 200));
-            return NextResponse.json(
-                { error: res.ok ? 'Backend returned invalid response' : text.trim().substring(0, 200) || `HTTP ${res.status}` },
-                { status: res.ok ? 502 : res.status }
             );
         }
 

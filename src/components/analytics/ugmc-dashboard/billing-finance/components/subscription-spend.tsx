@@ -10,8 +10,13 @@ import {
     resolveReadMinutes,
     typicalMinutesRange,
 } from "@/lib/analytics/distribution-metrics";
-import { CardTitle } from "@/components/analytics/glass/illustrations";
-import { Callout, Meter, Pill, RowIcon, type Tone } from "@/components/analytics/glass/ui";
+
+const ClockIcon = () => (
+    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" className="shrink-0">
+        <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2" />
+        <path d="M12 6v6l4 2" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+    </svg>
+);
 
 function pickNum(obj: Record<string, unknown> | undefined, ...keys: string[]): number | undefined {
     if (!obj) return undefined;
@@ -29,7 +34,7 @@ function fmtMin(minutes: number | null | undefined): string {
     return formatMinutes(minutes);
 }
 
-type ResponseMetric = { name: string; description: string; value: string; minutes: number | null; icon: string; tone: Tone };
+type ResponseMetric = { name: string; description: string; value: string };
 
 const SubscriptionSpend: React.FC<{ data?: Record<string, unknown> }> = ({ data }) => {
     const root = (data?.data && typeof data.data === "object" && !Array.isArray(data.data)
@@ -50,47 +55,48 @@ const SubscriptionSpend: React.FC<{ data?: Record<string, unknown> }> = ({ data 
     const responseMetrics: ResponseMetric[] = React.useMemo(
         () => [
             {
-                name: "Read time · all messages",
-                description: readAllDist
-                    ? `Most reads ${typicalMinutesRange(readAllDist.q1_minutes, readAllDist.q3_minutes)}`
-                    : "Median time to read any message",
-                value: fmtMin(readAllTypical),
-                minutes: readAllTypical,
-                icon: "mark_email_read",
-                tone: "blue",
+                name: "Typical Critical Acknowledgment",
+                description: "Median time to acknowledge critical messages",
+                value: fmtMin(ackTypical),
             },
             {
-                name: "Read time · critical",
+                name: "Typical Read Time (All)",
+                description: readAllDist
+                    ? `Most reads between ${typicalMinutesRange(readAllDist.q1_minutes, readAllDist.q3_minutes)}`
+                    : "Median time to read all messages",
+                value: fmtMin(readAllTypical),
+            },
+            {
+                name: "Typical Read Time (Critical)",
                 description: readCriticalDist
-                    ? `Most reads ${typicalMinutesRange(readCriticalDist.q1_minutes, readCriticalDist.q3_minutes)}`
+                    ? `Most reads between ${typicalMinutesRange(readCriticalDist.q1_minutes, readCriticalDist.q3_minutes)}`
                     : "Median time to read critical messages",
                 value: fmtMin(readCriticalTypical),
-                minutes: readCriticalTypical,
-                icon: "priority_high",
-                tone: "rose",
             },
             {
-                name: "Read time · standard",
+                name: "Typical Read Time (Standard)",
                 description: readStandardDist
-                    ? `Most reads ${typicalMinutesRange(readStandardDist.q1_minutes, readStandardDist.q3_minutes)}`
+                    ? `Most reads between ${typicalMinutesRange(readStandardDist.q1_minutes, readStandardDist.q3_minutes)}`
                     : "Median time to read non-critical messages",
                 value: fmtMin(readStandardTypical),
-                minutes: readStandardTypical,
-                icon: "drafts",
-                tone: "slate",
             },
             {
-                name: "Calls made",
-                description: "Voice calls started in the period",
-                value: calls !== undefined ? Math.round(calls).toLocaleString() : "—",
-                minutes: null,
-                icon: "call",
-                tone: "amber",
+                name: "Total Calls Made",
+                description: "Voice calls initiated in the period",
+                value: calls !== undefined ? String(Math.round(calls)) : "—",
             },
         ],
-        [readAllTypical, readCriticalTypical, readStandardTypical, readAllDist, readCriticalDist, readStandardDist, calls]
+        [
+            ackTypical,
+            readAllTypical,
+            readCriticalTypical,
+            readStandardTypical,
+            readAllDist,
+            readCriticalDist,
+            readStandardDist,
+            calls,
+        ]
     );
-    const slowest = Math.max(1, ...responseMetrics.map((m) => m.minutes ?? 0));
 
     const insight = React.useMemo(() => {
         if (ackTypical != null && readAllTypical != null) {
@@ -102,41 +108,42 @@ const SubscriptionSpend: React.FC<{ data?: Record<string, unknown> }> = ({ data 
         return "Response times reflect messaging activity in the selected date range.";
     }, [ackTypical, readAllTypical, ackDist]);
 
-    const ackRange = ackDist ? typicalMinutesRange(ackDist.q1_minutes, ackDist.q3_minutes) : null;
-
     return (
-        <DashboardCard data-watermark="speed" className="flex flex-col flex-1" padding="none" style={{ padding: 20, gap: 14 }}>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                <CardTitle icon="timer" variant="body-md-semibold" className="font-bold">Response Time by Priority</CardTitle>
-                <Text variant="body-sm" color="text-secondary">Median times · current window</Text>
-            </div>
-
-            <div className="an-hero">
-                <span className="an-hero__icon" aria-hidden><span className="material-icons-round">task_alt</span></span>
-                <div className="flex min-w-0 flex-col">
-                    <span className="an-hero__label">Critical acknowledgment</span>
-                    <span className="an-hero__value">{fmtMin(ackTypical)}</span>
-                    {ackRange && ackRange !== "—" && <span className="an-hero__sub">Usually {ackRange}</span>}
+        <DashboardCard className="flex flex-col flex-1" padding="none" style={{ padding: 20, gap: 12, height: 680 }}>
+            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                    <Text variant="body-md-semibold" color="text-primary" className="font-bold">Response Time by Priority</Text>
+                    <Text variant="body-sm" color="text-secondary">Median times · current window</Text>
                 </div>
             </div>
-
-            <div className="an-list flex-1">
-                {responseMetrics.map((metric) => (
-                    <div key={metric.name} className="an-row">
-                        <RowIcon icon={metric.icon} tone={metric.tone} />
-                        <div className="an-row__main">
-                            <div className="flex items-center justify-between gap-2">
-                                <span className="an-row__title">{metric.name}</span>
-                                <Pill tone={metric.tone}>{metric.value}</Pill>
+            <div className="bg-secondary rounded-[10px] flex flex-col items-center" style={{ padding: 12, gap: 8 }}>
+                <Text variant="body-md-semibold" color="text-secondary">Typical Critical Acknowledgment</Text>
+                <span className="text-[32px] font-bold text-[#2980D3] tabular-nums">{fmtMin(ackTypical)}</span>
+            </div>
+            <div className="flex-1" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                {responseMetrics.map((metric, index) => (
+                    <React.Fragment key={metric.name}>
+                        <div className="flex items-start justify-between gap-3">
+                            <div className="flex-1 min-w-0" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                                <Text variant="body-md-semibold" color="text-primary">{metric.name}</Text>
+                                <div className="bg-tertiary border border-tertiary rounded-[4px] w-fit text-[#587081]" style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 8px' }}>
+                                    <ClockIcon />
+                                    <Text variant="body-sm" color="text-secondary" className="font-medium whitespace-nowrap">{metric.description}</Text>
+                                </div>
                             </div>
-                            {metric.minutes != null && <Meter pct={(metric.minutes / slowest) * 100} tone={metric.tone} />}
-                            <span className="an-row__sub">{metric.description}</span>
+                            <div className="rounded-[4px] bg-accent-primary/10 shrink-0" style={{ padding: '4px 8px' }}>
+                                <Text variant="body-sm-semibold" color="accent-primary" className="tabular-nums">{metric.value}</Text>
+                            </div>
                         </div>
-                    </div>
+                        {index < responseMetrics.length - 1 && <div className="border-t border-tertiary" />}
+                    </React.Fragment>
                 ))}
             </div>
-
-            <Callout icon="insights">{insight}</Callout>
+            <div className="bg-[#2980D31A] border border-[#2980D333] rounded-[10px]" style={{ padding: 10 }}>
+                <Text variant="body-md" color="none" style={{ color: "#2980D3" }} className="font-medium">
+                    {insight}
+                </Text>
+            </div>
         </DashboardCard>
     );
 };

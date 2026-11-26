@@ -37,11 +37,11 @@ export interface DepartmentMetricItem {
 }
 
 const COLORS: { color: string; bgColor: string; textColor: keyof typeof tailwindTextColors }[] = [
-    { color: "bg-[#4a8fd6]", bgColor: "bg-[rgba(74,143,214,0.15)]", textColor: "accent-violet" },
-    { color: "bg-[#e5a73b]", bgColor: "bg-[#e5a73b26]", textColor: "accent-orange" },
-    { color: "bg-accent-green", bgColor: "bg-[rgba(42,154,116,0.15)]", textColor: "accent-green" },
-    { color: "bg-accent-primary", bgColor: "bg-[rgba(47,111,184,0.15)]", textColor: "accent-primary" },
-    { color: "bg-accent-red", bgColor: "bg-[rgba(224,101,107,0.15)]", textColor: "accent-red" },
+    { color: "bg-[#6974f7]", bgColor: "bg-[rgba(105,116,247,0.15)]", textColor: "accent-violet" },
+    { color: "bg-[#e89b00]", bgColor: "bg-[#E89B0026]", textColor: "accent-orange" },
+    { color: "bg-accent-green", bgColor: "bg-[rgba(0,200,179,0.15)]", textColor: "accent-green" },
+    { color: "bg-accent-primary", bgColor: "bg-[rgba(36,132,199,0.15)]", textColor: "accent-primary" },
+    { color: "bg-accent-red", bgColor: "bg-[rgba(255,95,87,0.15)]", textColor: "accent-red" },
 ];
 
 interface ResourceUtilizationProps {

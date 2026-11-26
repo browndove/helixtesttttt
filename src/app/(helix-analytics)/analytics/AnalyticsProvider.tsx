@@ -2,7 +2,6 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
-import { applyAnalyticsChartTheme, clearAnalyticsChartTheme } from '@/components/analytics/glass/apex-theme';
 import GenerateReportModal from '@/components/analytics/report/GenerateReportModal';
 import { API_ENDPOINTS } from '@/lib/analytics/config';
 import { extractFeatureUsageSummary } from '@/lib/analytics/feature-usage-metrics';
@@ -49,10 +48,6 @@ export default function AnalyticsProvider({ children }: { children: React.ReactN
     const searchParams = useSearchParams();
     const router = useRouter();
     const pathname = usePathname();
-
-    // Chart defaults must exist before child charts mount (their effects run before ours).
-    useState(applyAnalyticsChartTheme);
-    useEffect(() => clearAnalyticsChartTheme, []);
 
     const [initialRange] = useState(() => readInitialRange(searchParams.get('from'), searchParams.get('to')));
     const [dateFrom, setDateFrom] = useState(initialRange.from);

@@ -7,6 +7,7 @@ import Dropdown from "@/components/analytics/dropdown";
 import dynamic from "next/dynamic";
 import { RiExpandDiagonalLine } from "react-icons/ri";
 import { GrContract } from "react-icons/gr";
+import { useTheme } from "next-themes";
 import clsx from "clsx";
 import FullscreenOverlay from "@/components/analytics/fullscreen-overlay";
 import { buildNiceYAxisScale } from "@/lib/analytics/nice-chart-axis";
@@ -14,8 +15,6 @@ import {
     fillDailyMessageVolumePeriod,
     type DailyMessageVolumePoint,
 } from "@/lib/analytics/daily-volume";
-import { CardTitle } from "@/components/analytics/glass/illustrations";
-import { areaWash, endpointAnnotation, seriesTooltip, smoothLine } from "@/components/analytics/glass/chart-kit";
 
 const Chart = dynamic(() => import("react-apexcharts"), { ssr: false });
 
@@ -58,6 +57,7 @@ const RevenueChart = ({
     isHovered = false,
     dailyVolume = [],
 }: RevenueChartProps) => {
+    const { resolvedTheme } = useTheme();
     const [period, setPeriod] = useState("7d");
 
     // Prevent body scroll when fullscreen
@@ -119,13 +119,34 @@ const RevenueChart = ({
                 speed: 800,
             },
         },
-        colors: ["#2f6fb8"],
-        fill: areaWash(),
-        stroke: smoothLine(["#2f6fb8"]),
-        markers: { size: periodDays <= 7 ? 4 : 0, colors: ["#2f6fb8"] },
-        annotations: totalData.length
-            ? endpointAnnotation(categories[categories.length - 1], totalData[totalData.length - 1], "#2f6fb8", formatCount(totalData[totalData.length - 1]))
-            : undefined,
+        colors: ["#2980D3"],
+        fill: {
+            type: "gradient",
+            gradient: {
+                shade: "light",
+                type: "vertical",
+                shadeIntensity: 0.3,
+                gradientToColors: ["#2980D3"],
+                inverseColors: false,
+                opacityFrom: 0.4,
+                opacityTo: 0.05,
+                stops: [0, 100],
+            },
+        },
+        stroke: {
+            curve: "smooth",
+            width: 3,
+            colors: ["#2980D3"],
+        },
+        markers: {
+            size: periodDays <= 7 ? 5 : periodDays <= 14 ? 3 : 0,
+            colors: ["#2980D3"],
+            strokeColors: "#FFFFFF",
+            strokeWidth: 2,
+            hover: {
+                size: 7,
+            },
+        },
         dataLabels: { enabled: false },
         xaxis: {
             categories,
@@ -136,7 +157,10 @@ const RevenueChart = ({
                 rotate: 0,
                 hideOverlappingLabels: true,
                 style: {
-                    fontSize: "11px",
+                    colors: "var(--text-secondary)",
+                    fontSize: "12px",
+                    fontWeight: 500,
+                    fontFamily: "system-ui, -apple-system, sans-serif",
                 },
             },
         },
@@ -148,7 +172,10 @@ const RevenueChart = ({
             decimalsInFloat: 0,
             labels: {
                 style: {
-                    fontSize: "11px",
+                    colors: "var(--text-secondary)",
+                    fontSize: "12px",
+                    fontWeight: 500,
+                    fontFamily: "system-ui, -apple-system, sans-serif",
                 },
                 formatter: (val) => {
                     const step = yAxisScale.step;
@@ -162,9 +189,31 @@ const RevenueChart = ({
                 },
             },
         },
-        grid: { padding: { top: 6, right: 18, bottom: 4, left: 12 } },
+        grid: {
+            show: true,
+            borderColor: "var(--bg-tertiary)",
+            strokeDashArray: 5,
+            padding: {
+                top: 6,
+                right: 10,
+                bottom: 4,
+                left: 12,
+            },
+            xaxis: {
+                lines: { show: true },
+            },
+            yaxis: {
+                lines: { show: true },
+            },
+        },
         tooltip: {
-            custom: seriesTooltip(categories, ["Messages"], ["#2f6fb8"], (v) => `${v.toLocaleString()}`),
+            theme: resolvedTheme === "dark" || resolvedTheme === "blue" ? "dark" : "light",
+            style: {
+                fontFamily: "system-ui, -apple-system, sans-serif",
+            },
+            y: {
+                formatter: (val) => `${val.toLocaleString()} messages`,
+            },
         },
     };
 
@@ -187,7 +236,7 @@ const RevenueChart = ({
             : { padding: "20px 24px 24px", boxSizing: "border-box" as const };
 
         return (
-            <div data-watermark="chat"
+            <div
                 className={clsx(
                     "bg-primary rounded-[18px] border border-black/[0.08] flex min-w-0 w-full flex-col gap-0 overflow-hidden",
                     "transition-all duration-500",
@@ -197,7 +246,9 @@ const RevenueChart = ({
             >
                 {/* Header */}
                 <div className="flex justify-between gap-3">
-                    <CardTitle icon="forum" variant="body-md-semibold">Daily Message Volume</CardTitle>
+                    <Text variant="body-md-semibold" color="text-primary">
+                        Daily Message Volume
+                    </Text>
                     <div className="flex items-center gap-2.5">
                         {/* Period Dropdown */}
                         <Dropdown

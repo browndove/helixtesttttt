@@ -6,7 +6,6 @@ import { analyticsNavSections } from '@/components/navSections';
 import AnalyticsProvider from './AnalyticsProvider';
 import { AnalyticsSidebarFooter, AnalyticsTopBar } from './AnalyticsChrome';
 import './analytics.css';
-import '@/components/analytics/glass/analytics-glass.css';
 
 /**
  * Analytics section shell: its own sidebar (analytics pages + way back to admin) in place of

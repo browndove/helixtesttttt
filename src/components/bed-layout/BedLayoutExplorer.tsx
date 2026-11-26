@@ -33,10 +33,9 @@ import BedLayoutToolbar, { type StatusFilter } from './BedLayoutToolbar';
 import BedTile from './BedTile';
 import { SAMPLE_BLOCKS } from './bed-layout-sample';
 import { applyPreviewOp, type PreviewLevel, type PreviewOp } from './preview-store';
-import { BED_STATUS_META, card, formatDate, primaryButton, secondaryButton } from './bed-layout-ui';
+import { BED_STATUS_META, card, formatDate, linkButton, primaryButton, secondaryButton } from './bed-layout-ui';
 import KpiRow from './kpi/KpiRow';
 import { buildBedKpiItems } from './kpi/kpiConfig';
-import './beds-page.css';
 
 type Toast = { message: string; variant: 'success' | 'error' | 'info' };
 
@@ -129,14 +128,6 @@ function blockDeleteTarget(block: Block): DeleteTarget {
     };
 }
 
-const ADD_ICONS: Record<LayoutLevel, string> = {
-    block: 'domain',
-    floor: 'layers',
-    ward: 'meeting_room',
-    room: 'door_front',
-    bed: 'king_bed',
-};
-
 type FloorRow = { block: Block; floor: Floor };
 
 type HomeUnitRow = { block: Block; floor: Floor | null; unit: Ward };
@@ -178,22 +169,33 @@ function ActionMenu({ items }: { items: { label: string; onClick: () => void; da
                 aria-label="Actions"
                 aria-expanded={open}
                 onClick={() => setOpen(current => !current)}
-                className="bl-dots"
+                style={{
+                    width: 28, height: 28, borderRadius: 8, border: '1px solid #E6EBF1',
+                    background: open ? '#F4F7FB' : '#FFFFFF', color: '#475467',
+                    display: 'inline-flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
+                }}
             >
                 <MoreHorizontal size={16} strokeWidth={2} />
             </button>
             {open && typeof document !== 'undefined' && createPortal(
                 <div
                     ref={menuRef}
-                    className="bl-page bl-menu"
-                    style={{ position: 'fixed', top: pos.top, left: pos.left, width: 180, zIndex: 99999 }}
+                    style={{
+                        position: 'fixed', top: pos.top, left: pos.left, width: 180, zIndex: 99999,
+                        background: '#FFFFFF', border: '1px solid #E6EBF1', borderRadius: 10,
+                        boxShadow: '0 8px 24px rgba(16, 24, 40, 0.12)', padding: 4,
+                    }}
                 >
                     {items.map(item => (
                         <button
                             key={item.label}
                             type="button"
                             onClick={() => { setOpen(false); item.onClick(); }}
-                            className={`bl-menu__item${item.danger ? ' bl-menu__item--danger' : ''}`}
+                            style={{
+                                width: '100%', textAlign: 'left', border: 'none', background: 'none',
+                                padding: '8px 10px', borderRadius: 7, cursor: 'pointer', fontSize: 13,
+                                fontWeight: 600, color: item.danger ? '#B42318' : '#172033',
+                            }}
                         >
                             {item.label}
                         </button>
@@ -409,64 +411,14 @@ function buildCreateContext(
 }
 
 const TH: React.CSSProperties = {
-    padding: '13px 16px 11px', fontSize: 10.5, fontWeight: 700, letterSpacing: '0.08em',
-    textTransform: 'uppercase', color: '#7b879b', borderBottom: '1px solid rgba(27, 42, 68, 0.07)',
-    whiteSpace: 'nowrap', background: 'rgba(255, 255, 255, 0.55)',
+    padding: '10px 14px', fontSize: 10, fontWeight: 750, letterSpacing: '0.07em',
+    textTransform: 'uppercase', color: '#A3AEBD', borderBottom: '1px solid #EDF1F6',
+    whiteSpace: 'nowrap', background: '#FAFBFD',
 };
 
 const TD: React.CSSProperties = {
-    padding: '13px 16px', borderBottom: '1px solid rgba(27, 42, 68, 0.045)', fontSize: 13, color: '#4a5872',
+    padding: '12px 14px', borderBottom: '1px solid #F4F6F9', fontSize: 13, color: '#344054',
 };
-
-type BedCounts = { bed_count: number; available_count: number; occupied_count: number; blocked_count: number };
-
-/** Unit/room name with its icon tile; the arrow shows on row hover. */
-function NameCell({ icon, name, disabled, onOpen, meta }: {
-    icon: string;
-    name: string;
-    disabled?: boolean;
-    onOpen: () => void;
-    meta?: React.ReactNode;
-}) {
-    return (
-        <div className="bl-name">
-            <span className="bl-name__icon"><span className="material-icons-round">{icon}</span></span>
-            <div style={{ minWidth: 0 }}>
-                <button type="button" className="bl-link" disabled={disabled} onClick={onOpen}>
-                    {name}
-                    {!disabled && <span className="material-icons-round bl-link__go">chevron_right</span>}
-                </button>
-                {meta && <div className="bl-meta">{meta}</div>}
-            </div>
-        </div>
-    );
-}
-
-function countCell(value: number, tone: 'available' | 'occupied' | 'blocked') {
-    return (
-        <td style={{ ...TD, textAlign: 'center' }}>
-            <span className={`bl-num ${value === 0 ? 'bl-num--zero' : `bl-num--${tone}`}`}>{value}</span>
-        </td>
-    );
-}
-
-/** Total with a thin available / occupied / out-of-service split underneath. */
-function totalCell(counts: BedCounts) {
-    const total = counts.bed_count;
-    const pct = (value: number) => `${total > 0 ? (value / total) * 100 : 0}%`;
-    return (
-        <td style={{ ...TD, textAlign: 'center' }}>
-            <span className={`bl-num ${total === 0 ? 'bl-num--zero' : 'bl-num--total'}`}>{total}</span>
-            {total > 0 && (
-                <span className="bl-mix" aria-hidden>
-                    <span className="bl-mix__a" style={{ width: pct(counts.available_count) }} />
-                    <span className="bl-mix__o" style={{ width: pct(counts.occupied_count) }} />
-                    <span className="bl-mix__b" style={{ width: pct(counts.blocked_count) }} />
-                </span>
-            )}
-        </td>
-    );
-}
 
 function bone(width: number | string, height = 12): React.ReactNode {
     return <div className="skeleton" style={{ width, height, borderRadius: 6 }} />;
@@ -1079,14 +1031,18 @@ export default function BedLayoutExplorer() {
 
     const addMenu = isAdmin ? (
         <div style={{ position: 'relative', flexShrink: 0 }}>
-            <button type="button" className="bl-primary" onClick={() => setAddMenuOpen(open => !open)} style={primaryButton}>
+            <button type="button" onClick={() => setAddMenuOpen(open => !open)} style={primaryButton}>
                 <Plus size={14} strokeWidth={2} /> Add
                 <ChevronDown size={13} strokeWidth={2} />
             </button>
             {addMenuOpen && (
                 <>
                     <div style={{ position: 'fixed', inset: 0, zIndex: 30 }} onClick={() => setAddMenuOpen(false)} />
-                    <div className="bl-menu" style={{ position: 'absolute', top: 'calc(100% + 8px)', right: 0, zIndex: 31, minWidth: 200 }}>
+                    <div style={{
+                        position: 'absolute', top: 'calc(100% + 6px)', right: 0, zIndex: 31, minWidth: 190,
+                        background: '#FFFFFF', border: '1px solid #E6EBF1', borderRadius: 10,
+                        boxShadow: '0 14px 32px rgba(16, 24, 40, 0.16)', overflow: 'hidden', padding: 5,
+                    }}>
                         {addMenuItems.map(item => (
                             <button
                                 key={item.level}
@@ -1104,12 +1060,12 @@ export default function BedLayoutExplorer() {
                                         }),
                                     });
                                 }}
-                                className="bl-menu__item"
-                                style={{ display: 'flex', alignItems: 'center', gap: 10 }}
+                                style={{
+                                    display: 'block', width: '100%', textAlign: 'left', border: 'none',
+                                    background: 'transparent', padding: '8px 10px', borderRadius: 7,
+                                    fontSize: 12.5, color: '#344054', cursor: 'pointer',
+                                }}
                             >
-                                <span className="material-icons-round" style={{ fontSize: 17, color: '#2f6fb8' }}>
-                                    {ADD_ICONS[item.level]}
-                                </span>
                                 {item.label}
                             </button>
                         ))}
@@ -1119,46 +1075,47 @@ export default function BedLayoutExplorer() {
         </div>
     ) : null;
 
-    const heroIcon = level === 'room' ? 'king_bed' : selectedUnit ? 'meeting_room' : level === 'floor' ? 'domain' : 'bed';
-    const heroKicker = level === 'room' ? 'Room' : selectedUnit ? 'Unit' : level === 'floor' ? 'Building' : 'Facility layout';
-
     const pageHeader = (title: string, badgeIcon: React.ReactNode, badgeText: string, actions: React.ReactNode, back?: () => void) => (
-        <div className="bl-reveal">
+        <div style={{ marginBottom: 16 }}>
             {back && (
-                <button type="button" onClick={back} className="bl-back">
-                    <ChevronLeft size={14} strokeWidth={2.2} /> Back
+                <button
+                    type="button"
+                    onClick={back}
+                    style={{ ...linkButton, color: '#7B8798', display: 'inline-flex', alignItems: 'center', gap: 4, marginBottom: 10 }}
+                >
+                    <ChevronLeft size={13} strokeWidth={2} /> Back
                 </button>
             )}
-            <div className="bl-hero">
-                <span className="bl-hero__clip" aria-hidden>
-                    <span className="material-icons-round bl-hero__mark">{heroIcon}</span>
-                </span>
-                <div className="bl-hero__id">
-                    <span className="bl-hero__chip"><span className="material-icons-round">{heroIcon}</span></span>
-                    <div style={{ minWidth: 0 }}>
-                        <div className="bl-kicker">{heroKicker}</div>
-                        <div className="bl-title">{title}</div>
-                        <div className="bl-sub">
-                            <span className="bl-sub__icon">{badgeIcon}</span>
-                            {badgeText}
-                        </div>
+            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 14, flexWrap: 'wrap' }}>
+                <div style={{ minWidth: 0 }}>
+                    <div style={{ fontSize: 20, fontWeight: 750, color: '#101828', letterSpacing: '-0.02em' }}>{title}</div>
+                    <div style={{ display: 'inline-flex', alignItems: 'center', gap: 7, marginTop: 7 }}>
+                        <span style={{
+                            width: 24, height: 24, borderRadius: 7, background: '#F2F4F7', color: '#667085',
+                            display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+                        }}>
+                            {badgeIcon}
+                        </span>
+                        <span style={{ fontSize: 14, fontWeight: 650, color: '#344054' }}>{badgeText}</span>
                     </div>
                 </div>
-                <div className="bl-hero__actions">{actions}</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>{actions}</div>
             </div>
         </div>
     );
 
     const groupRow = (label: string, count: string, actions: React.ReactNode, columns: number) => (
-        <tr className="bl-group">
-            <td colSpan={columns}>
+        <tr>
+            <td colSpan={columns} style={{ padding: '9px 14px', background: '#F6F8FB', borderBottom: '1px solid #EDF1F6' }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 9, minWidth: 0 }}>
-                        <span className="bl-group__label">
-                            <span className="material-icons-round">folder_open</span>
-                            {label}
+                        <span style={{ fontSize: 13, fontWeight: 750, color: '#101828' }}>{label}</span>
+                        <span style={{
+                            fontSize: 10.5, fontWeight: 700, color: '#667085', background: '#FFFFFF',
+                            border: '1px solid #E6EBF1', borderRadius: 999, padding: '2px 8px', whiteSpace: 'nowrap',
+                        }}>
+                            {count}
                         </span>
-                        <span className="bl-count-tag">{count}</span>
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>{actions}</div>
                 </div>
@@ -1211,18 +1168,21 @@ export default function BedLayoutExplorer() {
 
     const deleteNameMatched = !deleteTarget?.confirmName || deleteConfirmText === deleteTarget.confirmName;
 
+    const countCell = (value: number, color = '#172033') => (
+        <td style={{ ...TD, textAlign: 'center', fontWeight: 700, color: value === 0 ? '#A3AEBD' : color }}>{value}</td>
+    );
+
     const emptyPanel = (icon: React.ReactNode, title: string, hint: string, action?: React.ReactNode) => (
-        <div className="bl-card bl-empty bl-reveal bl-reveal--2">
-            <span className="bl-empty__glow" aria-hidden />
-            <div className="bl-empty__art">{icon}</div>
-            <div className="bl-empty__title">{title}</div>
-            <div className="bl-empty__hint" style={{ marginBottom: action ? 18 : 0 }}>{hint}</div>
+        <div style={{ ...card, padding: '44px 20px', textAlign: 'center' }}>
+            <div style={{ marginBottom: 10 }}>{icon}</div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: '#172033', marginBottom: 4 }}>{title}</div>
+            <div style={{ fontSize: 12.5, color: '#8290A5', marginBottom: action ? 16 : 0 }}>{hint}</div>
             {action}
         </div>
     );
 
     const toolbar = (placeholder: string, statusOptions?: { value: StatusFilter; label: string }[], extra?: React.ReactNode) => (
-        <div className="bl-toolbar bl-reveal bl-reveal--2">
+        <div style={{ marginBottom: 12 }}>
             <BedLayoutToolbar
                 search={search}
                 onSearch={setSearch}
@@ -1241,9 +1201,9 @@ export default function BedLayoutExplorer() {
     );
 
     return (
-        <div className="app-main bl-page" style={{
+        <div className="app-main" style={{
             height: '100vh', minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden',
-            background: 'transparent', color: '#0E182A',
+            background: '#F8FAFC', color: '#0E182A',
             fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
             minWidth: 0, flex: 1,
         }}>
@@ -1260,11 +1220,11 @@ export default function BedLayoutExplorer() {
                     <HomeSkeleton />
                 ) : buildings.length === 0 ? (
                     emptyPanel(
-                        <Building2 size={32} strokeWidth={1.7} color="#2f6fb8" />,
+                        <Building2 size={34} strokeWidth={1.6} color="#CBD5E1" />,
                         'No buildings yet',
                         'Add a building, then add a floor and the units on that floor.',
                         isAdmin ? (
-                            <button type="button" className="bl-primary" onClick={() => setDialog({ kind: 'create', level: 'block', context: {} })} style={primaryButton}>
+                            <button type="button" onClick={() => setDialog({ kind: 'create', level: 'block', context: {} })} style={primaryButton}>
                                 <Plus size={14} strokeWidth={2} /> Add building / block
                             </button>
                         ) : undefined,
@@ -1283,7 +1243,7 @@ export default function BedLayoutExplorer() {
                         )}
                         {toolbar('Search units, buildings or floors')}
                         {homeUnitRows.length === 0 ? emptyPanel(
-                            <Users size={32} strokeWidth={1.7} color="#2f6fb8" />,
+                            <Users size={34} strokeWidth={1.6} color="#CBD5E1" />,
                             'No units yet',
                             'Add a ward or unit to a floor, then open it here to manage rooms and beds.',
                             isAdmin ? (
@@ -1296,7 +1256,7 @@ export default function BedLayoutExplorer() {
                                 </button>
                             ) : undefined,
                         ) : (
-                            <div className="bl-reveal bl-reveal--3" style={{ ...card, overflow: 'hidden' }}>
+                            <div style={{ ...card, overflow: 'hidden' }}>
                                 <div style={{ overflowX: 'auto' }}>
                                     <table style={{ width: '100%', minWidth: 860, borderCollapse: 'collapse' }}>
                                         <thead>
@@ -1314,27 +1274,41 @@ export default function BedLayoutExplorer() {
                                             {pagedHomeUnits.map(({ block: item, floor: entry, unit }) => {
                                                 const canOpen = !!entry?.id;
                                                 return (
-                                                    <tr key={unit.id} className="bl-row">
+                                                    <tr key={unit.id}>
                                                         <td style={TD}>
-                                                            <NameCell
-                                                                icon="meeting_room"
-                                                                name={unit.name}
-                                                                disabled={!canOpen}
-                                                                onOpen={() => {
-                                                                    if (!entry) return;
-                                                                    openHomeUnit(entry.id, unit.id);
-                                                                }}
-                                                                meta={<>
-                                                                    <span className="material-icons-round">domain</span>
+                                                            <div style={{ display: 'grid', gap: 3, justifyItems: 'start' }}>
+                                                                <button
+                                                                    type="button"
+                                                                    disabled={!canOpen}
+                                                                    onClick={() => {
+                                                                        if (!entry) return;
+                                                                        openHomeUnit(entry.id, unit.id);
+                                                                    }}
+                                                                    style={{
+                                                                        display: 'block', border: 'none', background: 'none', padding: 0,
+                                                                        cursor: canOpen ? 'pointer' : 'default',
+                                                                        fontSize: 13.5, fontWeight: 700,
+                                                                        color: canOpen ? '#1D6FB8' : '#101828',
+                                                                        textAlign: 'left', lineHeight: 1.25,
+                                                                    }}
+                                                                >
+                                                                    {unit.name}
+                                                                </button>
+                                                                <div style={{
+                                                                    display: 'flex', alignItems: 'center', gap: 5,
+                                                                    fontSize: 11.5, color: '#98A2B3', fontWeight: 550,
+                                                                    lineHeight: 1.2,
+                                                                }}>
+                                                                    <Building2 size={11} strokeWidth={2} color="#B0B8C5" />
                                                                     <span>{homeLocationLabel(item, entry)}</span>
-                                                                </>}
-                                                            />
+                                                                </div>
+                                                            </div>
                                                         </td>
-                                                        {totalCell(unit)}
-                                                        {countCell(unit.available_count, 'available')}
-                                                        {countCell(unit.occupied_count, 'occupied')}
-                                                        {countCell(unit.blocked_count, 'blocked')}
-                                                        <td style={{ ...TD, textAlign: 'center', color: '#7b879b', whiteSpace: 'nowrap' }}>
+                                                        {countCell(unit.bed_count)}
+                                                        {countCell(unit.available_count, '#17803D')}
+                                                        {countCell(unit.occupied_count, '#1D4ED8')}
+                                                        {countCell(unit.blocked_count, '#6B7280')}
+                                                        <td style={{ ...TD, textAlign: 'center', color: '#8290A5', whiteSpace: 'nowrap' }}>
                                                             {formatDate(unit.updated_at || lastModified(entry || item))}
                                                         </td>
                                                         <td style={{ ...TD, textAlign: 'right' }}>
@@ -1351,7 +1325,7 @@ export default function BedLayoutExplorer() {
                                     </table>
                                 </div>
                                 {pagedHomeUnits.length === 0 && (
-                                    <div className="bl-nomatch">
+                                    <div style={{ padding: '36px 16px', textAlign: 'center', fontSize: 13, color: '#8290A5' }}>
                                         No units match this search.
                                     </div>
                                 )}
@@ -1368,7 +1342,7 @@ export default function BedLayoutExplorer() {
                             goHome,
                         )}
                         {toolbar('Search units')}
-                        <div className="bl-reveal bl-reveal--3" style={{ ...card, overflow: 'hidden' }}>
+                        <div style={{ ...card, overflow: 'hidden' }}>
                             <div style={{ overflowX: 'auto' }}>
                                 <table style={{ width: '100%', minWidth: 760, borderCollapse: 'collapse' }}>
                                     <thead>
@@ -1397,21 +1371,30 @@ export default function BedLayoutExplorer() {
                                                 )}
                                                 {rows.length === 0 ? (
                                                     <tr>
-                                                        <td colSpan={8} style={TD} className="bl-empty-row">
+                                                        <td colSpan={8} style={{ ...TD, color: '#A3AEBD', fontSize: 12.5 }}>
                                                             No units of this type yet.
                                                         </td>
                                                     </tr>
                                                 ) : rows.map(({ unit }) => (
-                                                    <tr key={unit.id} className="bl-row">
+                                                    <tr key={unit.id}>
                                                         <td style={TD}>
-                                                            <NameCell icon="meeting_room" name={unit.name} onOpen={() => setUnitId(unit.id)} />
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => setUnitId(unit.id)}
+                                                                style={{
+                                                                    border: 'none', background: 'none', padding: 0, cursor: 'pointer',
+                                                                    fontSize: 13.5, fontWeight: 700, color: '#1D6FB8', textAlign: 'left',
+                                                                }}
+                                                            >
+                                                                {unit.name}
+                                                            </button>
                                                         </td>
-                                                        <td style={{ ...TD, color: '#4a5872', fontSize: 13 }}>{genderOf(unit, careUnits)}</td>
-                                                        {totalCell(unit)}
-                                                        {countCell(unit.available_count, 'available')}
-                                                        {countCell(unit.occupied_count, 'occupied')}
-                                                        {countCell(unit.blocked_count, 'blocked')}
-                                                        <td style={{ ...TD, textAlign: 'center', color: '#7b879b', whiteSpace: 'nowrap' }}>
+                                                        <td style={{ ...TD, color: '#475467', fontSize: 13 }}>{genderOf(unit, careUnits)}</td>
+                                                        {countCell(unit.bed_count)}
+                                                        {countCell(unit.available_count, '#17803D')}
+                                                        {countCell(unit.occupied_count, '#1D4ED8')}
+                                                        {countCell(unit.blocked_count, '#6B7280')}
+                                                        <td style={{ ...TD, textAlign: 'center', color: '#8290A5', whiteSpace: 'nowrap' }}>
                                                             {formatDate(unit.updated_at)}
                                                         </td>
                                                         <td style={{ ...TD, textAlign: 'right' }}>
@@ -1429,7 +1412,7 @@ export default function BedLayoutExplorer() {
                                 </table>
                             </div>
                             {pagedUnits.length === 0 && (!!search.trim() || status !== 'all') && (
-                                <div className="bl-nomatch">
+                                <div style={{ padding: '36px 16px', textAlign: 'center', fontSize: 13, color: '#8290A5' }}>
                                     No units match this search.
                                 </div>
                             )}
@@ -1481,7 +1464,7 @@ export default function BedLayoutExplorer() {
                                         customEntryTitle="Ward"
                                         customEntryHint="Not listed? Type here, then Enter."
                                         customPlaceholder="Type ward — Enter"
-                                        style={{ height: 34, fontSize: 12.5, borderRadius: 11, border: '1px solid rgba(27, 42, 68, 0.1)' }}
+                                        style={{ height: 34, fontSize: 12.5, borderRadius: 8, border: '1px solid #E1E7EF' }}
                                         maxH={240}
                                     />
                                 </div>
@@ -1492,7 +1475,7 @@ export default function BedLayoutExplorer() {
                                 <TableSkeleton headers={ROOM_HEADERS} />
                             </div>
                         ) : wards.length === 0 ? emptyPanel(
-                            <DoorOpen size={32} strokeWidth={1.7} color="#2f6fb8" />,
+                            <DoorOpen size={34} strokeWidth={1.6} color="#CBD5E1" />,
                             'No wards on this floor',
                             'Add a ward or unit, and optionally its rooms, in one step.',
                             isAdmin ? (
@@ -1509,7 +1492,7 @@ export default function BedLayoutExplorer() {
                                 </button>
                             ) : undefined,
                         ) : (
-                            <div className="bl-reveal bl-reveal--3" style={{ ...card, overflow: 'hidden' }}>
+                            <div style={{ ...card, overflow: 'hidden' }}>
                                 <div style={{ overflowX: 'auto' }}>
                                     <table style={{ width: '100%', minWidth: 940, borderCollapse: 'collapse' }}>
                                         <thead>
@@ -1560,27 +1543,34 @@ export default function BedLayoutExplorer() {
                                                     )}
                                                     {group.length === 0 ? (
                                                         <tr>
-                                                            <td colSpan={7} style={TD} className="bl-empty-row">
+                                                            <td colSpan={7} style={{ ...TD, color: '#A3AEBD', fontSize: 12.5 }}>
                                                                 {selectedUnit ? 'No rooms in this unit yet.' : 'No rooms in this ward yet.'}
                                                             </td>
                                                         </tr>
                                                     ) : group.map(item => {
                                                         const counts = countsOf(item);
                                                         return (
-                                                            <tr key={item.id} className="bl-row">
+                                                            <tr key={item.id}>
                                                                 <td style={TD}>
-                                                                    <NameCell
-                                                                        icon="door_front"
-                                                                        name={item.name || `Room ${item.number}`}
-                                                                        onOpen={() => setRoomId(item.id)}
-                                                                        meta={item.name ? <span>{item.number}</span> : undefined}
-                                                                    />
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => setRoomId(item.id)}
+                                                                        style={{
+                                                                            border: 'none', background: 'none', padding: 0, cursor: 'pointer',
+                                                                            fontSize: 13.5, fontWeight: 700, color: '#1D6FB8', textAlign: 'left',
+                                                                        }}
+                                                                    >
+                                                                        {item.name || `Room ${item.number}`}
+                                                                    </button>
+                                                                    {item.name && (
+                                                                        <div style={{ fontSize: 11.5, color: '#A3AEBD', marginTop: 2 }}>{item.number}</div>
+                                                                    )}
                                                                 </td>
-                                                                {totalCell(counts)}
-                                                                {countCell(counts.available_count, 'available')}
-                                                                {countCell(counts.occupied_count, 'occupied')}
-                                                                {countCell(counts.blocked_count, 'blocked')}
-                                                                <td style={{ ...TD, textAlign: 'center', color: '#7b879b', whiteSpace: 'nowrap' }}>
+                                                                {countCell(counts.bed_count)}
+                                                                {countCell(counts.available_count, '#17803D')}
+                                                                {countCell(counts.occupied_count, '#1D4ED8')}
+                                                                {countCell(counts.blocked_count, '#6B7280')}
+                                                                <td style={{ ...TD, textAlign: 'center', color: '#8290A5', whiteSpace: 'nowrap' }}>
                                                                     {formatDate(item.updated_at)}
                                                                 </td>
                                                                 <td style={{ ...TD, textAlign: 'right' }}>
@@ -1614,7 +1604,6 @@ export default function BedLayoutExplorer() {
                             isAdmin ? (
                                 <button
                                     type="button"
-                                    className="bl-primary"
                                     onClick={() => setDialog({
                                         kind: 'create', level: 'bed',
                                         context: buildCreateContext(blocks, {
@@ -1639,19 +1628,16 @@ export default function BedLayoutExplorer() {
                         ])}
 
                         {isAdmin && (
-                            <div className="bl-card bl-quick bl-reveal bl-reveal--2">
-                                <span className="bl-quick__label">
-                                    <span className="material-icons-round">bolt</span>
-                                    Quick add
-                                </span>
+                            <div style={{ ...card, padding: '11px 13px', marginBottom: 12, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                                <span style={{ fontSize: 12.5, fontWeight: 700, color: '#172033', flexShrink: 0 }}>Quick add</span>
                                 <input
                                     value={quickInput}
                                     onChange={e => setQuickInput(e.target.value)}
                                     onKeyDown={e => { if (e.key === 'Enter') quickAddBeds(); }}
                                     placeholder="Bed numbers, e.g. 1-20, ICU-1, 12A"
                                     style={{
-                                        flex: 1, minWidth: 190, height: 34, padding: '0 12px', borderRadius: 11,
-                                        border: '1px solid rgba(27, 42, 68, 0.1)', background: 'rgba(255, 255, 255, 0.9)', fontSize: 12.5,
+                                        flex: 1, minWidth: 190, height: 34, padding: '0 11px', borderRadius: 8,
+                                        border: '1px solid #E1E7EF', background: '#FFFFFF', fontSize: 12.5,
                                         color: '#172033', outline: 'none',
                                     }}
                                 />
@@ -1671,12 +1657,15 @@ export default function BedLayoutExplorer() {
                         )}
 
                         {roomBeds.length === 0 ? emptyPanel(
-                            <BedIcon size={32} strokeWidth={1.7} color="#2f6fb8" />,
+                            <BedIcon size={34} strokeWidth={1.6} color="#CBD5E1" />,
                             'No beds in this room yet',
                             'Add bed numbers to start tracking occupancy here.',
                         ) : (
-                            <div className="bl-card bl-beds bl-reveal bl-reveal--3">
-                                <div className="bl-beds__grid">
+                            <div style={{ ...card, padding: 16 }}>
+                                <div style={{
+                                    display: 'grid', gap: 10,
+                                    gridTemplateColumns: 'repeat(auto-fill, minmax(96px, 1fr))',
+                                }}>
                                     {pagedBeds.map(bed => (
                                         <BedTile
                                             key={bed.id}
@@ -1698,15 +1687,17 @@ export default function BedLayoutExplorer() {
                                     ))}
                                 </div>
                                 {pagedBeds.length === 0 && (
-                                    <div className="bl-nomatch" style={{ padding: '26px 8px' }}>
+                                    <div style={{ padding: '26px 8px', textAlign: 'center', fontSize: 13, color: '#8290A5' }}>
                                         No beds match this filter.
                                     </div>
                                 )}
-                                <div className="bl-legend">
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginTop: 16, flexWrap: 'wrap' }}>
                                     {(Object.keys(BED_STATUS_META) as BedStatus[]).map(key => (
-                                        <span key={key} className="bl-legend__item">
-                                            <span style={{ width: 8, height: 8, borderRadius: '50%', background: BED_STATUS_META[key].dot }} />
-                                            <strong>{roomBeds.filter(bed => bed.status === key).length}</strong>
+                                        <span key={key} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#667085' }}>
+                                            <span style={{ width: 7, height: 7, borderRadius: '50%', background: BED_STATUS_META[key].dot }} />
+                                            <span style={{ fontWeight: 700, color: '#172033' }}>
+                                                {roomBeds.filter(bed => bed.status === key).length}
+                                            </span>
                                             {key === 'blocked' ? 'Unavailable' : BED_STATUS_META[key].label}
                                         </span>
                                     ))}
@@ -1716,7 +1707,7 @@ export default function BedLayoutExplorer() {
                     </>
                 ) : (
                     emptyPanel(
-                        <Building2 size={32} strokeWidth={1.7} color="#2f6fb8" />,
+                        <Building2 size={34} strokeWidth={1.6} color="#CBD5E1" />,
                         'Nothing to show',
                         'That location no longer exists.',
                         <button type="button" onClick={goHome} style={primaryButton}>
@@ -1742,7 +1733,10 @@ export default function BedLayoutExplorer() {
                 <div
                     role="dialog"
                     aria-modal="true"
-                    className="bl-scrim"
+                    style={{
+                        position: 'fixed', inset: 0, zIndex: 130, background: 'rgba(15, 23, 42, 0.45)',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20,
+                    }}
                     onClick={() => {
                         if (deleting || reassigning) return;
                         setDeleteTarget(null);
@@ -1752,11 +1746,8 @@ export default function BedLayoutExplorer() {
                 >
                     <div
                         onClick={e => e.stopPropagation()}
-                        className="bl-dialog"
+                        style={{ width: 'min(460px, 100%)', background: '#FFFFFF', borderRadius: 14, padding: 20, boxShadow: '0 24px 60px rgba(15, 23, 42, 0.26)' }}
                     >
-                        <span className="bl-dialog__icon">
-                            <span className="material-icons-round" style={{ fontSize: 22 }}>delete_outline</span>
-                        </span>
                         <div style={{ fontSize: 15, fontWeight: 700, color: '#101828', marginBottom: 6 }}>
                             Delete {deleteTarget.level === 'block' ? 'building' : deleteTarget.level === 'floor' ? 'floor' : deleteTarget.level === 'ward' ? 'unit' : ''}{(deleteTarget.level === 'block' || deleteTarget.level === 'floor' || deleteTarget.level === 'ward') ? ' ' : ''}{deleteTarget.label}?
                         </div>

@@ -10,60 +10,37 @@
 @source "../**/*.{js,ts,jsx,tsx}";
 
 :root {
-  /* Brand Colors — Deep Navy ink */
-  --helix-primary: #1b2a44;
-  --helix-primary-dark: #121d31;
-  --helix-primary-light: #2c4266;
+  /* Brand Colors — Deep Navy / Slate */
+  --helix-primary: #1e3a5f;
+  --helix-primary-dark: #152d4a;
+  --helix-primary-light: #2c5282;
   --helix-accent: #4a6fa5;
-  --helix-accent-dark: #1b2a44;
+  --helix-accent-dark: #1e3a5f;
 
-  /* Canvas — cool frosted blue-grey behind every glass surface */
-  --canvas-base: #e6ecf2;
-  --canvas-gradient:
-    radial-gradient(1200px 700px at 0% 0%, rgba(255, 255, 255, 0.9), transparent 60%),
-    radial-gradient(900px 600px at 100% 0%, rgba(214, 226, 238, 0.9), transparent 65%),
-    radial-gradient(1000px 800px at 85% 100%, rgba(203, 215, 228, 0.85), transparent 60%),
-    linear-gradient(180deg, #edf1f6 0%, #e2e9f0 100%);
+  /* Light Background Scale */
+  --bg-900: #f7f8fa;
+  --bg-800: #f0f2f5;
+  --bg-700: #e8eaef;
+  --bg-600: #dde0e6;
+  --bg-500: #d0d4dc;
 
-  /* Glass surfaces */
-  --glass-bg: rgba(255, 255, 255, 0.58);
-  --glass-bg-strong: rgba(255, 255, 255, 0.82);
-  --glass-border: rgba(255, 255, 255, 0.85);
-  --glass-edge: rgba(27, 42, 68, 0.06);
-  --glass-blur: blur(20px) saturate(150%);
-  --glass-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.9),
-    0 1px 2px rgba(27, 42, 68, 0.04),
-    0 10px 30px -8px rgba(27, 42, 68, 0.1);
-  --glass-shadow-hover:
-    inset 0 1px 0 rgba(255, 255, 255, 0.95),
-    0 2px 4px rgba(27, 42, 68, 0.05),
-    0 18px 40px -10px rgba(27, 42, 68, 0.16);
-
-  /* Light Background Scale (--bg-900 is the page fill: transparent so the canvas shows through) */
-  --bg-900: transparent;
-  --bg-800: #eef2f6;
-  --bg-700: #e4e9ef;
-  --bg-600: #d9e0e8;
-  --bg-500: #cbd4de;
-
-  /* Surface / Card Scale (opaque: popovers and sticky headers rely on these) */
+  /* Surface / Card Scale */
   --surface-1: #ffffff;
-  --surface-2: #f6f8fb;
-  --surface-3: #edf1f6;
+  --surface-2: #fafbfc;
+  --surface-3: #f3f4f6;
   --surface-card: #ffffff;
-  --surface-hover: #f2f5f9;
+  --surface-hover: #f5f7fa;
 
   /* Text */
-  --text-primary: #16213a;
-  --text-secondary: #4a5872;
-  --text-muted: #7b879b;
-  --text-disabled: #a3adbd;
+  --text-primary: #1a2332;
+  --text-secondary: #475569;
+  --text-muted: #7c8898;
+  --text-disabled: #a0aab4;
 
   /* Borders */
-  --border-subtle: rgba(27, 42, 68, 0.06);
-  --border-default: rgba(27, 42, 68, 0.1);
-  --border-strong: rgba(27, 42, 68, 0.18);
+  --border-subtle: #edf0f4;
+  --border-default: #e2e6ec;
+  --border-strong: #cdd3dc;
 
   /* Status Colors — Muted / Desaturated */
   --success: #3d8b5e;
@@ -77,16 +54,15 @@
   --critical: #9e3a42;
   --critical-bg: #f8f0f1;
 
-  /* Sidebar (width includes the 12px outer gutter around the floating panel) */
-  --sidebar-width: 268px;
-  --sidebar-gutter: 12px;
-  --sidebar-bg: var(--glass-bg);
+  /* Sidebar */
+  --sidebar-width: 285px;
+  --sidebar-bg: #ffffff;
 
-  /* Radii */
-  --radius-sm: 8px;
-  --radius-md: 12px;
-  --radius-lg: 18px;
-  --radius-xl: 22px;
+  /* Spacing */
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
 
   /* UI surface aliases (Tailwind @theme / component tokens) */
   --max-page-width: 1200px;
@@ -181,9 +157,7 @@ body {
 
 body {
   font-family: 'Montserrat', -apple-system, BlinkMacSystemFont, sans-serif;
-  background-color: var(--canvas-base);
-  background-image: var(--canvas-gradient);
-  background-attachment: fixed;
+  background-color: var(--bg-900);
   color: var(--text-primary);
   line-height: 1.6;
   -webkit-font-smoothing: antialiased;
@@ -307,7 +281,7 @@ h4 {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 9px 18px;
+  padding: 8px 16px;
   border-radius: var(--radius-md);
   font-size: 13px;
   font-weight: 600;
@@ -328,31 +302,29 @@ h4 {
 .btn-primary {
   background: var(--helix-primary);
   color: #fff;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 2px 6px rgba(27, 42, 68, 0.2);
+  box-shadow: 0 1px 2px rgba(30, 58, 95, 0.12);
 }
 
 .btn-primary:hover {
   background: var(--helix-primary-dark);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 6px 16px rgba(27, 42, 68, 0.26);
+  box-shadow: 0 3px 8px rgba(30, 58, 95, 0.22);
   transform: translateY(-1px);
 }
 
 .btn-primary:active {
   transform: translateY(0) scale(0.98);
-  box-shadow: 0 1px 2px rgba(27, 42, 68, 0.16);
+  box-shadow: 0 1px 2px rgba(30, 58, 95, 0.12);
 }
 
 .btn-secondary {
-  background: rgba(255, 255, 255, 0.85);
+  background: #ffffff;
   color: var(--text-primary);
   border: 1px solid var(--border-default);
-  box-shadow: inset 0 1px 0 #fff, 0 1px 2px rgba(27, 42, 68, 0.05);
 }
 
 .btn-secondary:hover {
-  background: #ffffff;
+  background: var(--surface-3);
   border-color: var(--border-strong);
-  box-shadow: inset 0 1px 0 #fff, 0 4px 12px rgba(27, 42, 68, 0.08);
 }
 
 .btn-ghost {
@@ -363,7 +335,7 @@ h4 {
 
 .btn-ghost:hover {
   color: var(--text-primary);
-  background: rgba(27, 42, 68, 0.06);
+  background: rgba(0, 0, 0, 0.05);
 }
 
 .btn-danger {
@@ -386,43 +358,27 @@ h4 {
   font-size: 11px;
 }
 
-/* Card — frosted glass panel */
-/* No backdrop-filter here: it would make cards the containing block for fixed-position modals. */
+/* Card */
 .card {
-  background: var(--glass-bg-strong);
-  border: 1px solid var(--glass-border);
-  border-radius: var(--radius-xl);
+  background: #ffffff;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
   padding: 22px;
-  box-shadow: var(--glass-shadow);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
   transition: box-shadow 0.25s var(--ease-smooth),
+              border-color 0.25s var(--ease-smooth),
               transform 0.25s var(--ease-smooth);
+}
+
+.card:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.07);
+  border-color: var(--border-strong);
 }
 
 a.card:hover,
 .card-lift:hover {
   transform: translateY(-2px);
-  box-shadow: var(--glass-shadow-hover);
-}
-
-/* Glass utility for ad-hoc surfaces. The blur lives on ::before so fixed-position
-   descendants (menus, click-away backdrops) are not trapped by backdrop-filter. */
-.glass {
-  position: relative;
-  isolation: isolate;
-  background: var(--glass-bg);
-  border: 1px solid var(--glass-border);
-  box-shadow: var(--glass-shadow);
-}
-
-.glass::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  z-index: -1;
-  border-radius: inherit;
-  -webkit-backdrop-filter: var(--glass-blur);
-  backdrop-filter: var(--glass-blur);
-  pointer-events: none;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.08);
 }
 
 /* Usage page — orange accent */
@@ -453,10 +409,10 @@ a.card:hover,
 
 /* Input */
 .input {
-  background: rgba(255, 255, 255, 0.9);
+  background: #ffffff;
   border: 1px solid var(--border-default);
   border-radius: var(--radius-md);
-  padding: 10px 14px;
+  padding: 9px 13px;
   color: var(--text-primary);
   font-size: 13.5px;
   font-family: inherit;
@@ -466,9 +422,8 @@ a.card:hover,
 }
 
 .input:focus {
-  background: #ffffff;
-  border-color: rgba(27, 42, 68, 0.35);
-  box-shadow: 0 0 0 4px rgba(27, 42, 68, 0.07);
+  border-color: var(--helix-primary);
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.1);
 }
 
 .input::placeholder {
@@ -921,27 +876,23 @@ thead th {
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: var(--text-muted);
-  border-bottom: 1px solid var(--border-subtle);
-  background: #f6f8fb;
+  border-bottom: 1px solid var(--border-default);
+  background: #fafbfc;
   white-space: nowrap;
 }
 
 tbody tr {
   border-bottom: 1px solid var(--border-subtle);
   transition: background 0.2s var(--ease-smooth);
-  background: transparent;
-}
-
-tbody tr:last-child {
-  border-bottom: none;
+  background: #fff;
 }
 
 tbody tr:hover {
-  background: rgba(27, 42, 68, 0.035);
+  background: #f5f7fa;
 }
 
 tbody tr:active {
-  background: rgba(27, 42, 68, 0.06);
+  background: #eef1f5;
 }
 
 tbody td {
@@ -958,12 +909,12 @@ tbody td:first-child {
 
 /* Staff directory split rows (flex — avoids table/sticky compositing bugs) */
 .staff-split-row {
-  background: transparent;
+  background: #ffffff;
   transition: background-color 0.12s ease;
 }
 
 .staff-split-row:hover {
-  background: rgba(27, 42, 68, 0.035);
+  background: #f5f7fa;
 }
 
 .staff-split-row[data-selected='true'] {
@@ -1118,7 +1069,7 @@ select.input {
 }
 
 .nav-item:hover {
-  transform: translateX(1px);
+  transform: translateX(2px);
 }
 
 .nav-item:active {
@@ -1667,153 +1618,16 @@ select.input {
   width: 100%;
 }
 
-/* Floating frosted sidebar panel, inset from the viewport edges */
 .app-sidebar {
   position: fixed;
-  top: var(--sidebar-gutter);
-  left: var(--sidebar-gutter);
-  bottom: var(--sidebar-gutter);
-  width: calc(var(--sidebar-width) - var(--sidebar-gutter));
-  min-width: calc(var(--sidebar-width) - var(--sidebar-gutter));
+  top: 0;
+  left: 0;
+  width: var(--sidebar-width);
+  min-width: var(--sidebar-width);
+  height: 100vh;
   z-index: 50;
   overflow-y: auto;
   box-sizing: border-box;
-  isolation: isolate;
-  background: var(--glass-bg);
-  border: 1px solid var(--glass-border);
-  border-radius: 26px;
-  box-shadow: var(--glass-shadow);
-}
-
-.app-sidebar::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  z-index: -1;
-  border-radius: inherit;
-  -webkit-backdrop-filter: var(--glass-blur);
-  backdrop-filter: var(--glass-blur);
-  pointer-events: none;
-}
-
-.sidebar-brand {
-  padding: 18px 16px 14px;
-}
-
-.sidebar-brand__logo {
-  width: 40px;
-  height: 40px;
-  border-radius: 13px;
-  background: #ffffff;
-  box-shadow: inset 0 1px 0 #fff, 0 2px 8px rgba(27, 42, 68, 0.08);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  overflow: hidden;
-  padding: 6px;
-}
-
-.sidebar-section-title {
-  padding: 0 12px;
-  margin-bottom: 6px;
-  font-size: 10px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.12em;
-  color: var(--text-muted);
-}
-
-.sidebar-nav-link {
-  display: flex;
-  align-items: center;
-  gap: 11px;
-  padding: 6px 10px 6px 6px;
-  border-radius: 14px;
-  margin-bottom: 3px;
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--text-secondary);
-  text-decoration: none;
-}
-
-.sidebar-nav-link:hover {
-  background: rgba(255, 255, 255, 0.75);
-  color: var(--text-primary);
-}
-
-.sidebar-nav-link__icon {
-  width: 32px;
-  height: 32px;
-  border-radius: 10px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  transition: background 0.2s var(--ease-smooth), color 0.2s var(--ease-smooth);
-}
-
-.sidebar-nav-link__icon .material-icons-round {
-  font-size: 19px;
-  opacity: 0.7;
-}
-
-.sidebar-nav-link[data-active='true'] {
-  background: #ffffff;
-  color: var(--text-primary);
-  font-weight: 600;
-  box-shadow: inset 0 1px 0 #fff, 0 2px 10px rgba(27, 42, 68, 0.08);
-}
-
-.sidebar-nav-link[data-active='true'] .sidebar-nav-link__icon {
-  background: var(--helix-primary);
-  color: #ffffff;
-  box-shadow: 0 4px 10px rgba(27, 42, 68, 0.28);
-}
-
-.sidebar-nav-link[data-active='true'] .sidebar-nav-link__icon .material-icons-round {
-  opacity: 1;
-}
-
-.sidebar-profile {
-  margin: 8px;
-  padding: 8px;
-  width: calc(100% - 16px);
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  cursor: pointer;
-  border: 1px solid transparent;
-  border-radius: 16px;
-  background: rgba(255, 255, 255, 0.55);
-  outline: none;
-  font-family: inherit;
-  transition: background 0.15s, border-color 0.15s;
-}
-
-.sidebar-profile:hover,
-.sidebar-profile[data-active='true'] {
-  background: #ffffff;
-  border-color: var(--glass-border);
-}
-
-.sidebar-menu-item {
-  width: 100%;
-  padding: 10px 14px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  border: none;
-  background: transparent;
-  cursor: pointer;
-  font-size: 13px;
-  font-family: inherit;
-  color: var(--text-primary);
-  text-align: left;
-}
-
-.sidebar-menu-item:hover:not(:disabled) {
-  background: var(--surface-2);
 }
 
 .app-main {
@@ -1844,20 +1658,20 @@ select.input {
 }
 
 .panel {
-  background: var(--glass-bg-strong);
-  border: 1px solid var(--glass-border);
+  background: var(--surface-card);
+  border: 1px solid var(--border-default);
   border-radius: var(--radius-xl);
-  box-shadow: var(--glass-shadow);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
   overflow: hidden;
 }
 
 .panel-header {
-  padding: 16px 18px;
+  padding: 14px 16px;
   border-bottom: 1px solid var(--border-subtle);
   display: flex;
   align-items: center;
   gap: 10px;
-  background: transparent;
+  background: linear-gradient(180deg, #ffffff, #fbfcfe);
 }
 
 .panel-title {
@@ -1899,17 +1713,25 @@ select.input {
 }
 
 /* Scale sidebar on large screens */
-@media (min-width: 1920px) {
-  :root { --sidebar-width: 288px; --sidebar-gutter: 16px; }
+@media (min-width: 1600px) {
+  :root { --sidebar-width: 260px; }
+}
 
-  .sidebar-nav-link {
+@media (min-width: 1920px) {
+  :root { --sidebar-width: 280px; }
+
+  .app-sidebar nav {
+    padding: 18px 14px;
+  }
+
+  .app-sidebar .nav-item {
+    padding: 11px 14px;
     font-size: 14px;
-    padding: 7px 12px 7px 7px;
   }
 }
 
 @media (min-width: 2560px) {
-  :root { --sidebar-width: 308px; }
+  :root { --sidebar-width: 300px; }
 }
 
 /* Ant Design dropdown (menu chrome is custom-rendered) */

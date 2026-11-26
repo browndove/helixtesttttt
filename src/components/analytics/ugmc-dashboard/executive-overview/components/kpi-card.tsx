@@ -199,7 +199,7 @@ const KpiCard = ({
                     background:
                         surface === "pink"
                             ? "linear-gradient(135deg, rgba(255, 105, 145, 0.08) 0%, transparent 55%)"
-                            : "linear-gradient(135deg, rgba(47,111,184, 0.03) 0%, transparent 50%)",
+                            : "linear-gradient(135deg, rgba(41, 128, 211, 0.03) 0%, transparent 50%)",
                 }}
             />
         </div>

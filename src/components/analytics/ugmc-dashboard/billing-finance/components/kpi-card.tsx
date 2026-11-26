@@ -157,7 +157,7 @@ const KPICard: React.FC<KPICardProps> = ({
                         {title}
                     </Text>
                     {indicator === "active" && (
-                        <div className="mt-1 h-[10px] w-[10px] shrink-0 rounded-[2px] bg-[#2a9a74] animate-breathe" />
+                        <div className="mt-1 h-[10px] w-[10px] shrink-0 rounded-[2px] bg-[#00C8B3] animate-breathe" />
                     )}
                 </div>
 

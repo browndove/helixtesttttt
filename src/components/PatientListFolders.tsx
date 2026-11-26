@@ -3,11 +3,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import TopBar from '@/components/TopBar';
 import { MacVibrancyToast, MacVibrancyToastPortal } from '@/components/MacVibrancyToast';
-import { HeroKpi, HeroKpis, SplitBar } from '@/components/glass/hero';
-import { MiniBars, Ring } from '@/components/glass/kpi';
-import '@/components/glass/glass-page.css';
-import '@/components/glass/glass-kit.css';
-import '@/components/glass/staff-glass.css';
 
 type Folder = {
     id: string;
@@ -211,74 +206,11 @@ export default function PatientListFolders() {
                 </MacVibrancyToastPortal>
             )}
 
-            <div className="app-main gx-page">
+            <div className="app-main">
                 <TopBar title="Patient List Folders" subtitle="Create and organize folders" />
 
                 <main style={{ flex: 1, overflow: 'auto', padding: '24px 28px', background: 'var(--bg-900)' }}>
-                    {(() => {
-                        const filed = folders.reduce((sum, f) => sum + f.patientCount, 0);
-                        const inUse = folders.filter(f => f.patientCount > 0).length;
-                        const empty = folders.length - inUse;
-                        const bySize = [...folders].sort((a, b) => b.patientCount - a.patientCount || a.name.localeCompare(b.name));
-                        const largest = bySize[0];
-                        const top = bySize.filter(f => f.patientCount > 0).slice(0, 6);
-                        const inUsePct = folders.length > 0 ? Math.round((inUse / folders.length) * 100) : 0;
-                        const show = (n: number) => (loading ? '—' : n.toLocaleString());
-                        return (
-                            <HeroKpis label="Folders overview" mark="folder_shared">
-                                <HeroKpi
-                                    tone="navy"
-                                    icon="folder"
-                                    label="Folders"
-                                    value={show(folders.length)}
-                                    art={<Ring pct={inUsePct} size={56}>{loading || folders.length === 0 ? '—' : `${inUsePct}%`}</Ring>}
-                                    foot={`${inUse} in use · ${empty} empty`}
-                                />
-                                <HeroKpi
-                                    tone="sky"
-                                    icon="personal_injury"
-                                    label="Patients filed"
-                                    value={show(filed)}
-                                    art={top.length > 1 ? <MiniBars values={top.map(f => f.patientCount)} labels={top.map(f => f.name)} /> : undefined}
-                                    foot={inUse > 0 ? `Avg ${Math.round(filed / inUse)} per folder in use` : 'No patients filed yet'}
-                                />
-                                <HeroKpi
-                                    tone="mint"
-                                    icon="folder_open"
-                                    label="Largest folder"
-                                    value={show(largest?.patientCount ?? 0)}
-                                    art={largest && filed > 0 ? (
-                                        <SplitBar
-                                            label={`${largest.name} holds ${Math.round((largest.patientCount / filed) * 100)}% of filed patients`}
-                                            parts={[
-                                                { label: largest.name, n: largest.patientCount, color: '#2a9a74' },
-                                                { label: 'Other folders', n: filed - largest.patientCount, color: 'rgba(42, 154, 116, 0.22)' },
-                                            ]}
-                                        />
-                                    ) : undefined}
-                                    foot={largest && largest.patientCount > 0 ? largest.name : 'No patients filed yet'}
-                                />
-                                <HeroKpi
-                                    tone="amber"
-                                    icon="folder_off"
-                                    label="Empty folders"
-                                    value={show(empty)}
-                                    art={folders.length > 0 ? (
-                                        <SplitBar
-                                            label={`${empty} of ${folders.length} folders are empty`}
-                                            parts={[
-                                                { label: 'Empty', n: empty, color: '#f0a24a' },
-                                                { label: 'In use', n: inUse, color: 'rgba(217, 119, 31, 0.18)' },
-                                            ]}
-                                        />
-                                    ) : undefined}
-                                    foot={empty > 0 ? 'No patients in them yet' : 'Every folder is in use'}
-                                />
-                            </HeroKpis>
-                        );
-                    })()}
-
-                    <div className="gx-toolbar fade-in">
+                    <div className="fade-in" style={{ display: 'flex', gap: 12, marginBottom: 18, alignItems: 'center', flexWrap: 'wrap' }}>
                         <div style={{ position: 'relative', flex: 1, minWidth: 200, maxWidth: 300 }}>
                             <span className="material-icons-round" style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', fontSize: 16, color: 'var(--text-disabled)', pointerEvents: 'none' }}>search</span>
                             <input
@@ -300,7 +232,7 @@ export default function PatientListFolders() {
                     </div>
 
                     <div className="fade-in" style={{ display: 'grid', gridTemplateColumns: detailOpen ? '1fr 380px' : '1fr', gap: 20, alignItems: 'start' }}>
-                        <div className="card gx-table-card" style={{ padding: 0, overflow: 'hidden' }}>
+                        <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
                             <div className="table-wrapper">
                                 <table>
                                     <thead>
@@ -314,23 +246,31 @@ export default function PatientListFolders() {
                                     </thead>
                                     <tbody>
                                         {loading ? (
-                                            <tr><td colSpan={5} style={{ padding: 0 }}><div className="gx-empty" style={{ color: 'var(--text-muted)', fontSize: 13 }}><span className="gx-empty__art"><span className="material-icons-round">hourglass_empty</span></span>Loading folders...</div></td></tr>
+                                            <tr><td colSpan={5} style={{ textAlign: 'center', padding: 40, color: 'var(--text-muted)', fontSize: 13 }}>Loading folders...</td></tr>
                                         ) : filtered.length === 0 ? (
-                                            <tr><td colSpan={5} style={{ padding: 0 }}><div className="gx-empty" style={{ color: 'var(--text-muted)', fontSize: 13 }}><span className="material-icons-round gx-mark" aria-hidden>folder_shared</span><span className="gx-empty__art"><span className="material-icons-round">folder_off</span></span>No folders found</div></td></tr>
+                                            <tr><td colSpan={5} style={{ textAlign: 'center', padding: 40, color: 'var(--text-muted)', fontSize: 13 }}>No folders found</td></tr>
                                         ) : filtered.map(folder => {
                                             const isSelected = selectedFolderId === folder.id;
                                             return (
                                                 <tr
                                                     key={folder.id}
-                                                    className={`gx-row${isSelected ? ' is-selected' : ''}`}
                                                     onClick={() => { setSelectedFolderId(isSelected ? null : folder.id); setShowCreate(false); setEditingFolder(false); }}
-                                                    style={{ cursor: 'pointer' }}
+                                                    style={{
+                                                        cursor: 'pointer', transition: 'background 0.12s',
+                                                        background: isSelected ? 'rgba(59,130,246,0.04)' : undefined,
+                                                    }}
                                                 >
                                                     <td>
-                                                        <div className="gx-name">
-                                                            <span className={`gx-name__icon${isSelected ? ' is-on' : ''}`}>
-                                                                <span className="material-icons-round">{isSelected ? 'folder_open' : 'folder'}</span>
-                                                            </span>
+                                                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                                                            <div style={{
+                                                                width: 30, height: 30, borderRadius: 'var(--radius-sm)',
+                                                                background: isSelected ? 'var(--helix-primary)' : 'var(--surface-2)',
+                                                                color: isSelected ? '#fff' : 'var(--text-secondary)',
+                                                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                                                fontSize: 12, flexShrink: 0,
+                                                            }}>
+                                                                <span className="material-icons-round" style={{ fontSize: 16 }}>folder</span>
+                                                            </div>
                                                             <div>
                                                                 <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>{folder.name}</div>
                                                             </div>
@@ -358,13 +298,9 @@ export default function PatientListFolders() {
                         </div>
 
                         {showCreate && (
-                            <div className="fade-in card gx-mark-card" style={{ position: 'sticky', top: 24 }}>
-                                <span className="material-icons-round gx-mark" aria-hidden>create_new_folder</span>
+                            <div className="fade-in card" style={{ position: 'sticky', top: 24 }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-                                    <h3 style={{ fontSize: 15, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 10 }}>
-                                        <span className="gx-ico"><span className="material-icons-round">create_new_folder</span></span>
-                                        Create Folder
-                                    </h3>
+                                    <h3 style={{ fontSize: 15, fontWeight: 700 }}>Create Folder</h3>
                                     <button onClick={() => setShowCreate(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: 2 }}>
                                         <span className="material-icons-round" style={{ fontSize: 16 }}>close</span>
                                     </button>
@@ -387,9 +323,7 @@ export default function PatientListFolders() {
                         )}
 
                         {selectedFolder && !showCreate && (
-                            <div className="fade-in card gx-mark-card gx-feature" style={{ position: 'sticky', top: 24 }}>
-                                <span className="gx-feature__glow" aria-hidden />
-                                <span className="material-icons-round gx-mark" aria-hidden>folder_open</span>
+                            <div className="fade-in card" style={{ position: 'sticky', top: 24 }}>
                                 {editingFolder ? (
                                     <>
                                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
@@ -441,7 +375,7 @@ export default function PatientListFolders() {
                                         )}
 
                                         <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-                                            <div style={{ flexShrink: 0, minWidth: 72, padding: '10px 12px', borderRadius: 14, background: 'rgba(255,255,255,0.8)', boxShadow: '0 1px 2px rgba(27,42,68,0.05), 0 6px 16px -10px rgba(27,42,68,0.22)', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+                                            <div style={{ flexShrink: 0, width: 64, padding: '10px 8px', borderRadius: 8, background: 'var(--surface-2)', border: '1px solid var(--border-subtle)', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
                                                 <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--helix-primary)', lineHeight: 1 }}>{selectedFolder.patientCount}</div>
                                                 <div style={{ fontSize: 9, fontWeight: 600, color: 'var(--text-disabled)', textTransform: 'uppercase', letterSpacing: '0.04em', marginTop: 3 }}>Patients</div>
                                             </div>

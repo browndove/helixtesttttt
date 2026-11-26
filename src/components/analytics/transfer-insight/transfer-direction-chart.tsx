@@ -5,8 +5,6 @@ import Text from "@/components/analytics/text";
 import DashboardCard from "@/components/analytics/safety-reports/dashboard-card";
 import type { TransferMetricsData } from "@/lib/analytics/transfer-metrics";
 import { baseChartOptions } from "./chart-theme";
-import { CardTitle } from "@/components/analytics/glass/illustrations";
-import { glassTooltip } from "@/components/analytics/glass/chart-kit";
 
 const Chart = dynamic(() => import("react-apexcharts"), { ssr: false });
 
@@ -23,47 +21,49 @@ const TransferDirectionChart = ({ data, loading }: TransferDirectionChartProps) 
     const options: ApexCharts.ApexOptions = {
         ...baseChartOptions,
         chart: { ...baseChartOptions.chart, type: "donut" },
-        colors: ["#2f6fb8", "#2a9a74"],
+        colors: ["#2980D3", "#00C8B3"],
         labels: ["Inbound", "Outbound"],
         plotOptions: {
             pie: {
                 donut: {
+                    size: "72%",
                     labels: {
                         show: true,
-                        name: { fontSize: "11px", fontWeight: 600, color: "#7b879b", offsetY: 18 },
-                        value: { fontSize: "24px", fontWeight: 700, color: "#1b2a44", offsetY: -14, formatter: (val) => Number(val).toLocaleString() },
+                        name: { fontFamily: "system-ui, -apple-system, sans-serif", fontSize: "11px" },
+                        value: {
+                            fontFamily: "system-ui, -apple-system, sans-serif",
+                            fontSize: "18px",
+                            fontWeight: 700,
+                            formatter: (val) => String(val),
+                        },
                         total: {
                             show: true,
-                            showAlways: true,
-                            label: "TOTAL",
+                            label: "Total",
+                            fontFamily: "system-ui, -apple-system, sans-serif",
                             fontSize: "11px",
-                            fontWeight: 600,
-                            color: "#7b879b",
-                            formatter: () => total.toLocaleString(),
+                            color: "var(--text-secondary)",
+                            formatter: () => String(total),
                         },
                     },
                 },
             },
         },
-        legend: { show: true, position: "bottom" },
-        tooltip: {
-            fillSeriesColor: false,
-            custom: ({ series, seriesIndex }: { series: number[]; seriesIndex: number }) => {
-                const value = series[seriesIndex] ?? 0;
-                const label = seriesIndex === 0 ? "Inbound" : "Outbound";
-                return glassTooltip({
-                    title: label,
-                    rows: [{ color: seriesIndex === 0 ? "#2f6fb8" : "#2a9a74", label: "Requests", value: value.toLocaleString() }],
-                    foot: total > 0 ? `${Math.round((value / total) * 100)}% of all transfers` : undefined,
-                });
-            },
+        legend: {
+            show: true,
+            position: "bottom",
+            fontFamily: "system-ui, -apple-system, sans-serif",
+            fontSize: "11px",
+            labels: { colors: "var(--text-secondary)" },
         },
+        stroke: { width: 0 },
     };
 
     return (
-        <DashboardCard data-watermark="airport_shuttle" className="flex h-full flex-col gap-3" padding="lg">
+        <DashboardCard className="flex h-full flex-col gap-3" padding="lg">
             <div className="flex flex-col gap-[2px]">
-                <CardTitle icon="swap_horiz" variant="body-md-semibold" className="font-bold">Transfer Direction</CardTitle>
+                <Text variant="body-md-semibold" color="text-primary" className="font-bold">
+                    Transfer Direction
+                </Text>
                 <Text variant="body-sm" color="text-secondary">
                     Inbound vs outbound · Selected period
                 </Text>
@@ -76,7 +76,7 @@ const TransferDirectionChart = ({ data, loading }: TransferDirectionChartProps) 
                         No transfer requests in this period
                     </Text>
                 ) : (
-                    <Chart options={options} series={[inbound, outbound]} type="donut" width="100%" height={240} />
+                    <Chart options={options} series={[inbound, outbound]} type="donut" width="100%" height={220} />
                 )}
             </div>
         </DashboardCard>

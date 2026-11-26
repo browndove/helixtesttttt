@@ -6,7 +6,6 @@ import InfoTooltip from "@/components/analytics/info-tooltip";
 import { MdWarning } from "react-icons/md";
 import { IoSearch } from "react-icons/io5";
 import clsx from "clsx";
-import { CardTitle } from "@/components/analytics/glass/illustrations";
 
 const infoText = "Roles with the highest escalation counts, indicating positions that frequently trigger escalation notifications.";
 
@@ -36,12 +35,12 @@ const RedZoneAlerts = ({ roles = [] }: RedZoneAlertsProps) => {
     }, [rolesKey]);
 
     return (
-        <div data-watermark="campaign" data-watermark-tone="rose"
+        <div
             className={clsx(
                 "bg-primary border rounded-[18px] flex flex-col overflow-hidden relative",
                 "transition-all duration-500",
                 "animate-border-glow",
-                isHovered ? "border-accent-red/70 shadow-[0_0_20px_rgba(224,101,107,0.15)]" : "border-accent-red/50"
+                isHovered ? "border-accent-red/70 shadow-[0_0_20px_rgba(255,95,87,0.15)]" : "border-accent-red/50"
             )}
             style={{ padding: 16, width: '100%', height: 'fit-content' }}
             onMouseEnter={() => setIsHovered(true)}
@@ -54,7 +53,7 @@ const RedZoneAlerts = ({ roles = [] }: RedZoneAlertsProps) => {
                     isHovered ? "opacity-100" : "opacity-70"
                 )}
                 style={{
-                    background: "linear-gradient(140deg, rgba(255, 255, 255, 0) 5%, rgba(224,101,107, 0.06) 95%)"
+                    background: "linear-gradient(140deg, rgba(255, 255, 255, 0) 5%, rgba(255, 95, 87, 0.06) 95%)"
                 }}
             />
 
@@ -62,7 +61,9 @@ const RedZoneAlerts = ({ roles = [] }: RedZoneAlertsProps) => {
             <div className="flex items-center justify-between relative z-10">
                 <div className="flex flex-col gap-0.5">
                     <div className="flex items-center gap-2">
-                        <CardTitle icon="warning" variant="body-md-semibold" tone="rose">Top Escalated Roles</CardTitle>
+                        <Text variant="body-md-semibold" color="accent-red">
+                            Top Escalated Roles
+                        </Text>
                         {/* Pulsing indicator */}
                         <div className="relative">
                             <div className="size-2 bg-accent-red rounded-full animate-breathe" />
@@ -111,7 +112,7 @@ const RedZoneAlerts = ({ roles = [] }: RedZoneAlertsProps) => {
                                 "transition-all duration-300",
                             )}>
                                 <div className={clsx(
-                                    "flex items-center justify-center size-[33px] bg-[rgba(224,101,107,0.15)] rounded-lg shrink-0",
+                                    "flex items-center justify-center size-[33px] bg-[rgba(255,95,87,0.15)] rounded-lg shrink-0",
                                     "transition-transform duration-300",
                                     isTop && "animate-pulse"
                                 )}>

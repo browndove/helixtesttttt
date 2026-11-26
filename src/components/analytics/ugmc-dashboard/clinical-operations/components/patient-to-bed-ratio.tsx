@@ -16,7 +16,6 @@ import {
     pickTypicalSeconds,
     typicalSecondsRange,
 } from "./call-metrics-helpers";
-import { CardTitle } from "@/components/analytics/glass/illustrations";
 
 const infoText =
     "Based on answered calls (someone other than the caller joined). Median length with middle 50% between Q1 and Q3.";
@@ -69,14 +68,16 @@ const CallDurationCard: React.FC<CallDurationCardProps> = ({ callMetrics }) => {
     }, [isVisible, targetProgress]);
 
     return (
-        <DashboardCard data-watermark="hourglass_bottom"
+        <DashboardCard
             className="flex flex-col gap-4 flex-1 min-w-[280px]"
             onMouseEnter={() => setIsHovered(true)}
             onMouseLeave={() => setIsHovered(false)}
         >
             <div className="flex justify-between items-start">
                 <div className="flex flex-col gap-0.5">
-                    <CardTitle icon="timer" variant="body-md-semibold">Call Duration</CardTitle>
+                    <Text variant="body-md-semibold" color="text-primary">
+                        Call Duration
+                    </Text>
                     <Text variant="body-sm" color="text-tertiary">
                         Typical length of answered calls.
                     </Text>
@@ -97,7 +98,7 @@ const CallDurationCard: React.FC<CallDurationCardProps> = ({ callMetrics }) => {
             <div>
                 <span
                     className={clsx(
-                        "text-[40px] font-bold tracking-tight text-[#2a9a74] tabular-nums",
+                        "text-[40px] font-bold tracking-tight text-[#1F988B] tabular-nums",
                         "transition-transform duration-300",
                         isHovered && "scale-[1.02] origin-left inline-block"
                     )}
@@ -110,8 +111,8 @@ const CallDurationCard: React.FC<CallDurationCardProps> = ({ callMetrics }) => {
                     <Text variant="body-sm" color="text-secondary">
                         Average
                     </Text>
-                    <div className="bg-[#2a9a7433] px-2 py-0.5 rounded-[6px]">
-                        <Text variant="body-sm" color="none" className="text-[#2a9a74]">
+                    <div className="bg-[#00C8B333] px-2 py-0.5 rounded-[6px]">
+                        <Text variant="body-sm" color="none" className="text-[#1F988B]">
                             {hasData && avgSeconds > 0 ? fmtDuration(avgSeconds) : "—"}
                         </Text>
                     </div>
@@ -122,15 +123,15 @@ const CallDurationCard: React.FC<CallDurationCardProps> = ({ callMetrics }) => {
                         <Text variant="body-sm" color="text-secondary">
                             Typical range (Q1–Q3)
                         </Text>
-                        <div className="bg-[#2a9a7433] px-2 py-0.5 rounded-[6px]">
-                            <Text variant="body-sm" color="none" className="text-[#2a9a74]">
+                        <div className="bg-[#00C8B333] px-2 py-0.5 rounded-[6px]">
+                            <Text variant="body-sm" color="none" className="text-[#1F988B]">
                                 {hasData ? typicalSecondsRange(q1, q3) : "—"}
                             </Text>
                         </div>
                     </div>
                     <div className="w-full h-2 bg-secondary rounded-full overflow-hidden">
                         <div
-                            className="h-full rounded-full bg-[#2a9a74] transition-all duration-1000 ease-out"
+                            className="h-full rounded-full bg-[#00C8B3] transition-all duration-1000 ease-out"
                             style={{ width: hasData ? `${animatedProgress}%` : "0%" }}
                         />
                     </div>

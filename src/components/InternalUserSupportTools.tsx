@@ -1,6 +1,6 @@
 'use client';
 
-import { FormEvent, useMemo, useState } from 'react';
+import { FormEvent, useState } from 'react';
 import { API_ENDPOINTS } from '@/lib/config';
 import { MacVibrancyToast, MacVibrancyToastPortal } from '@/components/MacVibrancyToast';
 import InternalAdminShell from '@/components/InternalAdminShell';
@@ -142,19 +142,7 @@ function formatWhen(value: string): string {
     if (!value) return '—';
     const d = new Date(value);
     if (Number.isNaN(d.getTime())) return value;
-    return d.toLocaleString(undefined, {
-        month: 'short',
-        day: 'numeric',
-        hour: 'numeric',
-        minute: '2-digit',
-    });
-}
-
-function initials(name: string): string {
-    const parts = name.trim().split(/\s+/).filter(Boolean);
-    if (parts.length === 0) return '?';
-    if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
-    return `${parts[0][0] || ''}${parts[1][0] || ''}`.toUpperCase();
+    return d.toLocaleString();
 }
 
 export default function InternalUserSupportTools() {
@@ -207,7 +195,7 @@ export default function InternalUserSupportTools() {
                     String(
                         (unreadJson as { error?: string; message?: string }).error
                         || (unreadJson as { message?: string }).message
-                        || `Unread failed (${unreadRes.status})`,
+                        || `Unread breakdown failed (${unreadRes.status})`,
                     ),
                 );
             }
@@ -219,7 +207,7 @@ export default function InternalUserSupportTools() {
                     String(
                         (diagJson as { error?: string; message?: string }).error
                         || (diagJson as { message?: string }).message
-                        || `Diagnostics failed (${diagRes.status})`,
+                        || `Notification diagnostics failed (${diagRes.status})`,
                     ),
                 );
             }
@@ -241,27 +229,6 @@ export default function InternalUserSupportTools() {
         void lookup(userId);
     };
 
-    const copyLoadedId = () => {
-        if (!loadedId) return;
-        void navigator.clipboard.writeText(loadedId).then(
-            () => showToast('User ID copied', 'success'),
-            () => showToast('Could not copy User ID', 'error'),
-        );
-    };
-
-    const topDevices = useMemo(
-        () => (diagnostics?.push_devices || []).slice(0, 4),
-        [diagnostics],
-    );
-    const topInstalls = useMemo(
-        () => (diagnostics?.app_installs || []).slice(0, 3),
-        [diagnostics],
-    );
-    const topThreads = useMemo(
-        () => (unread?.threads || []).slice(0, 4),
-        [unread],
-    );
-
     return (
         <>
             {toast && (
@@ -271,157 +238,228 @@ export default function InternalUserSupportTools() {
             )}
 
             <InternalAdminShell>
-                <div className="ius-shell">
-                    <header className="ius-top">
+                <div className="internal-dash__page-header">
+                    <div className="internal-dash__page-header-row">
                         <div>
-                            <h1 className="ius-top__title">User support</h1>
-                            <p className="ius-top__sub">Push + unread for one person</p>
+                            <h1 className="internal-dash__title">User support</h1>
+                            <p className="internal-dash__subtitle">
+                                Unread badge breakdown and notification diagnostics for a staff user ID.
+                            </p>
                         </div>
-                        <form className="ius-search" onSubmit={onSubmit}>
+                    </div>
+                </div>
+
+                <div className="internal-dash__toolbar">
+                    <form className="internal-dash__toolbar-row" onSubmit={onSubmit}>
+                        <div className="internal-dash__search-wrap" style={{ flex: 1, maxWidth: 420 }}>
+                            <span className="material-icons-round internal-dash__search-icon" aria-hidden>
+                                badge
+                            </span>
                             <input
+                                className="internal-dash__input"
+                                placeholder="Paste user ID…"
                                 value={userId}
-                                onChange={e => setUserId(e.target.value)}
-                                placeholder="Paste User ID…"
+                                onChange={(e) => setUserId(e.target.value)}
                                 autoComplete="off"
                                 spellCheck={false}
                             />
-                            <button type="submit" disabled={loading}>
-                                {loading ? '…' : 'Look up'}
-                            </button>
-                        </form>
-                    </header>
+                        </div>
+                        <button
+                            type="submit"
+                            className="internal-dash__btn internal-dash__btn--primary"
+                            disabled={loading}
+                        >
+                            {loading ? 'Looking up…' : 'Look up'}
+                        </button>
+                    </form>
+                </div>
 
+                <main className="internal-dash__main">
                     {!loadedId && !loading && (
-                        <div className="ius-glass ius-glass--empty">
-                            Staff → Copy User ID → paste here
+                        <div className="internal-dash__empty">
+                            <span className="material-icons-round" style={{ fontSize: 24, color: '#ccc', marginBottom: 8 }}>
+                                support_agent
+                            </span>
+                            Enter a user ID to inspect unread counts and push delivery.
                         </div>
                     )}
 
                     {loading && (
-                        <div className="ius-glass ius-glass--empty">Loading…</div>
+                        <div className="internal-dash__empty">
+                            <span className="material-icons-round" style={{ fontSize: 24, color: '#ccc', marginBottom: 8 }}>
+                                hourglass_empty
+                            </span>
+                            Loading support data…
+                        </div>
                     )}
 
                     {!loading && loadedId && (
-                        <div className="ius-bento">
-                            <article className="ius-glass ius-tile ius-tile--person">
-                                <div className="ius-avatar" aria-hidden>
-                                    {initials(diagnostics?.name || 'U')}
-                                </div>
-                                <div className="ius-person">
-                                    <h2>{diagnostics?.name || 'User'}</h2>
-                                    <button type="button" className="ius-id" onClick={copyLoadedId} title={loadedId}>
-                                        <span>{loadedId.slice(0, 8)}…</span>
-                                        <span className="material-icons-round" aria-hidden>content_copy</span>
-                                    </button>
-                                    <div className="ius-chips">
-                                        {diagnostics ? (
-                                            <>
-                                                <span className={diagnostics.online_now ? 'on' : ''}>
-                                                    {diagnostics.online_now ? 'Online' : 'Offline'}
-                                                </span>
-                                                <span className={diagnostics.do_not_disturb ? 'warn' : ''}>
-                                                    {diagnostics.do_not_disturb ? 'DND' : 'DND off'}
-                                                </span>
-                                                <span>{diagnostics.status}</span>
-                                                <span>{diagnostics.api_environment}</span>
-                                            </>
-                                        ) : null}
-                                    </div>
-                                </div>
-                            </article>
-
-                            <article className="ius-glass ius-tile ius-tile--metric">
-                                <div className="ius-metric__n">{unread?.total_unread_messages ?? '—'}</div>
-                                <div className="ius-metric__l">Unread</div>
-                            </article>
-
-                            <article className="ius-glass ius-tile ius-tile--metric">
-                                <div className="ius-metric__n">{unread?.total_unread_messages_as_role ?? '—'}</div>
-                                <div className="ius-metric__l">As role</div>
-                            </article>
-
-                            <article className="ius-glass ius-tile ius-tile--metric">
-                                <div className="ius-metric__n">{diagnostics?.push_devices.length ?? '—'}</div>
-                                <div className="ius-metric__l">Devices</div>
-                            </article>
-
-                            <article className={`ius-glass ius-tile ius-tile--health${diagnostics?.problems.length ? ' ius-tile--warn' : ''}`}>
-                                {diagError || unreadError ? (
-                                    <p className="ius-err">{diagError || unreadError}</p>
-                                ) : diagnostics?.problems.length ? (
+                        <div className="internal-support__stack">
+                            <section className="internal-support__panel">
+                                <h2 className="internal-support__panel-title">Notification diagnostics</h2>
+                                {diagError && <p className="internal-support__error">{diagError}</p>}
+                                {diagnostics && (
                                     <>
-                                        <h3>Problems</h3>
-                                        <ul>
-                                            {diagnostics.problems.slice(0, 3).map(p => <li key={p}>{p}</li>)}
-                                        </ul>
+                                        {diagnostics.problems.length > 0 ? (
+                                            <div className="internal-support__problems" role="alert">
+                                                <div className="internal-support__problems-label">Problems</div>
+                                                <ul>
+                                                    {diagnostics.problems.map((problem) => (
+                                                        <li key={problem}>{problem}</li>
+                                                    ))}
+                                                </ul>
+                                            </div>
+                                        ) : (
+                                            <p className="internal-support__ok">No problems reported for this user.</p>
+                                        )}
+
+                                        <dl className="internal-support__facts">
+                                            <div>
+                                                <dt>Name</dt>
+                                                <dd>{diagnostics.name}</dd>
+                                            </div>
+                                            <div>
+                                                <dt>Status</dt>
+                                                <dd>{diagnostics.status}</dd>
+                                            </div>
+                                            <div>
+                                                <dt>API environment</dt>
+                                                <dd>{diagnostics.api_environment}</dd>
+                                            </div>
+                                            <div>
+                                                <dt>Do not disturb</dt>
+                                                <dd>{diagnostics.do_not_disturb ? 'On' : 'Off'}</dd>
+                                            </div>
+                                            <div>
+                                                <dt>Online now</dt>
+                                                <dd>{diagnostics.online_now ? 'Yes' : 'No'}</dd>
+                                            </div>
+                                            <div>
+                                                <dt>Last seen</dt>
+                                                <dd>{formatWhen(diagnostics.last_seen)}</dd>
+                                            </div>
+                                            <div>
+                                                <dt>Critical alert sound</dt>
+                                                <dd>
+                                                    {diagnostics.critical_alert_sound
+                                                        ? `${diagnostics.critical_alert_sound.key} (${diagnostics.critical_alert_sound.file})`
+                                                        : '—'}
+                                                </dd>
+                                            </div>
+                                        </dl>
+
+                                        <h3 className="internal-support__section-title">Push devices</h3>
+                                        {diagnostics.push_devices.length === 0 ? (
+                                            <p className="internal-support__muted">No push devices registered.</p>
+                                        ) : (
+                                            <div className="internal-support__table-wrap">
+                                                <table className="internal-support__table">
+                                                    <thead>
+                                                        <tr>
+                                                            <th>Kind</th>
+                                                            <th>Platform</th>
+                                                            <th>Environment</th>
+                                                            <th>Token</th>
+                                                            <th>Updated</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody>
+                                                        {diagnostics.push_devices.map((device, i) => (
+                                                            <tr key={`${device.token_prefix}-${i}`}>
+                                                                <td>{device.kind || '—'}</td>
+                                                                <td>{device.platform || '—'}</td>
+                                                                <td>{device.api_environment || '—'}</td>
+                                                                <td className="internal-support__mono">{device.token_prefix || '—'}</td>
+                                                                <td>{formatWhen(device.updated_at)}</td>
+                                                            </tr>
+                                                        ))}
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                        )}
+
+                                        <h3 className="internal-support__section-title">App installs</h3>
+                                        {diagnostics.app_installs.length === 0 ? (
+                                            <p className="internal-support__muted">No app installs recorded.</p>
+                                        ) : (
+                                            <div className="internal-support__table-wrap">
+                                                <table className="internal-support__table">
+                                                    <thead>
+                                                        <tr>
+                                                            <th>Platform</th>
+                                                            <th>OS</th>
+                                                            <th>App</th>
+                                                            <th>Build</th>
+                                                            <th>Last seen</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody>
+                                                        {diagnostics.app_installs.map((install, i) => (
+                                                            <tr key={`${install.platform}-${install.build}-${i}`}>
+                                                                <td>{install.platform || '—'}</td>
+                                                                <td>{install.os || '—'}</td>
+                                                                <td>{install.app_version || '—'}</td>
+                                                                <td>{install.build || '—'}</td>
+                                                                <td>{formatWhen(install.last_seen_at)}</td>
+                                                            </tr>
+                                                        ))}
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                        )}
                                     </>
-                                ) : (
+                                )}
+                            </section>
+
+                            <section className="internal-support__panel">
+                                <h2 className="internal-support__panel-title">Unread breakdown</h2>
+                                {unreadError && <p className="internal-support__error">{unreadError}</p>}
+                                {unread && (
                                     <>
-                                        <h3>Healthy</h3>
-                                        <p>No notification problems</p>
-                                        <p className="ius-quiet">
-                                            Seen {formatWhen(diagnostics?.last_seen || '')}
-                                            {diagnostics?.critical_alert_sound?.key
-                                                ? ` · ${diagnostics.critical_alert_sound.key}`
-                                                : ''}
-                                        </p>
+                                        <dl className="internal-support__facts">
+                                            <div>
+                                                <dt>Total unread</dt>
+                                                <dd>{unread.total_unread_messages}</dd>
+                                            </div>
+                                            <div>
+                                                <dt>Unread as role</dt>
+                                                <dd>{unread.total_unread_messages_as_role}</dd>
+                                            </div>
+                                        </dl>
+
+                                        <h3 className="internal-support__section-title">Threads</h3>
+                                        {unread.threads.length === 0 ? (
+                                            <p className="internal-support__muted">No unread threads.</p>
+                                        ) : (
+                                            <div className="internal-support__table-wrap">
+                                                <table className="internal-support__table">
+                                                    <thead>
+                                                        <tr>
+                                                            <th>Kind</th>
+                                                            <th>Subject</th>
+                                                            <th>Unread</th>
+                                                            <th>Conversation</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody>
+                                                        {unread.threads.map((thread) => (
+                                                            <tr key={thread.conversation_id}>
+                                                                <td>{thread.kind}</td>
+                                                                <td>{thread.subject || '—'}</td>
+                                                                <td>{thread.unread_count}</td>
+                                                                <td className="internal-support__mono">{thread.conversation_id}</td>
+                                                            </tr>
+                                                        ))}
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                        )}
                                     </>
                                 )}
-                            </article>
-
-                            <article className="ius-glass ius-tile ius-tile--list">
-                                <h3>Devices <em>{diagnostics?.push_devices.length || 0}</em></h3>
-                                {topDevices.length === 0 ? (
-                                    <p className="ius-quiet">None</p>
-                                ) : (
-                                    <ul>
-                                        {topDevices.map((d, i) => (
-                                            <li key={`${d.token_prefix}-${i}`}>
-                                                <strong>{(d.kind || 'device').toUpperCase()}</strong>
-                                                <span>{d.platform || '—'} · {formatWhen(d.updated_at)}</span>
-                                            </li>
-                                        ))}
-                                    </ul>
-                                )}
-                            </article>
-
-                            <article className="ius-glass ius-tile ius-tile--list">
-                                <h3>Installs <em>{diagnostics?.app_installs.length || 0}</em></h3>
-                                {topInstalls.length === 0 ? (
-                                    <p className="ius-quiet">None</p>
-                                ) : (
-                                    <ul>
-                                        {topInstalls.map((inst, i) => (
-                                            <li key={`${inst.platform}-${inst.build}-${i}`}>
-                                                <strong>{inst.platform || 'App'}{inst.app_version ? ` v${inst.app_version}` : ''}</strong>
-                                                <span>{inst.os || '—'} · {formatWhen(inst.last_seen_at)}</span>
-                                            </li>
-                                        ))}
-                                    </ul>
-                                )}
-                            </article>
-
-                            <article className="ius-glass ius-tile ius-tile--threads">
-                                <h3>Unread threads <em>{unread?.threads.length || 0}</em></h3>
-                                {topThreads.length === 0 ? (
-                                    <p className="ius-quiet">None</p>
-                                ) : (
-                                    <ul>
-                                        {topThreads.map(t => (
-                                            <li key={t.conversation_id}>
-                                                <div>
-                                                    <strong>{t.subject || 'Untitled'}</strong>
-                                                    <span>{t.kind}</span>
-                                                </div>
-                                                <b>{t.unread_count}</b>
-                                            </li>
-                                        ))}
-                                    </ul>
-                                )}
-                            </article>
+                            </section>
                         </div>
                     )}
-                </div>
+                </main>
             </InternalAdminShell>
         </>
     );
