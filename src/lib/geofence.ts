@@ -1,6 +1,6 @@
 /**
- * Facility geofence helpers. There is no backend for geofences yet, so zones are kept as a
- * per-browser draft in localStorage and can be exported as GeoJSON for the API hand-off.
+ * Facility geofence helpers. Zones are the facility's clock-in zones (/scheduling/clock-zones).
+ * Where the API doesn't have that endpoint yet, the page falls back to a per-browser draft.
  */
 
 export type LatLng = [number, number];
@@ -12,7 +12,16 @@ export type GeofenceZone = {
     points: LatLng[];
     createdAt: string;
     updatedAt: string;
+    /** Server fields, kept so a rename doesn't change them. New zones are include polygons. */
+    kind?: ZoneKind;
+    enabled?: boolean;
+    /** Set while the zone is still the circle it was saved as; `points` is then an outline for the map. */
+    circle?: ZoneCircle | null;
+    warnings?: string[];
 };
+
+export type ZoneKind = 'include' | 'exclude';
+export type ZoneCircle = { center_lat: number; center_lng: number; radius_m: number };
 
 export type PlaceResult = {
     id: string;
@@ -250,4 +259,131 @@ export function mergePlaces(query: string, mapbox: PlaceResult[], maptiler: Plac
         if (out.length >= limit) break;
     }
     return out;
+}
+
+/* ── Clock-in zones API (/api/v1/scheduling/clock-zones) ─────────
+ * The API uses {lat, lng} objects; this page keeps [lat, lng] tuples. */
+
+type ApiPoint = { lat: number; lng: number };
+
+type ApiZone = {
+    id: string;
+    name: string;
+    kind: ZoneKind;
+    shape: 'circle' | 'polygon';
+    enabled?: boolean;
+    circle?: ZoneCircle | null;
+    points?: ApiPoint[] | null;
+    warnings?: string[] | null;
+    created_at?: string;
+    updated_at?: string;
+};
+
+export class ZoneApiError extends Error {
+    constructor(message: string, public status: number, public code: string) {
+        super(message);
+    }
+}
+
+const ZONES_URL = '/api/proxy/scheduling/clock-zones';
+
+/** Outline of a circle for drawing on the map (the server still checks the real circle). */
+export function circleOutline(c: ZoneCircle, steps = 64): LatLng[] {
+    const out: LatLng[] = [];
+    const latR = c.radius_m / 111320;
+    const lngR = c.radius_m / (111320 * Math.cos(rad(c.center_lat)));
+    for (let i = 0; i < steps; i++) {
+        const t = (i / steps) * 2 * Math.PI;
+        out.push([c.center_lat + latR * Math.sin(t), c.center_lng + lngR * Math.cos(t)]);
+    }
+    return out;
+}
+
+function fromApiZone(z: ApiZone): GeofenceZone | null {
+    const circle = z.shape === 'circle' && z.circle ? z.circle : null;
+    const points: LatLng[] = circle
+        ? circleOutline(circle)
+        : (z.points || []).filter(p => Number.isFinite(p?.lat) && Number.isFinite(p?.lng)).map(p => [p.lat, p.lng]);
+    if (!z.id || points.length < 3) return null;
+    const now = new Date().toISOString();
+    return {
+        id: z.id,
+        name: z.name || '',
+        points,
+        createdAt: z.created_at || now,
+        updatedAt: z.updated_at || now,
+        kind: z.kind === 'exclude' ? 'exclude' : 'include',
+        enabled: z.enabled !== false,
+        circle,
+        warnings: Array.isArray(z.warnings) ? z.warnings.filter(w => typeof w === 'string') : [],
+    };
+}
+
+/** Whole-zone body for POST/PUT. A circle stays a circle unless its shape was redrawn. */
+function toApiBody(zone: GeofenceZone): Record<string, unknown> {
+    const body: Record<string, unknown> = { name: zone.name.trim(), kind: zone.kind || 'include' };
+    if (zone.circle) {
+        body.shape = 'circle';
+        body.circle = { ...zone.circle, radius_m: Math.round(zone.circle.radius_m) };
+    } else {
+        body.shape = 'polygon';
+        body.points = zone.points.map(([lat, lng]) => ({ lat, lng }));
+    }
+    if (zone.enabled !== undefined) body.enabled = zone.enabled;
+    return body;
+}
+
+async function zoneRequest(path: string, method: string, body?: unknown): Promise<unknown> {
+    const res = await fetch(`${ZONES_URL}${path}`, {
+        method,
+        credentials: 'include',
+        headers: body !== undefined ? { 'Content-Type': 'application/json' } : undefined,
+        body: body !== undefined ? JSON.stringify(body) : undefined,
+    });
+    const text = await res.text();
+    let data: unknown = null;
+    try { data = text ? JSON.parse(text) : null; } catch { data = null; }
+    if (!res.ok) {
+        const rec = (data && typeof data === 'object' ? data : {}) as Record<string, unknown>;
+        const msg = [rec.message, rec.error, rec.detail].find(v => typeof v === 'string' && v.trim()) as string | undefined;
+        const fallback = res.status === 403 ? 'You need schedule access to change clock-in zones.' : `Request failed (${res.status})`;
+        throw new ZoneApiError(msg || fallback, res.status, typeof rec.error_code === 'string' ? rec.error_code : '');
+    }
+    return data;
+}
+
+function zoneFrom(data: unknown): GeofenceZone {
+    const rec = (data && typeof data === 'object' ? data : {}) as Record<string, unknown>;
+    const raw = (rec.data && typeof rec.data === 'object' ? rec.data : rec) as ApiZone;
+    const zone = fromApiZone(raw);
+    if (!zone) throw new ZoneApiError('The server returned an unreadable zone.', 502, '');
+    return zone;
+}
+
+/**
+ * The facility's zones, or null when this API has no clock-zones endpoint yet
+ * (the list itself never 404s, so a 404 means the route is missing).
+ */
+export async function fetchClockZones(): Promise<GeofenceZone[] | null> {
+    try {
+        const data = await zoneRequest('', 'GET');
+        const rec = (data && typeof data === 'object' ? data : {}) as Record<string, unknown>;
+        const list = Array.isArray(data) ? data : Array.isArray(rec.data) ? rec.data : Array.isArray(rec.zones) ? rec.zones : [];
+        return (list as ApiZone[]).flatMap(z => fromApiZone(z) ?? []);
+    } catch (err) {
+        if (err instanceof ZoneApiError && err.status === 404) return null;
+        throw err;
+    }
+}
+
+export async function createClockZone(zone: GeofenceZone): Promise<GeofenceZone> {
+    return zoneFrom(await zoneRequest('', 'POST', toApiBody(zone)));
+}
+
+export async function updateClockZone(zone: GeofenceZone): Promise<GeofenceZone> {
+    return zoneFrom(await zoneRequest(`/${encodeURIComponent(zone.id)}`, 'PUT', toApiBody(zone)));
+}
+
+export async function deleteClockZone(id: string): Promise<void> {
+    await zoneRequest(`/${encodeURIComponent(id)}`, 'DELETE');
 }

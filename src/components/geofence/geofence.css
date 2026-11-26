@@ -852,3 +852,7 @@
   .geo-panel { overflow: visible; }
   .geo-toolbar__hint { display: none; }
 }
+
+/* Embedded in Scheduling: fill the tab body instead of the viewport. */
+.geo-embed { flex: 1; min-height: 0; display: flex; }
+.geo-embed .geo-main { height: auto; min-height: 520px; padding: 0; background: none; }

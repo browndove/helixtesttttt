@@ -10,6 +10,9 @@ import { MacVibrancyToast, MacVibrancyToastPortal, macToastLeading } from '@/com
 import { API_ENDPOINTS } from '@/lib/config';
 import { appendFacilityIdForProxy, resolveClientFacilityId } from '@/lib/facility-client';
 import {
+    createClockZone,
+    deleteClockZone,
+    fetchClockZones,
     formatArea,
     formatDistance,
     loadDraftZones,
@@ -22,6 +25,7 @@ import {
     polygonPerimeterM,
     saveDraftZones,
     SEARCH_COUNTRIES,
+    updateClockZone,
     zonesToGeoJson,
     type GeofenceZone,
     type MapTilerFeatureLike,
@@ -231,7 +235,8 @@ function workShape(pts: LatLng[]): GeoJSON.FeatureCollection {
     return EMPTY_FC;
 }
 
-export default function FacilityGeofence() {
+// `embedded` renders just the map workspace, for use inside another page (Scheduling → Geofencing).
+export default function FacilityGeofence({ embedded = false }: { embedded?: boolean }) {
     const mapEl = useRef<HTMLDivElement>(null);
     const stageRef = useRef<HTMLDivElement>(null);
     const sdkRef = useRef<SDK | null>(null);
@@ -253,6 +258,9 @@ export default function FacilityGeofence() {
     const [facility, setFacility] = useState<Facility | null>(null);
     const [zones, setZones] = useState<GeofenceZone[]>([]);
     const [loaded, setLoaded] = useState(false);
+    /** True when zones live on the server; false = per-browser draft (API has no clock-zones yet). */
+    const [onServer, setOnServer] = useState(false);
+    const [saving, setSaving] = useState(false);
     const [selectedId, setSelectedId] = useState('');
     const [confirmDeleteId, setConfirmDeleteId] = useState('');
 
@@ -276,22 +284,42 @@ export default function FacilityGeofence() {
         toastTimer.current = setTimeout(() => setToast(null), 3200);
     }, []);
 
-    /* ── Facility + local draft ───────────────────────────────── */
+    /* ── Facility + zones (server, or local draft when the API has no clock-zones yet) ── */
     useEffect(() => {
         let alive = true;
-        void resolveFacility().then(fac => {
+        void (async () => {
+            const fac = await resolveFacility();
+            let serverZones: GeofenceZone[] | null = null;
+            let loadError = '';
+            try {
+                serverZones = await fetchClockZones();
+            } catch (err) {
+                loadError = err instanceof Error ? err.message : 'Could not load clock-in zones.';
+            }
             if (!alive) return;
             setFacility(fac);
-            setZones(loadDraftZones(fac.id));
+            if (serverZones) {
+                setZones(serverZones);
+                setOnServer(true);
+            } else {
+                setZones(loadDraftZones(fac.id));
+                if (loadError) notify(loadError, 'error');
+            }
             setLoaded(true);
-        });
+        })();
         return () => { alive = false; };
-    }, []);
+    }, [notify]);
 
     useEffect(() => {
-        if (!loaded || !facility) return;
+        if (!loaded || !facility || onServer) return;
         if (!saveDraftZones(facility.id, zones)) notify('This browser blocked saving the draft.', 'error');
-    }, [zones, loaded, facility, notify]);
+    }, [zones, loaded, facility, onServer, notify]);
+
+    /** Server warnings are hints only; the save already went through. */
+    const noteWarnings = useCallback((zone: GeofenceZone, fallback: string) => {
+        const warning = zone.warnings?.[0];
+        notify(warning || fallback, warning ? 'info' : 'success');
+    }, [notify]);
 
     /* ── Map bootstrap (the library touches window, so it loads client-side only) ── */
     useEffect(() => {
@@ -503,28 +531,40 @@ export default function FacilityGeofence() {
         setEditPoints(null);
     }, []);
 
-    const finishDrawing = useCallback(() => {
+    const finishDrawing = useCallback(async () => {
         const pts = draftRef.current;
         if (pts.length < 3) {
             notify('Add at least 3 points to close the shape.', 'error');
             return;
         }
+        if (saving) return;
         const now = new Date().toISOString();
         const label = facility?.name || 'Facility';
-        const zone: GeofenceZone = {
-            id: newZoneId(),
-            name: zones.length === 0 ? `${label} — main site` : `${label} — zone ${zones.length + 1}`,
-            points: pts,
-            createdAt: now,
-            updatedAt: now,
-        };
+        // Names must be unique in the facility (case-insensitive).
+        const taken = new Set(zones.map(z => z.name.trim().toLowerCase()));
+        let n = zones.length + 1;
+        let name = zones.length === 0 ? `${label} — main site` : `${label} — zone ${n}`;
+        while (taken.has(name.toLowerCase())) name = `${label} — zone ${++n}`;
+        let zone: GeofenceZone = { id: newZoneId(), name, points: pts, createdAt: now, updatedAt: now, kind: 'include' };
+        if (onServer) {
+            setSaving(true);
+            try {
+                zone = await createClockZone(zone);
+            } catch (err) {
+                // Keep the drawing so the admin can fix it.
+                notify(err instanceof Error ? err.message : 'Could not save the zone.', 'error');
+                return;
+            } finally {
+                setSaving(false);
+            }
+        }
         setZones(prev => [...prev, zone]);
         setSelectedId(zone.id);
         setDraft([]);
         setMode('idle');
         setPanelOpen(true);
-        notify('Zone added. Give it a name in the panel.', 'success');
-    }, [facility, zones.length, notify]);
+        noteWarnings(zone, 'Zone added. Give it a name in the panel.');
+    }, [facility, zones, onServer, saving, notify, noteWarnings]);
 
     const finishRef = useRef(finishDrawing);
     useEffect(() => { finishRef.current = finishDrawing; }, [finishDrawing]);
@@ -638,13 +678,29 @@ export default function FacilityGeofence() {
         mapRef.current?.fitBounds(boundsOf(zone.points), { padding: 90, maxZoom: 18, pitch: 0, bearing: 0, duration: 1000, essential: true });
     }, []);
 
-    const saveEditing = useCallback(() => {
-        if (!editPoints || !selectedId) return;
-        setZones(prev => prev.map(z => (z.id === selectedId ? { ...z, points: editPoints, updatedAt: new Date().toISOString() } : z)));
+    const saveEditing = useCallback(async () => {
+        if (!editPoints || !selectedId || saving) return;
+        const current = zones.find(z => z.id === selectedId);
+        if (!current) return;
+        // A redrawn circle is saved as a polygon.
+        let next: GeofenceZone = { ...current, points: editPoints, circle: null, updatedAt: new Date().toISOString() };
+        if (onServer) {
+            setSaving(true);
+            try {
+                next = await updateClockZone(next);
+            } catch (err) {
+                // Stay in editing so the shape can be fixed.
+                notify(err instanceof Error ? err.message : 'Could not save the shape.', 'error');
+                return;
+            } finally {
+                setSaving(false);
+            }
+        }
+        setZones(prev => prev.map(z => (z.id === selectedId ? next : z)));
         setEditPoints(null);
         setMode('idle');
-        notify('Shape updated', 'success');
-    }, [editPoints, selectedId, notify]);
+        noteWarnings(next, 'Shape updated');
+    }, [editPoints, selectedId, zones, onServer, saving, notify, noteWarnings]);
 
     /* ── Keyboard ─────────────────────────────────────────────── */
     useEffect(() => {
@@ -653,8 +709,8 @@ export default function FacilityGeofence() {
             if (isTypingTarget(e.target)) return;
             if (e.key === 'Escape') cancelWork();
             else if (e.key === 'Enter') {
-                if (mode === 'drawing') finishDrawing();
-                else saveEditing();
+                if (mode === 'drawing') void finishDrawing();
+                else void saveEditing();
             } else if (mode === 'drawing' && (e.key === 'Backspace' || ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z'))) {
                 e.preventDefault();
                 setDraft(prev => prev.slice(0, -1));
@@ -745,11 +801,42 @@ export default function FacilityGeofence() {
     }, []);
 
     /* ── Zone actions ─────────────────────────────────────────── */
+    /** Renames save to the server after a short pause in typing. */
+    const renameTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+    useEffect(() => () => Object.values(renameTimers.current).forEach(clearTimeout), []);
+
     const renameZone = (id: string, name: string) => {
-        setZones(prev => prev.map(z => (z.id === id ? { ...z, name, updatedAt: new Date().toISOString() } : z)));
+        const zone = zones.find(z => z.id === id);
+        if (!zone) return;
+        const next = { ...zone, name, updatedAt: new Date().toISOString() };
+        setZones(prev => prev.map(z => (z.id === id ? next : z)));
+        if (!onServer) return;
+        clearTimeout(renameTimers.current[id]);
+        renameTimers.current[id] = setTimeout(() => {
+            delete renameTimers.current[id];
+            if (!name.trim()) {
+                notify('Give the zone a name.', 'error');
+                return;
+            }
+            updateClockZone(next).then(
+                saved => setZones(prev => prev.map(z => (z.id === id ? { ...z, warnings: saved.warnings, updatedAt: saved.updatedAt } : z))),
+                err => notify(err instanceof Error ? err.message : 'Could not rename the zone.', 'error'),
+            );
+        }, 700);
     };
 
-    const deleteZone = (id: string) => {
+    const deleteZone = async (id: string) => {
+        if (onServer) {
+            try {
+                await deleteClockZone(id);
+            } catch (err) {
+                setConfirmDeleteId('');
+                notify(err instanceof Error ? err.message : 'Could not delete the zone.', 'error');
+                return;
+            }
+            clearTimeout(renameTimers.current[id]);
+            delete renameTimers.current[id];
+        }
         setZones(prev => prev.filter(z => z.id !== id));
         if (selectedId === id) setSelectedId('');
         setConfirmDeleteId('');
@@ -788,8 +875,8 @@ export default function FacilityGeofence() {
                     <MacVibrancyToast message={toast.message} variant={toast.variant} leading={macToastLeading(toast.variant)} onDismiss={() => setToast(null)} />
                 </MacVibrancyToastPortal>
             )}
-            <div className="app-main gx-page">
-                <TopBar title="Geofence" subtitle="Map your facility’s boundary" />
+            <div className={embedded ? 'geo-embed' : 'app-main gx-page'}>
+                {!embedded && <TopBar title="Geofence" subtitle="Map your facility’s boundary" />}
 
                 <main className="geo-main">
                     <div className={`geo-layout${panelOpen ? '' : ' is-collapsed'}`}>
@@ -933,7 +1020,7 @@ export default function FacilityGeofence() {
                                                                 <div className="geo-row">
                                                                     <span className="geo-note" style={{ margin: 0, flex: 1 }}>Delete this zone?</span>
                                                                     <button type="button" className="geo-btn geo-btn--ghost" onClick={() => setConfirmDeleteId('')}>Keep</button>
-                                                                    <button type="button" className="geo-btn geo-btn--danger" onClick={() => deleteZone(zone.id)}>Delete</button>
+                                                                    <button type="button" className="geo-btn geo-btn--danger" onClick={() => void deleteZone(zone.id)}>Delete</button>
                                                                 </div>
                                                             ) : (
                                                                 <div className="geo-row">
@@ -960,8 +1047,10 @@ export default function FacilityGeofence() {
                             </section>
 
                             <div className="geo-draft">
-                                <Icon name="cloud_off" size={16} />
-                                <span>Draft — saved in this browser only. Geofences go live once the server supports them.</span>
+                                <Icon name={onServer ? 'cloud_done' : 'cloud_off'} size={16} />
+                                <span>{onServer
+                                    ? 'Saved for this facility. Clock-in uses these zones when location checking is on.'
+                                    : 'Draft — saved in this browser only. Geofences go live once the server supports them.'}</span>
                                 <button type="button" className="geo-link" onClick={exportGeoJson} disabled={!zones.length}>Export GeoJSON</button>
                             </div>
                         </aside>

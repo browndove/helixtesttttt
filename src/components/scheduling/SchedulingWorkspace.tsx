@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { MacVibrancyToast, MacVibrancyToastPortal, macToastLeading } from '@/components/MacVibrancyToast';
 import { API_ENDPOINTS } from '@/lib/config';
 import { appendFacilityIdForProxy, getCachedClientFacilityId } from '@/lib/facility-client';
+import FacilityGeofence from '@/components/geofence/FacilityGeofence';
 import '@/components/glass/glass-page.css';
 import '@/components/glass/staff-glass.css';
 import '@/components/glass/staff-tabs-glass.css';
@@ -12,20 +13,19 @@ import ActivityPanel from './ActivityPanel';
 import AttendancePanel from './AttendancePanel';
 import ClockPanel from './ClockPanel';
 import DepartmentRulesPanel from './DepartmentRulesPanel';
-import OverviewPanel from './OverviewPanel';
 import RosterSettingsPanel from './RosterSettingsPanel';
 import ShiftCodesPanel from './ShiftCodesPanel';
 import StaffPanel from './StaffPanel';
 import TargetsPanel from './TargetsPanel';
 import { DeptPicker, Empty, Icon, type Notify } from './ui';
 
-type Tab = 'overview' | 'staff' | 'attendance' | 'setup' | 'activity';
+type Tab = 'geofence' | 'staff' | 'attendance' | 'setup' | 'activity';
 type SetupTab = 'rules' | 'roster-settings' | 'shift-codes' | 'targets' | 'clock';
 type Department = { id: string; name: string };
 type Toast = { message: string; variant: 'success' | 'error' | 'info' };
 
 const TABS: Array<[Tab, string, string]> = [
-    ['overview', 'dashboard', 'Overview'],
+    ['geofence', 'travel_explore', 'Geofencing'],
     ['staff', 'groups', 'Staff'],
     ['attendance', 'how_to_reg', 'Attendance'],
     ['setup', 'tune', 'Setup'],
@@ -44,7 +44,7 @@ const DEPT_KEY = () => `helix-scheduling-dept:${getCachedClientFacilityId() || '
 
 function parseHash(): { tab: Tab; setup: SetupTab } {
     const [t, s] = window.location.hash.slice(1).split('/');
-    const tab = (TABS.some(([id]) => id === t) ? t : 'overview') as Tab;
+    const tab = (TABS.some(([id]) => id === t) ? t : 'geofence') as Tab;
     const setup = (SETUP.some(x => x.id === s) ? s : 'rules') as SetupTab;
     return { tab, setup };
 }
@@ -63,7 +63,7 @@ function listOf(raw: unknown, keys: string[]): Record<string, unknown>[] {
 }
 
 export default function SchedulingWorkspace() {
-    const [tab, setTab] = useState<Tab>('overview');
+    const [tab, setTab] = useState<Tab>('geofence');
     const [setup, setSetup] = useState<SetupTab>('rules');
     const [departments, setDepartments] = useState<Department[]>([]);
     const [deptId, setDeptId] = useState('');
@@ -136,7 +136,7 @@ export default function SchedulingWorkspace() {
 
     const dept = departments.find(d => d.id === deptId);
     const setupItem = SETUP.find(s => s.id === setup)!;
-    const needsDept = tab !== 'activity' && !(tab === 'setup' && setupItem.facility);
+    const needsDept = tab !== 'activity' && tab !== 'geofence' && !(tab === 'setup' && setupItem.facility);
 
     const deptPicker = departments.length > 0 ? <DeptPicker departments={departments} value={deptId} onChange={pickDept} /> : null;
 
@@ -148,7 +148,7 @@ export default function SchedulingWorkspace() {
         }
         const p = { departmentId: deptId, departmentName: dept?.name || '', onNotify: notify };
         switch (tab) {
-            case 'overview': return <OverviewPanel key={deptId} departmentId={deptId} departmentName={p.departmentName} onOpen={t => go(t)} />;
+            case 'geofence': return <FacilityGeofence embedded />;
             case 'staff': return <StaffPanel key={deptId} {...p} />;
             case 'attendance': return <AttendancePanel key={deptId} departmentId={deptId} onNotify={notify} />;
             case 'activity': return <ActivityPanel staffNames={staffNames} />;
@@ -191,7 +191,7 @@ export default function SchedulingWorkspace() {
                     </div>
                 </header>
 
-                <main className="sc-main">
+                <main className={`sc-main${tab === 'geofence' ? ' sc-main--fill' : ''}`}>
                     {tab === 'setup' ? (
                         <div className="sc-setup">
                             <nav className="sc-setup__nav" aria-label="Setup sections">

@@ -1106,3 +1106,6 @@ button.sc-mark:hover { transform: translateY(-1px); }
 /* Pin the page to the viewport so .sc-main is the scroller (sticky nav and save bar rely on it). */
 .sc-page { height: 100dvh; overflow: hidden; }
 .sc-sheet__panel { background: #f4f7fb; }
+
+/* Geofencing tab: the map fills the remaining height, no page scroll. */
+.sc-main--fill { display: flex; flex-direction: column; padding-bottom: 24px; }
