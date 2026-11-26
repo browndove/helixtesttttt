@@ -15,6 +15,9 @@ type IncomingDirectoryBody = {
     employee_id?: string;
     can_manage_schedule?: boolean;
     patient_access?: boolean;
+    /** Care unit id, or `not_applicable` (same values as self-join `workstation_ids`). */
+    primary_workstation_id?: string;
+    workstation_ids?: string[];
 };
 
 /**
@@ -69,6 +72,12 @@ export async function POST(req: NextRequest) {
         // Omit patient_access when the admin chose "Decide from job category".
         if (typeof body.patient_access === 'boolean') {
             payload.patient_access = body.patient_access;
+        }
+        const primaryWorkstationId = (body.primary_workstation_id || '').trim();
+        if (primaryWorkstationId) payload.primary_workstation_id = primaryWorkstationId;
+        if (Array.isArray(body.workstation_ids)) {
+            const ids = body.workstation_ids.map(id => String(id || '').trim()).filter(Boolean);
+            if (ids.length) payload.workstation_ids = ids;
         }
 
         const upstream = await buildTenantUpstreamUrl(req, API_BASE_URL, `/api/v1/staff/directory`);

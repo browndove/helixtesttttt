@@ -34,6 +34,7 @@ import JoinRequestsPanel, { fetchPendingJoinCount } from '@/components/staff/Joi
 import DirectoryReportsPanel, { fetchOpenDirectoryReportCount } from '@/components/staff/DirectoryReportsPanel';
 import DirectoryReviewsPanel, { fetchOpenDirectoryReviewCount } from '@/components/staff/DirectoryReviewsPanel';
 import { parseBulkNeedsReviewCount } from '@/lib/directory-reviews';
+import { parseCareUnits, type CareUnit } from '@/lib/care-units';
 
 const STAFF_PAGE_CACHE_TTL_MS = 120_000;
 const STAFF_CACHE_LIST = STAFF_CACHE_LIST_KEY;
@@ -1185,6 +1186,9 @@ export default function StaffDirectoryManagement() {
      * yes | no | auto (omit field → backend decides from job category).
      */
     const [newPatientAccess, setNewPatientAccess] = useState<'yes' | 'no' | 'auto'>('auto');
+    /** Care unit id, `not_applicable`, or '' (not set). Same values as self-join workstations. */
+    const [newPrimaryWorkstation, setNewPrimaryWorkstation] = useState('');
+    const [careUnits, setCareUnits] = useState<CareUnit[] | null>(null);
     const [directoryConflict, setDirectoryConflict] = useState<{
         reviewId: string;
         kind: string;
@@ -1860,6 +1864,30 @@ export default function StaffDirectoryManagement() {
         if (staffPage > staffTotalPages) setStaffPage(staffTotalPages);
     }, [staffPage, staffTotalPages]);
 
+    // Units for the "Primary workstation" picker, loaded the first time the add form opens.
+    useEffect(() => {
+        if (!showAddForm || careUnits !== null) return;
+        let canceled = false;
+        (async () => {
+            try {
+                const res = await fetch('/api/proxy/units', { credentials: 'include' });
+                const data = res.ok ? await res.json() : [];
+                if (!canceled) setCareUnits(parseCareUnits(data));
+            } catch {
+                if (!canceled) setCareUnits([]);
+            }
+        })();
+        return () => { canceled = true; };
+    }, [showAddForm, careUnits]);
+
+    const workstationOptions = useMemo(() => {
+        const units = [...(careUnits || [])].sort((a, b) => a.name.localeCompare(b.name));
+        return [
+            { label: 'Not applicable', value: 'not_applicable' },
+            ...units.map(u => ({ label: u.department_name ? `${u.name} · ${u.department_name}` : u.name, value: u.id, triggerLabel: u.name })),
+        ];
+    }, [careUnits]);
+
     const handleAdd = async () => {
         if (!isAddFormComplete) {
             showToast(formatMissingFieldsToast(addFormMissingFields), 'error');
@@ -1881,6 +1909,10 @@ export default function StaffDirectoryManagement() {
             if (employeeId) body.employee_id = employeeId;
             if (newPatientAccess === 'yes') body.patient_access = true;
             if (newPatientAccess === 'no') body.patient_access = false;
+            if (newPrimaryWorkstation) {
+                body.primary_workstation_id = newPrimaryWorkstation;
+                body.workstation_ids = [newPrimaryWorkstation];
+            }
 
             const res = await fetch(staffUrl(API_ENDPOINTS.STAFF_DIRECTORY), {
                 method: 'POST',
@@ -1970,6 +2002,7 @@ export default function StaffDirectoryManagement() {
             setNewEmployeeId('');
             setNewCanManageSchedule(null);
             setNewPatientAccess('auto');
+            setNewPrimaryWorkstation('');
             setDirectoryConflict(null);
             const displayName = `${newFirstName} ${newLastName}`.trim() || 'Staff member';
             showToast(`${displayName} added to the directory`, 'success');
@@ -2656,6 +2689,18 @@ export default function StaffDirectoryManagement() {
                                     />
                                     <div style={{ marginTop: 4, fontSize: 10.5, color: 'var(--text-muted)' }}>
                                         Leave as “Decide from job category” unless you need to force Yes or No.
+                                    </div>
+                                </div>
+                                <div>
+                                    <label className="label">Primary workstation</label>
+                                    <CustomSelect
+                                        value={newPrimaryWorkstation}
+                                        onChange={setNewPrimaryWorkstation}
+                                        options={workstationOptions}
+                                        placeholder={careUnits === null ? 'Loading units…' : 'Optional'}
+                                    />
+                                    <div style={{ marginTop: 4, fontSize: 10.5, color: 'var(--text-muted)' }}>
+                                        The unit they mainly work in. Units are managed under Departments.
                                     </div>
                                 </div>
                             </div>
