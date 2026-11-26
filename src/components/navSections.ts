@@ -8,6 +8,7 @@ const navSections = [
             { icon: 'badge', label: 'Roles', href: '/roles' },
             { icon: 'notifications_active', label: 'Escalation Config', href: '/escalation' },
             { icon: 'groups', label: 'Staff Management', href: '/staff' },
+            { icon: 'event_note', label: 'Scheduling', href: '/scheduling' },
             { icon: 'personal_injury', label: 'Patients', href: '/patients' },
             { icon: 'folder_shared', label: 'Patient List Folders', href: '/patient-list' },
             { icon: 'diversity_3', label: 'Provider Teams', href: '/provider-teams' },
