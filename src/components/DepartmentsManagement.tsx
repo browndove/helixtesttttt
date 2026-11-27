@@ -1574,11 +1574,11 @@ export default function DepartmentsManagement() {
                                 )}
                             </aside>
 
-                            <section style={{ minHeight: 0, overflow: showAddUnit ? 'hidden' : 'auto', padding: '20px 24px 24px', minWidth: 0, background: 'var(--surface-card)', display: 'flex', flexDirection: 'column' }}>
+                            <section style={{ minHeight: 0, overflow: 'auto', padding: '20px 24px 24px', minWidth: 0, background: 'var(--surface-card)', display: 'flex', flexDirection: 'column' }}>
                                 {showAddUnit ? (
-                                    <div className="fade-in" style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+                                    <div className="fade-in" style={{ flex: '1 0 auto', display: 'flex', flexDirection: 'column' }}>
                                         <h2 style={{ fontSize: 20, fontWeight: 700, margin: '0 0 16px', color: 'var(--text-primary)', letterSpacing: '-0.02em', flexShrink: 0 }}>Add unit/workstation</h2>
-                                        <div className="card" style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', padding: '18px 20px', margin: 0, width: '100%', background: 'var(--surface-2)', border: '1px solid var(--border-subtle)' }}>
+                                        <div className="card" style={{ flex: '1 0 auto', display: 'flex', flexDirection: 'column', padding: '18px 20px', margin: 0, width: '100%', background: 'var(--surface-2)', border: '1px solid var(--border-subtle)' }}>
                                             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 16, flexShrink: 0 }}>
                                                 <div>
                                                     <span className="label" style={{ marginBottom: 6, display: 'block' }}>Building / block *</span>
@@ -1718,7 +1718,7 @@ export default function DepartmentsManagement() {
                                                     </label>
                                                 </div>
                                             </div>
-                                            <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', marginTop: 16 }}>
+                                            <div style={{ flex: '1 0 auto', display: 'flex', flexDirection: 'column', marginTop: 16 }}>
                                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, marginBottom: 6, flexShrink: 0 }}>
                                                     <label className="label" htmlFor="new-unit-desc" style={{ marginBottom: 0 }}>Description</label>
                                                     <span style={{ fontSize: 11, color: 'var(--text-muted)', fontVariantNumeric: 'tabular-nums' }}>
