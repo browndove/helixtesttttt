@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Activity, Bed as BedIcon, Building2, ChevronDown, ChevronLeft, CircleCheck, DoorOpen, Layers, Lock, MoreHorizontal, Plus, Users } from 'lucide-react';
 import TopBar from '@/components/TopBar';
@@ -138,12 +138,18 @@ function ActionMenu({ items }: { items: { label: string; onClick: () => void; da
     const menuRef = useRef<HTMLDivElement>(null);
     const [pos, setPos] = useState({ top: 0, left: 0 });
 
-    useEffect(() => {
+    useLayoutEffect(() => {
         if (!open) return;
+        // Open upward when the menu would run past the bottom of the window (last rows).
         const place = () => {
             const rect = buttonRef.current?.getBoundingClientRect();
             if (!rect) return;
-            setPos({ top: rect.bottom + 4, left: Math.max(8, rect.right - 180) });
+            const menuHeight = menuRef.current?.offsetHeight ?? items.length * 36 + 8;
+            const below = rect.bottom + 4;
+            const top = below + menuHeight > window.innerHeight - 8
+                ? Math.max(8, rect.top - 4 - menuHeight)
+                : below;
+            setPos({ top, left: Math.max(8, rect.right - 180) });
         };
         place();
         const onPointer = (event: MouseEvent) => {
@@ -159,7 +165,7 @@ function ActionMenu({ items }: { items: { label: string; onClick: () => void; da
             window.removeEventListener('scroll', place, true);
             window.removeEventListener('resize', place);
         };
-    }, [open]);
+    }, [open, items.length]);
 
     return (
         <>
