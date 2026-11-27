@@ -12,6 +12,7 @@ import { formatGhanaPhoneInput, isValidGhanaPhone } from '@/lib/phone';
 import { MacVibrancyToast, MacVibrancyToastPortal } from '@/components/MacVibrancyToast';
 import CriticalAlertSoundPicker from '@/components/settings/CriticalAlertSoundPicker';
 import { readCriticalAlertSound } from '@/lib/critical-alert-sound';
+import { readFacilityProduct, type FacilityProduct } from '@/lib/facility-product';
 
 type Admin = {
     id: string;
@@ -307,6 +308,8 @@ export default function SettingsPage() {
     const [savingRetention, setSavingRetention] = useState(false);
     const [pendingRetention, setPendingRetention] = useState<RetentionMonths | undefined>(undefined);
     const [criticalAlertSound, setCriticalAlertSound] = useState('classic');
+    /** Scheduling-only facilities have no messaging, so retention and alert sound are hidden. */
+    const [facilityProduct, setFacilityProduct] = useState<FacilityProduct>('full');
 
     const showToast = (message: string, variant: 'success' | 'error' | 'info' = 'success') => {
         setToast({ message, variant });
@@ -597,6 +600,7 @@ export default function SettingsPage() {
                 setScreenshotsAllowed(screenshotsForSnapshot);
                 setRetentionMonths(retentionForSnapshot);
                 setCriticalAlertSound(readCriticalAlertSound(facJson));
+                setFacilityProduct(readFacilityProduct(facJson));
             } else {
                 setScreenshotsAllowed(false);
                 setRetentionMonths(null);
@@ -979,6 +983,7 @@ export default function SettingsPage() {
                                     </div>
 
                                     {/* conversation retention */}
+                                    {facilityProduct !== 'scheduling_only' && (
                                     <div className="settings-row settings-row--wrap">
                                         <div style={{ marginBottom: 12 }}>
                                             <div className="settings-row__label">Conversation retention</div>
@@ -1012,7 +1017,10 @@ export default function SettingsPage() {
                                         </div>
                                     </div>
 
+                                    )}
+
                                     {/* critical alert sound */}
+                                    {facilityProduct !== 'scheduling_only' && (
                                     <div className="settings-row settings-row--wrap" style={{ alignItems: 'stretch' }}>
                                         <div style={{ marginBottom: 14 }}>
                                             <div className="settings-row__label">Critical alert sound</div>
@@ -1029,6 +1037,7 @@ export default function SettingsPage() {
                                             onNotify={showToast}
                                         />
                                     </div>
+                                    )}
                                 </>
                             )}
                         </div>

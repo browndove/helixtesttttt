@@ -9,6 +9,13 @@ import { invalidateRolesPageCache } from '@/lib/rolesAdminCache';
 import { MacVibrancyToast, MacVibrancyToastPortal } from '@/components/MacVibrancyToast';
 import InternalAdminShell from '@/components/InternalAdminShell';
 import CustomSelect from '@/components/CustomSelect';
+import {
+    FACILITY_PRODUCT_OPTIONS,
+    facilityProductErrorMessage,
+    facilityProductLabel,
+    readFacilityProduct,
+    type FacilityProduct,
+} from '@/lib/facility-product';
 import './internal-admin-dashboard.css';
 
 type FacilityRow = {
@@ -17,9 +24,11 @@ type FacilityRow = {
     code: string;
     archived: boolean;
     archived_at: string | null;
+    product: FacilityProduct;
 };
 
 type ArchiveFilter = 'active' | 'archived' | 'all';
+type ProductFilter = 'all' | FacilityProduct;
 
 const FACILITY_PAGE_SIZE = 15;
 
@@ -66,7 +75,7 @@ function parseFacilities(raw: unknown): FacilityRow[] {
                 archivedAtRaw == null || archivedAtRaw === ''
                     ? null
                     : String(archivedAtRaw);
-            return { id, name, code, archived, archived_at };
+            return { id, name, code, archived, archived_at, product: readFacilityProduct(rec) };
         })
         .filter((f): f is FacilityRow => Boolean(f))
         .sort((a, b) => a.name.localeCompare(b.name));
@@ -90,6 +99,7 @@ const EMPTY_FACILITY_FORM = {
     primary_contact_email: '',
     primary_contact_phone: '',
     subscription_type: '1yr',
+    product: 'full' as FacilityProduct,
     external_messaging_enabled: true,
     screenshots_allowed: true,
 };
@@ -219,9 +229,28 @@ function parseFacilityForm(raw: unknown, fallback?: FacilityRow | null): Facilit
         primary_contact_email: String(source.primary_contact_email || '').trim(),
         primary_contact_phone: String(source.primary_contact_phone || '').trim(),
         subscription_type: String(source.subscription_type || '1yr').trim() || '1yr',
+        product: readFacilityProduct(source),
         external_messaging_enabled: Boolean(source.external_messaging_enabled),
         screenshots_allowed: source.screenshots_allowed === undefined ? true : Boolean(source.screenshots_allowed),
     };
+}
+
+/* ── Product picker (Full Helix / Scheduling only) ───────── */
+
+function ProductPicker({ value, onChange, name }: { value: FacilityProduct; onChange: (v: FacilityProduct) => void; name: string }) {
+    return (
+        <div className="internal-dash__product-picker" role="radiogroup" aria-label="Product">
+            {FACILITY_PRODUCT_OPTIONS.map((opt) => (
+                <label key={opt.value} className={`internal-dash__product-option${value === opt.value ? ' internal-dash__product-option--on' : ''}`}>
+                    <input type="radio" name={name} value={opt.value} checked={value === opt.value} onChange={() => onChange(opt.value)} />
+                    <span className="internal-dash__product-option-text">
+                        <span className="internal-dash__product-option-label">{opt.label}</span>
+                        <span className="internal-dash__product-option-hint">{opt.hint}</span>
+                    </span>
+                </label>
+            ))}
+        </div>
+    );
 }
 
 /* ── Shared field row ─────────────────────────────────────── */
@@ -243,6 +272,7 @@ export default function InternalAdminDashboard() {
     const [facilities, setFacilities] = useState<FacilityRow[]>([]);
     const [search, setSearch] = useState('');
     const [archiveFilter, setArchiveFilter] = useState<ArchiveFilter>('active');
+    const [productFilter, setProductFilter] = useState<ProductFilter>('all');
     const [page, setPage] = useState(1);
     const [loading, setLoading] = useState(true);
     const [switchingId, setSwitchingId] = useState<string | null>(null);
@@ -260,6 +290,9 @@ export default function InternalAdminDashboard() {
     const [editTouched, setEditTouched] = useState<TouchedFields>({});
     const [savingEdit, setSavingEdit] = useState(false);
     const [loadingEdit, setLoadingEdit] = useState(false);
+    /** Product as last saved; PUT sends `product` only when the admin changes it. */
+    const [editOriginalProduct, setEditOriginalProduct] = useState<FacilityProduct>('full');
+    const [confirmSchedulingOnly, setConfirmSchedulingOnly] = useState(false);
     const [deletingId, setDeletingId] = useState<string | null>(null);
     const [pendingDelete, setPendingDelete] = useState<FacilityRow | null>(null);
 
@@ -300,11 +333,11 @@ export default function InternalAdminDashboard() {
 
     const filtered = useMemo(() => {
         const q = search.trim().toLowerCase();
-        if (!q) return facilities;
         return facilities.filter((f) =>
-            f.name.toLowerCase().includes(q) || f.code.toLowerCase().includes(q),
+            (productFilter === 'all' || f.product === productFilter)
+            && (!q || f.name.toLowerCase().includes(q) || f.code.toLowerCase().includes(q)),
         );
-    }, [facilities, search]);
+    }, [facilities, search, productFilter]);
 
     const totalPages = Math.max(1, Math.ceil(filtered.length / FACILITY_PAGE_SIZE));
 
@@ -315,7 +348,7 @@ export default function InternalAdminDashboard() {
 
     useEffect(() => {
         setPage(1);
-    }, [search, archiveFilter]);
+    }, [search, archiveFilter, productFilter]);
 
     useEffect(() => {
         setPage((p) => Math.min(p, totalPages));
@@ -391,6 +424,7 @@ export default function InternalAdminDashboard() {
     const openEditModal = async (facility: FacilityRow) => {
         setEditingFacility(facility);
         setEditForm(parseFacilityForm(facility, facility));
+        setEditOriginalProduct(facility.product);
         setEditTouched({});
         setLoadingEdit(true);
         try {
@@ -400,7 +434,11 @@ export default function InternalAdminDashboard() {
             });
             if (!res.ok) return;
             const data = await res.json().catch(() => null);
-            if (data) setEditForm(parseFacilityForm(data, facility));
+            if (data) {
+                const loaded = parseFacilityForm(data, facility);
+                setEditForm(loaded);
+                setEditOriginalProduct(loaded.product);
+            }
         } catch {
             // Keep minimal fields if detail fetch fails.
         } finally {
@@ -414,6 +452,7 @@ export default function InternalAdminDashboard() {
         setEditForm({ ...EMPTY_FACILITY_FORM });
         setEditTouched({});
         setLoadingEdit(false);
+        setConfirmSchedulingOnly(false);
     };
 
     const handleCreate = async () => {
@@ -448,7 +487,7 @@ export default function InternalAdminDashboard() {
             });
             const data = await res.json().catch(() => ({} as Record<string, unknown>));
             if (!res.ok) {
-                showToast(String(data.error || data.message || 'Failed to create facility.'), 'error');
+                showToast(facilityProductErrorMessage(data, 'Failed to create facility.'), 'error');
                 return;
             }
             showToast('Facility created successfully.', 'success');
@@ -462,7 +501,7 @@ export default function InternalAdminDashboard() {
         }
     };
 
-    const handleEdit = async () => {
+    const handleEdit = async (confirmedProductSwitch = false) => {
         if (!editingFacility) return;
         const nextName = editForm.name.trim();
         const nextCode = editForm.code.trim().toUpperCase();
@@ -478,10 +517,19 @@ export default function InternalAdminDashboard() {
             return;
         }
 
+        // Staff lose chat, calls and patients within ~30 s, so confirm before switching.
+        const switchingToSchedulingOnly = editForm.product === 'scheduling_only' && editOriginalProduct !== 'scheduling_only';
+        if (switchingToSchedulingOnly && !confirmedProductSwitch) {
+            setConfirmSchedulingOnly(true);
+            return;
+        }
+        setConfirmSchedulingOnly(false);
+
         setSavingEdit(true);
         try {
             const payload: Record<string, unknown> = {};
             for (const [k, v] of Object.entries(editForm)) {
+                if (k === 'product') continue;
                 if (typeof v === 'string' && !v.trim()) continue;
                 if (PHONE_KEYS.includes(k as keyof FacilityForm) && typeof v === 'string') {
                     const cleaned = toE164(v);
@@ -492,6 +540,7 @@ export default function InternalAdminDashboard() {
             }
             payload.name = nextName;
             payload.code = nextCode;
+            if (editForm.product !== editOriginalProduct) payload.product = editForm.product;
 
             const res = await fetch(API_ENDPOINTS.INTERNAL_FACILITY(editingFacility.id), {
                 method: 'PUT',
@@ -501,10 +550,15 @@ export default function InternalAdminDashboard() {
             });
             const data = await res.json().catch(() => ({} as Record<string, unknown>));
             if (!res.ok) {
-                showToast(String(data.error || data.message || 'Failed to update facility.'), 'error');
+                showToast(facilityProductErrorMessage(data, 'Failed to update facility.'), 'error');
                 return;
             }
-            showToast('Facility updated successfully.', 'success');
+            showToast(
+                editForm.product !== editOriginalProduct
+                    ? `Facility updated. Staff switch to ${facilityProductLabel(editForm.product)} within about 30 seconds.`
+                    : 'Facility updated successfully.',
+                'success',
+            );
             closeEditModal();
             setLoading(true);
             void loadFacilities();
@@ -658,6 +712,14 @@ export default function InternalAdminDashboard() {
 
                         {/* Body */}
                         <div style={{ flex: 1, overflow: 'auto', padding: '20px 24px 24px' }}>
+                            {/* Product */}
+                            <p style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: '#999', marginBottom: 12 }}>
+                                Product <span style={{ color: '#e00' }}>*</span>
+                            </p>
+                            <ProductPicker name="create-product" value={form.product} onChange={(v) => setField('product', v)} />
+
+                            <div style={{ height: 1, background: '#eaeaea', margin: '20px 0' }} />
+
                             {/* Facility Info */}
                             <p style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: '#999', marginBottom: 12 }}>
                                 Facility Information
@@ -756,10 +818,12 @@ export default function InternalAdminDashboard() {
                                     </select>
                                 </Field>
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: 12, justifyContent: 'center' }}>
-                                    <label style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 13, cursor: 'pointer', color: '#333' }}>
-                                        <input type="checkbox" checked={form.external_messaging_enabled} onChange={(e) => setField('external_messaging_enabled', e.target.checked)} style={{ accentColor: '#171717' }} />
-                                        External Messaging
-                                    </label>
+                                    {form.product !== 'scheduling_only' && (
+                                        <label style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 13, cursor: 'pointer', color: '#333' }}>
+                                            <input type="checkbox" checked={form.external_messaging_enabled} onChange={(e) => setField('external_messaging_enabled', e.target.checked)} style={{ accentColor: '#171717' }} />
+                                            External Messaging
+                                        </label>
+                                    )}
                                     <label style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 13, cursor: 'pointer', color: '#333' }}>
                                         <input type="checkbox" checked={form.screenshots_allowed} onChange={(e) => setField('screenshots_allowed', e.target.checked)} style={{ accentColor: '#171717' }} />
                                         Screenshots Allowed
@@ -821,6 +885,17 @@ export default function InternalAdminDashboard() {
                                 <div style={{ color: '#666', fontSize: 13, padding: '8px 0' }}>Loading facility details…</div>
                             ) : (
                                 <>
+                                    <p className="internal-edit-modal__section-title">Product</p>
+                                    <ProductPicker name="edit-product" value={editForm.product} onChange={(v) => setEditField('product', v)} />
+                                    {editForm.product !== editOriginalProduct && (
+                                        <p className="internal-dash__product-note">
+                                            {editForm.product === 'scheduling_only'
+                                                ? 'Staff lose chat, calls and patients within about 30 seconds of saving. Nothing is deleted.'
+                                                : 'Messaging, calls, patients and clinical tools come back within about 30 seconds of saving.'}
+                                        </p>
+                                    )}
+
+                                    <div style={{ height: 1, background: '#eaeaea', margin: '20px 0' }} />
                                     <p className="internal-edit-modal__section-title">Facility Information</p>
                                     <div className="internal-edit-modal__grid">
                                         <div className="internal-edit-modal__field"><label>Facility Name *</label><input className="internal-edit-modal__input" value={editForm.name} onChange={(e) => setEditField('name', e.target.value)} /></div>
@@ -910,10 +985,12 @@ export default function InternalAdminDashboard() {
                                             </select>
                                         </div>
                                         <div style={{ display: 'flex', flexDirection: 'column', gap: 12, justifyContent: 'center' }}>
-                                            <label style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 13, cursor: 'pointer', color: '#3a3a3c' }}>
-                                                <input type="checkbox" checked={editForm.external_messaging_enabled} onChange={(e) => setEditField('external_messaging_enabled', e.target.checked)} style={{ accentColor: '#171717' }} />
-                                                External Messaging
-                                            </label>
+                                            {editForm.product !== 'scheduling_only' && (
+                                                <label style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 13, cursor: 'pointer', color: '#3a3a3c' }}>
+                                                    <input type="checkbox" checked={editForm.external_messaging_enabled} onChange={(e) => setEditField('external_messaging_enabled', e.target.checked)} style={{ accentColor: '#171717' }} />
+                                                    External Messaging
+                                                </label>
+                                            )}
                                             <label style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 13, cursor: 'pointer', color: '#3a3a3c' }}>
                                                 <input type="checkbox" checked={editForm.screenshots_allowed} onChange={(e) => setEditField('screenshots_allowed', e.target.checked)} style={{ accentColor: '#171717' }} />
                                                 Screenshots Allowed
@@ -929,6 +1006,83 @@ export default function InternalAdminDashboard() {
                             </button>
                             <button type="button" className="internal-dash__btn internal-dash__btn--primary internal-edit-modal__save-btn" onClick={() => { void handleEdit(); }} disabled={savingEdit || loadingEdit}>
                                 {savingEdit ? 'Saving…' : 'Save changes'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {confirmSchedulingOnly && editingFacility && (
+                <div
+                    role="dialog"
+                    aria-modal="true"
+                    onClick={() => { if (!savingEdit) setConfirmSchedulingOnly(false); }}
+                    style={{
+                        position: 'fixed',
+                        inset: 0,
+                        background: 'rgba(8, 12, 20, 0.45)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        zIndex: 9100,
+                        padding: 16,
+                    }}
+                >
+                    <div
+                        onClick={(e) => e.stopPropagation()}
+                        style={{
+                            width: '100%',
+                            maxWidth: 460,
+                            background: '#fff',
+                            border: '1px solid #e5e7eb',
+                            borderRadius: 12,
+                            boxShadow: '0 24px 64px rgba(0,0,0,0.25)',
+                            padding: '18px 18px 14px',
+                        }}
+                    >
+                        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+                            <div
+                                style={{
+                                    width: 32,
+                                    height: 32,
+                                    borderRadius: 10,
+                                    background: 'rgba(180, 83, 9, 0.12)',
+                                    color: '#b45309',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    flexShrink: 0,
+                                }}
+                            >
+                                <span className="material-icons-round" style={{ fontSize: 18 }}>event_note</span>
+                            </div>
+                            <div style={{ minWidth: 0 }}>
+                                <div style={{ fontSize: 15, fontWeight: 700, color: '#171717' }}>
+                                    Switch to Scheduling only?
+                                </div>
+                                <div style={{ marginTop: 6, fontSize: 12.5, color: '#4b5563', lineHeight: 1.5 }}>
+                                    Staff at <strong>{editingFacility.name}</strong> lose chat, calls and patients straight
+                                    away (within about 30 seconds). Rosters, leave and clock-in keep working. Nothing is
+                                    deleted: switching back to Full Helix restores everything.
+                                </div>
+                            </div>
+                        </div>
+                        <div style={{ marginTop: 14, display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+                            <button
+                                type="button"
+                                className="internal-dash__btn internal-dash__btn--outline internal-dash__btn--sm"
+                                onClick={() => setConfirmSchedulingOnly(false)}
+                                disabled={savingEdit}
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                type="button"
+                                className="internal-dash__btn internal-dash__btn--primary internal-dash__btn--sm"
+                                onClick={() => { void handleEdit(true); }}
+                                disabled={savingEdit}
+                            >
+                                {savingEdit ? 'Saving…' : 'Switch to Scheduling only'}
                             </button>
                         </div>
                     </div>
@@ -1135,6 +1289,24 @@ export default function InternalAdminDashboard() {
                                 </button>
                             ))}
                         </div>
+                        <div className="internal-dash__filter-pills" role="radiogroup" aria-label="Product filter">
+                            {([
+                                { id: 'all', label: 'All products' },
+                                { id: 'full', label: 'Full Helix' },
+                                { id: 'scheduling_only', label: 'Scheduling only' },
+                            ] as const).map((opt) => (
+                                <button
+                                    key={opt.id}
+                                    type="button"
+                                    role="radio"
+                                    aria-checked={productFilter === opt.id}
+                                    className={`internal-dash__filter-pill${productFilter === opt.id ? ' internal-dash__filter-pill--active' : ''}`}
+                                    onClick={() => setProductFilter(opt.id)}
+                                >
+                                    {opt.label}
+                                </button>
+                            ))}
+                        </div>
                     </div>
                 </div>
 
@@ -1158,6 +1330,9 @@ export default function InternalAdminDashboard() {
                                         <div className="internal-dash__card-info">
                                             <span className="internal-dash__card-name">
                                                 {facility.name}
+                                                {facility.product === 'scheduling_only' ? (
+                                                    <span className="internal-dash__badge internal-dash__badge--product">Scheduling only</span>
+                                                ) : null}
                                                 {facility.archived ? (
                                                     <span className="internal-dash__badge">Archived</span>
                                                 ) : null}
@@ -1251,8 +1426,8 @@ export default function InternalAdminDashboard() {
                     {!loading && filtered.length === 0 && (
                         <div className="internal-dash__empty">
                             <span className="material-icons-round" style={{ fontSize: 24, color: '#ccc', marginBottom: 8 }}>search_off</span>
-                            {search.trim()
-                                ? 'No facilities match your search.'
+                            {search.trim() || productFilter !== 'all'
+                                ? 'No facilities match your filters.'
                                 : archiveFilter === 'archived'
                                     ? 'No archived facilities.'
                                     : 'No facilities found.'}

@@ -2833,3 +2833,78 @@ h1.fu-toolbar__title {
     grid-template-columns: 1fr;
   }
 }
+
+/* ── Facility product (Full Helix / Scheduling only) ── */
+.internal-dash__badge--product {
+  background: rgba(10, 70, 118, 0.08);
+  color: #0A4676;
+}
+
+.internal-dash__product-picker {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+@media (max-width: 560px) {
+  .internal-dash__product-picker {
+    grid-template-columns: 1fr;
+  }
+}
+
+.internal-dash__product-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  background: #fff;
+  cursor: pointer;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.internal-dash__product-option:hover {
+  border-color: #c7cdd6;
+}
+
+.internal-dash__product-option--on {
+  border-color: #0A4676;
+  box-shadow: 0 0 0 1px #0A4676;
+}
+
+.internal-dash__product-option input {
+  margin: 2px 0 0;
+  accent-color: #0A4676;
+  flex-shrink: 0;
+}
+
+.internal-dash__product-option-text {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.internal-dash__product-option-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #171717;
+}
+
+.internal-dash__product-option-hint {
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: #6b7280;
+}
+
+.internal-dash__product-note {
+  margin: 10px 0 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: #fff7ed;
+  border: 1px solid #fed7aa;
+  color: #9a3412;
+  font-size: 12px;
+  line-height: 1.45;
+}

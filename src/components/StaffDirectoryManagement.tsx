@@ -35,6 +35,7 @@ import DirectoryReportsPanel, { fetchOpenDirectoryReportCount } from '@/componen
 import DirectoryReviewsPanel, { fetchOpenDirectoryReviewCount } from '@/components/staff/DirectoryReviewsPanel';
 import { parseBulkNeedsReviewCount } from '@/lib/directory-reviews';
 import { parseCareUnits, type CareUnit } from '@/lib/care-units';
+import StaffSignupCard from '@/components/staff/StaffSignupCard';
 
 const STAFF_PAGE_CACHE_TTL_MS = 120_000;
 const STAFF_CACHE_LIST = STAFF_CACHE_LIST_KEY;
@@ -94,8 +95,11 @@ type StaffMember = {
     account_expired_at?: string;
 };
 
-type SortKey = 'first_name' | 'last_name' | 'employee_id' | 'dept' | 'job_title' | 'status' | 'last_seen' | 'response_order';
-type ColumnSortKey = Exclude<SortKey, 'response_order' | 'last_seen'>;
+type SortKey =
+    | 'first_name' | 'last_name' | 'employee_id' | 'email' | 'dept' | 'job_title' | 'status'
+    | 'patient_access' | 'is_scheduler' | 'mobile' | 'last_seen' | 'response_order';
+/** Sort keys that compare a text field on the row. */
+type ColumnSortKey = 'first_name' | 'last_name' | 'employee_id' | 'email' | 'dept' | 'job_title' | 'status';
 type ImportStatus = 'success' | 'error';
 
 /** Parse `last_name-asc` style values (keys may contain `_`). */
@@ -749,6 +753,28 @@ function isAdminPatchableStatus(status: string): boolean {
 function hasSignedIn(s: StaffMember): boolean {
     return Boolean((s.last_login_at || '').trim() || (s.last_seen || '').trim());
 }
+
+/**
+ * Mobile column (support mode). Only "online" (live presence) and "logged out" (internal
+ * logged-out list) are reported by the backend; "never signed in" comes from last_login_at /
+ * last_seen, and "not logged out" just means none of the above. There is no live-session flag.
+ */
+type MobileState = 'online' | 'logged_out' | 'never_signed_in' | 'not_logged_out';
+
+function staffMobileState(s: StaffMember, online: Set<string>, loggedOutKeys: Set<string>): MobileState {
+    if (isStaffOnline(s, online)) return 'online';
+    if (isStaffLoggedOut(s, loggedOutKeys)) return 'logged_out';
+    if (!hasSignedIn(s)) return 'never_signed_in';
+    return 'not_logged_out';
+}
+
+/** Ascending Mobile sort: logged out, never signed in, not logged out, online now. */
+const MOBILE_SORT_RANK: Record<MobileState, number> = {
+    logged_out: 0,
+    never_signed_in: 1,
+    not_logged_out: 2,
+    online: 3,
+};
 
 function statusBadgeStyle(status: string, member?: StaffMember): { color: string; bg: string; label: string } {
     const st = normalizeStaffStatus(status);
@@ -1785,20 +1811,39 @@ export default function StaffDirectoryManagement() {
             return matchSearch && matchDept && matchStatus;
         });
         if (sortKey === 'response_order') return f;
+        const byName = (a: StaffMember, b: StaffMember) =>
+            a.last_name.localeCompare(b.last_name, undefined, { sensitivity: 'base' })
+            || a.first_name.localeCompare(b.first_name, undefined, { sensitivity: 'base' });
         if (sortKey === 'last_seen') {
             return [...f].sort((a, b) => {
                 const av = staffLastSeenMs(a, lastSeenByKey) ?? 0;
                 const bv = staffLastSeenMs(b, lastSeenByKey) ?? 0;
-                if (av === bv) return 0;
+                if (av === bv) return byName(a, b);
                 if (av === 0) return 1;
                 if (bv === 0) return -1;
                 return sortDir === 'asc' ? av - bv : bv - av;
             });
         }
+        // Ascending puts the "flagged" group first: logged out on mobile, patient access granted, can schedule.
+        const rank = (s: StaffMember): number => {
+            if (sortKey === 'mobile') return MOBILE_SORT_RANK[staffMobileState(s, onlineIdSet, loggedOutKeys)];
+            if (sortKey === 'patient_access') return s.patient_access ? 0 : 1;
+            if (sortKey === 'is_scheduler') return s.is_scheduler ? 0 : 1;
+            return 0;
+        };
+        if (sortKey === 'mobile' || sortKey === 'patient_access' || sortKey === 'is_scheduler') {
+            return [...f].sort((a, b) => {
+                const d = sortDir === 'asc' ? rank(a) - rank(b) : rank(b) - rank(a);
+                return d || byName(a, b);
+            });
+        }
         return [...f].sort((a, b) => {
-            const av = a[sortKey as ColumnSortKey].toLowerCase();
-            const bv = b[sortKey as ColumnSortKey].toLowerCase();
-            return sortDir === 'asc' ? av.localeCompare(bv) : bv.localeCompare(av);
+            const av = (a[sortKey as ColumnSortKey] || '').trim();
+            const bv = (b[sortKey as ColumnSortKey] || '').trim();
+            // Blank values always go last, whichever direction.
+            if (!av !== !bv) return av ? -1 : 1;
+            const d = av.localeCompare(bv, undefined, { sensitivity: 'base', numeric: true });
+            return (sortDir === 'asc' ? d : -d) || byName(a, b);
         });
     }, [staffForList, search, deptFilter, statusFilter, sortKey, sortDir, lastSeenByKey, onlineIdSet, loggedOutKeys]);
 
@@ -2851,16 +2896,30 @@ export default function StaffDirectoryManagement() {
                                     { label: 'Original order (default)', value: 'response_order-asc' },
                                     { label: 'Last seen (newest)', value: 'last_seen-desc' },
                                     { label: 'Last seen (oldest)', value: 'last_seen-asc' },
+                                    ...(loggedOutKeys.size > 0
+                                        ? [
+                                            { label: 'Mobile: logged out first', value: 'mobile-asc' },
+                                            { label: 'Mobile: online first', value: 'mobile-desc' },
+                                        ]
+                                        : []),
                                     { label: 'Last Name A-Z', value: 'last_name-asc' },
                                     { label: 'Last Name Z-A', value: 'last_name-desc' },
                                     { label: 'First Name A-Z', value: 'first_name-asc' },
                                     { label: 'First Name Z-A', value: 'first_name-desc' },
-                                    { label: 'Department A-Z', value: 'dept-asc' },
-                                    { label: 'Department Z-A', value: 'dept-desc' },
+                                    { label: 'Employee ID A-Z', value: 'employee_id-asc' },
+                                    { label: 'Employee ID Z-A', value: 'employee_id-desc' },
+                                    { label: 'Email A-Z', value: 'email-asc' },
+                                    { label: 'Email Z-A', value: 'email-desc' },
                                     { label: 'Rank A-Z', value: 'job_title-asc' },
                                     { label: 'Rank Z-A', value: 'job_title-desc' },
-                                    { label: 'Employee ID A-Z', value: 'employee_id-asc' },
+                                    { label: 'Department A-Z', value: 'dept-asc' },
+                                    { label: 'Department Z-A', value: 'dept-desc' },
+                                    { label: 'Patient access: granted first', value: 'patient_access-asc' },
+                                    { label: 'Patient access: none first', value: 'patient_access-desc' },
+                                    { label: 'Scheduler: yes first', value: 'is_scheduler-asc' },
+                                    { label: 'Scheduler: no first', value: 'is_scheduler-desc' },
                                     { label: 'Status A-Z', value: 'status-asc' },
+                                    { label: 'Status Z-A', value: 'status-desc' },
                                 ]}
                                 style={{ minWidth: 160 }}
                                 maxH={200}
@@ -2961,14 +3020,14 @@ export default function StaffDirectoryManagement() {
                                             >
                                                 Last Name {sortKey === 'last_name' && (sortDir === 'asc' ? '↑' : '↓')}
                                             </th>
-                                            <th style={{ ...staffHeadCell, minWidth: 220, whiteSpace: 'nowrap', background: '#fafbfc', borderBottom: '1px solid var(--border-default)' }}>Email</th>
+                                            <th style={{ ...staffHeadCell, minWidth: 220, whiteSpace: 'nowrap', cursor: 'pointer', background: '#fafbfc', borderBottom: '1px solid var(--border-default)' }} onClick={() => toggleSort('email')}>Email {sortKey === 'email' && (sortDir === 'asc' ? '↑' : '↓')}</th>
                                             <th style={{ ...staffHeadCell, minWidth: 130, whiteSpace: 'nowrap', cursor: 'pointer', background: '#fafbfc', borderBottom: '1px solid var(--border-default)' }} onClick={() => toggleSort('job_title')}>Rank {sortKey === 'job_title' && (sortDir === 'asc' ? '↑' : '↓')}</th>
                                             <th style={{ ...staffHeadCell, minWidth: 160, whiteSpace: 'nowrap', cursor: 'pointer', background: '#fafbfc', borderBottom: '1px solid var(--border-default)' }} onClick={() => toggleSort('dept')}>Department {sortKey === 'dept' && (sortDir === 'asc' ? '↑' : '↓')}</th>
-                                            <th style={{ ...staffHeadCell, minWidth: 140, whiteSpace: 'nowrap', background: '#fafbfc', borderBottom: '1px solid var(--border-default)' }}>Patient Access</th>
-                                            <th style={{ ...staffHeadCell, minWidth: 120, whiteSpace: 'nowrap', background: '#fafbfc', borderBottom: '1px solid var(--border-default)' }}>Scheduler</th>
+                                            <th style={{ ...staffHeadCell, minWidth: 140, whiteSpace: 'nowrap', cursor: 'pointer', background: '#fafbfc', borderBottom: '1px solid var(--border-default)' }} onClick={() => toggleSort('patient_access')} title="Granted first, then no access">Patient Access {sortKey === 'patient_access' && (sortDir === 'asc' ? '↑' : '↓')}</th>
+                                            <th style={{ ...staffHeadCell, minWidth: 120, whiteSpace: 'nowrap', cursor: 'pointer', background: '#fafbfc', borderBottom: '1px solid var(--border-default)' }} onClick={() => toggleSort('is_scheduler')} title="Schedulers first, then everyone else">Scheduler {sortKey === 'is_scheduler' && (sortDir === 'asc' ? '↑' : '↓')}</th>
                                             <th style={{ ...staffHeadCell, minWidth: 88, whiteSpace: 'nowrap', cursor: 'pointer', background: '#fafbfc', borderBottom: '1px solid var(--border-default)' }} onClick={() => toggleSort('status')}>Status {sortKey === 'status' && (sortDir === 'asc' ? '↑' : '↓')}</th>
                                             {loggedOutKeys.size > 0 ? (
-                                                <th style={{ ...staffHeadCell, minWidth: 108, whiteSpace: 'nowrap', background: '#fafbfc', borderBottom: '1px solid var(--border-default)' }} title="Mobile app session">Mobile</th>
+                                                <th style={{ ...staffHeadCell, minWidth: 108, whiteSpace: 'nowrap', cursor: 'pointer', background: '#fafbfc', borderBottom: '1px solid var(--border-default)' }} onClick={() => toggleSort('mobile')} title="Mobile app session. Sorts logged out, never signed in, not logged out, then online now.">Mobile {sortKey === 'mobile' && (sortDir === 'asc' ? '↑' : '↓')}</th>
                                             ) : null}
                                             <th style={{ ...staffHeadCell, minWidth: 88, whiteSpace: 'nowrap', cursor: 'pointer', background: '#fafbfc', borderBottom: '1px solid var(--border-default)' }} onClick={() => toggleSort('last_seen')}>Last seen {sortKey === 'last_seen' && (sortDir === 'asc' ? '↑' : '↓')}</th>
                                             <th style={{ ...staffHeadCell, width: 72, minWidth: 72, background: '#fafbfc', borderBottom: '1px solid var(--border-default)' }} />
@@ -3008,7 +3067,6 @@ export default function StaffDirectoryManagement() {
                                             const isSelected = selected?.id === s.id;
                                             const rowBg = isSelected ? '#edf1f7' : '#ffffff';
                                             const online = isStaffOnline(s, onlineIdSet);
-                                            const loggedOut = !online && isStaffLoggedOut(s, loggedOutKeys);
                                             const lastSeenLabel = formatLastSeenAgo(staffLastSeenMs(s, lastSeenByKey));
                                             const neverSignedIn = normalizeStaffStatus(s.status) === 'active' && !hasSignedIn(s);
                                             return (
@@ -3131,17 +3189,35 @@ export default function StaffDirectoryManagement() {
                                                     </td>
                                                     {loggedOutKeys.size > 0 ? (
                                                         <td style={{ ...staffBodyCell, minWidth: 108, whiteSpace: 'nowrap', background: rowBg, borderBottom: '1px solid var(--border-subtle)' }}>
-                                                            {loggedOut ? (
-                                                                <span
-                                                                    className="badge"
-                                                                    title="No live mobile app session"
-                                                                    style={{ background: '#FEF3C7', color: '#92400E' }}
-                                                                >
-                                                                    Logged out
-                                                                </span>
-                                                            ) : (
-                                                                <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>—</span>
-                                                            )}
+                                                            {(() => {
+                                                                const mobile = staffMobileState(s, onlineIdSet, loggedOutKeys);
+                                                                if (mobile === 'online') {
+                                                                    return (
+                                                                        <span className="badge" title="Connected to Helix right now" style={{ background: 'rgba(34, 197, 94, 0.12)', color: '#166534' }}>
+                                                                            Online
+                                                                        </span>
+                                                                    );
+                                                                }
+                                                                if (mobile === 'logged_out') {
+                                                                    return (
+                                                                        <span className="badge" title="No live mobile app session" style={{ background: '#FEF3C7', color: '#92400E' }}>
+                                                                            Logged out
+                                                                        </span>
+                                                                    );
+                                                                }
+                                                                if (mobile === 'never_signed_in') {
+                                                                    return (
+                                                                        <span className="badge" title="No sign-in on record" style={{ background: '#F3F4F6', color: '#4B5563' }}>
+                                                                            Never signed in
+                                                                        </span>
+                                                                    );
+                                                                }
+                                                                return (
+                                                                    <span style={{ fontSize: 11, color: 'var(--text-muted)' }} title="Not on the logged-out list. Helix doesn't report whether a mobile session is live.">
+                                                                        Not logged out
+                                                                    </span>
+                                                                );
+                                                            })()}
                                                         </td>
                                                     ) : null}
                                                     <td style={{ ...staffBodyCell, minWidth: 76, background: rowBg, borderBottom: '1px solid var(--border-subtle)' }}>
@@ -3752,6 +3828,11 @@ export default function StaffDirectoryManagement() {
                                         </div>
                                     )}
                                 </div>
+
+                                {/* Signup — how they joined and what they gave (GET /staff/{id}) */}
+                                {!editingSelected && (
+                                    <StaffSignupCard staffId={selected.id} detailUrl={staffUrl(`/api/proxy/staff/${selected.id}`)} />
+                                )}
 
                                 {/* Patient Access */}
                                 {!editingSelected && (
