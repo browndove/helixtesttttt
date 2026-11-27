@@ -1,14 +1,13 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { parseStaffWorkstations, staffRecordFrom, type StaffWorkstation } from '@/lib/staff-workstations';
 
 /**
  * "Signup" card on staff detail: how the person joined and the details they gave
  * (GET /staff/{id}). The `signup` object only exists for people who used the
  * self-join form; everyone else still gets the job and workstation fields.
  */
-
-type Workstation = { id: string; name: string; is_primary: boolean };
 
 type SignupInfo = {
     source: string;
@@ -21,7 +20,7 @@ type SignupInfo = {
     jobCategory: string;
     jobType: string;
     appointmentEnd: string;
-    workstations: Workstation[];
+    workstations: StaffWorkstation[];
     roomCubicle: string;
 };
 
@@ -53,24 +52,9 @@ function nameOf(v: unknown): string {
 }
 
 function parseSignupInfo(raw: unknown): SignupInfo {
-    const top = rec(raw) || {};
-    const r = rec(top.data) || rec(top.staff) || top;
+    const r = staffRecordFrom(raw);
     const signup = rec(r.signup) || {};
-    const primary = rec(r.primary_workstation);
-    const primaryId = primary ? str(primary.id) : str(r.primary_workstation_id || r.primary_workstation);
-    const workstations: Workstation[] = (Array.isArray(r.workstations) ? r.workstations : [])
-        .map((w): Workstation | null => {
-            const wr = rec(w);
-            if (!wr) return null;
-            const id = str(wr.id);
-            const name = str(wr.name) || id;
-            if (!name) return null;
-            return { id, name, is_primary: Boolean(wr.is_primary) || (!!id && id === primaryId) };
-        })
-        .filter((w): w is Workstation => Boolean(w));
-    if (primary && !workstations.some(w => w.is_primary) && str(primary.name)) {
-        workstations.unshift({ id: str(primary.id), name: str(primary.name), is_primary: true });
-    }
+    const workstations = parseStaffWorkstations(r);
     const departments = (Array.isArray(r.departments) ? r.departments : []).map(nameOf).filter(Boolean);
     return {
         source: str(r.source),

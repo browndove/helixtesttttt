@@ -36,6 +36,7 @@ import DirectoryReviewsPanel, { fetchOpenDirectoryReviewCount } from '@/componen
 import { parseBulkNeedsReviewCount } from '@/lib/directory-reviews';
 import { parseCareUnits, type CareUnit } from '@/lib/care-units';
 import StaffSignupCard from '@/components/staff/StaffSignupCard';
+import { parseStaffWorkstations, splitStaffWorkstations } from '@/lib/staff-workstations';
 
 const STAFF_PAGE_CACHE_TTL_MS = 120_000;
 const STAFF_CACHE_LIST = STAFF_CACHE_LIST_KEY;
@@ -49,6 +50,9 @@ function staffUrl(path: string): string {
     const fid = getCachedClientFacilityId() || readHelixFacilityIdFromDocument();
     return appendFacilityIdToProxyUrl(path, fid);
 }
+/** Detail panel sticks this far from the window top: the 56px top bar plus a 16px gap. */
+const DETAIL_PANEL_STICKY_TOP = 72;
+
 /** Honorific / additional title (Dr, Prof, Consultant …). Aligned with settings job title. */
 const STAFF_CREATE_TITLE_MAX_LEN = 50;
 
@@ -1166,6 +1170,11 @@ export default function StaffDirectoryManagement() {
     const [editDept, setEditDept] = useState('');
     const [editEmployeeId, setEditEmployeeId] = useState('');
     const [editAccountExpiresOn, setEditAccountExpiresOn] = useState('');
+    /** Main workstation (care unit id or `not_applicable`; '' = none) and the others, while editing. */
+    const [editPrimaryWorkstation, setEditPrimaryWorkstation] = useState('');
+    const [editOtherWorkstations, setEditOtherWorkstations] = useState<string[]>([]);
+    /** As loaded from GET /staff/{id}; null until loaded, so an unloaded form never overwrites them. */
+    const [editWorkstationsOriginal, setEditWorkstationsOriginal] = useState<{ primary: string; others: string[] } | null>(null);
     const [savingEdit, setSavingEdit] = useState(false);
     const [activeTab, setActiveTab] = useState<StaffTab>('directory');
     const [pendingJoinCount, setPendingJoinCount] = useState(0);
@@ -1634,6 +1643,56 @@ export default function StaffDirectoryManagement() {
         setEditAccountExpiresOn(selected.account_expires_on || '');
     }, [selected, editingContactEmail]);
 
+    // Detail panel fills the space from its top edge to the bottom of the window, so all of it
+    // is visible (scrolling inside) before it reaches its sticky spot under the top bar.
+    const detailPanelRef = useRef<HTMLDivElement | null>(null);
+    const [detailPanelHeight, setDetailPanelHeight] = useState<number | null>(null);
+    const hasSelected = Boolean(selected);
+    useLayoutEffect(() => {
+        if (!hasSelected) return;
+        let frame = 0;
+        const measure = () => {
+            frame = 0;
+            const el = detailPanelRef.current;
+            if (!el) return;
+            const top = Math.max(el.getBoundingClientRect().top, DETAIL_PANEL_STICKY_TOP);
+            setDetailPanelHeight(Math.max(320, Math.round(window.innerHeight - top - 16)));
+        };
+        const schedule = () => { if (!frame) frame = requestAnimationFrame(measure); };
+        measure();
+        window.addEventListener('scroll', schedule, { passive: true });
+        window.addEventListener('resize', schedule);
+        return () => {
+            if (frame) cancelAnimationFrame(frame);
+            window.removeEventListener('scroll', schedule);
+            window.removeEventListener('resize', schedule);
+        };
+    }, [hasSelected]);
+
+    // Current workstations come from the full record (list rows may not carry them).
+    const editingStaffId = editingSelected ? selected?.id || '' : '';
+    useEffect(() => {
+        setEditWorkstationsOriginal(null);
+        setEditPrimaryWorkstation('');
+        setEditOtherWorkstations([]);
+        if (!editingStaffId) return;
+        let canceled = false;
+        (async () => {
+            try {
+                const res = await fetch(staffUrl(`/api/proxy/staff/${editingStaffId}`), { credentials: 'include' });
+                if (!res.ok) return;
+                const current = splitStaffWorkstations(parseStaffWorkstations(await res.json()));
+                if (canceled) return;
+                setEditPrimaryWorkstation(current.primary);
+                setEditOtherWorkstations(current.others);
+                setEditWorkstationsOriginal(current);
+            } catch {
+                // Leave the pickers disabled; saving then leaves workstations untouched.
+            }
+        })();
+        return () => { canceled = true; };
+    }, [editingStaffId]);
+
     const toggleSort = (key: Exclude<SortKey, 'response_order'>) => {
         if (sortKey === key) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
         else { setSortKey(key); setSortDir(key === 'last_seen' ? 'desc' : 'asc'); }
@@ -1911,7 +1970,7 @@ export default function StaffDirectoryManagement() {
 
     // Units for the "Primary workstation" picker, loaded the first time the add form opens.
     useEffect(() => {
-        if (!showAddForm || careUnits !== null) return;
+        if ((!showAddForm && !editingSelected) || careUnits !== null) return;
         let canceled = false;
         (async () => {
             try {
@@ -1923,7 +1982,7 @@ export default function StaffDirectoryManagement() {
             }
         })();
         return () => { canceled = true; };
-    }, [showAddForm, careUnits]);
+    }, [showAddForm, editingSelected, careUnits]);
 
     const workstationOptions = useMemo(() => {
         const units = [...(careUnits || [])].sort((a, b) => a.name.localeCompare(b.name));
@@ -2476,6 +2535,17 @@ export default function StaffDirectoryManagement() {
                 payload.employee_id = trimmedEmployeeId;
             }
             if (trimmedHq) payload.is_doctor = editDerivedIsDoctor;
+            // Workstations: only sent when loaded and changed. No main workstation = `not_applicable`.
+            const mainWorkstation = editPrimaryWorkstation && editPrimaryWorkstation !== 'not_applicable' ? editPrimaryWorkstation : '';
+            const wantedOthers = mainWorkstation ? editOtherWorkstations.filter(id => id !== mainWorkstation) : [];
+            const workstationsChanged = Boolean(editWorkstationsOriginal) && (
+                (editWorkstationsOriginal!.primary && editWorkstationsOriginal!.primary !== 'not_applicable' ? editWorkstationsOriginal!.primary : '') !== mainWorkstation
+                || [...editWorkstationsOriginal!.others].sort().join(',') !== [...wantedOthers].sort().join(',')
+            );
+            if (workstationsChanged) {
+                payload.primary_workstation_id = mainWorkstation || 'not_applicable';
+                payload.workstation_ids = mainWorkstation ? [mainWorkstation, ...wantedOthers] : ['not_applicable'];
+            }
             const res = await fetch(staffUrl(`/api/proxy/staff/${selected.id}`), {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
@@ -2535,6 +2605,25 @@ export default function StaffDirectoryManagement() {
             setStaff(prev => prev.map(s => (s.id === selected.id ? mergeStaffPutResponse(s, mergedLocal) : s)));
             setSelected(mergedLocal);
             setEditingSelected(false);
+            if (workstationsChanged) {
+                // The update API may not store workstations yet; check instead of assuming.
+                let stored = false;
+                try {
+                    const check = await fetch(staffUrl(`/api/proxy/staff/${selected.id}`), { credentials: 'include' });
+                    if (check.ok) {
+                        const now = splitStaffWorkstations(parseStaffWorkstations(await check.json()));
+                        const nowMain = now.primary && now.primary !== 'not_applicable' ? now.primary : '';
+                        stored = nowMain === mainWorkstation
+                            && [...now.others].sort().join(',') === [...wantedOthers].sort().join(',');
+                    }
+                } catch {
+                    stored = false;
+                }
+                if (!stored) {
+                    showToast('Other changes saved, but workstations didn’t update. The server may not allow editing them yet.', 'error', true);
+                    return;
+                }
+            }
             showToast('Staff updated', 'success');
         } catch {
             showToast('Failed to update staff', 'error');
@@ -2582,7 +2671,9 @@ export default function StaffDirectoryManagement() {
                 </MacVibrancyToastPortal>
             )}
 
-            <div className="app-main">
+            {/* overflow-x: clip (not auto) so the page itself is the scroller and the top bar and
+                detail panel can stick; the table scrolls sideways in its own wrapper. */}
+            <div className="app-main" style={{ overflowX: 'clip' }}>
                 <TopBar
                     title="Staff Management"
                     subtitle={
@@ -3298,17 +3389,18 @@ export default function StaffDirectoryManagement() {
                         {/* Staff detail — reference layout: pale pills, grouped sections, Helix signed-in role */}
                         {selected && (
                             <div
+                                ref={detailPanelRef}
                                 className={editingSelected ? 'staff-detail-panel' : 'staff-detail-panel slide-in-right'}
                                 style={{
                                     alignSelf: 'start',
                                     position: 'sticky',
-                                    top: 16,
+                                    top: DETAIL_PANEL_STICKY_TOP,
                                     minWidth: 300,
                                     maxWidth: 400,
                                     width: '100%',
                                     minHeight: 0,
-                                    height: 'min(calc(100dvh - 88px), calc(100vh - 88px))',
-                                    maxHeight: 'min(calc(100dvh - 88px), calc(100vh - 88px))',
+                                    height: detailPanelHeight ?? `calc(100vh - ${DETAIL_PANEL_STICKY_TOP + 16}px)`,
+                                    maxHeight: `calc(100vh - ${DETAIL_PANEL_STICKY_TOP + 16}px)`,
                                     display: 'flex',
                                     flexDirection: 'column',
                                     overflow: 'hidden',
@@ -3797,6 +3889,50 @@ export default function StaffDirectoryManagement() {
                                                 <label style={{ display: 'block', fontSize: 11, fontWeight: 500, color: '#9CA3AF', marginBottom: 4 }}>Department</label>
                                                 <CustomSelect value={editDept} onChange={setEditDept} options={departmentOptions.map(d => ({ label: d, value: d }))} placeholder="Choose department" />
                                             </div>
+                                            <div style={{ minWidth: 0 }}>
+                                                <label style={{ display: 'block', fontSize: 11, fontWeight: 500, color: '#9CA3AF', marginBottom: 4 }}>Main workstation</label>
+                                                <CustomSelect
+                                                    value={editPrimaryWorkstation}
+                                                    onChange={v => {
+                                                        setEditPrimaryWorkstation(v);
+                                                        setEditOtherWorkstations(prev => prev.filter(id => id !== v));
+                                                    }}
+                                                    options={workstationOptions}
+                                                    placeholder={!editWorkstationsOriginal || careUnits === null ? 'Loading…' : 'None'}
+                                                    disabled={savingEdit || !editWorkstationsOriginal}
+                                                />
+                                                <div style={{ marginTop: 4, fontSize: 10, color: '#9CA3AF' }}>The unit they mainly work in. Units are managed under Departments.</div>
+                                            </div>
+                                            {editPrimaryWorkstation && editPrimaryWorkstation !== 'not_applicable' && (careUnits?.length ?? 0) > 1 && (
+                                                <div style={{ minWidth: 0 }}>
+                                                    <label style={{ display: 'block', fontSize: 11, fontWeight: 500, color: '#9CA3AF', marginBottom: 4 }}>
+                                                        Also works in {editOtherWorkstations.length > 0 ? `(${editOtherWorkstations.length})` : ''}
+                                                    </label>
+                                                    <div style={{ maxHeight: 168, overflowY: 'auto', border: '1px solid #E8EBF0', borderRadius: 8, background: '#F5F6F8', padding: '4px 0' }}>
+                                                        {[...(careUnits || [])]
+                                                            .filter(u => u.id !== editPrimaryWorkstation)
+                                                            .sort((a, b) => a.name.localeCompare(b.name))
+                                                            .map(u => {
+                                                                const on = editOtherWorkstations.includes(u.id);
+                                                                return (
+                                                                    <label key={u.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 10px', fontSize: 12.5, color: '#1E293B', cursor: savingEdit ? 'default' : 'pointer' }}>
+                                                                        <input
+                                                                            type="checkbox"
+                                                                            checked={on}
+                                                                            disabled={savingEdit}
+                                                                            onChange={() => setEditOtherWorkstations(prev => (on ? prev.filter(id => id !== u.id) : [...prev, u.id]))}
+                                                                            style={{ accentColor: '#1B2A44' }}
+                                                                        />
+                                                                        <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                                                            {u.name}{u.department_name ? <span style={{ color: '#9CA3AF' }}> · {u.department_name}</span> : null}
+                                                                        </span>
+                                                                    </label>
+                                                                );
+                                                            })}
+                                                    </div>
+                                                    <div style={{ marginTop: 4, fontSize: 10, color: '#9CA3AF' }}>Optional. Other units they cover.</div>
+                                                </div>
+                                            )}
                                             <div style={{ minWidth: 0 }}>
                                                 <label style={{ display: 'block', fontSize: 11, fontWeight: 500, color: '#9CA3AF', marginBottom: 4 }}>Title</label>
                                                 <input

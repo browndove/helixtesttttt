@@ -111,6 +111,12 @@ export async function PUT(
         if (body.clear_account_expires_on) {
             forward.clear_account_expires_on = true;
         }
+        // Care unit ids, or `not_applicable` (same values as the directory create and self-join).
+        const primaryWorkstationId = String(body.primary_workstation_id || '').trim();
+        if (primaryWorkstationId) forward.primary_workstation_id = primaryWorkstationId;
+        if (Array.isArray(body.workstation_ids)) {
+            forward.workstation_ids = body.workstation_ids.map(id => String(id || '').trim()).filter(Boolean);
+        }
 
         const upstream = await buildTenantUpstreamUrl(req, API_BASE_URL, `/api/v1/staff/${id}`);
 
