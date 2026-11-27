@@ -27,13 +27,13 @@ type SignupInfo = {
 
 const SOURCE_LABELS: Record<string, string> = {
     admin_created: 'Added by an admin',
-    directory: 'Directory upload',
-    self_join: 'Self-join form',
+    directory: 'From a staff list upload',
+    self_join: 'Signed up themselves in the app',
 };
 
 const OUTCOME_LABELS: Record<string, string> = {
-    verify_identity: 'Matched a directory entry, confirmed by emailed code',
-    pending_approval: 'New person, approved by an admin',
+    verify_identity: 'Already on the staff list, confirmed with an emailed code',
+    pending_approval: 'New to the facility, approved by an admin',
 };
 
 const JOB_CATEGORY_LABELS: Record<string, string> = { clinical: 'Clinical', non_clinical: 'Non-clinical' };
@@ -144,57 +144,58 @@ export default function StaffSignupCard({ staffId, detailUrl }: { staffId: strin
                 <span className="material-icons-round" style={{ fontSize: 16, color: '#94A3B8' }}>how_to_reg</span>
                 <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', color: '#9CA3AF' }}>SIGNUP</span>
             </div>
+            <div style={{ fontSize: 11.5, color: '#9CA3AF', marginBottom: 6 }}>How this person joined and the details they gave.</div>
             {failed ? (
-                <div style={{ fontSize: 12, color: '#9CA3AF' }}>Couldn’t load signup details.</div>
+                <div style={{ fontSize: 12, color: '#9CA3AF' }}>Couldn’t load signup details. Close and reopen this person to try again.</div>
             ) : !info ? (
                 <div style={{ fontSize: 12, color: '#9CA3AF' }}>Loading…</div>
             ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                    <Row icon="login" label="Joined via">{SOURCE_LABELS[info.source] || info.source || '—'}</Row>
+                    <Row icon="login" label="How they joined">{SOURCE_LABELS[info.source] || info.source || 'Not known'}</Row>
                     {info.outcome && (
-                        <Row icon="verified" label="Outcome">{OUTCOME_LABELS[info.outcome] || info.outcome}</Row>
+                        <Row icon="verified" label="How it was checked">{OUTCOME_LABELS[info.outcome] || info.outcome}</Row>
                     )}
-                    {info.requestedAt && <Row icon="schedule_send" label="Requested">{formatDate(info.requestedAt, true)}</Row>}
+                    {info.requestedAt && <Row icon="schedule_send" label="Asked to join">{formatDate(info.requestedAt, true)}</Row>}
                     {info.completedAt && (
-                        <Row icon="task_alt" label={info.outcome === 'pending_approval' ? 'Approved' : 'Confirmed'}>
+                        <Row icon="task_alt" label={info.outcome === 'pending_approval' ? 'Approved on' : 'Confirmed on'}>
                             {formatDate(info.completedAt, true)}
                         </Row>
                     )}
                     {info.outcome && (
-                        <Row icon="mark_email_read" label="Email verified">
+                        <Row icon="mark_email_read" label="Email checked">
                             {info.emailVerifiedAt
-                                ? formatDate(info.emailVerifiedAt, true)
+                                ? `Yes, ${formatDate(info.emailVerifiedAt, true)}`
                                 : info.outcome === 'verify_identity'
-                                    ? 'By the emailed code at confirmation'
-                                    : '—'}
+                                    ? 'Yes, with the emailed code'
+                                    : 'Not yet'}
                         </Row>
                     )}
                     {info.departmentGiven && (
-                        <Row icon="apartment" label="Dept. given">
+                        <Row icon="apartment" label="Department typed">
                             {info.departmentGiven}
                             {departmentMismatch && (
                                 <span
-                                    title={info.departments.length ? `Assigned: ${info.departments.join(', ')}` : 'No department assigned'}
-                                    style={{ marginLeft: 6, fontSize: 10.5, fontWeight: 600, padding: '1px 7px', borderRadius: 999, background: '#FEF3C7', color: '#92400E', border: '1px solid #FDE68A' }}
+                                    title="The department they typed at signup is different from the one they were put in. Check they were matched to the right person."
+                                    style={{ display: 'inline-block', marginLeft: 6, fontSize: 10.5, fontWeight: 600, padding: '1px 7px', borderRadius: 999, background: '#FEF3C7', color: '#92400E', border: '1px solid #FDE68A' }}
                                 >
-                                    Differs from {info.departments.length ? info.departments.join(', ') : 'assigned'}
+                                    {info.departments.length ? `Put in ${info.departments.join(', ')} instead` : 'Not put in any department'}
                                 </span>
                             )}
                         </Row>
                     )}
-                    <Row icon="medical_services" label="Category">{JOB_CATEGORY_LABELS[info.jobCategory] || info.jobCategory || '—'}</Row>
-                    <Row icon="work_history" label="Job type">{JOB_TYPE_LABELS[info.jobType] || info.jobType || '—'}</Row>
-                    <Row icon="event_busy" label="Appt. ends">{formatDate(info.appointmentEnd) || '—'}</Row>
+                    <Row icon="medical_services" label="Job category">{JOB_CATEGORY_LABELS[info.jobCategory] || info.jobCategory || 'Not set'}</Row>
+                    <Row icon="work_history" label="Job type">{JOB_TYPE_LABELS[info.jobType] || info.jobType || 'Not set'}</Row>
+                    <Row icon="event_busy" label="Job ends on">{formatDate(info.appointmentEnd) || 'No end date'}</Row>
                     <Row icon="place" label="Workstations">
                         {info.workstations.length
                             ? info.workstations.map((w, i) => (
                                 <span key={w.id || w.name}>
-                                    {i > 0 ? ', ' : ''}{w.name}{w.is_primary && info.workstations.length > 1 ? ' (primary)' : ''}
+                                    {i > 0 ? ', ' : ''}{w.name}{w.is_primary && info.workstations.length > 1 ? ' (main)' : ''}
                                 </span>
                             ))
-                            : '—'}
+                            : 'Not set'}
                     </Row>
-                    <Row icon="meeting_room" label="Room / cubicle">{info.roomCubicle || '—'}</Row>
+                    <Row icon="meeting_room" label="Room / cubicle">{info.roomCubicle || 'Not set'}</Row>
                 </div>
             )}
         </div>
